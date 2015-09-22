@@ -77,7 +77,6 @@ static inline u8 guidLocationShort(struct _ocrPolicyDomain_t * pd, ocrFatGuid_t 
         return pdSelfDist->baseProcessMessage(self, msg, isBlocking); \
     }
 
-
 static void setReturnDetail(ocrPolicyMsg_t * msg, u8 returnDetail) {
     // This is open for debate here #932
     ASSERT(returnDetail == 0);
@@ -262,7 +261,7 @@ u8 processCommEvent(ocrPolicyDomain_t *self, pdEvent_t** evt, u32 idx) {
 
 extern ocrGuid_t processRequestEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]);
 
-static u8 createProcessRequestEdtDistPolicy(ocrPolicyDomain_t * pd, ocrGuid_t templateGuid, u64 * paramv) {
+u8 createProcessRequestEdtDistPolicy(ocrPolicyDomain_t * pd, ocrGuid_t templateGuid, u64 * paramv) {
 
     u32 paramc = 1;
     u32 depc = 0;
@@ -307,131 +306,44 @@ static u8 createProcessRequestEdtDistPolicy(ocrPolicyDomain_t * pd, ocrGuid_t te
 #undef PD_TYPE
 }
 
-typedef struct _ProxyTplNode_t {
-    ocrPolicyMsg_t * msg;
-    struct _ProxyTplNode_t * next;
-} ProxyTplNode_t;
-
-typedef struct {
-    u64 count;
-    ProxyTplNode_t * queueHead;
-} ProxyTpl_t;
-
-static u8 registerRemoteMetaData(ocrPolicyDomain_t * pd, ocrFatGuid_t tplFatGuid) {
-    ocrPolicyDomainHcDist_t * dself = (ocrPolicyDomainHcDist_t *) pd;
-    // The lock allows to not give out reference to the proxy while we work.
-    hal_lock(&dself->lockTplLookup);
-    pd->guidProviders[0]->fcts.registerGuid(pd->guidProviders[0], tplFatGuid.guid, (u64) tplFatGuid.metaDataPtr);
-    ProxyTpl_t * proxyTpl = NULL;
-
-    // See BUG #928 on GUID issues
-    bool found __attribute__((unused));
-#if GUID_BIT_COUNT == 64
-    found = hashtableNonConcRemove(dself->proxyTplMap, (void *) tplFatGuid.guid.guid, (void **) &proxyTpl);
-#elif GUID_BIT_COUNT == 128
-    found = hashtableNonConcRemove(dself->proxyTplMap, (void *) tplFatGuid.guid.lower, (void **) &proxyTpl);
-#endif
-
-    ASSERT(found && (proxyTpl != NULL));
-    proxyTpl->count++;
-    hal_unlock(&dself->lockTplLookup);
-    // At this point all calls to 'resolveRemoteMetaData' see the update pointer
-    // in the guid provider and do not try to get a reference on the proxy.
-    // Other workers may already own a reference to the proxy and try to enqueue themselves.
-    // Hence, compete to close registration by setting the proxy's queueHead to NULL.
-    u64 curValue = 0;
-    u64 oldValue = 0;
+// Utility function to enqueue a waiter when the metadata is being fetch
+// Impl will most likely move to runtime events
+static u64 enqueueMdProxyWaiter(ocrPolicyDomain_t * pd, MdProxy_t * mdProxy, ocrPolicyMsg_t * msg) {
+    MdProxyNode_t * node = (MdProxyNode_t *) pd->fcts.pdMalloc(pd, sizeof(MdProxyNode_t));
+    node->msg = msg;
+    u64 newValue = (u64) node;
+    bool notSucceed = true;
     do {
-        curValue = (u64) proxyTpl->queueHead;
-        oldValue = hal_cmpswap64((u64*) &(proxyTpl->queueHead), curValue, 0);
-    } while(curValue != oldValue);
+        MdProxyNode_t * head = mdProxy->queueHead;
+        if (head == REG_CLOSED) { // registration is closed
+            break;
+        }
+        node->next = head;
+        u64 curValue = (u64) head;
+        u64 oldValue = hal_cmpswap64((u64*) &(mdProxy->queueHead), curValue, newValue);
+        notSucceed = (oldValue != curValue);
+    } while(notSucceed);
 
-    // Also need to compete to check out and destroy the proxy
-    hal_lock(&dself->lockTplLookup);
-    proxyTpl->count--;
-    if (proxyTpl->count == 0) {
-        pd->fcts.pdFree(pd, proxyTpl);
+    if (notSucceed) { // registration has closed
+        pd->fcts.pdFree(pd, node);
+        // There must be a fence between the head CAS and the 'ptr'
+        // assignment in the code setting that resolve the metadata pointer
+        u64 val = (u64) mdProxy->ptr;
+        ASSERT(val != 0);
+        return val;
     }
-    hal_unlock(&dself->lockTplLookup);
-
-    ocrGuid_t processRequestTemplateGuid;
-    ocrEdtTemplateCreate(&processRequestTemplateGuid, &processRequestEdt, 1, 0);
-    ProxyTplNode_t * queueHead = (ProxyTplNode_t *) oldValue;
-    DPRINTF(DEBUG_LVL_VVERB,"About to process stored clone requests for msg type "GUIDF" queueHead=%p)\n", GUIDA(tplFatGuid.guid), queueHead);
-    while (queueHead != ((void*) 0x1)) { // sentinel value
-        DPRINTF(DEBUG_LVL_VVERB,"Processing stored clone requests for template "GUIDF")\n", GUIDA(tplFatGuid.guid));
-        u64 paramv = (u64) queueHead->msg;
-        createProcessRequestEdtDistPolicy(pd, processRequestTemplateGuid, &paramv);
-        ProxyTplNode_t * currNode = queueHead;
-        queueHead = currNode->next;
-        pd->fcts.pdFree(pd, currNode);
-    }
-    ocrEdtTemplateDestroy(processRequestTemplateGuid);
     return 0;
 }
 
-static u8 resolveRemoteMetaData(ocrPolicyDomain_t * pd, ocrFatGuid_t * tplFatGuid, ocrPolicyMsg_t * msg) {
-    // Check if known locally
+//TODO-MD: This should become part of the GP API and allow to resolve the MD at various granularities/info
+u8 resolveRemoteMetaData(ocrPolicyDomain_t * pd, ocrFatGuid_t * fatGuid,
+                                ocrPolicyMsg_t * msg, bool isBlocking) {
     u64 val;
-    pd->guidProviders[0]->fcts.getVal(pd->guidProviders[0], tplFatGuid->guid, &val, NULL);
+    MdProxy_t * mdProxy = NULL;
+    // Check if known locally
+    u8 res = pd->guidProviders[0]->fcts.getVal(pd->guidProviders[0], fatGuid->guid, &val, NULL, MD_FETCH, &mdProxy);
     if (val == 0) {
-        // If the source of the work creation is the current policy-domain,
-        // it most likely means edtCreate is called from the user-code which
-        // is a blocking call. In that case we fetch the metadata in a blocking
-        // manner. Conversely, if the source is not the current PD, it means we
-        // can fetch the metadata asynchronously and return a pending status.
-        // The edt will be rescheduled at a later time once the metadata has been resolved
-        bool isBlocking = (msg->srcLocation == pd->myLocation);
-        ocrPolicyDomainHcDist_t * dself = (ocrPolicyDomainHcDist_t *) pd;
-        // Nope, check the proxy template map
-        hal_lock(&dself->lockTplLookup);
-        // Double check again if the template has been resolved.
-        // Helps preserve the invariant that once a template is resolved
-        // its proxy's reference count cannot increment. (lock compete in registerRemoteMetaData)
-        pd->guidProviders[0]->fcts.getVal(pd->guidProviders[0], tplFatGuid->guid, &val, NULL);
-        if (val != 0) {
-            tplFatGuid->metaDataPtr = (void *) val;
-            hal_unlock(&dself->lockTplLookup);
-            return 0;
-        }
-        // Check if the proxy exists or not.
-
-        // See BUG #928 on GUID issues
-#if GUID_BIT_COUNT == 64
-        ProxyTpl_t * proxyTpl = (ProxyTpl_t *) hashtableNonConcGet(dself->proxyTplMap, (void *) tplFatGuid->guid.guid);
-#elif GUID_BIT_COUNT == 128
-        ProxyTpl_t * proxyTpl = (ProxyTpl_t *) hashtableNonConcGet(dself->proxyTplMap, (void *) tplFatGuid->guid.lower);
-#endif
-        if (proxyTpl == NULL) {
-            proxyTpl = (ProxyTpl_t *) pd->fcts.pdMalloc(pd, sizeof(ProxyTpl_t));
-            proxyTpl->count = 1;
-            proxyTpl->queueHead = (void *) 0x1; // sentinel value
-            // See BUG #928 on GUID issues
-            void * ret __attribute__((unused));
-#if GUID_BIT_COUNT == 64
-            ret = hashtableNonConcTryPut(dself->proxyTplMap, (void *) tplFatGuid->guid.guid, (void *) proxyTpl);
-#elif GUID_BIT_COUNT == 128
-            ret = hashtableNonConcTryPut(dself->proxyTplMap, (void *) tplFatGuid->guid.lower, (void *) proxyTpl);
-#endif
-            ASSERT(ret == proxyTpl);
-            hal_unlock(&dself->lockTplLookup);
-            // GUID is unknown, request a copy of the metadata
-            PD_MSG_STACK(msgClone);
-            getCurrentEnv(NULL, NULL, NULL, &msgClone);
-            DPRINTF(DEBUG_LVL_VVERB,"Resolving metadata -> need to query remote node (using msg @ %p)\n", &msgClone);
-#define PD_MSG (&msgClone)
-#define PD_TYPE PD_MSG_GUID_METADATA_CLONE
-                msgClone.type = PD_MSG_GUID_METADATA_CLONE | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
-                PD_MSG_FIELD_IO(guid.guid) = tplFatGuid->guid;
-                PD_MSG_FIELD_IO(guid.metaDataPtr) = NULL;
-                RESULT_ASSERT(pd->fcts.processMessage(pd, &msgClone, false), ==, OCR_EPEND);
-#undef PD_MSG
-#undef PD_TYPE
-        } else {
-            proxyTpl->count++;
-            hal_unlock(&dself->lockTplLookup);
-        }
-
+        ASSERT(res == OCR_EPEND);
         if (isBlocking) {
             // Busy-wait and return only when the metadata is resolved
             DPRINTF(DEBUG_LVL_VVERB,"Resolving metadata: enter busy-wait for blocking call\n");
@@ -447,50 +359,23 @@ static u8 resolveRemoteMetaData(ocrPolicyDomain_t * pd, ocrFatGuid_t * tplFatGui
                 RESULT_PROPAGATE(pd->fcts.processMessage(pd, &msg, true));
 #undef PD_MSG
 #undef PD_TYPE
-                pd->guidProviders[0]->fcts.getVal(pd->guidProviders[0], tplFatGuid->guid, &val, NULL);
+                pd->guidProviders[0]->fcts.getVal(pd->guidProviders[0], fatGuid->guid, &val, NULL, MD_LOCAL, NULL);
             } while(val == 0);
-            tplFatGuid->metaDataPtr = (void *) val;
+            fatGuid->metaDataPtr = (void *) val;
             DPRINTF(DEBUG_LVL_VVERB,"Resolving metadata: exit busy-wait for blocking call\n");
         } else {
-            // Enqueue itself, the caller will be rescheduled for execution
-            DPRINTF(DEBUG_LVL_VVERB, "Resolving metadata: enqueuing message of type 0x%"PRIx32" with msgId %"PRIu64"\n",
-                msg->type, msg->msgId);
-            ProxyTplNode_t * node = (ProxyTplNode_t *) pd->fcts.pdMalloc(pd, sizeof(ProxyTplNode_t));
-            node->msg = msg;
-            u64 newValue = (u64) node;
-            bool notSucceed = true;
-            do {
-                ProxyTplNode_t * head = proxyTpl->queueHead;
-                if (head == 0) { // registration is closed
-                    break;
-                }
-                node->next = head;
-                u64 curValue = (u64) head;
-                u64 oldValue = hal_cmpswap64((u64*) &(proxyTpl->queueHead), curValue, newValue);
-                notSucceed = (oldValue != curValue);
-            } while(notSucceed);
-
-            if (notSucceed) { // registration has closed
-                pd->fcts.pdFree(pd, node);
-                pd->guidProviders[0]->fcts.getVal(pd->guidProviders[0], tplFatGuid->guid, &val, NULL);
-                ASSERT(val != 0);
-                tplFatGuid->metaDataPtr = (void *) val;
-            }
+            ASSERT(mdProxy != NULL);
+            ASSERT(msg != NULL);
+            // Enqueue itself on the MD proxy, the caller will be rescheduled for execution.
+            // Remember that we're still competing with the fetch operation's completion.
+            // So we may actually not succeed enqueuing ourselves and be able to read the MD pointer.
+            val = enqueueMdProxyWaiter(pd, mdProxy, msg);
             // Warning: At this point we cannot access the msg pointer anymore.
-            // This code becomes concurrent with the callback being invoked, possibly destroying 'msg'.
+            // This code becomes concurrent with the continuation being invoked, possibly destroying 'msg'.
         }
-        // Compete to check out of the proxy
-        hal_lock(&dself->lockTplLookup);
-        proxyTpl->count--;
-        if ((proxyTpl->count == 0) && (proxyTpl->queueHead == NULL)) {
-            pd->fcts.pdFree(pd, proxyTpl);
-        }
-        hal_unlock(&dself->lockTplLookup);
-        return (val == 0) ? OCR_EPEND : 0;
-    } else {
-        tplFatGuid->metaDataPtr = (void *) val;
-        return 0;
     }
+    fatGuid->metaDataPtr = (void *) val;
+    return ((val) ? 0 : OCR_EPEND);
 }
 
 /****************************************************/
@@ -570,7 +455,7 @@ static ProxyDb_t * getProxyDb(ocrPolicyDomain_t * pd, ocrGuid_t dbGuid, bool cre
     hal_lock(&((ocrPolicyDomainHcDist_t *) pd)->lockDbLookup);
     ProxyDb_t * proxyDb = NULL;
     u64 val;
-    pd->guidProviders[0]->fcts.getVal(pd->guidProviders[0], dbGuid, &val, NULL);
+    pd->guidProviders[0]->fcts.getVal(pd->guidProviders[0], dbGuid, &val, NULL, MD_LOCAL, NULL);
     if (val == 0) {
         if (createIfAbsent) {
             proxyDb = createProxyDb(pd);
@@ -685,7 +570,7 @@ static void updateAcquireMessage(ocrPolicyMsg_t * msg, ProxyDb_t * proxyDb) {
 void getTemplateParamcDepc(ocrPolicyDomain_t * self, ocrFatGuid_t * fatGuid, u32 * paramc, u32 * depc) {
     // Need to deguidify the edtTemplate to know how many elements we're really expecting
     self->guidProviders[0]->fcts.getVal(self->guidProviders[0], fatGuid->guid,
-                                        (u64*)&fatGuid->metaDataPtr, NULL);
+                                        (u64*)&fatGuid->metaDataPtr, NULL, MD_LOCAL, NULL);
     ocrTaskTemplate_t * edtTemplate = (ocrTaskTemplate_t *) fatGuid->metaDataPtr;
     if(*paramc == EDT_PARAM_DEF) *paramc = edtTemplate->paramc;
     if(*depc == EDT_PARAM_DEF) *depc = edtTemplate->depc;
@@ -809,7 +694,8 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
 #ifdef OCR_ASSERT
         ocrLocation_t srcLocation = msg->srcLocation;
 #endif
-        u8 res = resolveRemoteMetaData(self, &PD_MSG_FIELD_I(templateGuid), msg);
+        //TODO-MD-MT could create a continuation for that
+        u8 res = resolveRemoteMetaData(self, &PD_MSG_FIELD_I(templateGuid), msg, (msg->srcLocation == self->myLocation));
         if (res == OCR_EPEND) {
             // We do not handle pending if it is an edt spawned locally as there's
             // context on the call stack we can't just return from.
@@ -1065,10 +951,10 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
 #define PD_TYPE PD_MSG_GUID_INFO
         u64 val;
         ocrGuidKind kind;
-        self->guidProviders[0]->fcts.getVal(self->guidProviders[0], PD_MSG_FIELD_IO(guid.guid), &val, &kind);
+        self->guidProviders[0]->fcts.getVal(self->guidProviders[0], PD_MSG_FIELD_IO(guid.guid), &val, &kind, MD_LOCAL, NULL);
         if ((val == 0) && (kind == OCR_GUID_GUIDMAP)) {
             //BUG #536: cloning - piggy back on the mecanism that fetches templates
-            u8 res = resolveRemoteMetaData(self, &PD_MSG_FIELD_IO(guid), msg);
+            u8 res = resolveRemoteMetaData(self, &PD_MSG_FIELD_IO(guid), msg, false);
             if (res == OCR_EPEND) {
                 // We do not handle pending if it an edt spawned locally because
                 // the edt creation is likely invoked from another local EDT.
@@ -1104,7 +990,7 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
                 // If it's a non-blocking processing, will set the returnDetail to busy after the request is sent out
 #ifdef OCR_ASSERT
                 u64 val;
-                self->guidProviders[0]->fcts.getVal(self->guidProviders[0], PD_MSG_FIELD_IO(guid.guid), &val, NULL);
+                self->guidProviders[0]->fcts.getVal(self->guidProviders[0], PD_MSG_FIELD_IO(guid.guid), &val, NULL, MD_LOCAL, NULL);
                 ASSERT(val == 0);
 #endif
             }
@@ -1121,16 +1007,12 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
                 ASSERT(PD_MSG_FIELD_IO(guid.metaDataPtr) != NULL);
                 ASSERT(PD_MSG_FIELD_O(size) == metaDataSize);
                 hal_memCopy(metaDataPtr, PD_MSG_FIELD_IO(guid.metaDataPtr), metaDataSize, false);
-                ocrFatGuid_t tplFatGuid;
-                tplFatGuid.guid = PD_MSG_FIELD_IO(guid.guid);
-                tplFatGuid.metaDataPtr = metaDataPtr;
                 void * base = PD_MSG_FIELD_IO(guid.metaDataPtr);
                 ocrTaskTemplateHc_t * tpl = (ocrTaskTemplateHc_t *) metaDataPtr;
                 if (tpl->hint.hintVal != NULL) {
                     tpl->hint.hintVal  = (u64*)((u64)base + sizeof(ocrTaskTemplateHc_t));
                 }
-                // Register the metadata, process the waiter queue and checks out from the proxy.
-                registerRemoteMetaData(self, tplFatGuid);
+                self->guidProviders[0]->fcts.registerGuid(self->guidProviders[0], PD_MSG_FIELD_IO(guid.guid), (u64) metaDataPtr);
                 PROCESS_MESSAGE_RETURN_NOW(self, 0);
             }
 #ifdef ENABLE_EXTENSION_LABELING
@@ -1146,16 +1028,19 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
                     map->params = (s64*)((char*)map + ((sizeof(ocrGuidMap_t) + sizeof(s64) - 1) & ~(sizeof(s64)-1)));
                 }
                 PD_MSG_FIELD_IO(guid.metaDataPtr) = metaDataPtr;
-                ocrFatGuid_t mapFatGuid;
-                mapFatGuid.guid = PD_MSG_FIELD_IO(guid.guid);
-                mapFatGuid.metaDataPtr = metaDataPtr;
-                registerRemoteMetaData(self, mapFatGuid);
+                self->guidProviders[0]->fcts.registerGuid(self->guidProviders[0], PD_MSG_FIELD_IO(guid.guid), (u64) metaDataPtr);
                 PROCESS_MESSAGE_RETURN_NOW(self, 0);
             }
 #endif
             else {
                 ASSERT(tkind == OCR_GUID_AFFINITY);
                 DPRINTF(DEBUG_LVL_VVERB,"METADATA_CLONE: Incoming response for affinity "GUIDF")\n", GUIDA(PD_MSG_FIELD_IO(guid.guid)));
+                // Intercept that and make a copy of the affinity
+                u64 metaDataSize = sizeof(ocrAffinity_t);
+                void * metaDataPtr = self->fcts.pdMalloc(self, metaDataSize);
+                hal_memCopy(metaDataPtr, PD_MSG_FIELD_IO(guid.metaDataPtr), metaDataSize, false);
+                self->guidProviders[0]->fcts.registerGuid(self->guidProviders[0], PD_MSG_FIELD_IO(guid.guid), (u64) metaDataPtr);
+                PROCESS_MESSAGE_RETURN_NOW(self, 0);
             }
         }
 #undef PD_MSG
@@ -1248,7 +1133,7 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
                 // Need to resolve the DB metadata before handing the message over to the base PD.
                 // The sender didn't know about the metadataPtr, receiver does.
                 u64 val;
-                self->guidProviders[0]->fcts.getVal(self->guidProviders[0], PD_MSG_FIELD_IO(guid.guid), &val, NULL);
+                self->guidProviders[0]->fcts.getVal(self->guidProviders[0], PD_MSG_FIELD_IO(guid.guid), &val, NULL, MD_LOCAL, NULL);
                 ASSERT_BLOCK_BEGIN(val != 0)
                 DPRINTF(DEBUG_LVL_WARN, "User-level error detected: DB acquire failed for DB "GUIDF". It most likely has already been destroyed\n", GUIDA(PD_MSG_FIELD_IO(guid.guid)));
                 ASSERT_BLOCK_END
@@ -1566,7 +1451,7 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
             // Incoming DB_RELEASE pre-processing
             // Need to resolve the DB metadata locally before handing the message over
             u64 val;
-            self->guidProviders[0]->fcts.getVal(self->guidProviders[0], PD_MSG_FIELD_IO(guid.guid), &val, NULL);
+            self->guidProviders[0]->fcts.getVal(self->guidProviders[0], PD_MSG_FIELD_IO(guid.guid), &val, NULL, MD_LOCAL, NULL);
             ASSERT(val != 0);
             PD_MSG_FIELD_IO(guid.metaDataPtr) = (void *) val;
             DPRINTF(DEBUG_LVL_VVERB,"DB_RELEASE incoming request received for DB GUID "GUIDF" WB=%"PRId32"\n",
@@ -1827,7 +1712,7 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
                 proxyDb->flags = (PD_MSG_FIELD_IO(properties) | DB_FLAG_RT_WRITE_BACK); //BUG #273
                 // double check there's no proxy registered for the same DB
                 u64 val;
-                self->guidProviders[0]->fcts.getVal(self->guidProviders[0], dbGuid, &val, NULL);
+                self->guidProviders[0]->fcts.getVal(self->guidProviders[0], dbGuid, &val, NULL, MD_LOCAL, NULL);
                 ASSERT(val == 0);
                 // Do the actual registration
                 self->guidProviders[0]->fcts.registerGuid(self->guidProviders[0], dbGuid, (u64) proxyDb);
@@ -2168,12 +2053,7 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
 #define PD_TYPE PD_MSG_GUID_METADATA_CLONE
                 ocrGuidKind kind;
                 self->guidProviders[0]->fcts.getKind(self->guidProviders[0], PD_MSG_FIELD_IO(guid).guid, &kind);
-                // This is a hack now that we use to differentiate between affinity cloning that's synchronous and
-                // template that's asynchronous. Hence, we need to do the right thing flag-wise. MD cloning support
-                // will fix this issue much more cleanly.
-                if (kind != OCR_GUID_AFFINITY) {
-                    sendProp |= ASYNC_MSG_PROP;
-                }
+                sendProp |= ASYNC_MSG_PROP;
 #undef PD_MSG
 #undef PD_TYPE
                 break;
@@ -2320,9 +2200,6 @@ u8 hcDistPdSwitchRunlevel(ocrPolicyDomain_t *self, ocrRunlevel_t runlevel, u32 p
         ocrPolicyDomainHcDist_t * dself = (ocrPolicyDomainHcDist_t *) self;
         u8 res = dself->baseSwitchRunlevel(self, runlevel, properties);
         if (properties & RL_BRING_UP) {
-            if (runlevel == RL_GUID_OK) {
-                dself->proxyTplMap = newHashtableModulo(self, 10);
-            }
             if (runlevel == RL_CONFIG_PARSE) {
                 // In distributed the shutdown protocol requires three phases
                 // for the RL_USER_OK TEAR_DOWN. The communication worker must be
@@ -2334,12 +2211,6 @@ u8 hcDistPdSwitchRunlevel(ocrPolicyDomain_t *self, ocrRunlevel_t runlevel, u32 p
             }
         } else {
             ASSERT(properties & RL_TEAR_DOWN);
-            if (runlevel == RL_GUID_OK) {
-                // The template map should be empty. Do not check, because this
-                // data-structure should go away with #536 GUID metadata
-                destructHashtable(dself->proxyTplMap, NULL, NULL);
-            }
-
         }
         return res;
     }
@@ -2443,7 +2314,6 @@ void initializePolicyDomainHcDist(ocrPolicyDomainFactory_t * factory,
     hcDistPd->baseProcessMessage = derivedFactory->baseProcessMessage;
     hcDistPd->baseSwitchRunlevel = derivedFactory->baseSwitchRunlevel;
     hcDistPd->lockDbLookup = INIT_LOCK;
-    hcDistPd->lockTplLookup = INIT_LOCK;
     hcDistPd->shutdownAckCount = 0;
 }
 

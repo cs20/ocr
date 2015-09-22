@@ -51,7 +51,9 @@ ocrStaticAssert(OCR_HINT_COUNT_DB_LOCKABLE < OCR_RUNTIME_HINT_PROP_BITS);
 /* OCR-Lockable Datablock                             */
 /******************************************************/
 
-// Data-structure to store EDT waiting to be be granted access to the DB
+// Data-structure to store EDT waiting to be granted access to the DB
+//MD: Thing this would be deprecated. A 'waiter' would be a continuation
+//and the continuation's would now what was blocked on acquire.
 typedef struct _dbWaiter_t {
     ocrGuid_t guid;
     u32 slot;
@@ -92,6 +94,15 @@ static ocrLocation_t guidToLocation(ocrPolicyDomain_t * pd, ocrGuid_t edtGuid) {
         return edtLoc;
     }
 }
+
+//MD: Here we need the continuation of the acquire that
+//went off-PD, to walk the right waiter queue when resolved.
+//Also, at that point it's not very clear to me how we're going
+//to dispatch an acquire call that we want to block to the right queue.
+//Either we maintain a bunch of queues or we would have a selector
+//continuation. i.e. we have a bunch of continuations registered on the
+//original acquire event, but we only want to enable selected one.
+//What to do with the others then ?
 
 //Warning: Calling context must own rself->lock
 static dbWaiter_t * popEwWaiter(ocrDataBlock_t * self) {
@@ -148,6 +159,10 @@ static u8 lockableAcquireInternal(ocrDataBlock_t *self, void** ptr, ocrFatGuid_t
                   ocrDbAccessMode_t mode, bool isInternal, u32 properties) {
     ocrDataBlockLockable_t * rself = (ocrDataBlockLockable_t*) self;
 
+    //MD: check if we need to enqueue
+
+    //else do local acquire stuff
+
     if(rself->attributes.freeRequested && (rself->attributes.numUsers == 0)) {
         // Most likely stemming from an error in the user-code
         // There's a race between the datablock being freed and having no
@@ -166,6 +181,7 @@ static u8 lockableAcquireInternal(ocrDataBlock_t *self, void** ptr, ocrFatGuid_t
 
     if (mode == DB_MODE_CONST) {
         if (rself->attributes.modeLock) {
+            //MD: becomes a continuation
             ASSERT(edtSlot != EDT_SLOT_NONE);
             ocrPolicyDomain_t * pd = NULL;
             getCurrentEnv(&pd, NULL, NULL, NULL);
@@ -183,6 +199,7 @@ static u8 lockableAcquireInternal(ocrDataBlock_t *self, void** ptr, ocrFatGuid_t
 
     if (mode == DB_MODE_EW) {
         if ((rself->attributes.modeLock) || (rself->attributes.numUsers != 0)) {
+            //MD: becomes a continuation
             ASSERT(edtSlot != EDT_SLOT_NONE);
             // The DB is already in use
             ocrPolicyDomain_t * pd = NULL;
@@ -257,6 +274,16 @@ static u8 lockableAcquireInternal(ocrDataBlock_t *self, void** ptr, ocrFatGuid_t
  **/
 static void processAcquireCallback(ocrDataBlock_t *self, dbWaiter_t * waiter, ocrDbAccessMode_t waiterMode, u32 properties, ocrPolicyMsg_t * msg) {
     ASSERT(waiter->slot != EDT_SLOT_NONE);
+    //MD: Different approaches here:
+    // 1- The acquire's continuation is handled as: call processMessage on incoming
+    //    response answer which the PD dispatches here.
+    //    Also, we need to trigger any other acquire that were blocked on pulling the md.
+    // 2- When the ACQUIRE_MSG was transformed into calling acquire on this DB,
+    //    we did create a PULL_MSG and did a WAIT_FOR on the PULL_MSG.
+    //    It means the acquire didn't leave the PD but PULL did and its
+    //    continuation is jumping back there. Over there we can make sure
+    //    the db ptr is setup, transition the state of the DB and resume
+    //    the other blocked acquire (how since they are internal ?).
     getCurrentEnv(NULL, NULL, NULL, msg);
     //BUG #273: The In/Out nature of certain parameters is exposed here
 #define PD_MSG (msg)
@@ -672,7 +699,6 @@ void destructLockableFactory(ocrDataBlockFactory_t *factory) {
 ocrDataBlockFactory_t *newDataBlockFactoryLockable(ocrParamList_t *perType, u32 factoryId) {
     ocrDataBlockFactory_t *base = (ocrDataBlockFactory_t*)
                                   runtimeChunkAlloc(sizeof(ocrDataBlockFactoryLockable_t), PERSISTENT_CHUNK);
-
     base->instantiate = FUNC_ADDR(u8 (*)
                                   (ocrDataBlockFactory_t*, ocrFatGuid_t*, ocrFatGuid_t, ocrFatGuid_t,
                                    u64, void*, ocrHint_t*, u32, ocrParamList_t*), newDataBlockLockable);

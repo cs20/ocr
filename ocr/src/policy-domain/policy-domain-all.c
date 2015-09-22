@@ -1222,7 +1222,8 @@ u8 ocrPolicyMsgUnMarshallMsg(u8* mainBuffer, u8* addlBuffer,
             ocrGuidKind kind;
             ocrPolicyDomain_t * pd;
             getCurrentEnv(&pd, NULL, NULL, NULL);
-            pd->guidProviders[0]->fcts.getVal(pd->guidProviders[0], PD_MSG_FIELD_IO(guid.guid), &val, &kind);
+            //TODO this should be kind not getVal
+            pd->guidProviders[0]->fcts.getVal(pd->guidProviders[0], PD_MSG_FIELD_IO(guid.guid), &val, &kind, MD_LOCAL, NULL);
             if (kind == OCR_GUID_EDT_TEMPLATE) {
                 // Handle unmarshalling formatted as: ocrTaskTemplateHc_t + hints
                 void * base = PD_MSG_FIELD_IO(guid.metaDataPtr);
@@ -1330,7 +1331,7 @@ u8 ocrPolicyMsgUnMarshallMsg(u8* mainBuffer, u8* addlBuffer,
                     // For now rely on the provider not knowing the GUID. Note there's a potential race
                     // here with code in hc-dist-policy that may be setting
                     u64 val;
-                    pd->guidProviders[0]->fcts.getVal(pd->guidProviders[0], guids->guid, &val, NULL);
+                    pd->guidProviders[0]->fcts.getVal(pd->guidProviders[0], guids->guid, &val, NULL, MD_LOCAL, NULL);
                     if (val == 0) {
                         guids->metaDataPtr = NULL;
                     } else {
@@ -1387,7 +1388,7 @@ u8 ocrPolicyMsgUnMarshallMsg(u8* mainBuffer, u8* addlBuffer,
                     // For now rely on the provider not knowing the GUID. Note there's a potential race
                     // here with code in hc-dist-policy that may be setting
                     u64 val;
-                    pd->guidProviders[0]->fcts.getVal(pd->guidProviders[0], guids->guid, &val, NULL);
+                    pd->guidProviders[0]->fcts.getVal(pd->guidProviders[0], guids->guid, &val, NULL, MD_LOCAL, NULL);
                     if (val == 0) {
                         guids->metaDataPtr = NULL;
                     } else {

@@ -1857,7 +1857,7 @@ static u8 stSchedulerHeuristicTransactEdt(ocrSchedulerHeuristic_t *self, ocrSche
 
     //Register the guid in this PD
     u64 val;
-    pd->guidProviders[0]->fcts.getVal(pd->guidProviders[0], task->guid, &val, NULL);
+    pd->guidProviders[0]->fcts.getVal(pd->guidProviders[0], task->guid, &val, NULL, MD_LOCAL, NULL);
     ASSERT(val == 0);
     pd->guidProviders[0]->fcts.registerGuid(pd->guidProviders[0], task->guid, (u64) task);
 
@@ -1968,7 +1968,7 @@ u8 stSchedulerHeuristicAnalyzeSpaceTimeEdtResponse(ocrSchedulerHeuristic_t *self
     ocrFatGuid_t fguid;
     fguid.guid = analyzeArgs->guid;
     fguid.metaDataPtr = NULL;
-    pd->guidProviders[0]->fcts.getVal(pd->guidProviders[0], fguid.guid, (u64*)(&(fguid.metaDataPtr)), NULL);
+    pd->guidProviders[0]->fcts.getVal(pd->guidProviders[0], fguid.guid, (u64*)(&(fguid.metaDataPtr)), NULL, MD_LOCAL, NULL);
     ASSERT(fguid.metaDataPtr);
     ocrTask_t *task = (ocrTask_t*)fguid.metaDataPtr;
 

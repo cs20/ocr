@@ -32,52 +32,32 @@
 // Begin platform model based on affinities
 //
 
-//Fetch remote affinity guid information
-//BUG #162 metadata cloning: copy-paste from hc-dist-policy.c until we have MD cloning
-static u8 resolveRemoteMetaData(ocrPolicyDomain_t * self, ocrFatGuid_t * fGuid, u64 metaDataSize) {
-    ocrGuid_t remoteGuid = fGuid->guid;
+//TODO defined in hc-dist-policy for now but should go away
+#ifdef ENABLE_POLICY_DOMAIN_HC_DIST
+extern u8 resolveRemoteMetaData(ocrPolicyDomain_t * pd, ocrFatGuid_t * fatGuid,
+                                ocrPolicyMsg_t * msg, bool isBlocking);
+#else
+static u8 resolveRemoteMetaData(ocrPolicyDomain_t * pd, ocrFatGuid_t * fatGuid,
+                                ocrPolicyMsg_t * msg, bool isBlocking) {
     u64 val;
-    self->guidProviders[0]->fcts.getVal(self->guidProviders[0], remoteGuid, &val, NULL);
-    if (val == 0) {
-        DPRINTF(DEBUG_LVL_VVERB,"resolveRemoteMetaData: Query remote GUID metadata\n");
-        // GUID is unknown, request a copy of the metadata
-        PD_MSG_STACK(msgClone);
-        getCurrentEnv(NULL, NULL, NULL, &msgClone);
-#define PD_MSG (&msgClone)
-#define PD_TYPE PD_MSG_GUID_METADATA_CLONE
-        msgClone.type = PD_MSG_GUID_METADATA_CLONE | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
-        PD_MSG_FIELD_IO(guid.guid) = remoteGuid;
-        PD_MSG_FIELD_IO(guid.metaDataPtr) = NULL;
-        RESULT_ASSERT(self->fcts.processMessage(self, &msgClone, true), ==, 0)
-        // On return, Need some more post-processing to make a copy of the metadata
-        // and set the fatGuid's metadata ptr to point to the copy
-        void * metaDataPtr = self->fcts.pdMalloc(self, metaDataSize);
-        ASSERT(PD_MSG_FIELD_IO(guid.metaDataPtr) != NULL);
-        ASSERT(ocrGuidIsEq(PD_MSG_FIELD_IO(guid.guid), remoteGuid));
-        ASSERT(PD_MSG_FIELD_O(size) == metaDataSize);
-        hal_memCopy(metaDataPtr, PD_MSG_FIELD_IO(guid.metaDataPtr), metaDataSize, false);
-        //BUG #162 metadata cloning: Potentially multiple concurrent registerGuid on the same template
-        self->guidProviders[0]->fcts.registerGuid(self->guidProviders[0], remoteGuid, (u64) metaDataPtr);
-        val = (u64) metaDataPtr;
-        DPRINTF(DEBUG_LVL_VVERB,"Data @ %p registered for GUID "GUIDF" for %"PRIu32"\n",
-                metaDataPtr, GUIDA(remoteGuid), (u32)self->myLocation);
-#undef PD_MSG
-#undef PD_TYPE
-        DPRINTF(DEBUG_LVL_VVERB,"resolveRemoteMetaData: Retrieved remote EDT template\n");
-    }
-    fGuid->metaDataPtr = (void *) val;
+    u8 res __attribute__((unused)) = pd->guidProviders[0]->fcts.getVal(pd->guidProviders[0], fatGuid->guid, &val, NULL, MD_LOCAL, NULL);
+    ASSERT(val != 0);
+    ASSERT(res == 0);
+    fatGuid->metaDataPtr = (void *) val;
     return 0;
 }
+#endif
 
 ocrLocation_t affinityToLocation(ocrGuid_t affinityGuid) {
     ocrFatGuid_t fguid;
     fguid.guid = affinityGuid;
     ocrPolicyDomain_t * pd;
     getCurrentEnv(&pd, NULL, NULL, NULL);
-    resolveRemoteMetaData(pd, &fguid, sizeof(ocrAffinity_t));
+    resolveRemoteMetaData(pd, &fguid, NULL, true);
     ASSERT((fguid.metaDataPtr != NULL) && "ERROR: cannot deguidify affinity GUID");
     return ((ocrAffinity_t *) fguid.metaDataPtr)->place;
 }
+
 
 ocrPlatformModel_t * createPlatformModelAffinity(ocrPolicyDomain_t *pd) {
     ocrPlatformModelAffinity_t * model = pd->fcts.pdMalloc(pd, sizeof(ocrPlatformModelAffinity_t));
