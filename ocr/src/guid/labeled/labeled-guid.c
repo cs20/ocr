@@ -240,14 +240,24 @@ static u64 extractLocIdFromGuid(ocrGuid_t guid) {
 
 static ocrLocation_t locIdtoLocation(u64 locId) {
     //BUG #605 Locations spec: We assume there will be a mapping
-    //between a location and an 'id' stored in the guid. For now identity.
+    //between a location and an 'id' stored in the guid. For now identity
+    // except for TG and TG-x86
+#if defined(TG_X86_TARGET) || defined(TG_XE_TARGET) || defined(TG_CE_TARGET)
+    return (ocrLocation_t)(1ULL<<60 | (locId << 16));
+#else
     return (ocrLocation_t) (locId);
+#endif
 }
 
 static u64 locationToLocId(ocrLocation_t location) {
     //BUG #605 Locations spec: We assume there will be a mapping
-    //between a location and an 'id' stored in the guid. For now identity.
+    //between a location and an 'id' stored in the guid. For now identity except
+    // for TG and TG-x86
+#if defined(TG_X86_TARGET) || defined(TG_XE_TARGET) || defined(TG_CE_TARGET)
+    u64 locId = (((u64)(location)) & 0xFFFFFFFFULL) >> 16; // Strips out top 1 and bottom zeros
+#else
     u64 locId = (u64)(location);
+#endif
     // Make sure we're not overflowing location size
     ASSERT((locId < (1<<GUID_LOCID_SIZE)) && "GUID location ID overflows");
     return locId;

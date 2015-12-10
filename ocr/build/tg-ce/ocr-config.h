@@ -17,6 +17,8 @@
 // that does not contribute to building the policy domain
 //#define ENABLE_BUILDER_ONLY
 
+#define TG_CE_TARGET
+
 // Bug #556
 #define EDT_DEPV_DELAYED
 
@@ -48,6 +50,7 @@
 
 // GUID provider
 #define ENABLE_GUID_PTR
+#define ENABLE_GUID_LABELED
 
 // Hints
 #define ENABLE_HINTS
@@ -95,6 +98,7 @@
 // Workpile
 #define ENABLE_WORKPILE_CE
 
+#define ENABLE_EXTENSION_LABELING
 // Enable legacy support
 //#define ENABLE_EXTENSION_LEGACY
 
