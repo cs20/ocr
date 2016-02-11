@@ -42,12 +42,101 @@
 
 // Currently required to find out if self is the blessed PD
 #include "extensions/ocr-affinity.h"
+#include "ocr-errors.h"
 
 #define DEBUG_TYPE POLICY
 
-extern ocrObjectFactory_t * resolveObjectFactory(ocrPolicyDomain_t *pd, ocrGuidKind kind);
-
 #define DBG_LVL_MDEVT   DEBUG_LVL_VERB
+
+// Utility function to enqueue a waiter when the metadata is being fetch
+// Impl will most likely move to runtime events
+static u64 enqueueMdProxyWaiter(ocrPolicyDomain_t * pd, MdProxy_t * mdProxy, ocrPolicyMsg_t * msg) {
+    ASSERT(msg->type & PD_MSG_REQUEST);
+        MdProxyNode_t * node = (MdProxyNode_t *) pd->fcts.pdMalloc(pd, sizeof(MdProxyNode_t));
+    // This is fugly. acquire we know are on the stack so require copies. Others should be incoming
+    if ((msg->type & PD_MSG_TYPE_ONLY) == PD_MSG_DB_ACQUIRE) {
+        // MdProxyNode_t * node = (MdProxyNode_t *) pd->fcts.pdMalloc(pd, sizeof(MdProxyNode_t));
+        u64 msgSz = ocrPolicyMsgGetMsgBaseSize(msg, /*isIn=*/true);
+        // Make a copy of the message since this is an asynchronous context
+        ocrPolicyMsg_t * msgCpy = (ocrPolicyMsg_t *) pd->fcts.pdMalloc(pd, msgSz);
+        msgCpy->bufferSize = msgSz;
+        msgCpy->usefulSize = msgSz;
+        ocrPolicyMsgMarshallMsg(msg, msgSz, (u8*) msgCpy, MARSHALL_DUPLICATE);
+        node->msg = msgCpy;
+    } else {
+        node->msg = msg;
+    }
+    u64 newValue = (u64) node;
+    bool notSucceed = true;
+    do {
+        MdProxyNode_t * head = mdProxy->queueHead;
+        if (head == REG_CLOSED) { // registration is closed
+            break;
+        }
+        node->next = head;
+        u64 curValue = (u64) head;
+        u64 oldValue = hal_cmpswap64((u64*) &(mdProxy->queueHead), curValue, newValue);
+        notSucceed = (oldValue != curValue);
+    } while(notSucceed);
+
+    if (notSucceed) { // registration has closed
+        pd->fcts.pdFree(pd, node);
+        // There must be a fence between the head CAS and the 'ptr'
+        // assignment in the code setting that resolve the metadata pointer
+        u64 val = (u64) mdProxy->ptr;
+        ASSERT(val != 0);
+        return val;
+    }
+    return 0;
+}
+
+u8 resolveRemoteMetaData(ocrPolicyDomain_t * pd, ocrFatGuid_t * fatGuid,
+                                ocrPolicyMsg_t * msg, bool isBlocking) {
+    //TODO if defined(TG_XE_TARGET) || defined(TG_CE_TARGET)
+    // Check if known locally
+    u64 val;
+    MdProxy_t * mdProxy = NULL;
+    //getVal - resolve
+    u8 res = pd->guidProviders[0]->fcts.getVal(pd->guidProviders[0], fatGuid->guid, &val, NULL, MD_FETCH, &mdProxy);
+    if (val == 0) {
+        if (res == OCR_EPERM) {
+            return OCR_EPERM;
+        }
+        ASSERT(res == OCR_EPEND);
+        // The metadata is absent and the GUID provider is fetching it
+        if (isBlocking) {
+            // Busy-wait and return only when the metadata is resolved
+            DPRINTF(DEBUG_LVL_VVERB,"Resolving metadata: enter busy-wait for blocking call\n");
+            do {
+                // Let the scheduler know we are blocked
+                PD_MSG_STACK(msg);
+                getCurrentEnv(NULL, NULL, NULL, &msg);
+#define PD_MSG (&msg)
+#define PD_TYPE PD_MSG_MGT_MONITOR_PROGRESS
+                msg.type = PD_MSG_MGT_MONITOR_PROGRESS | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
+                PD_MSG_FIELD_I(monitoree) = NULL;
+                PD_MSG_FIELD_IO(properties) = (0 | MONITOR_PROGRESS_COMM);
+                RESULT_PROPAGATE(pd->fcts.processMessage(pd, &msg, true));
+#undef PD_MSG
+#undef PD_TYPE
+                //getVal - resolve
+                pd->guidProviders[0]->fcts.getVal(pd->guidProviders[0], fatGuid->guid, &val, NULL, MD_LOCAL, NULL);
+            } while(val == 0);
+            fatGuid->metaDataPtr = (void *) val;
+            DPRINTF(DEBUG_LVL_VVERB,"Resolving metadata: exit busy-wait for blocking call\n");
+        } else {
+            ASSERT(msg != NULL);
+            // Enqueue itself on the MD proxy, the caller will be rescheduled for execution.
+            // Remember that we're still competing with the fetch operation's completion.
+            // So we may actually not succeed enqueuing ourselves and be able to read the MD pointer.
+            val = enqueueMdProxyWaiter(pd, mdProxy, msg);
+            // Warning: At this point we cannot access the msg pointer anymore.
+            // This code becomes concurrent with the continuation being invoked, possibly destroying 'msg'.
+        }
+    }
+    fatGuid->metaDataPtr = (void *) val;
+    return ((val) ? 0 : OCR_EPEND);
+}
 
 static u8 helperSwitchInert(ocrPolicyDomain_t *policy, ocrRunlevel_t runlevel, phase_t phase, u32 properties) {
     u64 i = 0;
@@ -736,51 +825,12 @@ void hcPolicyDomainDestruct(ocrPolicyDomain_t * policy) {
 static void localDeguidify(ocrPolicyDomain_t *self, ocrFatGuid_t *guid) {
     START_PROFILE(pd_hc_localDeguidify);
     ASSERT(self->guidProviderCount == 1);
-    if(!(ocrGuidIsNull(guid->guid)) && !(ocrGuidIsUninitialized(guid->guid))) {
-        if(guid->metaDataPtr == NULL) {
-            //getVal - resolve
-            self->guidProviders[0]->fcts.getVal(self->guidProviders[0], guid->guid,
-                                                (u64*)(&(guid->metaDataPtr)), NULL, MD_LOCAL, NULL);
-        }
+    if((guid->metaDataPtr == NULL) && !(ocrGuidIsNull(guid->guid)) && !(ocrGuidIsUninitialized(guid->guid))) {
+        //getVal - resolve
+        self->guidProviders[0]->fcts.getVal(self->guidProviders[0], guid->guid,
+                                            (u64*)(&(guid->metaDataPtr)), NULL, MD_LOCAL, NULL);
     }
     RETURN_PROFILE();
-}
-
-static u8 hcMemUnAlloc(ocrPolicyDomain_t *self, ocrFatGuid_t* allocator,
-                       void* ptr, ocrMemType_t memType);
-
-static u8 hcAllocateDb(ocrPolicyDomain_t *self, ocrFatGuid_t *guid, void** ptr, u64 size,
-                       u32 properties, ocrHint_t *hint, ocrInDbAllocator_t allocator,
-                       u64 prescription, ocrDataBlockType_t dbType) {
-    // This function allocates a data block for the requestor, who is either this computing agent or a
-    // different one that sent us a message.  After getting that data block, it "guidifies" the results
-    // which, by the way, ultimately causes hcMemAlloc (just below) to run.
-    //
-    // Currently, the "allocator" argument is ignored, and I expect that these will
-    // eventually be eliminated here and instead, above this level, processed into the "prescription"
-    // variable, which has been added to this argument list.  The prescription indicates an order in
-    // which to attempt to allocate the block to a pool.
-    u64 idx = 0, hints = 0;
-    if(dbType == USER_DBTYPE)
-        hints = OCR_ALLOC_HINT_USER;
-    void * result = self->allocators[idx]->fcts.allocate(self->allocators[idx], size, hints);
-    if (result) {
-        u8 returnValue = 0;
-        returnValue = ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->instantiate(
-            (ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]), guid,
-            self->allocators[idx]->fguid, self->fguid,
-            size, result, hint, properties, NULL);
-        if(returnValue == 0) {
-            *ptr = result;
-        } else {
-            // We need to free the memory that was allocated
-            hcMemUnAlloc(self, &(self->allocators[idx]->fguid), *ptr, DB_MEMTYPE);
-        }
-        // This could be OCR_EGUIDEXISTS
-        return returnValue;
-    } else {
-        return OCR_ENOMEM;
-    }
 }
 
 static u8 hcMemAlloc(ocrPolicyDomain_t *self, ocrFatGuid_t* allocator, u64 size,
@@ -1716,9 +1766,6 @@ static u8 hcPdDeferredProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *ms
 }
 #endif
 
-extern u8 resolveRemoteMetaData(ocrPolicyDomain_t * pd, ocrFatGuid_t * fatGuid,
-                                ocrPolicyMsg_t * msg, bool isBlocking);
-
 u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlocking) {
     START_PROFILE(pd_hc_ProcessMessage);
     u8 returnCode = 0;
@@ -1734,9 +1781,11 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
     // max of the message in and out sizes, otherwise a write on the message
     // as a response overflows.
 #ifdef OCR_ASSERT
-    u64 baseSizeIn = ocrPolicyMsgGetMsgBaseSize(msg, true);
-    u64 baseSizeOut = ocrPolicyMsgGetMsgBaseSize(msg, false);
-    ASSERT(((baseSizeIn < baseSizeOut) && (msg->bufferSize >= baseSizeOut)) || (baseSizeIn >= baseSizeOut));
+    if (msg->type & PD_MSG_REQ_RESPONSE) {
+        u64 baseSizeIn = ocrPolicyMsgGetMsgBaseSize(msg, true);
+        u64 baseSizeOut = ocrPolicyMsgGetMsgBaseSize(msg, false);
+        ASSERT(((baseSizeIn < baseSizeOut) && (msg->bufferSize >= baseSizeOut)) || (baseSizeIn >= baseSizeOut));
+    }
 #endif
 
     //TODO-DEFERRED:
@@ -1776,16 +1825,17 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         //    in distributed case
         //  - if the user does not want to acquire the data-block (DB_PROP_NO_ACQUIRE)
         bool doNotAcquireDb = PD_MSG_FIELD_IO(properties) & DB_PROP_NO_ACQUIRE;
-        doNotAcquireDb |= (PD_MSG_FIELD_IO(properties) & GUID_PROP_CHECK) == GUID_PROP_CHECK;
-        doNotAcquireDb |= (PD_MSG_FIELD_IO(properties) & GUID_PROP_BLOCK) == GUID_PROP_BLOCK;
+        doNotAcquireDb |= ((PD_MSG_FIELD_IO(properties) & GUID_PROP_CHECK) == GUID_PROP_CHECK);
+        doNotAcquireDb |= ((PD_MSG_FIELD_IO(properties) & GUID_PROP_BLOCK) == GUID_PROP_BLOCK);
         ocrFatGuid_t tEdt = PD_MSG_FIELD_I(edt);
-#define PRESCRIPTION 0x10LL
-        PD_MSG_FIELD_O(returnDetail) = hcAllocateDb(self, &(PD_MSG_FIELD_IO(guid)),
-                                  &(PD_MSG_FIELD_O(ptr)), PD_MSG_FIELD_IO(size),
-                                  PD_MSG_FIELD_IO(properties),
-                                  PD_MSG_FIELD_I(hint),
-                                  PD_MSG_FIELD_I(allocator),
-                                  PRESCRIPTION, PD_MSG_FIELD_I(dbType));
+        #define PRESCRIPTION 0x10LL
+        //TODO-MD-DBNOACQ: 'no acquire' flag is handled upstream by forwarding the msg directly to the recipient PD
+        ocrDataBlockFactory_t * dbFactory = (ocrDataBlockFactory_t*) self->factories[self->datablockFactoryIdx];
+        void * ptr = NULL; // request memory to be allocated
+        PD_MSG_FIELD_O(returnDetail) = dbFactory->instantiate(dbFactory, &(PD_MSG_FIELD_IO(guid)),
+                                                        self->allocators[0]->fguid, self->fguid,
+                                                        PD_MSG_FIELD_IO(size), &ptr,
+                                                        PD_MSG_FIELD_I(hint), PD_MSG_FIELD_IO(properties), NULL);
         if(PD_MSG_FIELD_O(returnDetail) == 0) {
             ocrDataBlock_t *db = PD_MSG_FIELD_IO(guid.metaDataPtr);
             if(db == NULL) {
@@ -1836,8 +1886,8 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
     case PD_MSG_DB_ACQUIRE: {
         START_PROFILE(pd_hc_DbAcquire);
         if (msg->type & PD_MSG_REQUEST) {
-        #define PD_MSG msg
-        #define PD_TYPE PD_MSG_DB_ACQUIRE
+#define PD_MSG msg
+#define PD_TYPE PD_MSG_DB_ACQUIRE
             localDeguidify(self, &(PD_MSG_FIELD_IO(guid)));
             //BUG #273 rely on the call to set the fatguid ptr to NULL and not crash if edt acquiring is not local
             localDeguidify(self, &(PD_MSG_FIELD_IO(edt)));
@@ -1845,39 +1895,53 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
             ASSERT(isDatablockGuid(self, PD_MSG_FIELD_IO(guid)));
             ASSERT(db != NULL);
             ASSERT(db->fctId == ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->factoryId);
-            PD_MSG_FIELD_O(returnDetail) = ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->fcts.acquire(
-                db, &(PD_MSG_FIELD_O(ptr)), PD_MSG_FIELD_IO(edt), PD_MSG_FIELD_IO(destLoc), PD_MSG_FIELD_IO(edtSlot),
-                (ocrDbAccessMode_t) (PD_MSG_FIELD_IO(properties) & (u32)DB_ACCESS_MODE_MASK),
-                !!(PD_MSG_FIELD_IO(properties) & DB_PROP_RT_ACQUIRE), PD_MSG_FIELD_IO(properties));
-            //BUG #273 db: modify the acquire call if we agree on changing the api
-            PD_MSG_FIELD_O(size) = db->size;
-            // conserve acquire's msg properties and add the DB's one.
-            //BUG #273: This is related to bug #273
-            PD_MSG_FIELD_IO(properties) |= db->flags;
-            // Acquire message can be asynchronously responded to
-            if (PD_MSG_FIELD_O(returnDetail) == OCR_EBUSY) {
-                // Processing not completed
-                returnCode = OCR_EPEND;
+            if (msg->type & PD_MSG_REQ_RESPONSE) {
+                PD_MSG_FIELD_O(returnDetail) = ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->fcts.acquire(
+                    db, &(PD_MSG_FIELD_O(ptr)), PD_MSG_FIELD_IO(edt), PD_MSG_FIELD_IO(destLoc), PD_MSG_FIELD_IO(edtSlot),
+                    (ocrDbAccessMode_t) (PD_MSG_FIELD_IO(properties) & (u32)DB_ACCESS_MODE_MASK),
+                    !!(PD_MSG_FIELD_IO(properties) & DB_PROP_RT_ACQUIRE), PD_MSG_FIELD_IO(properties));
+                //BUG #273 db: modify the acquire call if we agree on changing the api
+                PD_MSG_FIELD_O(size) = db->size;
+                // conserve acquire's msg properties and add the DB's one.
+                //BUG #273: This is related to bug #273
+                PD_MSG_FIELD_IO(properties) |= db->flags;
+                // Acquire message can be asynchronously responded to
+                if (PD_MSG_FIELD_O(returnDetail) == OCR_EBUSY) {
+                    // Processing not completed
+                    returnCode = OCR_EPEND;
+                } else {
+                    // Something went wrong in dbAcquire
+                    if (PD_MSG_FIELD_O(returnDetail) != 0) {
+                        DPRINTF(DEBUG_LVL_WARN, "DB Acquire failed for guid "GUIDF"\n", GUIDA(PD_MSG_FIELD_IO(guid.guid)));
+                    }
+                    ASSERT(PD_MSG_FIELD_O(returnDetail) == 0);
+                    DPRINTF(DEBUG_LVL_INFO, "DB guid "GUIDF" of size %"PRIu64" acquired by EDT "GUIDF"\n",
+                            GUIDA(db->guid), db->size, GUIDA(PD_MSG_FIELD_IO(edt.guid)));
+                    OCR_TOOL_TRACE(false, OCR_TRACE_TYPE_EDT, OCR_ACTION_DATA_ACQUIRE, PD_MSG_FIELD_IO(edt.guid),
+                                    db->guid, db->size);
+                    msg->type &= ~PD_MSG_REQUEST;
+                    msg->type |= PD_MSG_RESPONSE;
+                }
             } else {
-                // Something went wrong in dbAcquire
-                if(PD_MSG_FIELD_O(returnDetail)!=0)
-                    DPRINTF(DEBUG_LVL_WARN, "DB Acquire failed for guid "GUIDF"\n", GUIDA(PD_MSG_FIELD_IO(guid.guid)));
-                ASSERT(PD_MSG_FIELD_O(returnDetail) == 0);
-                DPRINTF(DEBUG_LVL_INFO, "DB guid "GUIDF" of size %"PRIu64" acquired by EDT "GUIDF"\n",
-                        GUIDA(db->guid), db->size, GUIDA(PD_MSG_FIELD_IO(edt.guid)));
-                OCR_TOOL_TRACE(false, OCR_TRACE_TYPE_EDT, OCR_ACTION_DATA_ACQUIRE, traceTaskDataAcquire, PD_MSG_FIELD_IO(edt.guid),
-                                db->guid, db->size);
-                msg->type &= ~PD_MSG_REQUEST;
-                msg->type |= PD_MSG_RESPONSE;
+                //TODO-MD-DBRTACQ
+                // This is re-processing an acquire that was gated on the MD being brought in.
+                // In the eventuality the access is granted, there's still no calling context alive
+                // to process the response. Hence, the MD impl will issue a response to be processed
+                // by the policy-domain.
+                PD_MSG_FIELD_IO(properties) |= DB_PROP_ASYNC_ACQ;
+                void * ptr;
+                ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->fcts.acquire(
+                    db, &ptr, PD_MSG_FIELD_IO(edt), PD_MSG_FIELD_IO(destLoc), PD_MSG_FIELD_IO(edtSlot),
+                    (ocrDbAccessMode_t) (PD_MSG_FIELD_IO(properties) & (u32)DB_ACCESS_MODE_MASK),
+                    !!(PD_MSG_FIELD_IO(properties) & DB_PROP_RT_ACQUIRE), PD_MSG_FIELD_IO(properties));
             }
-
-        #undef PD_MSG
-        #undef PD_TYPE
+#undef PD_MSG
+#undef PD_TYPE
         } else {
             ASSERT(msg->type & PD_MSG_RESPONSE);
             // asynchronous callback on acquire, reading response
-        #define PD_MSG msg
-        #define PD_TYPE PD_MSG_DB_ACQUIRE
+#define PD_MSG msg
+#define PD_TYPE PD_MSG_DB_ACQUIRE
             ocrFatGuid_t edtFGuid = PD_MSG_FIELD_IO(edt);
             ocrFatGuid_t dbFGuid = PD_MSG_FIELD_IO(guid);
             u32 edtSlot = PD_MSG_FIELD_IO(edtSlot);
@@ -1886,8 +1950,9 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
             // At this point the edt MUST be local as well as the acquire's message DB ptr
             ocrTask_t* task = (ocrTask_t*) edtFGuid.metaDataPtr;
             PD_MSG_FIELD_O(returnDetail) = ((ocrTaskFactory_t*)(self->factories[self->taskFactoryIdx]))->fcts.dependenceResolved(task, dbFGuid.guid, PD_MSG_FIELD_O(ptr), edtSlot);
-        #undef PD_MSG
-        #undef PD_TYPE
+            OCR_TOOL_TRACE(false, OCR_TRACE_TYPE_EDT, OCR_ACTION_DATA_ACQUIRE, traceTaskDataAcquire, PD_MSG_FIELD_IO(edt.guid), dbFGuid.guid, PD_MSG_FIELD_O(size));
+#undef PD_MSG
+#undef PD_TYPE
         }
         EXIT_PROFILE;
         break;
@@ -1991,162 +2056,185 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
     {
 #define PD_MSG msg
 #define PD_TYPE PD_MSG_METADATA_COMM
-        // A serialization request
-        if (PD_MSG_FIELD_I(direction) == MD_DIR_PULL) {
-            ocrGuid_t guid = PD_MSG_FIELD_I(guid);
-            u32 factoryId = PD_MSG_FIELD_I(factoryId);
-            ocrGuidKind kind;
+        ocrGuid_t guid = PD_MSG_FIELD_I(guid);
+        // All of the pull/push requests are subject to brokering
+        ocrGuidKind guidKind;
+        self->guidProviders[0]->fcts.getKind(self->guidProviders[0], guid, &guidKind);
+
+        // - Resolve the factory pointer (from the kind and factoryId)
+        u32 factoryId = PD_MSG_FIELD_I(factoryId);
+        ocrObjectFactory_t * factory = self->factories[factoryId];
+
+        if (guidKind == OCR_GUID_DB) {
+            // Rely on the DB's MD 'process' implementation. The call may be asynchronous.
             u64 val = 0;
-            //getVal - resolve
-            u8 retCode = self->guidProviders[0]->fcts.getVal(self->guidProviders[0], guid, &val, &kind, MD_LOCAL, NULL); // Would work because this PD is the target of the message
-            ASSERT(!retCode);
-            ocrObject_t * src = (void *) val;
-            ASSERT(src != NULL); // always work since it's a local query
-
-            // - Resolve the factory pointer (from the kind and factoryId)
-            u64 mode = PD_MSG_FIELD_I(mode);
-            // pre-allocate buffer: for that we need to be able to query the size before
-            u64 mdSize;
-            ocrObjectFactory_t * factory = self->factories[factoryId];
-            factory->mdSize(src, mode, &mdSize);
-            // TODO: Wasting some space with sizeof(ocrPolicyMsg_t), get the real size for COMM message ?
-            // TODO: Also we may want to reuse the request whenever possible, especially if mdSize == 0
-            // Alignment is to be coherent with policy-domain-all's message size computations
-            //TODO this is defined in policy-domain-all
-            u32 MAX_ALIGN = 8;
-            u64 msgSize = ((mdSize + sizeof(ocrPolicyMsg_t)) + MAX_ALIGN - 1)&(~(MAX_ALIGN-1));
-            ocrPolicyMsg_t * response = (ocrPolicyMsg_t *) self->fcts.pdMalloc(self, msgSize);
-            initializePolicyMessage(response, msgSize);
-#undef PD_MSG
-#undef PD_TYPE
-#define PD_MSG response
-#define PD_TYPE PD_MSG_METADATA_COMM
-            void * destBuffer = (void *) (&PD_MSG_FIELD_I(payload));
-#undef PD_MSG
-#undef PD_TYPE
-            // - When pulling, we need to serialize the MD
-            // Note: the goal of destSize is to be able to provide a pre-allocated
-            // buffer to avoid copying the metadata into a message later on.
-            // TODO: This is a little ill-defined because if the buffer is too small,
-            // the serialize doesn't know it needs to account for the message header.
-            u64 destSize = mdSize;
-            factory->serialize(factory, guid, src, &mode, msg->srcLocation, &destBuffer, &destSize);
-            ASSERT(destSize == mdSize);
-            // Two scenarios are possible here:
-            // A) We can process the message synchronously and set up the response.
-            //    If the caller is the distributed policy domain it can send the response right away.
-            // B) Asynchronous processing: return error code PEND / or continuation. At some point
-            //    the message is processed fully and the response buffer is ready. Looking at the
-            //    src/dst we can determine if the message needs to be sent out or the response
-            //    locally processed.
-            // => Currently only support scenario 'A'
-            ASSERT(msg->srcLocation != msg->destLocation);
-#define PD_MSG msg
-#define PD_TYPE PD_MSG_METADATA_COMM
-            ocrLocation_t srcLocation = msg->srcLocation;
-            ocrLocation_t destLocation = msg->destLocation;
-            PD_MSG_FIELD_I(response) = response;
-#undef PD_MSG
-#undef PD_TYPE
-            // Setup the response header message
-            response->srcLocation = destLocation;
-            response->destLocation = srcLocation;
-            response->type = PD_MSG_METADATA_COMM | PD_MSG_REQUEST;
-            ASSERT(response->srcLocation != response->destLocation);
-#define PD_MSG response
-#define PD_TYPE PD_MSG_METADATA_COMM
-            PD_MSG_FIELD_I(guid) = guid;
-            PD_MSG_FIELD_I(direction) = MD_DIR_PUSH;
-            PD_MSG_FIELD_I(op) = 0; /*ocrObjectOperation_t*/
-            PD_MSG_FIELD_I(mode) = mode;
-            PD_MSG_FIELD_I(factoryId) = factoryId;
-            PD_MSG_FIELD_I(sizePayload) = mdSize;
-            PD_MSG_FIELD_I(response) = NULL;
-            PD_MSG_FIELD_I(mdPtr) = NULL;
-            //response->payload has already been written to by the call to serialize
-            //TODO writing to the request's 'response' field is borderline since
-            //the pull message is one-way hc-dist-policy is not supposed to look at field
-            //once this processMessage returns.
-            //What the 'response' field is trying to solve is how an independent asynchronous
-            //response can be sent from this PD implementation. i.e. we would need to have a
-            //send here for the response to be sent out.
-#undef PD_MSG
-#undef PD_TYPE
+            self->guidProviders[0]->fcts.getVal(self->guidProviders[0], guid, &val, NULL, MD_LOCAL, NULL);
+            ocrObject_t * mdPtr = (ocrObject_t *) val;
+            // This is potentially asynchronous as the MD may not be able to carry out the operation immediately
+            returnCode = factory->process(factory, guid, mdPtr, msg);
+            // If pending we return here as it may indicate the msg is now
+            // being used by the MD and can be potentially concurrently freed
+            if (returnCode == OCR_EPEND) {
+                RETURN_PROFILE(OCR_EPEND);
+            }
         } else {
-#define PD_MSG msg
-#define PD_TYPE PD_MSG_METADATA_COMM
-            ASSERT(PD_MSG_FIELD_I(direction) == MD_DIR_PUSH);
-            DPRINTF(DBG_LVL_MDEVT, "event-md: receive MD_DIR_PUSH mode=%"PRIu64" for "GUIDF"\n", PD_MSG_FIELD_I(mode), GUIDA(PD_MSG_FIELD_I(guid)));
-            // Receiving a metadata update
-            ocrGuid_t guid = PD_MSG_FIELD_I(guid);
-            u32 factoryId = PD_MSG_FIELD_I(factoryId);
-            ocrGuidKind guidKind;
-            self->guidProviders[0]->fcts.getKind(self->guidProviders[0], guid, &guidKind);
-            // - Resolve the factory pointer (from the kind and factoryId)
-            ocrObjectFactory_t * factory = self->factories[factoryId];
-
-            if (guidKind == OCR_GUID_EDT) {
-                DPRINTF(DEBUG_LVL_VVERB, "Processing incoming MD_COMM PUSH for OCR_GUID_EDT\n");
-                // Currently only support MD_MOVE for EDTs that are translated into a PUSH operation
-#ifdef OCR_ASSERT
+            // rely on serialize/deserialize that are synchronously called here
+            if (PD_MSG_FIELD_I(direction) == MD_DIR_PULL) {
+                ASSERT(msg->srcLocation != msg->destLocation);
+                // If pulling, the MD must exist in the GP
                 u64 val = 0;
                 self->guidProviders[0]->fcts.getVal(self->guidProviders[0], guid, &val, NULL, MD_LOCAL, NULL);
-                ASSERT(val == 0);
-                ASSERT(PD_MSG_FIELD_I(direction) == MD_DIR_PUSH);
-#endif
-                ocrObject_t * mdPtr = NULL;
-                factory->deserialize(factory, guid, &mdPtr, PD_MSG_FIELD_I(mode), (void *) &PD_MSG_FIELD_I(payload), (u64) PD_MSG_FIELD_I(sizePayload));
-                //TODO-MD: This is implicitely saying if the ptr was null we didn't know about the MD
-                //      so it is assumed we're deserializing some form of clone message
-                ASSERT((mdPtr != NULL) && "error: PD_MSG_METADATA_COMM deserialize operation failed");
-                // Notify the scheduler of the EDT move
-                ocrPolicyDomain_t *pd = NULL;
-                PD_MSG_STACK(msgNotify);
-                getCurrentEnv(&pd, NULL, NULL, &msgNotify);
+                ocrObject_t * src = (ocrObject_t *) val;
+                ASSERT(src != NULL);
+                //TODO-MD-SIZE
+                //There may be a need for asynchrony here too as the MD may not be able to accomodate the pull
+                //request immediately. Additionally decoupling size and serialize may be tricky since the md
+                //size to serialize is function of both the mode, direction, operations and its arguments.
+                u64 mode = PD_MSG_FIELD_I(mode);
+                u64 mdSize;
+                factory->mdSize(src, mode, &mdSize);
+                // Creating a response message to store a serialized copy of the MD.
+                // TODO: Wasting some space with sizeof(ocrPolicyMsg_t), get the real size for COMM message ?
+                // TODO: Also we may want to reuse the request whenever possible, especially if mdSize == 0
+                // Use allocPolicyMsg so that alignment is coherent with marshalling code
+                u64 msgSize = (mdSize + sizeof(ocrPolicyMsg_t));
+                ocrPolicyMsg_t * response = (ocrPolicyMsg_t *) allocPolicyMsg(self, &msgSize);
+                initializePolicyMessage(response, msgSize);
     #undef PD_MSG
     #undef PD_TYPE
-    #define PD_MSG (&msgNotify)
-    #define PD_TYPE PD_MSG_SCHED_NOTIFY
-                msgNotify.type = PD_MSG_SCHED_NOTIFY | PD_MSG_REQUEST;
-                PD_MSG_FIELD_IO(schedArgs).kind = OCR_SCHED_NOTIFY_EDT_SATISFIED;
-                PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_EDT_SATISFIED).guid.guid = guid;
-                PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_EDT_SATISFIED).guid.metaDataPtr = mdPtr;
-                RESULT_PROPAGATE(pd->fcts.processMessage(pd, &msgNotify, false));
-                u8 res = PD_MSG_FIELD_O(returnDetail);
-                if (res) {
-                    ASSERT(res == OCR_ENOP);
-                    ocrTask_t * task = (ocrTask_t *) mdPtr;
-                    RESULT_ASSERT(((ocrTaskFactory_t*) pd->factories[task->fctId])->fcts.dependenceResolved(task, NULL_GUID, NULL, EDT_SLOT_NONE), ==, 0);
-                }
+    #define PD_MSG response
+    #define PD_TYPE PD_MSG_METADATA_COMM
+                void * destBuffer = (void *) (&PD_MSG_FIELD_I(payload));
     #undef PD_MSG
     #undef PD_TYPE
-            } else {
+                // Note: the goal of destSize is to be able to provide a pre-allocated
+                // buffer to avoid copying the metadata into a message later on.
+                //TODO-MD-SER-SIZE: This is a little ill-defined because if the buffer is too small,
+                // the serialize doesn't know it needs to account for the message header.
+                u64 destSize = mdSize;
+                factory->serialize(factory, guid, src, &mode, msg->srcLocation, &destBuffer, &destSize);
+                ASSERT(destSize == mdSize);
+                // Two scenarios are possible here:
+                // A) We can process the message synchronously and set up the response.
+                //    If the caller is the distributed policy domain it can send the response right away.
+                // B) Asynchronous processing: return error code PEND / or continuation. At some point
+                //    the message is processed fully and the response buffer is ready. Looking at the
+                //    src/dst we can determine if the message needs to be sent out or the response
+                //    locally processed.
+                // => Currently only support scenario 'A'
+    #define PD_MSG msg
+    #define PD_TYPE PD_MSG_METADATA_COMM
+                ocrLocation_t srcLocation = msg->srcLocation;
+                ocrLocation_t destLocation = msg->destLocation;
+                // Set the response message into the request's response field
+                //TODO-MD-PD-SEND
+                //- What the 'response' field is trying to solve is how an independent asynchronous
+                //response can be sent from this PD implementation. i.e. we would need to have a
+                //send here for the response to be sent out.
+                //- Writing to the request's 'response' field is borderline since
+                //the pull message is one-way hc-dist-policy is not supposed to look at field
+                //once this processMessage returns.
+                PD_MSG_FIELD_I(response) = response;
+    #undef PD_MSG
+    #undef PD_TYPE
+                // Setup the response header message
+                response->srcLocation = destLocation;
+                response->destLocation = srcLocation;
+                response->type = PD_MSG_METADATA_COMM | PD_MSG_REQUEST;
+                ASSERT(response->srcLocation != response->destLocation);
+    #define PD_MSG response
+    #define PD_TYPE PD_MSG_METADATA_COMM
+                PD_MSG_FIELD_I(guid) = guid;
+                PD_MSG_FIELD_I(direction) = MD_DIR_PUSH;
+                PD_MSG_FIELD_I(op) = 0; /*ocrObjectOperation_t*/
+                PD_MSG_FIELD_I(mode) = mode;
+                PD_MSG_FIELD_I(factoryId) = factoryId;
+                PD_MSG_FIELD_I(sizePayload) = mdSize;
+                PD_MSG_FIELD_I(response) = NULL;
+                PD_MSG_FIELD_I(mdPtr) = NULL;
+                //PD_MSG_FIELD_I(payload) has already been written to by the call to serialize
+    #undef PD_MSG
+    #undef PD_TYPE
+            } else { /*MD_DIR_PUSH*/
 #define PD_MSG msg
 #define PD_TYPE PD_MSG_METADATA_COMM
-                MdProxy_t * proxy = NULL;
-                u64 val = 0;
-                //getVal - resolve
-                // Would work because this PD is the target of the message
-                u8 retCode = self->guidProviders[0]->fcts.getVal(self->guidProviders[0], guid, &val, NULL, MD_LOCAL, &proxy);
-                ASSERT(proxy != NULL);
-                // ASSERT(retCode == 0); => This can be EPEND if the push message we're receiving is the metadata to be stored as 'val'
-                ocrObject_t * dest = (void *) val;
-                // Note: 'dest' is NULL means it's an initial clone. We have nothing to deserialize too so the
-                // deserialize code has to allocate memory to deserialize the payload to.
-                factory->deserialize(factory, guid, &dest, PD_MSG_FIELD_I(mode), (void *) &PD_MSG_FIELD_I(payload), (u64) PD_MSG_FIELD_I(sizePayload));
-                //TODO: This is implicitely saying if the ptr was null we didn't know about the MD
-                //      so it is assumed we're deserializing some form of clone message
-                if (proxy->ptr == ((u64) 0)) {
-                    ASSERT((dest != NULL) && "error: PD_MSG_METADATA_COMM deserialize operation failed");
+                ASSERT(PD_MSG_FIELD_I(direction) == MD_DIR_PUSH);
+                // Receiving a metadata update
+                ocrGuid_t guid = PD_MSG_FIELD_I(guid);
+                ocrGuidKind guidKind;
+                self->guidProviders[0]->fcts.getKind(self->guidProviders[0], guid, &guidKind);
+                if (guidKind == OCR_GUID_EDT) {
+                    DPRINTF(DEBUG_LVL_VVERB, "Processing incoming MD_COMM PUSH for OCR_GUID_EDT\n");
+                    // Currently only support MD_MOVE for EDTs that are translated into a PUSH operation
+    #ifdef OCR_ASSERT
+                    u64 val = 0;
+                    self->guidProviders[0]->fcts.getVal(self->guidProviders[0], guid, &val, NULL, MD_LOCAL, NULL);
+                    ASSERT(val == 0);
+                    ASSERT(PD_MSG_FIELD_I(direction) == MD_DIR_PUSH);
+    #endif
+                    // - Resolve the factory pointer
+                    ocrObjectFactory_t * factory = self->factories[self->taskFactoryIdx];
+                    ocrObject_t * mdPtr = NULL;
+                    factory->deserialize(factory, guid, &mdPtr, PD_MSG_FIELD_I(mode), (void *) &PD_MSG_FIELD_I(payload), (u64) PD_MSG_FIELD_I(sizePayload));
+                    ASSERT((mdPtr != NULL) && "error: PD_MSG_METADATA_COMM deserialize operation failed");
                     // NOTE: Implementation ensures there's a single message generated for the initial clone
                     // so that this registration is not concurrent with others for the same GUID
-                    retCode = self->guidProviders[0]->fcts.registerGuid(self->guidProviders[0], guid, (u64) dest);
-                    ASSERT(retCode == 0);
-                }
-#undef PD_MSG
-#undef PD_TYPE
-            }
-        }
+                    DPRINTF(DEBUG_LVL_VVERB, "registerGuid called after deserialize\n");
+                    // Notify the scheduler of the EDT move
+                    ocrPolicyDomain_t *pd = NULL;
+                    PD_MSG_STACK(msgNotify);
+                    getCurrentEnv(&pd, NULL, NULL, &msgNotify);
+        #undef PD_MSG
+        #undef PD_TYPE
+        #define PD_MSG (&msgNotify)
+        #define PD_TYPE PD_MSG_SCHED_NOTIFY
+                    msgNotify.type = PD_MSG_SCHED_NOTIFY | PD_MSG_REQUEST;
+                    PD_MSG_FIELD_IO(schedArgs).kind = OCR_SCHED_NOTIFY_EDT_SATISFIED;
+                    PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_EDT_SATISFIED).guid.guid = guid;
+                    PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_EDT_SATISFIED).guid.metaDataPtr = mdPtr;
+                    RESULT_PROPAGATE(pd->fcts.processMessage(pd, &msgNotify, false));
+                    u8 res = PD_MSG_FIELD_O(returnDetail);
+                    if (res) {
+                        ASSERT(res == OCR_ENOP);
+                        ocrTask_t * task = (ocrTask_t *) mdPtr;
+                        RESULT_ASSERT(((ocrTaskFactory_t *)pd->factories[task->fctId])->fcts.dependenceResolved(task, NULL_GUID, NULL, EDT_SLOT_NONE), ==, 0);
+                    }
+        #undef PD_MSG
+        #undef PD_TYPE
+                } else {
+    #define PD_MSG msg
+    #define PD_TYPE PD_MSG_METADATA_COMM
+    #ifdef OCR_ASSERT
+                    ocrGuid_t guid = PD_MSG_FIELD_I(guid);
+                    ocrGuidKind guidKind;
+                    self->guidProviders[0]->fcts.getKind(self->guidProviders[0], guid, &guidKind);
+                    ASSERT(guidKind & OCR_GUID_EVENT);
+    #endif
+                    DPRINTF(DBG_LVL_MDEVT, "event-md: receive MD_DIR_PUSH mode=%"PRIu64" for "GUIDF"\n", PD_MSG_FIELD_I(mode), GUIDA(PD_MSG_FIELD_I(guid)));
+                    MdProxy_t * proxy = NULL;
+                    u64 val = 0;
+                    //getVal - resolve
+                    // Would work because this PD is the target of the message
+                    u8 retCode = self->guidProviders[0]->fcts.getVal(self->guidProviders[0], guid, &val, NULL, MD_LOCAL, &proxy);
+                    ASSERT(proxy != NULL);
+                    // ASSERT(retCode == 0); => This can be EPEND if the push message we're receiving is the metadata to be stored as 'val'
+                    ocrObject_t * dest = (void *) val;
+                    // Note: 'dest' is NULL means it's an initial clone. We have nothing to deserialize too so the
+                    // deserialize code has to allocate memory to deserialize the payload to.
+                    factory->deserialize(factory, guid, &dest, PD_MSG_FIELD_I(mode), (void *) &PD_MSG_FIELD_I(payload), (u64) PD_MSG_FIELD_I(sizePayload));
+                    //If the ptr is null we don't know about the MD and install it in the PD
+                    if (proxy->ptr == ((u64) 0)) {
+                        ASSERT((dest != NULL) && "error: PD_MSG_METADATA_COMM deserialize operation failed");
+                        // NOTE: Implementation ensures there's a single message generated for the initial clone
+                        // so that this registration is not concurrent with others for the same GUID
+                        retCode = self->guidProviders[0]->fcts.registerGuid(self->guidProviders[0], guid, (u64) dest);
+                        ASSERT(retCode == 0);
+                    }
+    #undef PD_MSG
+    #undef PD_TYPE
+                } // push edt or other
+            } // end PULL/PUSH
+        }// end kind if/else
         break;
     }
     case PD_MSG_WORK_CREATE: {
@@ -2530,7 +2618,7 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
             // and send the message to the destination.
             localDeguidify(self, &fatGuid);
             ocrTask_t * task = (ocrTask_t *) fatGuid.metaDataPtr;
-            ocrObjectFactory_t * factory = resolveObjectFactory(self, kind);
+            ocrObjectFactory_t * factory = self->factories[task->fctId];
             ocrLocation_t dstLoc = PD_MSG_FIELD_I(dstLocation);
             ASSERT(self->myLocation != dstLoc);
             // Trigger the movement
@@ -2547,7 +2635,7 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
 #define PD_TYPE PD_MSG_GUID_RESERVE
         PD_MSG_FIELD_O(returnDetail) = self->guidProviders[0]->fcts.guidReserve(
             self->guidProviders[0], &(PD_MSG_FIELD_O(startGuid)), &(PD_MSG_FIELD_O(skipGuid)),
-            PD_MSG_FIELD_I(numberGuids), PD_MSG_FIELD_I(guidKind));
+            PD_MSG_FIELD_I(numberGuids), PD_MSG_FIELD_I(guidKind), PD_MSG_FIELD_I(properties));
 #undef PD_MSG
 #undef PD_TYPE
         msg->type &= ~PD_MSG_REQUEST;
@@ -3099,9 +3187,7 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
             u8 ret = self->guidProviders[0]->fcts.getKind(
                 self->guidProviders[0], PD_MSG_FIELD_I(guid.guid), &kind);
             ASSERT(ret == 0);
-            if (kind == OCR_GUID_EVENT_CHANNEL) {
-                ASSERT((kind == OCR_GUID_EVENT_CHANNEL) ? (msg->type & PD_MSG_REQ_RESPONSE) : !(msg->type & PD_MSG_REQ_RESPONSE));
-            }
+            ASSERT((kind == OCR_GUID_EVENT_CHANNEL) ? (msg->type & PD_MSG_REQ_RESPONSE) : !(msg->type & PD_MSG_REQ_RESPONSE));
         }
 #endif
 #else
@@ -3119,7 +3205,8 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         self->guidProviders[0]->fcts.getVal(
             self->guidProviders[0], PD_MSG_FIELD_I(guid.guid),
             (u64*)(&(PD_MSG_FIELD_I(guid.metaDataPtr))), &dstKind, MD_LOCAL, NULL);
-
+        //TODO I think there's a MD cloning issue here. The dstKind can be remote. See test edtReturnEvent.c
+        ASSERT(PD_MSG_FIELD_I(guid.metaDataPtr) != NULL);
         ocrFatGuid_t dst = PD_MSG_FIELD_I(guid);
         if(dstKind & OCR_GUID_EVENT) {
             ocrEvent_t *evt = (ocrEvent_t*)(dst.metaDataPtr);
@@ -3155,7 +3242,9 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
 #undef PD_MSG
 #undef PD_TYPE
 #ifdef ENABLE_EXTENSION_CHANNEL_EVT
-        msg->type |= PD_MSG_RESPONSE;
+        if (msg->type & PD_MSG_REQ_RESPONSE) {
+            msg->type |= PD_MSG_RESPONSE;
+        }
 #endif
         msg->type &= ~PD_MSG_REQUEST;
         EXIT_PROFILE;
@@ -3185,9 +3274,7 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         // Also, this should only happen when there is an actual EDT
         if((curTask==NULL) || (!(ocrGuidIsEq(curTask->guid, PD_MSG_FIELD_I(edt.guid)))))
             DPRINTF(DEBUG_LVL_WARN, "Attempting to notify a missing/different EDT, GUID="GUIDF"\n", GUIDA(PD_MSG_FIELD_I(edt.guid)));
-        ASSERT(curTask &&
-               (ocrGuidIsEq(curTask->guid, PD_MSG_FIELD_I(edt.guid))));
-
+        ASSERT(curTask && (ocrGuidIsEq(curTask->guid, PD_MSG_FIELD_I(edt.guid))));
         ASSERT(curTask->fctId == ((ocrTaskFactory_t*)(self->factories[self->taskFactoryIdx]))->factoryId);
         PD_MSG_FIELD_O(returnDetail) = ((ocrTaskFactory_t*)(self->factories[self->taskFactoryIdx]))->fcts.notifyDbAcquire(curTask, PD_MSG_FIELD_I(db));
 #undef PD_MSG
@@ -3721,7 +3808,8 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
     // This code is not needed but just shows how things would be handled (probably
     // done by sub-functions)
     if(isBlocking && (msg->type & PD_MSG_REQ_RESPONSE)) {
-        ASSERT(msg->type & PD_MSG_RESPONSE); // If we were blocking and needed a response
+        ASSERT((msg->type & PD_MSG_RESPONSE) || ((msg->type & PD_MSG_TYPE_ONLY) == PD_MSG_METADATA_COMM));
+        // If we were blocking and needed a response
         // we need to make sure there is one
     }
 

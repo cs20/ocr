@@ -44,6 +44,7 @@ typedef struct _paramListGuidProviderInst_t {
 struct _ocrGuidProvider_t;
 struct _ocrPolicyDomain_t;
 
+#define MD_PROXY 2
 #define MD_FETCH 1
 #define MD_LOCAL 0
 
@@ -122,10 +123,11 @@ typedef struct _ocrGuidProviderFcts_t {
      * @param[out] skipGuid        Returns the "step" between valid GUIDs in the range
      * @param[in] numberGuids      Number of GUIDs to reserve
      * @param[in] guidType         Type of GUIDs this range will be used to store
+     * @param[in] properties       Properties
      * @return 0 on success a non-zero error code
      */
     u8 (*guidReserve)(struct _ocrGuidProvider_t *self, ocrGuid_t *startGuid, u64* skipGuid,
-                      u64 numberGuids, ocrGuidKind guidType);
+                      u64 numberGuids, ocrGuidKind guidType, u32 properties);
 
     /**
      * @brief Un-reserves a GUID range when no longer needed.

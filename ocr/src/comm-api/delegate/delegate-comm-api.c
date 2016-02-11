@@ -127,7 +127,6 @@ u8 delegateCommSendMessage(ocrCommApi_t *self, ocrLocation_t target,
     ASSERT(pd->myLocation != target); // Do not support sending to 'itself' (current PD).
     // If the message is not persistent and the marshall mode is set, we do the specified
     // copy. Otherwise it is just the mode the buffer has been copied in the first place.
-
     // Modified this to experiment with asynchronous remote edt creation
     if (!(properties & PERSIST_MSG_PROP)) {
         // Need to make a copy of the message. Recall that send is returning

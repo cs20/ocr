@@ -50,7 +50,6 @@ ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     void * dbPtr;
     ocrDbCreate(&dbGuid, &dbPtr, sizeof(u64)*NB_ELEM, DB_PROP_NO_ACQUIRE, NULL_HINT, NO_ALLOC);
     ASSERT(dbPtr == NULL);
-    ocrDbRelease(dbGuid); // Do I need to release that or not ?
     ocrGuid_t edtGuid;
     ocrGuid_t edtTplGuid;
     ocrEdtTemplateCreate(&edtTplGuid, writeEdt, 0 /*paramc*/, 1 /*depc*/);

@@ -45,7 +45,7 @@
 /* OCR-HC WORKER                                      */
 /******************************************************/
 
-#ifdef OCR_ASSERT
+#ifdef OCR_ASSERT // For debugging spurious tasks at shutdown
 extern ocrGuid_t processRequestEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]);
 #endif
 
@@ -294,9 +294,9 @@ static void workerLoop(ocrWorker_t * worker) {
         ocrHint_t dbHint;
         ocrHintInit( &dbHint, OCR_HINT_DB_T );
 #if GUID_BIT_COUNT == 64
-            ocrSetHintValue( & dbHint, OCR_HINT_DB_AFFINITY, affinityMasterPD.guid );
+        ocrSetHintValue( & dbHint, OCR_HINT_DB_AFFINITY, affinityMasterPD.guid );
 #elif GUID_BIT_COUNT == 128
-            ocrSetHintValue( & dbHint, OCR_HINT_DB_AFFINITY, affinityMasterPD.lower );
+        ocrSetHintValue( & dbHint, OCR_HINT_DB_AFFINITY, affinityMasterPD.lower );
 #else
 #error Unknown GUID type
 #endif

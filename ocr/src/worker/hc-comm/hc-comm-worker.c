@@ -43,8 +43,9 @@
 #define PHASE_COMM_QUIESCE ((u8) 1)
 #define PHASE_DONE ((u8) 0)
 
-//TODO-MD-MT These should become micro-tasks
+//BUG #989: MT opportunity
 extern ocrGuid_t processRequestEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]);
+extern u8 processIncomingMsg(ocrPolicyDomain_t * pd, ocrPolicyMsg_t * msg);
 
 /******************************************************/
 /* OCR-HC COMMUNICATION WORKER                        */
@@ -310,32 +311,33 @@ static void workerLoopHcCommInternal(ocrWorker_t * worker, ocrPolicyDomain_t *pd
                 DPRINTF(DEBUG_LVL_VVERB,"hc-comm-worker: Received message, msgId: %"PRId64" type:0x%"PRIx32" prop:0x%"PRIx64"\n",
                                         message->msgId, message->type, handle->properties);
                 // This is an outstanding request, delegate to PD for processing
-                u64 msgParamv = (u64) message;
             #ifdef HYBRID_COMM_COMP_WORKER // Experimental see documentation
                 // Execute selected 'sterile' messages on the spot
                 if ((message->type & PD_MSG_TYPE_ONLY) == PD_MSG_DB_ACQUIRE) {
                     DPRINTF(DEBUG_LVL_VVERB,"hc-comm-worker: Execute message, msgId: %"PRId64"\n", pd->myLocation, message->msgId);
-                    processRequestEdt(1, &msgParamv, 0, NULL);
+                    processIncomingMsg(pd, message);
                 } else {
                     #ifdef UTASK_COMM
                     createUTask(pd, message);
                     #else
+                    u64 msgParamv = (u64) message;
                     createProcessRequestEdt(pd, processRequestTemplate, &msgParamv);
                     #endif
                 }
             #else
                 if ((message->type & PD_MSG_TYPE_ONLY) == PD_MSG_DB_ACQUIRE) {
-                    //BUG #190
 #define PD_MSG (message)
 #define PD_TYPE PD_MSG_DB_ACQUIRE
                     bool blockingAcquire = ((message->type & PD_MSG_RESPONSE) && (PD_MSG_FIELD_IO(edtSlot) == EDT_SLOT_NONE));
 #undef PD_MSG
 #undef PD_TYPE
+                    // This is for legacy support where the DB acquisition is a blocking two-way
                     if (blockingAcquire) {
                         // This going through the PD mecanism to deal with the incoming acquire response
                         // and dequeue EDTs that may be waiting on the acquire.
-                        // The PD will not call the acquire callback because there's none in that case.
-                        processRequestEdt(1, &msgParamv, 0, NULL);
+                        // The PD will not call the acquire callback because there's none in that case but
+                        // it has to process the message.
+                        processIncomingMsg(pd, message);
                         // This is to unblock the calling blocked on the acquire
                         ocrFatGuid_t fatGuid;
                         fatGuid.guid = NULL_GUID;
@@ -354,6 +356,7 @@ static void workerLoopHcCommInternal(ocrWorker_t * worker, ocrPolicyDomain_t *pd
                         #ifdef UTASK_COMM
                         createUTask(pd, message);
                         #else
+                        u64 msgParamv = (u64) message;
                         createProcessRequestEdt(pd, processRequestTemplate, &msgParamv);
                         #endif
                         // We do not need the handle anymore
@@ -363,12 +366,13 @@ static void workerLoopHcCommInternal(ocrWorker_t * worker, ocrPolicyDomain_t *pd
 #ifdef COMMWRK_PROCESS_SATISFY // This is for benchmarking purpose to measure overhead of delegating processing
                     if ((message->type & PD_MSG_TYPE_ONLY) == PD_MSG_DEP_SATISFY) {
                         DPRINTF(DEBUG_LVL_VVERB,"hc-comm-worker: Process PD_MSG_DEP_SATISFY message, type=0x%"PRIx32" msgId: %"PRIu64"\n",  message->type, message->msgId);
-                        processRequestEdt(1, &msgParamv, 0, NULL);
+                        processIncomingMsg(pd, message);
                     } else {
 #endif
                         #ifdef UTASK_COMM
                         createUTask(pd, message);
                         #else
+                        u64 msgParamv = (u64) message;
                         createProcessRequestEdt(pd, processRequestTemplate, &msgParamv);
                         #endif
 #ifdef COMMWRK_PROCESS_SATISFY

@@ -63,6 +63,7 @@ u64 ocrHintPropTaskHc[] = {
 
 // This is to exclude the RT EDTs from the "userCode" classification from the profiler
 #ifdef ENABLE_POLICY_DOMAIN_HC_DIST
+//BUG #989: MT opportunity
 extern ocrGuid_t processRequestEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]);
 #endif
 
@@ -149,7 +150,7 @@ ocrTaskTemplate_t * newTaskTemplateHc(ocrTaskTemplateFactory_t* factory, ocrEdt_
     PD_MSG_FIELD_I(size) = sizeof(ocrTaskTemplateHc_t) + hintc*sizeof(u64);
     PD_MSG_FIELD_I(kind) = OCR_GUID_EDT_TEMPLATE;
     PD_MSG_FIELD_I(targetLoc) = pd->myLocation;
-    PD_MSG_FIELD_I(properties) = 0;
+    PD_MSG_FIELD_I(properties) = GUID_PROP_TORECORD;
 
     RESULT_PROPAGATE2(pd->fcts.processMessage(pd, &msg, true), NULL);
 
@@ -2351,8 +2352,6 @@ u8 deserializeTaskHc(u8* buffer, ocrTask_t** self) {
     return 0;
 }
 
-extern void* getProxyDbPtr(void *value);
-
 u8 fixupTaskHc(ocrTask_t *task) {
     ocrTaskHc_t *taskHc = (ocrTaskHc_t*)task;
     ocrPolicyDomain_t *pd = NULL;
@@ -2368,12 +2367,8 @@ u8 fixupTaskHc(ocrTask_t *task) {
                 ocrObject_t * ocrObj = NULL;
                 pd->guidProviders[0]->fcts.getVal(pd->guidProviders[0], dbGuid, (u64*)&ocrObj, NULL, MD_LOCAL, NULL);
                 ASSERT(ocrObj != NULL);
-                if (ocrObj->kind == OCR_GUID_DB) {
-                    ocrDataBlock_t *db = (ocrDataBlock_t*)ocrObj;
-                    taskHc->resolvedDeps[i].ptr = db->ptr;
-                } else {
-                    taskHc->resolvedDeps[i].ptr = getProxyDbPtr((void*)ocrObj);
-                }
+                ocrDataBlock_t *db = (ocrDataBlock_t*)ocrObj;
+                taskHc->resolvedDeps[i].ptr = db->ptr;
                 ASSERT(taskHc->resolvedDeps[i].ptr != NULL);
             }
         }

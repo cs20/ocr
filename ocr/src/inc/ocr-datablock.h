@@ -262,10 +262,9 @@ typedef struct _ocrDataBlock_t {
 
 // Runtime DB properties (upper 16 bits of a u32)
 #define DB_PROP_RT_ACQUIRE          0x10000 // DB acquired by runtime
-#define DB_PROP_RT_OBLIVIOUS        0x20000 // BUG #607 DB RO mode: (Flag is for runtime use)
+#define DB_PROP_ASYNC_ACQ           0x20000 // DB Acquire gated on MD being brought in //TODO-MD-DBRTACQ
 #define DB_PROP_NO_RELEASE          0x40000 // Indicate a release is not required
 #define DB_PROP_RT_PD_ACQUIRE       0x80000 // DB acquired by scheduler for whole PD
-#define DB_PROP_RT_PROXY            0x100000// DB metadata instantiated as proxy (workaround for BUG #162)
 
 #define DB_FLAG_RT_FETCH            0x1000000
 #define DB_FLAG_RT_WRITE_BACK       0x2000000
@@ -273,6 +272,9 @@ typedef struct _ocrDataBlock_t {
 /****************************************************/
 /* OCR DATABLOCK FACTORY                            */
 /****************************************************/
+
+//fwd declaration
+struct _ocrPolicyMsg_t;
 
 /**
  * @brief data-block factory
@@ -289,7 +291,7 @@ typedef struct _ocrDataBlockFactory_t {
      * @param[in] allocator     Allocator guid used to allocate memory
      * @param[in] allocPD       Policy-domain of the allocator
      * @param[in] size          data-block size
-     * @param[in] ptr           Pointer to the memory to use (created through an allocator)
+     * @param[out] ptr          Out pointer to the memory to use (created through an allocator)
      * @param[in] hint          Hints provided at time of creation
      * @param[in] properties    Properties for the data-block creation (GUID_PROP_* or DB_PROP_*)
      * @param[in] instanceArg   Arguments specific for this instance
@@ -298,8 +300,7 @@ typedef struct _ocrDataBlockFactory_t {
      **/
     u8 (*instantiate)(struct _ocrDataBlockFactory_t *factory, ocrFatGuid_t *guid,
                       ocrFatGuid_t allocator, ocrFatGuid_t allocPD, u64 size,
-                      void* ptr, ocrHint_t *hint, u32 properties, ocrParamList_t *instanceArg);
-
+                      void** ptr, ocrHint_t *hint, u32 properties, ocrParamList_t *instanceArg);
     u32 factoryId; /**< Corresponds to fctId in DB */
     ocrDataBlockFcts_t fcts; /**< Function pointers created instances should use */
     u64 *hintPropMap; /**< Mapping hint properties to implementation specific packed array */

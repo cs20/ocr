@@ -112,6 +112,17 @@ void initializePolicyDomainOcr(ocrPolicyDomainFactory_t * factory, ocrPolicyDoma
     self->parentPD = NULL;
 }
 
+ocrPolicyMsg_t * allocPolicyMsg(ocrPolicyDomain_t * pd, u64 * size) {
+    u64 msgSize = *size;
+    if((msgSize % MAX_ALIGN) != 0) {
+        DPRINTF(DEBUG_LVL_VVERB, "Adjusted base size in allocPolicyMsg to be %"PRId32" aligned (from %"PRIu64" to %"PRIu64")\n",
+                MAX_ALIGN, msgSize, (msgSize + MAX_ALIGN -1)&(~(MAX_ALIGN-1)));
+        msgSize = (msgSize + MAX_ALIGN -1)&(~(MAX_ALIGN-1));
+    }
+    *size = msgSize;
+    return pd->fcts.pdMalloc(pd, msgSize);
+}
+
 u64 ocrPolicyMsgGetMsgBaseSize(ocrPolicyMsg_t *msg, bool isIn) {
     u64 baseSize = 0;
 #define PD_MSG msg
@@ -133,7 +144,8 @@ u64 ocrPolicyMsgGetMsgBaseSize(ocrPolicyMsg_t *msg, bool isIn) {
         ASSERT(false);
     }
     // The message is already serialized and must account for the payload
-    if ((msg->type & PD_MSG_TYPE_ONLY) == PD_MSG_METADATA_COMM) {
+    // Note that are few cases where we issue responses too, so discriminate on message's type
+    if (((msg->type & PD_MSG_TYPE_ONLY) == PD_MSG_METADATA_COMM) && (msg->type & PD_MSG_REQUEST)) {
 #define PD_TYPE PD_MSG_METADATA_COMM
         baseSize += (PD_MSG_FIELD_I(sizePayload));
 #undef PD_TYPE
@@ -910,9 +922,11 @@ u8 ocrPolicyMsgMarshallMsg(ocrPolicyMsg_t* msg, u64 baseSize, u8* buffer, u32 mo
 
     case PD_MSG_METADATA_COMM: {
 #define PD_TYPE PD_MSG_METADATA_COMM
-        ASSERT(isIn);// Following should not be set
-        ASSERT(PD_MSG_FIELD_I(response) == NULL);
-        ASSERT(PD_MSG_FIELD_I(mdPtr) == NULL);
+        // Sometime issues two-way for ordering purposes so it can be in or out
+        if (isIn) {
+            ASSERT(PD_MSG_FIELD_I(response) == NULL);
+            ASSERT(PD_MSG_FIELD_I(mdPtr) == NULL);
+        }
 #undef PD_TYPE
         break;
     }
@@ -1307,9 +1321,11 @@ u8 ocrPolicyMsgUnMarshallMsg(u8* mainBuffer, u8* addlBuffer,
 
     case PD_MSG_METADATA_COMM: {
 #define PD_TYPE PD_MSG_METADATA_COMM
-        ASSERT(isIn);// Following should not be set
-        ASSERT(PD_MSG_FIELD_I(response) == NULL);
-        ASSERT(PD_MSG_FIELD_I(mdPtr) == NULL);
+        // Sometime issues two-way for ordering purposes so it can be in or out
+        if (isIn) {
+            ASSERT(PD_MSG_FIELD_I(response) == NULL);
+            ASSERT(PD_MSG_FIELD_I(mdPtr) == NULL);
+        }
 #undef PD_TYPE
         break;
     }
@@ -1451,7 +1467,6 @@ u8 ocrPolicyMsgUnMarshallMsg(u8* mainBuffer, u8* addlBuffer,
 u8 processIncomingMsg(ocrPolicyDomain_t * pd, ocrPolicyMsg_t * msg) {
     // This is meant to execute incoming request and asynchronously processed responses (two-way asynchronous)
     // Regular responses are routed back to requesters by the scheduler and are processed by them.
-
     ASSERT((msg->type & PD_MSG_REQUEST) || ((msg->type & PD_MSG_RESPONSE) &&
                 (((msg->type & PD_MSG_TYPE_ONLY) == PD_MSG_DB_ACQUIRE) ||
                 ((msg->type & PD_MSG_TYPE_ONLY) == PD_MSG_GUID_METADATA_CLONE))));
@@ -1483,30 +1498,28 @@ u8 processIncomingMsg(ocrPolicyDomain_t * pd, ocrPolicyMsg_t * msg) {
 
     // All one-way request can be freed after processing
     bool toBeFreed = !(msg->type & PD_MSG_REQ_RESPONSE);
-    DPRINTF(DEBUG_LVL_VVERB,"Process incoming EDT request @ %p of type 0x%"PRIx32"\n", msg, msg->type);
-    u8 res = pd->fcts.processMessage(pd, msg, syncProcess);
-    DPRINTF(DEBUG_LVL_VVERB,"[done] Process incoming EDT @ %p request of type 0x%"PRIx32"\n", msg, msg->type);
+    DPRINTF(DEBUG_LVL_VVERB,"processIncomingMsg: EDT request msg=%p of type=0x%"PRIx32"\n", msg, msg->type);
     //BUG #587 probably want a return code that tells if the message can be discarded or not
+    u8 res = pd->fcts.processMessage(pd, msg, syncProcess);
+    DPRINTF(DEBUG_LVL_VVERB,"processIncomingMsg: [done] EDT request msg=%p of type=0x%"PRIx32"\n", msg, msg->type);
 
     if (res == OCR_EPEND) {
-        if (msgTypeOnly == PD_MSG_DB_ACQUIRE) {
-            // Acquire requests are consumed and can be discarded.
-            pd->fcts.pdFree(pd, msg);
-        }
 #ifdef ENABLE_EXTENSION_BLOCKING_SUPPORT
-        else if (checkLabeled) {
+        if (checkLabeled) {
             ocrTask_t *task = NULL;
             getCurrentEnv(NULL, NULL, &task, NULL);
             task->state = RESCHED_EDTSTATE;
-        }
+        } else {
 #endif
-        else {
-            ASSERT(msgTypeOnly == PD_MSG_WORK_CREATE);
+            ASSERT((msgTypeOnly == PD_MSG_WORK_CREATE) || (msgTypeOnly == PD_MSG_METADATA_COMM));
             // Do not deallocate: Message has been enqueued for further processing.
             // Actually, message may have been deallocated in the meanwhile because
             // the callback has been invoked.
+#ifdef ENABLE_EXTENSION_BLOCKING_SUPPORT
         }
+#endif
     } else {
+        //BUG #989: MT opportunity - Would just create a MT ahead of time and link it to current MT
         if (toBeFreed) {
             // Makes sure the runtime doesn't try to reuse this message
             // even though it was not supposed to issue a response.
@@ -1516,7 +1529,7 @@ u8 processIncomingMsg(ocrPolicyDomain_t * pd, ocrPolicyMsg_t * msg) {
             // the response flag although req_response is not set but the destLocation is still local.
             // Hence there are no race between freeing the message and sending the hypotetical response.
             ASSERT(processResponse || (msg->destLocation == pd->myLocation));
-            DPRINTF(DEBUG_LVL_VVERB,"Deleted incoming EDT request @ %p of type 0x%"PRIx32"\n", msg, msg->type);
+            DPRINTF(DEBUG_LVL_VVERB,"processIncomingMsg: Deleted incoming EDT request msg=%p of type=0x%"PRIx32"\n", msg, msg->type);
             // if request was an incoming one-way we can delete the message now.
             pd->fcts.pdFree(pd, msg);
         }
@@ -1526,7 +1539,7 @@ u8 processIncomingMsg(ocrPolicyDomain_t * pd, ocrPolicyMsg_t * msg) {
 
 ocrGuid_t processRequestEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     ocrPolicyMsg_t * msg = (ocrPolicyMsg_t *) paramv[0];
-    DPRINTF(DEBUG_LVL_VERB, "Going to process async callback with msg %p of type 0x%"PRIx32" and msgId %"PRIu64"\n",
+    DPRINTF(DEBUG_LVL_VERB, "processIncomingMsg: Going to process EDT request msg=%p of type=0x%"PRIx32" and msgId=%"PRIu64"\n",
         msg, msg->type, msg->msgId);
     ocrPolicyDomain_t * pd;
     getCurrentEnv(&pd, NULL, NULL, NULL);
@@ -1568,56 +1581,82 @@ bool isLocalGuid(ocrPolicyDomain_t *pd, ocrGuid_t guid) {
     return guidLoc == pd->myLocation;
 }
 
-
-#ifndef ENABLE_POLICY_DOMAIN_HC_DIST
-
-// //Note: These are moved to common modules in subsequent patches
-
+//BUG #989: MT opportunity - To do asynchronous processing internal to runtime
 u8 createProcessRequestEdtDistPolicy(ocrPolicyDomain_t * pd, ocrGuid_t templateGuid, u64 * paramv) {
-    ASSERT(false);
-    return 0;
+    u32 paramc = 1;
+    u32 depc = 0;
+    u32 properties = GUID_PROP_TORECORD;
+    ocrWorkType_t workType = EDT_RT_WORKTYPE;
+
+    START_PROFILE(api_EdtCreate);
+    PD_MSG_STACK(msg);
+    u8 returnCode = 0;
+    ocrTask_t *curEdt = NULL;
+    getCurrentEnv(NULL, NULL, &curEdt, &msg);
+
+#define PD_MSG (&msg)
+#define PD_TYPE PD_MSG_WORK_CREATE
+    msg.type = PD_MSG_WORK_CREATE | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
+    PD_MSG_FIELD_IO(guid.guid) = NULL_GUID;
+    PD_MSG_FIELD_IO(guid.metaDataPtr) = NULL;
+    PD_MSG_FIELD_I(templateGuid.guid) = templateGuid;
+    PD_MSG_FIELD_I(templateGuid.metaDataPtr) = NULL;
+    PD_MSG_FIELD_IO(outputEvent.guid) = NULL_GUID;
+    PD_MSG_FIELD_IO(outputEvent.metaDataPtr) = NULL;
+    PD_MSG_FIELD_I(paramv) = paramv;
+    PD_MSG_FIELD_IO(paramc) = paramc;
+    PD_MSG_FIELD_IO(depc) = depc;
+    PD_MSG_FIELD_I(depv) = NULL;
+    PD_MSG_FIELD_I(hint) = NULL_HINT;
+    PD_MSG_FIELD_I(properties) = properties;
+    PD_MSG_FIELD_I(workType) = workType;
+    // This is a "fake" EDT so it has no "parent"
+    PD_MSG_FIELD_I(currentEdt.guid) = NULL_GUID;
+    PD_MSG_FIELD_I(currentEdt.metaDataPtr) = NULL;
+    PD_MSG_FIELD_I(parentLatch.guid) = NULL_GUID;
+    PD_MSG_FIELD_I(parentLatch.metaDataPtr) = NULL;
+    returnCode = pd->fcts.processMessage(pd, &msg, true);
+    if(returnCode) {
+        DPRINTF(DEBUG_LVL_VVERB,"createProcessRequestEdtDistPolicy: Created processRequest EDT GUID "GUIDF"\n", GUIDA(PD_MSG_FIELD_IO(guid.guid)));
+        RETURN_PROFILE(returnCode);
+    }
+
+    RETURN_PROFILE(0);
+#undef PD_MSG
+#undef PD_TYPE
 }
 
+#ifndef ENABLE_POLICY_DOMAIN_HC
+//Note: These are moved to common modules in subsequent patches
 u8 resolveRemoteMetaData(ocrPolicyDomain_t * pd, ocrFatGuid_t * fatGuid,
                                 ocrPolicyMsg_t * msg, bool isBlocking) {
-    MdProxy_t * mdProxy = NULL;
     u64 val;
-    pd->guidProviders[0]->fcts.getVal(pd->guidProviders[0], fatGuid->guid, &val, NULL, MD_FETCH, &mdProxy);
+    // On the XE, we don't have a GUID provider and on the CE, we do some mean trick to get
+    // the right value (pretending to be another CE)
+#if defined(TG_XE_TARGET) || defined(TG_CE_TARGET)
+    PD_MSG_STACK(msg2);
+    getCurrentEnv(NULL, NULL, NULL, &msg2);
+#define PD_MSG (&msg2)
+#define PD_TYPE PD_MSG_GUID_INFO
+    msg2.type = PD_MSG_GUID_INFO | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
+    PD_MSG_FIELD_IO(guid.guid) = fatGuid->guid;
+    PD_MSG_FIELD_IO(guid.metaDataPtr) = NULL;
+    PD_MSG_FIELD_I(properties) = RMETA_GUIDPROP;
+    RESULT_ASSERT(pd->fcts.processMessage(pd, &msg2, true), ==, 0);
+    u8 res __attribute__((unused)) = 0; // The call returns the mode so we just ignore it and val will be non-zero
+    // if all went well
+    val = (u64)PD_MSG_FIELD_IO(guid.metaDataPtr);
+#undef PD_MSG
+#undef PD_TYPE
+#else
+    MdProxy_t * mdProxy = NULL;
+    u8 res __attribute__((unused)) = pd->guidProviders[0]->fcts.getVal(pd->guidProviders[0], fatGuid->guid, &val, NULL, MD_FETCH, &mdProxy);
+#endif
     ASSERT(val != 0);
+    ASSERT(res == 0);
     fatGuid->metaDataPtr = (void *) val;
     return 0;
 }
-
-void getSerializationSizeProxyDb(void *value, u64 *size) {
-    ASSERT(false);
-    return;
-}
-
-u8 serializeProxyDb(void *value, u8* buffer) {
-    ASSERT(false);
-    return 0;
-}
-
-u8 deserializeProxyDb(u8* buffer, void **value) {
-    ASSERT(false);
-    return 0;
-}
-
-u8 fixupProxyDb(void *value) {
-    ASSERT(false);
-    return 0;
-}
-
-u8 destructProxyDb(void *value) {
-    ASSERT(false);
-    return 0;
-}
-
-void* getProxyDbPtr(void *value) {
-    ASSERT(false);
-    return NULL;
-}
-
 #endif
 
 #ifdef ENABLE_OCR_API_DEFERRABLE

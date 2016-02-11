@@ -68,6 +68,9 @@
 // Utils for bitmap-based GUID implementations
 #include "guid/guid-bitmap-based.c"
 
+//BUG #989: MT opportunity
+extern ocrGuid_t processRequestEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]);
+extern u8 createProcessRequestEdtDistPolicy(ocrPolicyDomain_t * pd, ocrGuid_t templateGuid, u64 * paramv);
 
 #ifdef GUID_PROVIDER_DESTRUCT_CHECK
 
@@ -201,11 +204,36 @@ void countedMapDestruct(ocrGuidProvider_t* self) {
 }
 
 u8 countedMapGuidReserve(ocrGuidProvider_t *self, ocrGuid_t* startGuid, u64* skipGuid,
-                         u64 numberGuids, ocrGuidKind guidType) {
-    // Not supported; use labeled provider
-    DPRINTF(DEBUG_LVL_WARN, "error: Must use labeled GUID provider for labeled GUID support, current is counted-map\n");
-    ASSERT(false);
-    return OCR_ENOTSUP;
+                         u64 numberGuids, ocrGuidKind guidKind, u32 properties) {
+    RSELF_TYPE * rself = (RSELF_TYPE *) self;
+#ifdef GUID_PROVIDER_WID_INGUID
+    ocrWorker_t * worker = NULL;
+    getCurrentEnv(NULL, &worker, NULL, NULL);
+    // GUIDs are generated before the current worker is setup.
+    u64 wid = ((worker == NULL) ? 0 : worker->id);
+    u64 shWid = LSHIFT(LOCWID, wid);
+    u64 * counter = &(rself->guidCounters[wid*GUID_WID_CACHE_SIZE]);
+#else
+    u64 * counter = &(rself->guidCounter);
+#endif
+    *skipGuid = 1; // Each GUID will just increment by 1
+    // Mark the GUID as being reserved
+    u64 newGuid = generateNextGuid(self, guidKind, self->pd->myLocation, numberGuids, counter);
+#ifdef GUID_PROVIDER_WID_INGUID
+    newGuid |= shWid;
+#endif
+    // See BUG #928 on GUID issues
+#if GUID_BIT_COUNT == 64
+    startGuid->guid = newGuid;
+#elif GUID_BIT_COUNT == 128
+    startGuid->upper = 0x0;
+    startGuid->lower = newGuid;
+#endif
+    DPRINTF(DEBUG_LVL_VVERB, "LabeledGUID reserved a range for %"PRIu64" GUIDs starting at "GUIDF"\n",
+            numberGuids, GUIDA(*startGuid));
+
+    return 0;
+
 }
 
 u8 countedMapGuidUnreserve(ocrGuidProvider_t *self, ocrGuid_t startGuid, u64 skipGuid,
@@ -221,7 +249,9 @@ u8 countedMapGuidUnreserve(ocrGuidProvider_t *self, ocrGuid_t startGuid, u64 ski
  */
 static u8 countedMapGetGuid(ocrGuidProvider_t* self, ocrGuid_t* guid, u64 val, ocrGuidKind kind, ocrLocation_t targetLoc, u32 properties) {
     // Here no need to allocate
-    u64 newGuid = generateNextGuid(self, kind, targetLoc, 1);
+    //TODO WID_INGUID: fix when merging with labeled
+    RSELF_TYPE * rself = (RSELF_TYPE *) self;
+    u64 newGuid = generateNextGuid(self, kind, targetLoc, 1,  &(rself->guidCounter));
     // See BUG #928 on GUID issues
 #if GUID_BIT_COUNT == 64
     ocrGuid_t tempGuid = {.guid = newGuid};
@@ -245,19 +275,15 @@ static u8 countedMapGetGuid(ocrGuidProvider_t* self, ocrGuid_t* guid, u64 val, o
             mdProxy->base.size = sizeof(MdProxy_t);
 #endif
             mdProxy->ptr = val;
+            DPRINTF(DEBUG_LVL_VVERB,"countedMapGetGuid record "GUIDF"\n", GUIDA(*guid));
+            mdProxy->queueHead=REG_CLOSED;
             toPut = (void *) mdProxy;
         }
         GP_HASHTABLE_PUT(((ocrGuidProviderCountedMap_t *) self)->guidImplTable, (void *) newGuid, (void *) toPut);
     }
     // See BUG #928 on GUID issues
-
-
     return 0;
 }
-
-//BUG #989: MT opportunity
-extern ocrGuid_t processRequestEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]);
-extern u8 createProcessRequestEdtDistPolicy(ocrPolicyDomain_t * pd, ocrGuid_t templateGuid, u64 * paramv);
 
 /**
  * @brief Allocates a piece of memory that embeds both
@@ -286,6 +312,8 @@ u8 countedMapCreateGuid(ocrGuidProvider_t* self, ocrFatGuid_t *fguid, u64 size, 
     RESULT_PROPAGATE(policy->fcts.processMessage(policy, &msg, true));
 
     void * ptr = (void *)PD_MSG_FIELD_O(ptr);
+    // Two cases, with MD the guid may already be known and we just need to allocate space for the clone
+    // else this is a brand new creation, we need to generate a guid and update the fatGuid.
     if (properties & GUID_PROP_ISVALID) {
         if (properties & GUID_PROP_TORECORD) {
             DPRINTF(DEBUG_LVL_VVERB, "Recording "GUIDF" @ %p\n", GUIDA(fguid->guid), ptr);
@@ -314,9 +342,9 @@ u8 countedMapCreateGuid(ocrGuidProvider_t* self, ocrFatGuid_t *fguid, u64 size, 
             GP_HASHTABLE_PUT(((ocrGuidProviderCountedMap_t *) self)->guidImplTable, (void *) guid, (void *) toPut);
         }
     } else {
-        // Two cases, with MD the guid may already be known and we just need to allocate space for the clone
-        // else this is a brand new creation, we need to generate a guid and update the fatGuid.
-        countedMapGetGuid(self, &(fguid->guid), (u64) ptr, kind, targetLoc, GUID_PROP_TORECORD);
+        // Generate and record the GUID
+        countedMapGetGuid(self, &(fguid->guid), (u64) ptr, kind, targetLoc,
+                          (properties & GUID_PROP_TORECORD) ? GUID_PROP_TORECORD : 0);
         DPRINTF(DEBUG_LVL_VVERB, "Generating GUID "GUIDF"\n", GUIDA(fguid->guid));
     }
     ASSERT(!ocrGuidIsNull(fguid->guid) && !ocrGuidIsUninitialized(fguid->guid));
@@ -341,22 +369,19 @@ u8 countedMapRegisterGuid(ocrGuidProvider_t* self, ocrGuid_t guid, u64 val) {
 #else
 #error Unknown type of GUID
 #endif
+    int oth = (int) locIdtoLocation(extractLocIdFromGuid(guid));
     if (isLocalGuidCheck(self, guid)) {
         // See BUG #928 on GUID issues
         GP_HASHTABLE_PUT(((ocrGuidProviderCountedMap_t *) self)->guidImplTable, (void *) rguid, (void *) val);
+        ASSERT(oth == self->pd->myLocation);
     } else {
-        // Datablocks not yet supported as part of MdProxy_t
-        if (getKindFromGuid(guid) == OCR_GUID_DB) {
-            // See BUG #928 on GUID issues
-            GP_HASHTABLE_PUT(((ocrGuidProviderCountedMap_t *) self)->guidImplTable, (void *) rguid, (void *) val);
-            return 0;
-        }
         MdProxy_t * mdProxy = (MdProxy_t *) GP_HASHTABLE_GET(((ocrGuidProviderCountedMap_t *) self)->guidImplTable, rguid);
         // Must have setup a mdProxy before being able to register.
         ASSERT(mdProxy != NULL);
         mdProxy->ptr = val;
         hal_fence(); // This may be redundant with the CAS
         u64 newValue = (u64) REG_CLOSED;
+        DPRINTF(DEBUG_LVL_VVERB,"countedMapRegisterGuid record "GUIDF"\n", GUIDA(guid));
         u64 curValue = 0;
         u64 oldValue = 0;
         do {
@@ -365,24 +390,37 @@ u8 countedMapRegisterGuid(ocrGuidProvider_t* self, ocrGuid_t guid, u64 val) {
             curValue = (u64) head;
             oldValue = hal_cmpswap64((u64*) &(mdProxy->queueHead), curValue, newValue);
         } while(oldValue != curValue);
-        ocrGuid_t processRequestTemplateGuid;
-        ocrEdtTemplateCreate(&processRequestTemplateGuid, &processRequestEdt, 1, 0);
         MdProxyNode_t * queueHead = (MdProxyNode_t *) oldValue;
-        DPRINTF(DEBUG_LVL_VVERB,"About to process stored clone requests for GUID "GUIDF" queueHead=%p)\n", GUIDA(guid), queueHead);
-        while (queueHead != ((void*) REG_OPEN)) { // sentinel value
-            DPRINTF(DEBUG_LVL_VVERB,"Processing stored clone requests for GUID "GUIDF"\n", GUIDA(guid));
-
-            u64 paramv = (u64) queueHead->msg;
-            ocrPolicyDomain_t * pd = self->pd;
-            createProcessRequestEdtDistPolicy(pd, processRequestTemplateGuid, &paramv);
-            MdProxyNode_t * currNode = queueHead;
-            queueHead = queueHead->next;
-            pd->fcts.pdFree(pd, currNode);
+        if (((u64)queueHead) != REG_OPEN) {
+            ocrGuid_t processRequestTemplateGuid;
+            ocrEdtTemplateCreate(&processRequestTemplateGuid, &processRequestEdt, 1, 0);
+            DPRINTF(DEBUG_LVL_VVERB,"About to process stored clone requests for GUID "GUIDF" queueHead=%p)\n", GUIDA(guid), queueHead);
+            //BUG #989: MT opportunity - Asynchronously process operations queued on the MD to be available
+            //TODO instead of going over these one after the other to find out they may not be enabled,
+            //submit the bulk to the MD so that it can sort it out
+            while (queueHead != ((void*) REG_OPEN)) { // sentinel value
+                DPRINTF(DEBUG_LVL_VVERB,"Processing stored clone requests for GUID "GUIDF"\n", GUIDA(guid));
+                ocrPolicyMsg_t * msg = queueHead->msg;
+                if ((msg->type & PD_MSG_TYPE_ONLY) == PD_MSG_DB_ACQUIRE) {
+                    //TODO-MD-DBRTACQ
+                    // This is to let the PD know the message is re-processed and
+                    // there's no calling context that will read the response.
+                    ASSERT(msg->type & PD_MSG_REQ_RESPONSE);
+                    msg->type &= ~PD_MSG_REQ_RESPONSE;
+                }
+                u64 paramv = (u64) queueHead->msg;
+                ocrPolicyDomain_t * pd = self->pd;
+                createProcessRequestEdtDistPolicy(pd, processRequestTemplateGuid, &paramv);
+                MdProxyNode_t * currNode = queueHead;
+                queueHead = queueHead->next;
+                pd->fcts.pdFree(pd, currNode);
+            }
+            ocrEdtTemplateDestroy(processRequestTemplateGuid);
         }
-        ocrEdtTemplateDestroy(processRequestTemplateGuid);
     }
     return 0;
 }
+
 
 /**
  * @brief Returns the value associated with a guid and its kind if requested.
@@ -393,7 +431,12 @@ u8 countedMapRegisterGuid(ocrGuidProvider_t* self, ocrGuid_t guid, u64 val) {
  */
 static u8 countedMapGetVal(ocrGuidProvider_t* self, ocrGuid_t guid, u64* val, ocrGuidKind* kind, u32 mode, MdProxy_t ** proxy) {
     ASSERT(!ocrGuidIsNull(guid) && !ocrGuidIsError(guid) && !ocrGuidIsUninitialized(guid));
+
     ocrGuidProviderCountedMap_t * dself = (ocrGuidProviderCountedMap_t *) self;
+    if (kind) {
+        *kind = getKindFromGuid(guid);
+    }
+
     // See BUG #928 on GUID issues
     #if GUID_BIT_COUNT == 64
         void * rguid = (void *) guid.guid;
@@ -410,15 +453,11 @@ static u8 countedMapGetVal(ocrGuidProvider_t* self, ocrGuid_t guid, u64* val, oc
         MdProxy_t * mdProxy = (MdProxy_t *) GP_HASHTABLE_GET(((ocrGuidProviderCountedMap_t *) self)->guidImplTable, rguid);
         if (mdProxy == NULL) {
             if (mode == MD_LOCAL) {
-                if (kind) {
-                    *kind = getKindFromGuid(guid);
-                }
                 return 0;
             } // else the mode is fetch
             // This is a concurrent operation. Multiple concurrent call may try to do the fetch
-            // Implementation limitation. For now DB relies on the proxy mecanism in hc-dist-policy
-            // DBs are not registered until they are cloned through the DB proxy implementation.
-            ASSERT(getKindFromGuid(guid) != OCR_GUID_DB);
+            ASSERT(((mode == MD_FETCH) || (mode == MD_PROXY)) && (proxy != NULL));
+            // Optimistically try to enqueue.
             ocrPolicyDomain_t * pd = self->pd;
             mdProxy = (MdProxy_t *) pd->fcts.pdMalloc(pd, sizeof(MdProxy_t));
 #ifdef ENABLE_RESILIENCY
@@ -431,6 +470,11 @@ static u8 countedMapGetVal(ocrGuidProvider_t* self, ocrGuid_t guid, u64* val, oc
             hal_fence(); // I think the lock in try put should make the writes visible
             MdProxy_t * oldMdProxy = (MdProxy_t *) hashtableConcBucketLockedTryPut(dself->guidImplTable, rguid, mdProxy);
             if (oldMdProxy == mdProxy) { // won
+                // Concurrent callers will get the MdProxy and have to spin on it
+                if (mode == MD_PROXY) {
+                    *proxy = oldMdProxy;
+                    return 0;
+                }
                 // TODO two options:
                 // 1- Issue the MD cloning here and link the operation's completion to the mdProxy
                 // Sketch implementation:
@@ -473,6 +517,7 @@ static u8 countedMapGetVal(ocrGuidProvider_t* self, ocrGuid_t guid, u64* val, oc
                 //    md is resolve concurrently. It sounds it would be better
                 //    to go through functions.
             } else {
+                ASSERT(mode != MD_PROXY); // By contract, no competition on MD_PROXY
                 // lost competition, 2 cases:
                 // 1) The MD is available (it's concurrent to this thread of execution)
                 // 2) The MD is still being fetch
@@ -499,26 +544,16 @@ static u8 countedMapGetVal(ocrGuidProvider_t* self, ocrGuid_t guid, u64* val, oc
             }
         } else {
             // Implementation limitation. For now DB relies on the proxy mecanism in hc-dist-policy
-            if (getKindFromGuid(guid) == OCR_GUID_DB) {
-                *val = (u64) mdProxy;
-                if (proxy != NULL) {
-                    *proxy = NULL; // this should go away when DB are handled as part of MD cloning
-                }
-            } else {
-                *val = (u64) mdProxy->ptr;
-            }
+            *val = (u64) mdProxy->ptr;
         }
         if (mode == MD_FETCH) {
             ASSERT(proxy != NULL);
             *proxy = mdProxy;
+            DPRINTF(DEBUG_LVL_VVERB, "MD_FETCH for "GUIDF"\n", GUIDA(guid));
         } else {
             ASSERT(proxy == NULL);
         }
     }
-    if (kind) {
-        *kind = getKindFromGuid(guid);
-    }
-
     return (*val) ? 0 : OCR_EPEND;
 }
 
@@ -539,7 +574,6 @@ u8 countedMapUnregisterGuid(ocrGuidProvider_t* self, ocrGuid_t guid, u64 ** val)
 
 u8 countedMapReleaseGuid(ocrGuidProvider_t *self, ocrFatGuid_t fatGuid, bool releaseVal) {
     ocrGuid_t guid = fatGuid.guid;
-    // In any case, we need to recycle the guid
     ocrGuidProviderCountedMap_t * derived = (ocrGuidProviderCountedMap_t *) self;
     // See BUG #928 on GUID issues
 #if GUID_BIT_COUNT == 64
@@ -564,7 +598,7 @@ u8 countedMapReleaseGuid(ocrGuidProvider_t *self, ocrFatGuid_t fatGuid, bool rel
         PD_MSG_FIELD_I(ptr) = fatGuid.metaDataPtr;
         PD_MSG_FIELD_I(type) = GUID_MEMTYPE;
         PD_MSG_FIELD_I(properties) = 0;
-        RESULT_PROPAGATE(policy->fcts.processMessage (policy, &msg, true));
+        RESULT_PROPAGATE(policy->fcts.processMessage(policy, &msg, true));
 #undef PD_MSG
 #undef PD_TYPE
     }
@@ -572,12 +606,6 @@ u8 countedMapReleaseGuid(ocrGuidProvider_t *self, ocrFatGuid_t fatGuid, bool rel
 }
 
 #ifdef ENABLE_RESILIENCY
-
-extern void getSerializationSizeProxyDb(void *value, u64 *proxyDbSize);
-extern u8 serializeProxyDb(void *value, u8* buffer);
-extern u8 deserializeProxyDb(u8* buffer, void **value);
-extern void fixupProxyDb(void *value);
-extern void destructProxyDb(void *value);
 
 //Returns the serialization size of the MdProxy only,
 //excluding the size of linked OCR object in mdProxy->ptr
@@ -757,25 +785,21 @@ void calcSerializationSize(void * key, void * value, void * args) {
     ocrObject_t * ocrObj = (ocrObject_t*)value;
     MdProxy_t * mdProxy = NULL;
     u64 mdProxySize = 0;
-    if (!isLocalGuidCheck(self, guid) && kind != OCR_GUID_DB) {
+    if (!isLocalGuidCheck(self, guid)) {
         mdProxy = (MdProxy_t*)value;
         ASSERT(mdProxy->base.kind == OCR_GUID_MD_PROXY);
         ocrObj = (ocrObject_t*)mdProxy->ptr;
-        ASSERT(ocrObj);
+        ASSERT(ocrObj); // TODO-resilience: this can be null if the MD hasn't been resolved yet
         mdProxySize = getSerializationSizeMdProxy(mdProxy);
         ASSERT(mdProxySize > 0 && mdProxy->base.size == mdProxySize);
     }
 
     u64 mdSize = 0;
     if (kind == OCR_GUID_DB) {
-        if (ocrObj->kind == kind) {
-            ocrDataBlock_t *db = (ocrDataBlock_t*)ocrObj;
-            ASSERT(ocrGuidIsEq(guid, db->guid));
-            ((ocrDataBlockFactory_t*)(pd->factories[pd->datablockFactoryIdx]))->fcts.getSerializationSize(db, &mdSize);
-        } else {
-            ocrObj->guid = guid;
-            getSerializationSizeProxyDb(value, &mdSize);
-        }
+        ASSERT(ocrObj->kind == kind);
+        ocrDataBlock_t *db = (ocrDataBlock_t*)ocrObj;
+        ASSERT(ocrGuidIsEq(guid, db->guid));
+        ((ocrDataBlockFactory_t*)(pd->factories[pd->datablockFactoryIdx]))->fcts.getSerializationSize(db, &mdSize);
         ASSERT(mdSize > 0 || ocrObj->size == mdSize);
     } else if (kind == OCR_GUID_EDT) {
         ASSERT(ocrObj->kind == kind);
@@ -878,7 +902,7 @@ void serializeGuid(void * key, void * value, void * args) {
 
     ocrObject_t * ocrObj = (ocrObject_t*)value;
     MdProxy_t * mdProxy = NULL;
-    if (!isLocalGuidCheck(self, guid) && kind != OCR_GUID_DB) {
+    if (!isLocalGuidCheck(self, guid)) {
         mdProxy = (MdProxy_t*)value;
         ASSERT(mdProxy->base.kind == OCR_GUID_MD_PROXY);
         ocrObj = (ocrObject_t*)mdProxy->ptr;
@@ -889,30 +913,31 @@ void serializeGuid(void * key, void * value, void * args) {
 
     u64 size = 0;
     if (kind == OCR_GUID_DB) {
+        ASSERT(ocrObj->kind == kind);
         size = ocrObj->size;
-        if (ocrObj->kind == kind) {
-            ocrDataBlock_t *db = (ocrDataBlock_t*)ocrObj;
-            ASSERT(ocrGuidIsEq(guid, db->guid));
-            ((ocrDataBlockFactory_t*)(pd->factories[pd->datablockFactoryIdx]))->fcts.serialize(db, ptr);
-        } else {
-            serializeProxyDb(value, ptr);
-        }
+        ocrDataBlock_t *db = (ocrDataBlock_t*)ocrObj;
+        ASSERT(ocrGuidIsEq(guid, db->guid));
+        //TODO-resilience: use standard API
+        ((ocrDataBlockFactory_t*)(pd->factories[pd->datablockFactoryIdx]))->fcts.serialize(db, ptr);
     } else if (kind == OCR_GUID_EDT) {
         ASSERT(ocrObj->kind == kind);
         size = ocrObj->size;
         ocrTask_t *edt = (ocrTask_t*)ocrObj;
         ASSERT(ocrGuidIsEq(guid, edt->guid));
+        //TODO-resilience: use standard API
         ((ocrTaskFactory_t*)(pd->factories[pd->taskFactoryIdx]))->fcts.serialize(edt, ptr);
     } else if (kind == OCR_GUID_EDT_TEMPLATE) {
         ASSERT(ocrObj->kind == kind);
         size = ocrObj->size;
         ocrTaskTemplate_t *tmpl = (ocrTaskTemplate_t*)ocrObj;
+        //TODO-resilience: use standard API
         ((ocrTaskTemplateFactory_t*)(pd->factories[pd->taskTemplateFactoryIdx]))->fcts.serialize(tmpl, ptr);
     } else if (kind & OCR_GUID_EVENT) {
         ASSERT(ocrObj->kind == kind);
         size = ocrObj->size;
         ocrEvent_t *evt = (ocrEvent_t*)ocrObj;
         ASSERT(ocrGuidIsEq(guid, evt->guid));
+        //TODO-resilience: use standard API
         ((ocrEventFactory_t*)(pd->factories[pd->eventFactoryIdx]))->commonFcts.serialize(evt, ptr);
     } else if (kind == OCR_GUID_AFFINITY) {
         size = sizeof(ocrAffinity_t);
@@ -995,7 +1020,7 @@ u8 deserializeGuidProviderCounted(ocrGuidProvider_t* self, u8* buffer) {
         self->fcts.getKind(self, guid, &kind);
 
         MdProxy_t * mdProxy = NULL;
-        if (!isLocalGuidCheck(self, guid) && kind != OCR_GUID_DB) {
+        if (!isLocalGuidCheck(self, guid)) {
             u64 mdProxySize = deserializeMdProxy(buffer, &mdProxy);
             ASSERT(mdProxySize > 0 && mdProxy != NULL);
             buffer += mdProxySize;
@@ -1006,14 +1031,11 @@ u8 deserializeGuidProviderCounted(ocrGuidProvider_t* self, u8* buffer) {
         if (kind == OCR_GUID_DB) {
             ocrObj = (ocrObject_t *)buffer;
             size = ocrObj->size;
-            if (ocrObj->kind == kind) {
-                ocrDataBlock_t *db = NULL;
-                ((ocrDataBlockFactory_t*)(pd->factories[pd->datablockFactoryIdx]))->fcts.deserialize(buffer, &db);
-                ASSERT(db != NULL && ocrGuidIsEq(guid, db->guid));
-                val = db;
-            } else {
-                deserializeProxyDb(buffer, &val);
-            }
+            ASSERT(ocrObj->kind == kind);
+            ocrDataBlock_t *db = NULL;
+            ((ocrDataBlockFactory_t*)(pd->factories[pd->datablockFactoryIdx]))->fcts.deserialize(buffer, &db);
+            ASSERT(db != NULL && ocrGuidIsEq(guid, db->guid));
+            val = db;
         } else if (kind == OCR_GUID_EDT) {
             ocrObj = (ocrObject_t *)buffer;
             ASSERT(ocrObj->kind == kind);
@@ -1093,7 +1115,7 @@ void fixupGuid(void * key, void * value, void * args) {
     self->fcts.getKind(self, guid, &kind);
 
     MdProxy_t * mdProxy = NULL;
-    if (!isLocalGuidCheck(self, guid) && kind != OCR_GUID_DB) {
+    if (!isLocalGuidCheck(self, guid)) {
         mdProxy = (MdProxy_t*)value;
         ASSERT(mdProxy->base.kind == OCR_GUID_MD_PROXY);
         value = (void*)mdProxy->ptr;
@@ -1103,13 +1125,10 @@ void fixupGuid(void * key, void * value, void * args) {
 
     if (kind == OCR_GUID_DB) {
         ocrObject_t * ocrObj = (ocrObject_t*)value;
-        if (ocrObj->kind == kind) {
-            ocrDataBlock_t *db = (ocrDataBlock_t*)value;
-            ASSERT(ocrGuidIsEq(guid, db->guid));
-            ((ocrDataBlockFactory_t*)(pd->factories[pd->datablockFactoryIdx]))->fcts.fixup(db);
-        } else {
-            fixupProxyDb(value);
-        }
+        ASSERT(ocrObj->kind == kind);
+        ocrDataBlock_t *db = (ocrDataBlock_t*)value;
+        ASSERT(ocrGuidIsEq(guid, db->guid));
+        ((ocrDataBlockFactory_t*)(pd->factories[pd->datablockFactoryIdx]))->fcts.fixup(db);
     } else if (kind == OCR_GUID_EDT) {
         ocrObject_t * ocrObj = (ocrObject_t*)value;
         ASSERT(ocrObj->kind == kind);
@@ -1187,7 +1206,7 @@ void resetProgramState(void * key, void * value, void * args) {
     self->fcts.getKind(self, guid, &kind);
 
     MdProxy_t * mdProxy = NULL;
-    if (!isLocalGuidCheck(self, guid) && kind != OCR_GUID_DB) {
+    if (!isLocalGuidCheck(self, guid)) {
         mdProxy = (MdProxy_t*)value;
         ASSERT(mdProxy->base.kind == OCR_GUID_MD_PROXY);
         value = (void*)mdProxy->ptr;
@@ -1197,15 +1216,12 @@ void resetProgramState(void * key, void * value, void * args) {
     void *val = NULL;
     if (kind == OCR_GUID_DB) {
         GP_HASHTABLE_DEL(derived->guidImplTable, key, &val);
-        ASSERT(value == val);
+        ASSERT((value == val) || (mdProxy == val));
         ocrObject_t * ocrObj = (ocrObject_t*)value;
-        if (ocrObj->kind == kind) {
-            ocrDataBlock_t *db = (ocrDataBlock_t*)value;
-            ASSERT(ocrGuidIsEq(guid, db->guid));
-            ((ocrDataBlockFactory_t*)(pd->factories[pd->datablockFactoryIdx]))->fcts.reset(db);
-        } else {
-            destructProxyDb(value);
-        }
+        ASSERT(ocrObj->kind == kind);
+        ocrDataBlock_t *db = (ocrDataBlock_t*)value;
+        ASSERT(ocrGuidIsEq(guid, db->guid));
+        ((ocrDataBlockFactory_t*)(pd->factories[pd->datablockFactoryIdx]))->fcts.reset(db);
     } else if (kind == OCR_GUID_EDT) {
         GP_HASHTABLE_DEL(derived->guidImplTable, key, &val);
         ASSERT((value == val) || (mdProxy == val));
@@ -1312,7 +1328,7 @@ ocrGuidProviderFactory_t *newGuidProviderFactoryCountedMap(ocrParamList_t *typeA
     base->providerFcts.destruct = FUNC_ADDR(void (*)(ocrGuidProvider_t*), countedMapDestruct);
     base->providerFcts.switchRunlevel = FUNC_ADDR(u8 (*)(ocrGuidProvider_t*, ocrPolicyDomain_t*, ocrRunlevel_t,
                                                          phase_t, u32, void (*)(ocrPolicyDomain_t*, u64), u64), countedMapSwitchRunlevel);
-    base->providerFcts.guidReserve = FUNC_ADDR(u8 (*)(ocrGuidProvider_t*, ocrGuid_t*, u64*, u64, ocrGuidKind), countedMapGuidReserve);
+    base->providerFcts.guidReserve = FUNC_ADDR(u8 (*)(ocrGuidProvider_t*, ocrGuid_t*, u64*, u64, ocrGuidKind, u32), countedMapGuidReserve);
     base->providerFcts.guidUnreserve = FUNC_ADDR(u8 (*)(ocrGuidProvider_t*, ocrGuid_t, u64, u64), countedMapGuidUnreserve);
     base->providerFcts.getGuid = FUNC_ADDR(u8 (*)(ocrGuidProvider_t*, ocrGuid_t*, u64, ocrGuidKind, ocrLocation_t, u32 properties), countedMapGetGuid);
     base->providerFcts.createGuid = FUNC_ADDR(u8 (*)(ocrGuidProvider_t*, ocrFatGuid_t*, u64, ocrGuidKind, ocrLocation_t, u32), countedMapCreateGuid);

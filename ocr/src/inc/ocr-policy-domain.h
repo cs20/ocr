@@ -772,6 +772,7 @@ typedef struct _ocrPolicyMsg_t {
                 struct {
                     u64 numberGuids;      /**< In: Number of GUIDs being reserved */
                     ocrGuidKind guidKind; /**< In: GUID type for the GUIDs being reserved */
+                    u32 properties;         /**< In: Whether or not it is labeled */
                 } in;
                 struct {
                     ocrGuid_t startGuid;  /**< Out: First GUID usable in the reserved range */
@@ -1796,6 +1797,16 @@ u8 ocrPolicyMsgUnMarshallMsg(u8* mainBuffer, u8* addlBuffer,
  * @return true if local GUID
  */
 bool isLocalGuid(ocrPolicyDomain_t *pd, ocrGuid_t guid);
+
+/*
+ * @brief Allocate memory for a policy message.
+ *
+ * @param[in] pd        The PD requesting the message creation
+ * @param[inout] size   In is the requested size, out is the adjusted size if aligned was mandated.
+ *
+ * @return Pointer to allocated memory
+ */
+struct _ocrPolicyMsg_t * allocPolicyMsg(ocrPolicyDomain_t * pd, u64 * size);
 
 #ifdef ENABLE_OCR_API_DEFERRABLE
 void tagDeferredMsg(ocrPolicyMsg_t * msg, ocrTask_t * task);

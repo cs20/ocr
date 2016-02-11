@@ -227,7 +227,7 @@ u8 regularUnregisterWaiter(ocrDataBlock_t *self, ocrFatGuid_t waiter, u32 slot,
 }
 
 u8 newDataBlockRegular(ocrDataBlockFactory_t *factory, ocrFatGuid_t *guid, ocrFatGuid_t allocator,
-                       ocrFatGuid_t allocPD, u64 size, void* ptr, ocrHint_t *hint, u32 flags,
+                       ocrFatGuid_t allocPD, u64 size, void** ptr, ocrHint_t *hint, u32 flags,
                        ocrParamList_t *perInstance) {
     ocrPolicyDomain_t *pd = NULL;
     ocrTask_t *task = NULL;
@@ -273,12 +273,35 @@ u8 newDataBlockRegular(ocrDataBlockFactory_t *factory, ocrFatGuid_t *guid, ocrFa
         return returnValue;
     }
 
+    // If the caller wants a pointer back
+    if ((ptr != NULL) && (*ptr != NULL)) {
+        // Use that pointer provided
+        result->base.ptr = *ptr;
+    } else {
+        // All other cases, allocate some memory
+        PD_MSG_STACK(msg);
+        getCurrentEnv(NULL, NULL, NULL, &msg);
+#define PD_MSG (&msg)
+#define PD_TYPE PD_MSG_MEM_ALLOC
+        msg.type = PD_MSG_MEM_ALLOC | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
+        PD_MSG_FIELD_I(size) = size;
+        PD_MSG_FIELD_I(properties) = 0;
+        PD_MSG_FIELD_I(type) = DB_MEMTYPE;
+        RESULT_PROPAGATE(pd->fcts.processMessage(pd, &msg, true));
+        void * allocPtr = (void *)PD_MSG_FIELD_O(ptr);
+#undef PD_MSG
+#undef PD_TYPE
+        result->base.ptr = allocPtr;
+        if (ptr != NULL) {
+            *ptr = allocPtr;
+        }
+    }
+
     ASSERT(result);
     result->base.fctId = factory->factoryId;
     result->base.allocator = allocator.guid;
     result->base.allocatingPD = allocPD.guid;
     result->base.size = size;
-    result->base.ptr = ptr;
     // Only keep flags that represent the nature of
     // the DB as opposed to one-time usage creation flags
     result->base.flags = (flags & DB_PROP_SINGLE_ASSIGNMENT);
@@ -351,14 +374,11 @@ ocrDataBlockFactory_t *newDataBlockFactoryRegular(ocrParamList_t *perType, u32 f
     bbase->deserialize = NULL;
     bbase->mdSize = NULL;
     bbase->fcts.processEvent = NULL;
-
     ocrDataBlockFactory_t* base = (ocrDataBlockFactory_t*) bbase;
-    base->instantiate = FUNC_ADDR(u8 (*)
-                                  (ocrDataBlockFactory_t*, ocrFatGuid_t *, ocrFatGuid_t, ocrFatGuid_t,
-                                   u64, void*, ocrHint_t*, u32, ocrParamList_t*), newDataBlockRegular);
-    base->base.destruct = FUNC_ADDR(void (*)(ocrObjectFactory_t*), destructRegularFactory);
-
-    // Functions for the instance
+    base->instantiate = FUNC_ADDR(u8 (*) (ocrDataBlockFactory_t*, ocrFatGuid_t *, ocrFatGuid_t, ocrFatGuid_t,
+                                   u64, void**, ocrHint_t*, u32, ocrParamList_t*), newDataBlockRegular);
+    bbase->destruct = FUNC_ADDR(void (*)(ocrObjectFactory_t*), destructRegularFactory);
+    // Instance functions
     base->fcts.destruct = FUNC_ADDR(u8 (*)(ocrDataBlock_t*), regularDestruct);
     base->fcts.acquire = FUNC_ADDR(u8 (*)(ocrDataBlock_t*, void**, ocrFatGuid_t, ocrLocation_t, u32, ocrDbAccessMode_t, bool, u32), regularAcquire);
     base->fcts.release = FUNC_ADDR(u8 (*)(ocrDataBlock_t*, ocrFatGuid_t, ocrLocation_t, bool), regularRelease);

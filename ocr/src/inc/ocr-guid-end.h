@@ -88,7 +88,7 @@ static inline u8 guidify(struct _ocrPolicyDomain_t * pd, u64 val,
     PD_MSG_FIELD_I(size) = 0;
     PD_MSG_FIELD_I(kind) = kind;
     PD_MSG_FIELD_I(targetLoc) = pd->myLocation;
-    PD_MSG_FIELD_I(properties) = 0;
+    PD_MSG_FIELD_I(properties) = GUID_PROP_TORECORD;
 
     returnCode = pd->fcts.processMessage(pd, &msg, true);
 

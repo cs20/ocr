@@ -32,41 +32,8 @@
 // Begin platform model based on affinities
 //
 
-//TODO defined in hc-dist-policy for now but should go away
-#ifdef ENABLE_POLICY_DOMAIN_HC_DIST
 extern u8 resolveRemoteMetaData(ocrPolicyDomain_t * pd, ocrFatGuid_t * fatGuid,
                                 ocrPolicyMsg_t * msg, bool isBlocking);
-#else
-static u8 resolveRemoteMetaData(ocrPolicyDomain_t * pd, ocrFatGuid_t * fatGuid,
-                                ocrPolicyMsg_t * msg, bool isBlocking) {
-    u64 val;
-    // On the XE, we don't have a GUID provider and on the CE, we do some mean trick to get
-    // the right value (pretending to be another CE)
-#if defined(TG_XE_TARGET) || defined(TG_CE_TARGET)
-    PD_MSG_STACK(msg2);
-    getCurrentEnv(NULL, NULL, NULL, &msg2);
-#define PD_MSG (&msg2)
-#define PD_TYPE PD_MSG_GUID_INFO
-    msg2.type = PD_MSG_GUID_INFO | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
-    PD_MSG_FIELD_IO(guid.guid) = fatGuid->guid;
-    PD_MSG_FIELD_IO(guid.metaDataPtr) = NULL;
-    PD_MSG_FIELD_I(properties) = RMETA_GUIDPROP;
-    RESULT_ASSERT(pd->fcts.processMessage(pd, &msg2, true), ==, 0);
-    u8 res __attribute__((unused)) = 0; // The call returns the mode so we just ignore it and val will be non-zero
-    // if all went well
-    val = (u64)PD_MSG_FIELD_IO(guid.metaDataPtr);
-#undef PD_MSG
-#undef PD_TYPE
-
-#else
-    u8 res __attribute__((unused)) = pd->guidProviders[0]->fcts.getVal(pd->guidProviders[0], fatGuid->guid, &val, NULL, MD_LOCAL, NULL);
-#endif
-    ASSERT(val != 0);
-    ASSERT(res == 0);
-    fatGuid->metaDataPtr = (void *) val;
-    return 0;
-}
-#endif
 
 u8 affinityToLocation(ocrLocation_t* result, ocrGuid_t affinityGuid) {
     ocrFatGuid_t fguid;
@@ -78,7 +45,6 @@ u8 affinityToLocation(ocrLocation_t* result, ocrGuid_t affinityGuid) {
     *result = ((ocrAffinity_t *) fguid.metaDataPtr)->place;
     return 0;
 }
-
 
 ocrPlatformModel_t * createPlatformModelAffinity(ocrPolicyDomain_t *pd) {
     ocrPlatformModelAffinity_t * model = pd->fcts.pdMalloc(pd, sizeof(ocrPlatformModelAffinity_t));
@@ -94,14 +60,14 @@ ocrPlatformModel_t * createPlatformModelAffinity(ocrPolicyDomain_t *pd) {
     for(i=0; i < pd->neighborCount; i++) {
         ASSERT(pd->neighbors[i] < countAff);
         ocrFatGuid_t fguid;
-        pd->guidProviders[0]->fcts.createGuid(pd->guidProviders[0], &fguid, sizeof(ocrAffinity_t), OCR_GUID_AFFINITY, pd->myLocation, GUID_PROP_NONE);
+        pd->guidProviders[0]->fcts.createGuid(pd->guidProviders[0], &fguid, sizeof(ocrAffinity_t), OCR_GUID_AFFINITY, pd->myLocation, GUID_PROP_TORECORD);
         ((ocrAffinity_t*)fguid.metaDataPtr)->place = pd->neighbors[i];
         model->pdLocAffinities[pd->neighbors[i]] = fguid.guid;
     }
     // Do current PD
     model->current = (u32)pd->myLocation;
     ocrFatGuid_t fguid;
-    pd->guidProviders[0]->fcts.createGuid(pd->guidProviders[0], &fguid, sizeof(ocrAffinity_t), OCR_GUID_AFFINITY, pd->myLocation, GUID_PROP_NONE);
+    pd->guidProviders[0]->fcts.createGuid(pd->guidProviders[0], &fguid, sizeof(ocrAffinity_t), OCR_GUID_AFFINITY, pd->myLocation, GUID_PROP_TORECORD);
     ((ocrAffinity_t*)fguid.metaDataPtr)->place = pd->myLocation;
     model->pdLocAffinities[model->current] = fguid.guid;
 

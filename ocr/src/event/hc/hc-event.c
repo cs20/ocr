@@ -374,6 +374,7 @@ static u8 commonSatisfyWaiters(ocrPolicyDomain_t *pd, ocrEvent_t *base, ocrFatGu
         // First acquire the DB that contains the waiters
 #define PD_MSG (msg)
 #define PD_TYPE PD_MSG_DB_ACQUIRE
+        getCurrentEnv(NULL, NULL, NULL, msg);
         msg->type = PD_MSG_DB_ACQUIRE | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
         PD_MSG_FIELD_IO(guid) = dbWaiters;
         PD_MSG_FIELD_IO(edt) = currentEdt;
@@ -1271,7 +1272,7 @@ static void mdPushHcDist(ocrGuid_t evtGuid, ocrLocation_t loc, ocrGuid_t dbGuid,
     PD_MSG_FIELD_I(response) = NULL;
     PD_MSG_FIELD_I(mdPtr) = NULL;
     DPRINTF (DBG_HCEVT_LOG, "event-md: push "GUIDF" in mode=%d\n", GUIDA(evtGuid), mode);
-    PD_MSG_FIELD_I(sizePayload) = 0;
+    PD_MSG_FIELD_I(sizePayload) = 0; // This MUST be set to zero otherwise base size returns random crap
     ASSERT((ocrPolicyMsgGetMsgBaseSize(&msg, true) + sizeof(ocrLocation_t) + sizeof(ocrGuid_t)) < sizeof(ocrPolicyMsg_t));
     // Always specify where the push comes from
     // TODO: This is redundant with the message header but the header doesn't make it all
@@ -1319,7 +1320,7 @@ static void mdPullHcDist(ocrGuid_t guid, u32 mode, u32 factoryId) {
     PD_MSG_FIELD_I(response) = NULL;
     PD_MSG_FIELD_I(mdPtr) = NULL;
     DPRINTF (DBG_HCEVT_LOG, "event-md: pull "GUIDF" in mode=%d\n", GUIDA(guid), mode);
-    PD_MSG_FIELD_I(sizePayload) = 0;
+    PD_MSG_FIELD_I(sizePayload) = 0; // This MUST be set to zero otherwise base size returns random crap
     ASSERT((ocrPolicyMsgGetMsgBaseSize(&msg, true) + sizeof(ocrLocation_t)) < sizeof(ocrPolicyMsg_t));
     // Always specify where the push comes from
     // TODO: This is redundant with the message header but the header doesn't make it all
@@ -1509,7 +1510,7 @@ static u8 allocateNewEventHc(ocrGuidKind guidKind, ocrFatGuid_t * resultGuid, u3
     PD_MSG_FIELD_I(size) = (*sizeofMd) + hintc*sizeof(u64);
     PD_MSG_FIELD_I(kind) = guidKind;
     PD_MSG_FIELD_I(targetLoc) = pd->myLocation;
-    PD_MSG_FIELD_I(properties) = properties;
+    PD_MSG_FIELD_I(properties) = properties | GUID_PROP_TORECORD;
     RESULT_PROPAGATE(pd->fcts.processMessage(pd, &msg, true));
     u8 returnValue = PD_MSG_FIELD_O(returnDetail);
     if (returnValue && (returnValue != OCR_EGUIDEXISTS)) {
@@ -1529,7 +1530,7 @@ static u8 allocateNewEventHc(ocrGuidKind guidKind, ocrFatGuid_t * resultGuid, u3
     return returnValue;
 }
 
-// Created a distributed event that has additional metadata
+// Creates a distributed event that has additional metadata
 // REQ: fguid must be a valid GUID so that the event has either already been allocated
 //      (hence we have a guid) or it's a labeled guid and the guid is well-formed.
 // NOTE: This was originally intended to be used for forging event but it also works
@@ -1546,7 +1547,7 @@ static u8 newEventHcDist(ocrFatGuid_t * fguid, ocrGuid_t data, ocrEventFactory_t
     returnValue = pd->guidProviders[0]->fcts.getLocation(pd->guidProviders[0], fguid->guid, &guidLoc);
     ASSERT(!returnValue);
     u32 sizeOfMd;
-    returnValue = allocateNewEventHc(guidKind, fguid, &sizeOfMd, GUID_PROP_IS_LABELED/*prop*/, NULL);
+    returnValue = allocateNewEventHc(guidKind, fguid, &sizeOfMd, /*prop*/GUID_PROP_ISVALID, NULL);
     ocrEventHc_t *event = (ocrEventHc_t*) fguid->metaDataPtr;
     u8 ret = initNewEventHc(event, eventType, data, factory, sizeOfMd, NULL);
     if (ret) { return ret; }
@@ -2323,7 +2324,6 @@ ocrEventFactory_t * newEventFactoryHc(ocrParamList_t *perType, u32 factoryId) {
     base->fcts[OCR_EVENT_CHANNEL_T].unregisterWaiter =
         FUNC_ADDR(u8 (*)(ocrEvent_t*, ocrFatGuid_t, u32, bool), unregisterWaiterEventHcChannel);
 #endif
-
     base->factoryId = factoryId;
 
     //Setup hint framework

@@ -232,7 +232,7 @@ static void scheduleEdtMovement(ocrPolicyDomain_t * pd, ocrFatGuid_t edtFGuid, o
 #undef PD_TYPE
 }
 
-//TODO-MD need micro-tasking here to avoid redistributing RT work
+//BUG #989: MT opportunity
 extern ocrGuid_t processRequestEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]);
 
 static u8 placerAffinitySchedulerHeuristicNotifyEdtSatisfiedInvoke(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicContext_t *context, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {

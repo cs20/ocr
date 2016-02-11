@@ -1167,7 +1167,7 @@ static u8 ceAllocateDb(ocrPolicyDomain_t *self, ocrFatGuid_t *guid, void** ptr, 
         returnValue = ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->instantiate(
             (ocrDataBlockFactory_t*)self->factories[self->datablockFactoryIdx], guid,
             self->allocators[idx]->fguid, self->fguid,
-            size, *ptr, hint, properties, NULL);
+            size, ptr, hint, properties, NULL);
         if(returnValue != 0) {
             ceMemUnalloc(self, &(self->allocators[idx]->fguid), *ptr, DB_MEMTYPE);
         }
@@ -1405,7 +1405,6 @@ u8 cePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         bool doNotAcquireDb = PD_MSG_FIELD_IO(properties) & DB_PROP_NO_ACQUIRE;
         doNotAcquireDb |= (PD_MSG_FIELD_IO(properties) & GUID_PROP_CHECK) == GUID_PROP_CHECK;
         doNotAcquireDb |= (PD_MSG_FIELD_IO(properties) & GUID_PROP_BLOCK) == GUID_PROP_BLOCK;
-
         // BUG #145: The prescription needs to be derived from the affinity, and needs to default to something sensible.
         u64 engineIndex = getEngineIndex(self, msg->srcLocation);
         ocrFatGuid_t edtFatGuid = {.guid = PD_MSG_FIELD_I(edt.guid), .metaDataPtr = PD_MSG_FIELD_I(edt.metaDataPtr)};
@@ -2107,7 +2106,7 @@ u8 cePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
                 PD_MSG_FIELD_I(numberGuids), PD_MSG_FIELD_I(guidKind));
         PD_MSG_FIELD_O(returnDetail) = self->guidProviders[0]->fcts.guidReserve(
             self->guidProviders[0], &(PD_MSG_FIELD_O(startGuid)), &(PD_MSG_FIELD_O(skipGuid)),
-            PD_MSG_FIELD_I(numberGuids), PD_MSG_FIELD_I(guidKind));
+            PD_MSG_FIELD_I(numberGuids), PD_MSG_FIELD_I(guidKind), PD_MSG_FIELD_I(properties));
         DPRINTF(DEBUG_LVL_VERB, "GUID_RESERVE response: start "GUIDF"\n",
                 GUIDA(PD_MSG_FIELD_O(startGuid)));
 #undef PD_MSG

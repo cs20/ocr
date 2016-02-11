@@ -20,13 +20,11 @@ u8 ocrEventCreateParams(ocrGuid_t *guid, ocrEventTypes_t eventType, u16 properti
     START_PROFILE(api_ocrEventCreate);
     DPRINTF(DEBUG_LVL_INFO, "ENTER ocrEventCreateParams(*guid="GUIDF", eventType=%"PRIu32", properties=%"PRIu32")\n", GUIDA(*guid),
             (u32)eventType, (u32)properties);
-
     PD_MSG_STACK(msg);
     ocrPolicyDomain_t * pd = NULL;
     u8 returnCode = 0;
     ocrTask_t * curEdt = NULL;
     getCurrentEnv(&pd, NULL, &curEdt, &msg);
-
 #define PD_MSG (&msg)
 #define PD_TYPE PD_MSG_EVT_CREATE
     msg.type = PD_MSG_EVT_CREATE | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
@@ -113,7 +111,6 @@ u8 ocrEventSatisfySlot(ocrGuid_t eventGuid, ocrGuid_t dataGuid /*= INVALID_GUID*
             GUIDA(eventGuid), GUIDA(dataGuid), slot);
     PD_MSG_STACK(msg);
     ocrPolicyDomain_t *pd = NULL;
-
     ocrTask_t * curEdt = NULL;
     getCurrentEnv(&pd, NULL, &curEdt, &msg);
 #define PD_MSG (&msg)
@@ -154,10 +151,8 @@ u8 ocrEventSatisfy(ocrGuid_t eventGuid, ocrGuid_t dataGuid /*= INVALID_GUID*/) {
 u8 ocrEdtTemplateCreate_internal(ocrGuid_t *guid, ocrEdt_t funcPtr, u32 paramc, u32 depc, const char* funcName) {
     OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_API_EDT, OCR_ACTION_TEMPLATE_CREATE, funcPtr, paramc, depc);
     START_PROFILE(api_ocrEdtTemplateCreate);
-
     DPRINTF(DEBUG_LVL_INFO, "ENTER ocrEdtTemplateCreate(*guid="GUIDF", funcPtr=%p, paramc=%"PRId32", depc=%"PRId32", name=%s)\n",
             GUIDA(*guid), funcPtr, (s32)paramc, (s32)depc, funcName?funcName:"");
-
 #ifdef OCR_ENABLE_EDT_NAMING
     // Please check that OCR_ENABLE_EDT_NAMING is defined in the app's makefile
     ASSERT(funcName);
@@ -243,12 +238,13 @@ u8 ocrEdtCreate(ocrGuid_t* edtGuidPtr, ocrGuid_t templateGuid,
            ", depc=%"PRId32", depv=%p, prop=%"PRIu32", hint=%p, outEvt="GUIDF")\n",
            GUIDA(edtGuid), GUIDA(templateGuid), (s32)paramc, paramv, (s32)depc, depv,
             (u32)properties, hint,  GUIDA(outputEvent?*outputEvent:NULL_GUID));
-
+    OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_EDT, OCR_ACTION_CREATE);
     PD_MSG_STACK(msg);
     ocrPolicyDomain_t * pd = NULL;
     u8 returnCode = 0;
     ocrTask_t * curEdt = NULL;
     getCurrentEnv(&pd, NULL, &curEdt, &msg);
+
     if((paramc == EDT_PARAM_UNK) || (depc == EDT_PARAM_UNK)) {
         DPRINTF(DEBUG_LVL_WARN, "error: paramc or depc cannot be set to EDT_PARAM_UNK\n");
         ASSERT(false);
@@ -256,7 +252,6 @@ u8 ocrEdtCreate(ocrGuid_t* edtGuidPtr, ocrGuid_t templateGuid,
     }
 
     bool reqResponse = false;
-
     if((properties & GUID_PROP_IS_LABELED)) {
         if(depv != NULL) {
             // This is disallowed for now because if there are two creators,

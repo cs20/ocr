@@ -78,6 +78,7 @@ typedef enum _ocrRLPhaseComponents_t {
 
 struct _ocrObject_t;
 struct _pdEvent_t;
+struct _ocrPolicyMsg_t;
 
 // BUG #605
 // This is a placeholder for something that identifies a memory,
@@ -148,7 +149,6 @@ typedef struct _ocrObjectFcts_t {
  */
 typedef struct _ocrObjectFactory_t {
     ocrObjectFcts_t fcts;   /**< Functions for this object factory */
-
     /**
      * @brief Destructor for this factory
      * @details Destroys this factory. This function is pure virtual and is implemented by the derived class
@@ -157,11 +157,13 @@ typedef struct _ocrObjectFactory_t {
      * @return Void
      */
     void (*destruct)(struct _ocrObjectFactory_t *factory);
+    //TODO-MD-FACT: We should get a PD pointer here since the factory is going to do malloc repeatedly
     u8 (*clone)(struct _ocrObjectFactory_t * factory, ocrGuid_t, ocrObject_t ** mdPtr);
     u8 (*serialize)(struct _ocrObjectFactory_t * factory, ocrGuid_t guid, ocrObject_t * src, u64 * mode, ocrLocation_t destLocation, void ** destBuffer, u64 * destSize);
     u8 (*deserialize)(struct _ocrObjectFactory_t * factory, ocrGuid_t evtGuid, ocrObject_t ** dest, u64 mode, void * srcBuffer, u64 srcSize);
     // The size of the metadata if it was to be serialized at the time of the call
     u8 (*mdSize)(ocrObject_t *dest, u64 mode, u64 * size);
+    u8 (*process)(struct _ocrObjectFactory_t * factory, ocrGuid_t guid, ocrObject_t*, struct _ocrPolicyMsg_t * msg);
 } ocrObjectFactory_t;
 
 // Metadata Management

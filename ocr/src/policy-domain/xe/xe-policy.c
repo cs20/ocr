@@ -729,7 +729,7 @@ static u8 xeAllocateDb(ocrPolicyDomain_t *self, ocrFatGuid_t *guid, void** ptr, 
         u8 returnValue = 0;
         returnValue = ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->instantiate(
             (ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]), guid, self->allocators[idx]->fguid, self->fguid,
-            size, *ptr, hint, properties, NULL);
+            size, ptr, hint, properties, NULL);
         if(returnValue != 0) {
             allocatorFreeFunction(*ptr);
         }
@@ -831,21 +831,20 @@ u8 xePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         bool doNotAcquireDb = PD_MSG_FIELD_IO(properties) & DB_PROP_NO_ACQUIRE;
         doNotAcquireDb |= (PD_MSG_FIELD_IO(properties) & GUID_PROP_CHECK) == GUID_PROP_CHECK;
         doNotAcquireDb |= (PD_MSG_FIELD_IO(properties) & GUID_PROP_BLOCK) == GUID_PROP_BLOCK;
-
 // BUG #145: The prescription needs to be derived from the affinity, and needs to default to something sensible.
         u64 engineIndex = self->myLocation & 0xF;
         // getEngineIndex(self, msg->srcLocation);
         ocrFatGuid_t edtFatGuid = {.guid = PD_MSG_FIELD_I(edt.guid), .metaDataPtr = PD_MSG_FIELD_I(edt.metaDataPtr)};
         u64 reqSize = PD_MSG_FIELD_IO(size);
-
+        void * ptr = NULL; // request memory to be allocated
         u8 ret = xeAllocateDb(
-            self, &(PD_MSG_FIELD_IO(guid)), &(PD_MSG_FIELD_O(ptr)), reqSize,
+            self, &(PD_MSG_FIELD_IO(guid)), &ptr, reqSize,
             PD_MSG_FIELD_IO(properties), engineIndex,
             PD_MSG_FIELD_I(hint), PD_MSG_FIELD_I(allocator), 0 /*PRESCRIPTION*/);
         if (ret == 0) {
             PD_MSG_FIELD_O(returnDetail) = ret;
             if(PD_MSG_FIELD_O(returnDetail) == 0) {
-                ocrDataBlock_t *db= PD_MSG_FIELD_IO(guid.metaDataPtr);
+                ocrDataBlock_t *db = PD_MSG_FIELD_IO(guid.metaDataPtr);
                 ASSERT(db);
                 if(doNotAcquireDb) {
                     DPRINTF(DEBUG_LVL_INFO, "Not acquiring DB since disabled by property flags\n");
