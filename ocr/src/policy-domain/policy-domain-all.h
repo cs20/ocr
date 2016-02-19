@@ -45,4 +45,7 @@ extern const char * policyDomain_types [];
 
 ocrPolicyDomainFactory_t * newPolicyDomainFactory(policyDomainType_t type, ocrParamList_t *perType);
 
+//Allows to resolve the factory of an OCR object from its GUID kind
+ocrObjectFactory_t * resolveObjectFactory(ocrPolicyDomain_t *pd, ocrGuidKind kind);
+
 #endif /* __POLICY_DOMAIN_ALL_H_ */

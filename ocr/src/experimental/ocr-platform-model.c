@@ -69,6 +69,8 @@ ocrPlatformModel_t * createPlatformModelAffinity(ocrPolicyDomain_t *pd) {
     // Returns an array of affinity where each affinity maps to a PD.
     // The array is ordered by PD's location (rank in mpi/gasnet)
     u64 i=0;
+    // pd->neighbors is initialized at boot before creating the affinity list
+    // These are the known neighbors at startup
     for(i=0; i < pd->neighborCount; i++) {
         ASSERT(pd->neighbors[i] < countAff);
         ocrFatGuid_t fguid;

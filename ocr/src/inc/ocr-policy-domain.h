@@ -28,6 +28,15 @@
 
 struct _pdEvent_t;
 
+/* Metadata-Cloning declarations */
+
+// Operation that triggered the cloning
+#define ocrObjectOperation_t u32
+
+// Directions
+#define MD_DIR_PULL 1
+#define MD_DIR_PUSH 2
+
 /****************************************************/
 /* PARAMETER LISTS                                  */
 /****************************************************/

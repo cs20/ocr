@@ -69,6 +69,14 @@ CFLAGS += -DCACHE_LINE_SZB=64
 # Initialisation size for dynamically allocated HC event's waiter array
 # CFLAGS += -DHCEVT_WAITER_DYNAMIC_COUNT=4
 
+# Enable MetaData Cloning for events
+# CFLAGS += -DENABLE_EVENT_MDC
+
+# Enable forging event's instance when MetaData Cloning is on
+# i.e. do not communicate with the event's owner but rather
+# create a copy immediately and sync-up later.
+# CFLAGS += -DENABLE_EVENT_MDC_FORGE
+
 # [Experimental flag] Make all Channel Events non-FIFO
 # CFLAGS += -DXP_CHANNEL_EVT_NONFIFO
 

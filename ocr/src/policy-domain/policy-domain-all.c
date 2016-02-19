@@ -133,8 +133,7 @@ u64 ocrPolicyMsgGetMsgBaseSize(ocrPolicyMsg_t *msg, bool isIn) {
         ASSERT(false);
     }
     // The message is already serialized and must account for the payload
-    // Note that are few cases where we issue responses too so discriminate on message's type
-    if (((msg->type & PD_MSG_TYPE_ONLY) == PD_MSG_METADATA_COMM) && (msg->type & PD_MSG_REQUEST)) {
+    if ((msg->type & PD_MSG_TYPE_ONLY) == PD_MSG_METADATA_COMM) {
 #define PD_TYPE PD_MSG_METADATA_COMM
         baseSize += (PD_MSG_FIELD_I(sizePayload));
 #undef PD_TYPE
@@ -908,15 +907,16 @@ u8 ocrPolicyMsgMarshallMsg(ocrPolicyMsg_t* msg, u64 baseSize, u8* buffer, u32 mo
         break;
 #undef PD_TYPE
     }
+
     case PD_MSG_METADATA_COMM: {
 #define PD_TYPE PD_MSG_METADATA_COMM
-        if (isIn) {
-            ASSERT(PD_MSG_FIELD_I(response) == NULL);
-            ASSERT(PD_MSG_FIELD_I(mdPtr) == NULL);
-        }
+        ASSERT(isIn);// Following should not be set
+        ASSERT(PD_MSG_FIELD_I(response) == NULL);
+        ASSERT(PD_MSG_FIELD_I(mdPtr) == NULL);
 #undef PD_TYPE
         break;
     }
+
     default:
         // Nothing to do
         ;
@@ -1229,12 +1229,11 @@ u8 ocrPolicyMsgUnMarshallMsg(u8* mainBuffer, u8* addlBuffer,
             PD_MSG_FIELD_IO(guid.metaDataPtr) = (void*)((t&1?localAddlPtr:localMainPtr) + (t>>1));
             DPRINTF(DEBUG_LVL_VVERB, "Converted metadata ptr from 0x%"PRIx64" to 0x%"PRIx64"\n",
                     t, (u64)PD_MSG_FIELD_IO(guid.metaDataPtr));
-            u64 val;
             ocrGuidKind kind;
             ocrPolicyDomain_t * pd;
             getCurrentEnv(&pd, NULL, NULL, NULL);
             //TODO this should be kind not getVal
-            pd->guidProviders[0]->fcts.getVal(pd->guidProviders[0], PD_MSG_FIELD_IO(guid.guid), &val, &kind, MD_LOCAL, NULL);
+            pd->guidProviders[0]->fcts.getKind(pd->guidProviders[0], PD_MSG_FIELD_IO(guid.guid), &kind);
             if (kind == OCR_GUID_EDT_TEMPLATE) {
                 // Handle unmarshalling formatted as: ocrTaskTemplateHc_t + hints
                 void * base = PD_MSG_FIELD_IO(guid.metaDataPtr);
@@ -1308,10 +1307,9 @@ u8 ocrPolicyMsgUnMarshallMsg(u8* mainBuffer, u8* addlBuffer,
 
     case PD_MSG_METADATA_COMM: {
 #define PD_TYPE PD_MSG_METADATA_COMM
-        if (isIn) {
-            ASSERT(PD_MSG_FIELD_I(response) == NULL);
-            ASSERT(PD_MSG_FIELD_I(mdPtr) == NULL);
-        }
+        ASSERT(isIn);// Following should not be set
+        ASSERT(PD_MSG_FIELD_I(response) == NULL);
+        ASSERT(PD_MSG_FIELD_I(mdPtr) == NULL);
 #undef PD_TYPE
         break;
     }
