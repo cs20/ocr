@@ -27,7 +27,9 @@ DEFAULT_CONFIG=jenkins-common-8w-lockableDB.cfg
 CC      ?= icc
 
 # Conserve CFLAGS and LDFLAGS defined in environment
-CFLAGS  := ${CFLAGS}
+ifeq (${CC}, icc)
+CFLAGS  := ${CFLAGS} -xCOMMON-AVX512
+endif
 LDFLAGS := ${LDFLAGS}
 
 RM      := rm

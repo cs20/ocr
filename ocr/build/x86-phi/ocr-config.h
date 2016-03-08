@@ -82,6 +82,7 @@
 #define ENABLE_SCHEDULER_HEURISTIC_HC
 #define ENABLE_SCHEDULER_HEURISTIC_ST
 #define ENABLE_SCHEDULER_HEURISTIC_PRIORITY
+#define ENABLE_SCHEDULER_HEURISTIC_STATIC
 
 // Scheduler Objects
 #define ENABLE_SCHEDULER_OBJECT_NULL
@@ -121,6 +122,9 @@
 
 //Counted Events support
 #define ENABLE_EXTENSION_COUNTED_EVT
+
+//Channel Events support
+#define ENABLE_EXTENSION_CHANNEL_EVT
 
 // Runtime extension support
 #define ENABLE_EXTENSION_RTITF
