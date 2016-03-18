@@ -788,12 +788,12 @@ static u8 verifyOutgoing(ocrCommPlatformMPI_t *mpiComm) {
                     // hdl's src is already preset to the rank we should be receiving from
                     // Directly post an irecv for this answer using (src,tag)
                     postRecvFixedSzMsg(mpiComm, recvHdl);
-                    DPRINTF(DEBUG_LVL_VVERB,"[MPI %"PRId32"] moving to fxd incoming: message of type %"PRIx32" with msgId=%"PRId32" HDL=> type %"PRIx32" with msgId=%"PRId32", idx=%d\n",
+                    DPRINTF(DEBUG_LVL_VVERB,"[MPI %"PRId32"] moving to fxd incoming: message of type %"PRIx32" with msgId=%"PRId32" HDL=> type %"PRIx32" with msgId=%"PRId32", idx=%"PRIu32"\n",
                                         locationToMpiRank(pd->myLocation), hdl->base.msg->type, (int) hdl->base.msg->msgId, recvHdl->base.msg->type, (int) recvHdl->base.msgId, resolveHandleIdx(mpiComm, recvHdl, mpiComm->recvHdlPool));
                 } else {
                     // The message requires a response but we do not know its size: will use MPI probe
                     mpiCommHandle_t * recvHdl = moveHdlSendToRecv(mpiComm, hdl);
-                    DPRINTF(DEBUG_LVL_VVERB,"[MPI %"PRId32"] moving to incoming: message of type %"PRIx32" with msgId=%"PRId32" HDL=> type %"PRIx32" with msgId=%"PRId32", idx=%d\n",
+                    DPRINTF(DEBUG_LVL_VVERB,"[MPI %"PRId32"] moving to incoming: message of type %"PRIx32" with msgId=%"PRId32" HDL=> type %"PRIx32" with msgId=%"PRId32", idx=%"PRIu32"\n",
                                         locationToMpiRank(pd->myLocation), hdl->base.msg->type, (int) hdl->base.msg->msgId, recvHdl->base.msg->type, (int) recvHdl->base.msgId, resolveHandleIdx(mpiComm, recvHdl, mpiComm->recvHdlPool));
                 }
             }

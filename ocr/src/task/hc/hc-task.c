@@ -23,6 +23,8 @@
 #include "extensions/ocr-hints.h"
 #include "ocr-policy-domain-tasks.h"
 
+#include "ocr-perfmon.h"
+
 #ifdef OCR_ENABLE_STATISTICS
 #include "ocr-statistics.h"
 #include "ocr-statistics-callbacks.h"
@@ -47,7 +49,11 @@ u64 ocrHintPropTaskHc[] = {
     OCR_HINT_EDT_DISPERSE,
     /* BUG #923 - Separation of runtime vs user hints ? */
     OCR_HINT_EDT_SPACE,
-    OCR_HINT_EDT_TIME
+    OCR_HINT_EDT_TIME,
+    OCR_HINT_EDT_STATS_HW_CYCLES,
+    OCR_HINT_EDT_STATS_L1_HITS,
+    OCR_HINT_EDT_STATS_L1_MISSES,
+    OCR_HINT_EDT_STATS_FLOAT_OPS
 #endif
 };
 
@@ -90,6 +96,34 @@ u8 destructTaskTemplateHc(ocrTaskTemplate_t *self) {
 #undef PD_TYPE
     return 0;
 }
+
+#ifdef ENABLE_EXTENSION_PERF
+void addPerfEntry(ocrPolicyDomain_t *pd, void *executePtr,
+                         ocrTaskTemplate_t *taskT) {
+    u32 k;
+
+    // Skip adding a new entry if we already have one
+    if(taskT && (taskT->taskPerfsEntry!=NULL)) {
+       // Nothing to do
+    } else {
+        for(k=0; k < queueGetSize(pd->taskPerfs); k++)
+            if(((ocrPerfCounters_t*)queueGet(pd->taskPerfs, k))->edt == executePtr)
+                break;
+
+        if(k==queueGetSize(pd->taskPerfs)) {
+            u32 j;
+            ocrPerfCounters_t *cumulativeStats = (ocrPerfCounters_t *)pd->fcts.pdMalloc(pd, sizeof(ocrPerfCounters_t));
+            for(j = 0; j<PERF_MAX; j++) cumulativeStats->stats[j].average = 0;
+            cumulativeStats->count = 0;
+            cumulativeStats->steadyStateMask = ((1 << PERF_MAX) - 1); // Steady state not reached
+            cumulativeStats->edt = executePtr;
+            if(queueIsFull(pd->taskPerfs)) queueDoubleResize(pd->taskPerfs, true);
+            queueAddLast(pd->taskPerfs, cumulativeStats);
+            taskT->taskPerfsEntry = cumulativeStats;
+        } else taskT->taskPerfsEntry = queueGet(pd->taskPerfs, k);
+    }
+}
+#endif
 
 ocrTaskTemplate_t * newTaskTemplateHc(ocrTaskTemplateFactory_t* factory, ocrEdt_t executePtr,
                                       u32 paramc, u32 depc, const char* fctName,
@@ -144,6 +178,7 @@ ocrTaskTemplate_t * newTaskTemplateHc(ocrTaskTemplateFactory_t* factory, ocrEdt_
     } else {
         OCR_RUNTIME_HINT_MASK_INIT(derived->hint.hintMask, OCR_HINT_EDT_T, factory->factoryId);
         derived->hint.hintVal = (u64*)((u64)base + sizeof(ocrTaskTemplateHc_t));
+        u32 i; for(i = 0; i<hintc; i++) derived->hint.hintVal[i] = 0ULL;
     }
 
 #ifdef OCR_ENABLE_STATISTICS
@@ -153,7 +188,10 @@ ocrTaskTemplate_t * newTaskTemplateHc(ocrTaskTemplateFactory_t* factory, ocrEdt_
         statsTEMP_CREATE(pd, edtGuid, NULL, base->guid, base);
     }
 #endif /* OCR_ENABLE_STATISTICS */
-
+#ifdef ENABLE_EXTENSION_PERF
+    base->taskPerfsEntry = NULL;
+    addPerfEntry(pd, base->executePtr, base);
+#endif
     return base;
 }
 
@@ -314,6 +352,11 @@ static u8 initTaskHcInternal(ocrTaskHc_t *task, ocrGuid_t taskGuid, ocrPolicyDom
     if(task->base.depc == 0) {
         task->signalers = END_OF_LIST;
     }
+
+#ifdef ENABLE_EXTENSION_PERF
+    for(i = 0; i < PERF_MAX - PERF_HW_MAX; i++) task->base.swPerfCtrs[i] = 0;
+#endif
+
     // If we are creating a finish-edt
     if (hasProperty(properties, EDT_PROP_FINISH)) {
         PD_MSG_STACK(msg);
@@ -440,6 +483,9 @@ static u8 iterateDbFrontier(ocrTask_t *self) {
                 if ((returnCode == OCR_EPEND) || (PD_MSG_FIELD_O(returnDetail) == OCR_EBUSY)) {
                     return true;
                 }
+#ifdef ENABLE_EXTENSION_PERF
+                rself->base.swPerfCtrs[PERF_DB_TOTAL - PERF_HW_MAX] += PD_MSG_FIELD_O(size);
+#endif
                 // else, acquire took place and was successful, continue iterating
                 ASSERT(msg.type & PD_MSG_RESPONSE); // 2x check
                 rself->resolvedDeps[depv[i].slot].ptr = PD_MSG_FIELD_O(ptr);
@@ -450,6 +496,7 @@ static u8 iterateDbFrontier(ocrTask_t *self) {
     }
     return false;
 }
+
 
 /**
  * @brief Give the task to the scheduler
@@ -923,6 +970,21 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
         u64 hintSize = OCR_RUNTIME_HINT_GET_SIZE(derived->hint.hintMask);
         for (i = 0; i < hintc; i++) edt->hint.hintVal[i] = (hintSize == 0) ? 0 : derived->hint.hintVal[i]; //copy the hints from the template
         if (hint != NULL_HINT) factory->fcts.setHint(base, hint);
+#ifdef ENABLE_EXTENSION_PERF
+        base->taskPerfsEntry = derived->base.taskPerfsEntry;
+        ASSERT(base->taskPerfsEntry);
+        u64 hwCycles = 0;
+        if(hint != NULL_HINT) ocrGetHintValue(hint, OCR_HINT_EDT_STATS_HW_CYCLES, &hwCycles);
+
+        // If there are EDT statistics hint values, don't monitor and
+        // set the task counter values directly
+        if(hwCycles) {
+            base->flags &= ~OCR_TASK_FLAG_PERFMON_ME;
+        } else {
+            // Look up the steadyStateMask value
+            if(base->taskPerfsEntry->steadyStateMask) base->flags |= OCR_TASK_FLAG_PERFMON_ME;
+         }
+#endif
     }
 
     if (perInstance != NULL) {
@@ -1039,7 +1101,7 @@ u8 satisfyTaskHcWithMode(ocrTask_t * base, ocrFatGuid_t data, u32 slot, ocrDbAcc
     u32 oldValue = hal_xadd32(&(self->slotSatisfiedCount), 1);
 
 #ifdef REG_ASYNC_SGL_DEBUG
-    DPRINTF(DEBUG_LVL_WARN, "Satisfied task oldValue is %d and depc is %d \n", (int) oldValue, (int) base->depc);
+    DPRINTF(DEBUG_LVL_WARN, "Satisfied task oldValue is %"PRIu32" and depc is %"PRIu32"\n", oldValue, base->depc);
 #endif
     if (oldValue == (base->depc-1)) {
 #ifdef REG_ASYNC_SGL_DEBUG
@@ -1298,7 +1360,7 @@ u8 satisfyTaskHc(ocrTask_t * base, ocrFatGuid_t data, u32 slot) {
     hal_fence();
     u32 oldValue = hal_xadd32(&(self->slotSatisfiedCount), 1);
 #ifdef REG_ASYNC_SGL_DEBUG
-    DPRINTF(DEBUG_LVL_WARN, "Satisfied task oldValue is %d and depc is %d \n", (int) oldValue, (int) base->depc);
+    DPRINTF(DEBUG_LVL_WARN, "Satisfied task oldValue is %"PRIu32" and depc is %"PRIu32"\n", oldValue, base->depc);
 #endif
     if (oldValue == ((base->depc*2)-1)) {
 #ifdef REG_ASYNC_SGL_DEBUG
@@ -1318,7 +1380,7 @@ u8 registerSignalerTaskHc(ocrTask_t * base, ocrFatGuid_t signalerGuid, u32 slot,
     hal_fence();
     u32 oldValue = hal_xadd32(&(self->slotSatisfiedCount), 1);
 #ifdef REG_ASYNC_SGL_DEBUG
-    DPRINTF(DEBUG_LVL_WARN, "Registered on task oldValue is %d and depc is %d \n", (int) oldValue, (int) base->depc);
+    DPRINTF(DEBUG_LVL_WARN, "Registered on task oldValue is %"PRIu32" and depc is %"PRIu32"\n", oldValue, base->depc);
 #endif
     if (oldValue == ((base->depc*2)-1)) {
 #ifdef REG_ASYNC_SGL_DEBUG
