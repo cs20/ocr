@@ -63,6 +63,12 @@ CFLAGS += -DGUID_PROVIDER_LOCID_SIZE=10
 #   Warning: Necessitates an additional -D activating the alternate implementation
 # CFLAGS += -DGUID_PROVIDER_CUSTOM_MAP -D_TODO_FILL_ME_IN
 
+# **** Communication Platform Parameters ****
+
+# - MPI specifics
+#   - Make use of MPI-3 message
+# CFLAGS += -DMPI_MSG
+
 # **** EDTs parameters ****
 
 # Maximum number of blocks of 64 slots that an EDT

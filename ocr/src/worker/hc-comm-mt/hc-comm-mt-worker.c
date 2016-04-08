@@ -176,7 +176,7 @@ static void workerLoopHcCommMT(ocrWorker_t * worker) {
             // Two reasons for that:
             // 1- EDTs execution generated asynchronous one-way communications
             //    that need to be flushed out.
-            // 2- Other PDs are still communication with the current PD.
+            // 2- Other PDs are still communicating with the current PD.
             //    This happens mainly because some runtime work is done in
             //    EDT's epilogue. So the sink EDT has executed but some EDTs
             //    are still wrapping up.

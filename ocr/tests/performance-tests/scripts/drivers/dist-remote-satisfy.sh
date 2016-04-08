@@ -31,9 +31,29 @@ export OCR_TYPE=x86-mpi
 export NODE_SCALING="2"
 export CORE_SCALING="2"
 
+export EXT="-cwProcess-newmpi"
+export NO_DEBUG=yes
+export CFLAGS_USER="-DCOMMWRK_PROCESS_SATISFY -DNEWMPI"
+buildOcr
+
+export NAME=remoteLatchSatisfy
+export REPORT_FILENAME_EXT="-${OCR_TYPE}-assertOff${EXT}"
+runProg
+
+export EXT="-newmpi"
+export NO_DEBUG=yes
+export CFLAGS_USER="-DNEWMPI"
+buildOcr
+
+export NAME=remoteLatchSatisfy
+export REPORT_FILENAME_EXT="-${OCR_TYPE}-assertOff${EXT}"
+runProg
+
+
 #
 # Assertions on
 # export EXT="ext"
+unset CFLAGS_USER
 unset NO_DEBUG
 buildOcr
 
@@ -51,18 +71,37 @@ export NAME=remoteLatchSatisfy
 export REPORT_FILENAME_EXT="-${OCR_TYPE}-assertOff"
 runProg
 
+# Experiment 2: use m_ mpi apis
+export EXT="-mpimsg"
+export NO_DEBUG=yes
+export CFLAGS_USER="-DMPI_MSG"
+buildOcr
 
-# Experiment 2:
+export NAME=remoteLatchSatisfy
+export REPORT_FILENAME_EXT="-${OCR_TYPE}-assertOff${EXT}"
+runProg
+
+
+# Experiment 3:
 #   - No assertions
 #   - Process incoming message through EDT VS in-place
-
 
 #
 # -DCOMMWRK_PROCESS_SATISFY
 export EXT="-cwProcess"
 export NO_DEBUG=yes
 export CFLAGS_USER="-DCOMMWRK_PROCESS_SATISFY"
-# buildOcr
+buildOcr
+
+export NAME=remoteLatchSatisfy
+export REPORT_FILENAME_EXT="-${OCR_TYPE}-assertOff${EXT}"
+runProg
+
+# Experiment 3b: add mpi msg to
+export EXT="-cwProcess-mpimsg"
+export NO_DEBUG=yes
+export CFLAGS_USER="-DCOMMWRK_PROCESS_SATISFY -DMPI_MSG"
+buildOcr
 
 export NAME=remoteLatchSatisfy
 export REPORT_FILENAME_EXT="-${OCR_TYPE}-assertOff${EXT}"
@@ -84,6 +123,16 @@ export REPORT_FILENAME_EXT="-${OCR_TYPE}-assertOff-scaling"
 runProg
 
 export EXT="-cwProcess"
+unset CFLAGS_USER
+export NO_DEBUG=yes
+buildOcr
+
+export NAME=remoteLatchSatisfy
+export REPORT_FILENAME_EXT="-${OCR_TYPE}-assertOff-scaling${EXT}"
+runProg
+
+
+export EXT="-cwProcess-mpimsg"
 unset CFLAGS_USER
 export NO_DEBUG=yes
 buildOcr

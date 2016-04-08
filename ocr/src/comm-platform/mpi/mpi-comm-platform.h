@@ -17,19 +17,42 @@
 #include "utils/list.h"
 #include "ocr-comm-platform.h"
 
+#include <mpi.h>
+
 typedef struct {
     ocrCommPlatformFactory_t base;
 } ocrCommPlatformFactoryMPI_t;
 
 #define MPI_COMM_RL_MAX 3
 
+// Initial value for request pool
+// Implementation resizes as needed
+#ifndef MPI_COMM_REQUEST_POOL_SZ
+#define MPI_COMM_REQUEST_POOL_SZ 1024
+#endif
+
+struct _mpiCommHandle_t;
+
 typedef struct {
     ocrCommPlatform_t base;
     u64 msgId;
-    linkedlist_t * incoming;
-    linkedlist_t * outgoing;
-    iterator_t * incomingIt;
-    iterator_t * outgoingIt;
+    // Pools of MPI_Request to pending communication
+    MPI_Request * sendPool;    // Pending mpi isend
+    MPI_Request * recvPool;    // Pending mpi irecv on non-fixed size messages
+    MPI_Request * recvFxdPool; // Pending mpi irecv on fixed size messages
+    // Pools of handles to pending communication
+    // Maintain pointers to respective MPI_Request pools
+    struct _mpiCommHandle_t * sendHdlPool;
+    struct _mpiCommHandle_t * recvHdlPool;
+    struct _mpiCommHandle_t * recvFxdHdlPool;
+    // Current useful size of pools
+    u32 sendPoolSz;
+    u32 recvPoolSz;
+    u32 recvFxdPoolSz;
+    // Max sizes, dynamically expand when full
+    u32 sendPoolMax;
+    u32 recvPoolMax;
+    u32 recvFxdPoolMax;
     u64 maxMsgSize;
     // The state encodes the RL (top 4 bits) and the phase (bottom 4 bits)
     // This is mainly for debugging purpose
@@ -41,8 +64,6 @@ typedef struct {
 } paramListCommPlatformMPI_t;
 
 extern ocrCommPlatformFactory_t* newCommPlatformFactoryMPI(ocrParamList_t *perType);
-
-void libdepInitMPI(ocrParamList_t *perType);
 
 #endif /* ENABLE_COMM_PLATFORM_MPI */
 #endif /* __MPI_COMM_PLATFORM_H__ */

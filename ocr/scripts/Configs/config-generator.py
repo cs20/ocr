@@ -16,7 +16,7 @@ parser.add_argument('--guid', dest='guid', default='PTR', choices=['PTR', 'COUNT
                    help='guid type to use (default: PTR)')
 parser.add_argument('--platform', dest='platform', default='X86', choices=['X86', 'FSIM'],
                    help='platform type to use (default: X86)')
-parser.add_argument('--target', dest='target', default='x86', choices=['x86', 'fsim', 'mpi', 'gasnet'],
+parser.add_argument('--target', dest='target', default='x86', choices=['x86', 'fsim', 'mpi', 'mpi_probe', 'gasnet'],
                    help='target type to use (default: X86)')
 parser.add_argument('--threads', dest='threads', type=int, default=4,
                    help='number of threads available to OCR (default: 4)')
@@ -377,7 +377,7 @@ def GenerateConfig(filehandle, guid, platform, target, threads, binding, syswork
         GeneratePd(filehandle, "XE", dbtype, threads)
         GenerateCommon(filehandle, "HC", dbtype)
         GenerateMem(filehandle, alloc, 1, alloctype)
-    elif (target=='MPI') or (target=='GASNet'):
+    elif (target=='MPI') or (target=='GASNet') or (target=='MPI_PROBE'):
         # catch default value errors for distributed
         if dbtype != 'Lockable':
             print 'error: target ', target, ' only supports Lockable datablocks; received ', dbtype
