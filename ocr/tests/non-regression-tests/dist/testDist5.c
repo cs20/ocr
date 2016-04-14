@@ -44,7 +44,7 @@ ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     ocrEventCreate(&event2Guid,OCR_EVENT_ONCE_T, EVT_PROP_NONE);
     ocrGuid_t dbGuid;
     ocrGuid_t * dbPtr;
-    ocrDbCreate(&dbGuid, (void **)&dbPtr, sizeof(ocrGuid_t) * 2, DB_PROP_SINGLE_ASSIGNMENT, NULL_HINT, NO_ALLOC);
+    ocrDbCreate(&dbGuid, (void **)&dbPtr, sizeof(ocrGuid_t) * 2, DB_PROP_NONE, NULL_HINT, NO_ALLOC);
     dbPtr[0] = event1Guid;
     dbPtr[1] = event2Guid;
     ocrDbRelease(dbGuid);

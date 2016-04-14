@@ -42,7 +42,7 @@ ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     // Create a data-block and store its affinity inside for future cross-check
     ocrGuid_t dbGuid;
     ocrGuid_t * dbPtr;
-    ocrDbCreate(&dbGuid, (void **)&dbPtr, sizeof(int) * affinityCount, DB_PROP_SINGLE_ASSIGNMENT, NULL_HINT, NO_ALLOC);
+    ocrDbCreate(&dbGuid, (void **)&dbPtr, sizeof(int) * affinityCount, DB_PROP_NONE, NULL_HINT, NO_ALLOC);
     dbPtr[0] = edtAffinity;
     ocrDbRelease(dbGuid);
 

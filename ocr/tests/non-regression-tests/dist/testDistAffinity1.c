@@ -35,7 +35,7 @@ ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     ocrAffinityCount(AFFINITY_PD, &affinityCount);
     ocrGuid_t dbAffGuid;
     ocrGuid_t * dbAffPtr;
-    ocrDbCreate(&dbAffGuid, (void **)&dbAffPtr, sizeof(ocrGuid_t) * affinityCount, DB_PROP_SINGLE_ASSIGNMENT, NULL_HINT, NO_ALLOC);
+    ocrDbCreate(&dbAffGuid, (void **)&dbAffPtr, sizeof(ocrGuid_t) * affinityCount, DB_PROP_NONE, NULL_HINT, NO_ALLOC);
     ocrAffinityGet(AFFINITY_PD, &affinityCount, dbAffPtr);
     ASSERT(affinityCount >= 1);
     ocrGuid_t firstAffinityGuid = dbAffPtr[0];
@@ -51,7 +51,7 @@ ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     while(i < COUNT_EDT) {
         ocrEventCreate(&eventsGuid[i],OCR_EVENT_ONCE_T, EVT_PROP_NONE);
         ocrGuid_t * dbPtr;
-        ocrDbCreate(&dbsGuid[i], (void **)&dbPtr, sizeof(ocrGuid_t)*2, DB_PROP_SINGLE_ASSIGNMENT, NULL_HINT, NO_ALLOC);
+        ocrDbCreate(&dbsGuid[i], (void **)&dbPtr, sizeof(ocrGuid_t)*2, DB_PROP_NONE, NULL_HINT, NO_ALLOC);
         dbPtr[0] = eventsGuid[i];
         dbPtr[1] = firstAffinityGuid;
         ocrDbRelease(dbsGuid[i]);
