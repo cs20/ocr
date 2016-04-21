@@ -12,6 +12,7 @@
 #include "ocr-runtime-types.h"
 #include "ocr-scheduler.h"
 #include "ocr-types.h"
+#include "ocr-hal.h"
 
 #ifdef OCR_ENABLE_STATISTICS
 #include "ocr-statistics.h"
@@ -130,7 +131,6 @@ typedef struct _ocrWorker_t {
 #ifdef OCR_MONITOR_SCHEDULER
     bool isSeeking;
 #endif
-
 } ocrWorker_t;
 
 

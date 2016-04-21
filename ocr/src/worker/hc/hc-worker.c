@@ -114,7 +114,7 @@ static void hcWorkShift(ocrWorker_t * worker) {
 #endif
 #undef PD_MSG
 #undef PD_TYPE
-                ((ocrTaskFactory_t *)(pd->factories[factoryId]))->fcts.execute(curTask);
+                RESULT_ASSERT(((ocrTaskFactory_t *)(pd->factories[factoryId]))->fcts.execute(curTask), ==, 0);
                 //TODO-DEFERRED: With MT, there can be multiple workers executing curTask.
                 // Not sure we thought about that and implications
 #ifdef ENABLE_EXTENSION_PERF
@@ -201,6 +201,19 @@ static void hcWorkShift(ocrWorker_t * worker) {
     } else {
         ASSERT(0); //Handle error code
     }
+#ifdef ENABLE_RESILIENCY
+    {
+        PD_MSG_STACK(msg);
+        getCurrentEnv(NULL, NULL, NULL, &msg);
+#define PD_MSG (&msg)
+#define PD_TYPE PD_MSG_RESILIENCY_MONITOR
+        msg.type = PD_MSG_RESILIENCY_MONITOR | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
+        PD_MSG_FIELD_I(properties) = 0;
+        RESULT_ASSERT(pd->fcts.processMessage(pd, &msg, true), ==, 0);
+#undef PD_MSG
+#undef PD_TYPE
+    }
+#endif
 // #undef PD_MSG
 // #undef PD_TYPE
 #ifdef ENABLE_EXTENSION_PAUSE
@@ -452,6 +465,12 @@ u8 hcWorkerSwitchRunlevel(ocrWorker_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_
             self->curState = GET_STATE(RL_MEMORY_OK, 0); // Technically last phase of memory OK but doesn't really matter
             self->desiredState = GET_STATE(RL_COMPUTE_OK, phase);
             self->location = (u64) self; // Currently used only by visualizer, value is not important as long as it's unique
+#ifdef ENABLE_RESILIENCY
+            if (((ocrWorkerHc_t*)self)->hcType == HC_WORKER_COMP) {
+                ocrPolicyDomainHc_t *hcPolicy = (ocrPolicyDomainHc_t *)PD;
+                hal_xadd32((u32*)&hcPolicy->computeWorkerCount, 1);
+            }
+#endif
 
             // See if we are blessed
             self->amBlessed = (properties & RL_BLESSED) != 0;
@@ -499,6 +518,12 @@ u8 hcWorkerSwitchRunlevel(ocrWorker_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_
                 self->callbackArg = val;
                 hal_fence();
                 self->desiredState = GET_STATE(RL_COMPUTE_OK, phase);
+#ifdef ENABLE_RESILIENCY
+                if (((ocrWorkerHc_t*)self)->hcType == HC_WORKER_COMP) {
+                    ocrPolicyDomainHc_t *hcPolicy = (ocrPolicyDomainHc_t *)PD;
+                    hal_xadd32((u32*)&hcPolicy->computeWorkerCount, -1);
+                }
+#endif
             } else {
                 ASSERT(false && "Unexpected phase on runlevel RL_COMPUTE_OK teardown");
             }

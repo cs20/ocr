@@ -41,6 +41,14 @@ typedef struct {
     ocrPolicyDomain_t base;
     pdHcResumeSwitchRL_t rlSwitch; // Used for asynchronous RL switch
     hcPqrFlags pqrFlags;
+#ifdef ENABLE_RESILIENCY
+    ocrFaultArgs_t faultArgs;
+    volatile u8 shutdownInProgress;
+    volatile u32 fault;
+    volatile u32 recover;
+    u32 faultMonitorCounter;
+    u32 computeWorkerCount;
+#endif
 } ocrPolicyDomainHc_t;
 
 typedef struct {
