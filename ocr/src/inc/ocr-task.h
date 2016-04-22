@@ -103,6 +103,7 @@ typedef struct ocrTaskTemplateFcts_t {
  *
  */
 typedef struct _ocrTaskTemplate_t {
+    ocrObject_t base;
     ocrGuid_t guid;         /**< GUID for this task template */
 #ifdef OCR_ENABLE_STATISTICS
     ocrStatsProcess_t *statProcess;
@@ -124,6 +125,7 @@ typedef struct _ocrTaskTemplate_t {
 /****************************************************/
 
 typedef struct _ocrTaskTemplateFactory_t {
+    ocrObjectFactory_t base;
     /**
      * @brief Create a task template
      *
@@ -326,6 +328,7 @@ typedef struct _ocrTaskFcts_t {
  *  OCR tasks can be executed and can have their synchronization frontier furthered by Events.
  */
 typedef struct _ocrTask_t {
+    ocrObject_t base;
     ocrGuid_t guid;         /**< GUID for this task (EDT) */
 #ifdef OCR_ENABLE_STATISTICS
     ocrStatsProcess_t *statProcess;
@@ -364,6 +367,7 @@ typedef struct _ocrTask_t {
  *  to allow runtime implementers to choose to have state in their derived TaskFactory classes.
  */
 typedef struct _ocrTaskFactory_t {
+    ocrObjectFactory_t base;
     /*! \brief Instantiates a Task and returns its corresponding GUID
      *  \param[in]  routine A user defined function that represents the computation this Task encapsulates.
      *  \param[in]  worker_id   The Worker instance creating this Task instance

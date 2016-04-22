@@ -67,6 +67,23 @@ typedef enum _ocrRLPhaseComponents_t {
                                  This implies that the switchRunlevel PD call should return and not wait
                                  for the transition*/
 
+/**
+ * @brief Base type for OCR Object factories.
+ *
+ * Only used for type checking
+ */
+typedef struct _ocrObjectFactory_t {
+} ocrObjectFactory_t;
+
+/**
+ * @brief Base type for OCR Objects.
+ *
+ * Only used for type checking
+ */
+typedef struct _ocrObject_t {
+    // Considering adding guid, fctId
+} ocrObject_t;
+
 
 /**
  * @brief Memory region "tags"

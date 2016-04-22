@@ -190,6 +190,7 @@ typedef struct _ocrEventCommonFcts_t {
  * other events or edts.
  */
 typedef struct _ocrEvent_t {
+    ocrObject_t base;
     ocrGuid_t guid;         /**< GUID for this event */
 #ifdef OCR_ENABLE_STATISTICS
     ocrStatsProcess_t *statProcess;
@@ -207,6 +208,7 @@ typedef struct _ocrEvent_t {
  * @brief events factory
  */
 typedef struct _ocrEventFactory_t {
+    ocrObjectFactory_t base;
     /** @brief Instantiates an Event and returns its corresponding GUID
      *  @param[in] factory          Pointer to this factory
      *  @param[in] eventType        Type of event to instantiate

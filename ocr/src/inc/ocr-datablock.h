@@ -190,6 +190,7 @@ typedef struct _ocrDataBlockFcts_t {
  * with it for book-keeping
  **/
 typedef struct _ocrDataBlock_t {
+    ocrObject_t base;
     ocrGuid_t guid; /**< The guid of this data-block */
 #ifdef OCR_ENABLE_STATISTICS
     ocrStatsProcess_t *statProcess;
@@ -224,6 +225,7 @@ typedef struct _ocrDataBlock_t {
  * @brief data-block factory
  */
 typedef struct _ocrDataBlockFactory_t {
+    ocrObjectFactory_t base;
     /**
      * @brief Creates a data-block to represent a chunk of memory
      *
