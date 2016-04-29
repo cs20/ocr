@@ -415,6 +415,12 @@ CFLAGS += -DOCR_TRACE_WORKPILE
 
 CFLAGS := -g -Wall $(CFLAGS) $(CFLAGS_USER)
 
+# On some machines (Edison...), having the .d files have the same
+# timestamp as the .o files causes them to be considered "newer"
+# and forces rebuilds. To prevent this, we backdate the .d file.
+# The command to do this is a bit experimental so enable with caution
+# Change to yes to enable by default or set to yes in the command line
+BACKDATE_DFILES ?= no
 ################################################################
 # END OF USER CONFIGURABLE OPTIONS                             #
 ################################################################
@@ -713,7 +719,11 @@ $(OBJDIR)/static/%.o: %.c Makefile ../common.mk $(PROFILER_FILE) $(INSTRUMENTATI
 	$(AT)cp -f $(@:.o=.d) $(@:.o=.d.tmp)
 	$(AT)sed -e 's/.*://' -e 's/\\$$//' < $(@:.o=.d.tmp) | fmt -1 | \
 	sed -e 's/^ *//' -e 's/$$/: /' >> $(@:.o=.d)
+ifeq ($(BACKDATE_DFILES), yes)
+	$(AT)stat --format="%Y" $@ | sed 's/\([0-9]*\)/\1 60 - p/' | dc | sed 's/\([0-9]*\)/@\1/' | date -f - +"%Y%m%d%H%M.%S" | xargs touch $(@:.o=.d) -t
+else
 	$(AT)touch -r $@ $(@:.o=.d)
+endif
 	$(AT)rm -f $(@:.o=.d.tmp)
 
 
