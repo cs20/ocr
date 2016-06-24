@@ -1564,7 +1564,10 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         EXIT_PROFILE;
         break;
     }
-
+    case PD_MSG_METADATA_COMM:
+    {
+        break;
+    }
     case PD_MSG_WORK_CREATE: {
         START_PROFILE(pd_hc_WorkCreate);
 #define PD_MSG msg
