@@ -1143,6 +1143,7 @@ u8 newEventHc(ocrEventFactory_t * factory, ocrFatGuid_t *guid,
     // We allocate everything in the meta-data to keep things simple
     PD_MSG_FIELD_I(size) = sizeOfGuid;
     PD_MSG_FIELD_I(kind) = kind;
+    PD_MSG_FIELD_I(targetLoc) = pd->myLocation;
     PD_MSG_FIELD_I(properties) = properties;
     RESULT_PROPAGATE(pd->fcts.processMessage(pd, &msg, true));
     ocrEventHc_t *event = (ocrEventHc_t*)PD_MSG_FIELD_IO(guid.metaDataPtr);

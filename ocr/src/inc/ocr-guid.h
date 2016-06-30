@@ -149,10 +149,12 @@ typedef struct _ocrGuidProviderFcts_t {
      * @param[out] guid         GUID returned
      * @param[in] val           Value to be associated
      * @param[in] kind          Kind of the object that will be associated with the GUID
+     * @param[in] targetLoc     Location targeted by this GUID (whenever relevant)
+     * @param[in] properties    Properties for the GUID generation
      * @return 0 on success or an error code
      */
     u8 (*getGuid)(struct _ocrGuidProvider_t* self, ocrGuid_t* guid, u64 val,
-                  ocrGuidKind kind);
+                  ocrGuidKind kind, ocrLocation_t targetLoc, u32 properties);
 
     /**
      * @brief Create a GUID for an object of kind 'kind'
@@ -172,13 +174,14 @@ typedef struct _ocrGuidProviderFcts_t {
      *                          the GUID that is requested
      * @param[in] size          Size of the storage to be created
      * @param[in] kind          Kind of the object that will be associated with the GUID
+     * @param[in] targetLoc     Location targeted by this GUID (whenever relevant)
      * @param[in] properties    Properties for the creation. Mostly contains stuff
      *                          related to GUID labeling
      * @return 0 on success or an error code:
      *     - OCR_EGUIDEXISTS if GUID_PROP_CHECK is set and the GUID already exists
      */
     u8 (*createGuid)(struct _ocrGuidProvider_t* self, ocrFatGuid_t* fguid,
-                     u64 size, ocrGuidKind kind, u32 properties);
+                     u64 size, ocrGuidKind kind, ocrLocation_t targetLoc, u32 properties);
 
     /**
      * @brief Resolve the associated value to the GUID 'guid'

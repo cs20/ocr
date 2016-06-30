@@ -71,14 +71,14 @@ ocrPlatformModel_t * createPlatformModelAffinity(ocrPolicyDomain_t *pd) {
     for(i=0; i < pd->neighborCount; i++) {
         ASSERT(pd->neighbors[i] < countAff);
         ocrFatGuid_t fguid;
-        pd->guidProviders[0]->fcts.createGuid(pd->guidProviders[0], &fguid, sizeof(ocrAffinity_t), OCR_GUID_AFFINITY, GUID_PROP_NONE);
+        pd->guidProviders[0]->fcts.createGuid(pd->guidProviders[0], &fguid, sizeof(ocrAffinity_t), OCR_GUID_AFFINITY, pd->myLocation, GUID_PROP_NONE);
         ((ocrAffinity_t*)fguid.metaDataPtr)->place = pd->neighbors[i];
         model->pdLocAffinities[pd->neighbors[i]] = fguid.guid;
     }
     // Do current PD
     model->current = (u32)pd->myLocation;
     ocrFatGuid_t fguid;
-    pd->guidProviders[0]->fcts.createGuid(pd->guidProviders[0], &fguid, sizeof(ocrAffinity_t), OCR_GUID_AFFINITY, GUID_PROP_NONE);
+    pd->guidProviders[0]->fcts.createGuid(pd->guidProviders[0], &fguid, sizeof(ocrAffinity_t), OCR_GUID_AFFINITY, pd->myLocation, GUID_PROP_NONE);
     ((ocrAffinity_t*)fguid.metaDataPtr)->place = pd->myLocation;
     model->pdLocAffinities[model->current] = fguid.guid;
 

@@ -673,6 +673,7 @@ typedef struct _ocrPolicyMsg_t {
                     u64 size;          /**< In: If metaDataPtr is NULL on input, contains the
                                         *   size needed to contain the metadata. Otherwise ignored */
                     ocrGuidKind kind;  /**< In: Kind of the GUID to create */
+                    ocrLocation_t targetLoc; /**< In: Target location of the GUID to create */
                     u32 properties;    /**< In: Properties for the creation. */
                 } in;
                 struct {

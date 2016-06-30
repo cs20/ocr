@@ -1480,14 +1480,14 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
             // Here we need to create a metadata area as well
             PD_MSG_FIELD_O(returnDetail) = self->guidProviders[0]->fcts.createGuid(
                 self->guidProviders[0], &(PD_MSG_FIELD_IO(guid)), PD_MSG_FIELD_I(size),
-                PD_MSG_FIELD_I(kind), PD_MSG_FIELD_I(properties));
+                PD_MSG_FIELD_I(kind), PD_MSG_FIELD_I(targetLoc), PD_MSG_FIELD_I(properties));
             // This returnDetail is OCR_EGUIDEXISTS
         } else {
             // Here we just need to associate a GUID
             ocrGuid_t temp;
             PD_MSG_FIELD_O(returnDetail) = self->guidProviders[0]->fcts.getGuid(
                 self->guidProviders[0], &temp, (u64)PD_MSG_FIELD_IO(guid.metaDataPtr),
-                PD_MSG_FIELD_I(kind));
+                PD_MSG_FIELD_I(kind), PD_MSG_FIELD_I(targetLoc), GUID_PROP_TORECORD);
             PD_MSG_FIELD_IO(guid.guid) = temp;
         }
 #undef PD_MSG

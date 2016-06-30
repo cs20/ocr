@@ -22,6 +22,14 @@
 #define DB_PROP_ALL   ((u16) 0x70)
 #define GUID_PROP_ALL ((u16) 0x700)
 
+// Mask for runtime properties on GUIDs
+#define GUID_RT_PROP_ALL    ((u16) 0x7000)
+// The GUID value passed is valid
+#define GUID_PROP_ISVALID   ((u16) 0x1000)
+// The GP should record the passed GUID
+#define GUID_PROP_TORECORD  ((u16) 0x2000)
+//Warning: 0x4000 is used by DB_PROP_IGNORE_WARN. No space left.
+
 /* Run-level support */
 typedef enum _ocrRunlevels_t {
     RL_CONFIG_PARSE, /**< Configuration has been parsed; RT structures exist */
@@ -259,7 +267,8 @@ typedef enum {
 
 /** @brief Special property that removes the warning
  * for the acquire/create */
-#define DB_PROP_IGNORE_WARN (u16)(0x7000)
+//This is clashing with the RT/GUID mask. No space left anywhere else.
+#define DB_PROP_IGNORE_WARN ((u16)(0x4000))
 
 /**
  * @brief Type of memory allocated/unallocated

@@ -1722,7 +1722,7 @@ u8 cePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
                         DPRINTF(DEBUG_LVL_VVERB, "GUID_CREATE(new), labeled, processed locally\n");
                         PD_MSG_FIELD_O(returnDetail) = self->guidProviders[0]->fcts.createGuid(
                             self->guidProviders[0], &(PD_MSG_FIELD_IO(guid)), PD_MSG_FIELD_I(size),
-                            PD_MSG_FIELD_I(kind), PD_MSG_FIELD_I(properties));
+                            PD_MSG_FIELD_I(kind), PD_MSG_FIELD_I(targetLoc), PD_MSG_FIELD_I(properties));
                         DPRINTF(DEBUG_LVL_VVERB, "GUID_CREATE response: GUID: 0x%"PRIx64"\n",
                                 PD_MSG_FIELD_IO(guid.guid));
                         returnCode = ceProcessResponse(self, msg, 0);
@@ -1771,7 +1771,7 @@ u8 cePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
                     DPRINTF(DEBUG_LVL_VVERB, "GUID_CREATE(new), non-labeled, processed locally\n");
                     PD_MSG_FIELD_O(returnDetail) = self->guidProviders[0]->fcts.createGuid(
                         self->guidProviders[0], &(PD_MSG_FIELD_IO(guid)), PD_MSG_FIELD_I(size),
-                        PD_MSG_FIELD_I(kind), PD_MSG_FIELD_I(properties));
+                        PD_MSG_FIELD_I(kind), PD_MSG_FIELD_I(targetLoc), PD_MSG_FIELD_I(properties));
                     DPRINTF(DEBUG_LVL_VVERB, "GUID_CREATE response: GUID: 0x%"PRIx64"\n",
                             PD_MSG_FIELD_IO(guid.guid));
                     returnCode = ceProcessResponse(self, msg, 0);
@@ -1783,7 +1783,7 @@ u8 cePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
                         msg->srcLocation);
                 PD_MSG_FIELD_O(returnDetail) = self->guidProviders[0]->fcts.getGuid(
                     self->guidProviders[0], &temp, (u64)PD_MSG_FIELD_IO(guid.metaDataPtr),
-                    PD_MSG_FIELD_I(kind));
+                    PD_MSG_FIELD_I(kind), self->mylocation, GUID_PROP_TORECORD);
                 PD_MSG_FIELD_IO(guid.guid) = temp;
                 DPRINTF(DEBUG_LVL_VVERB, "GUID_CREATE response: GUID: 0x%"PRIx64"\n",
                         PD_MSG_FIELD_IO(guid.guid));
@@ -1810,7 +1810,7 @@ u8 cePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
                     DPRINTF(DEBUG_LVL_VVERB, "GUID_CREATE (new), labeled, processed locally\n");
                     PD_MSG_FIELD_O(returnDetail) = self->guidProviders[0]->fcts.createGuid(
                         self->guidProviders[0], &(PD_MSG_FIELD_IO(guid)), PD_MSG_FIELD_I(size),
-                        PD_MSG_FIELD_I(kind), PD_MSG_FIELD_I(properties));
+                        PD_MSG_FIELD_I(kind), PD_MSG_FIELD_I(targetLoc), PD_MSG_FIELD_I(properties));
                     DPRINTF(DEBUG_LVL_VVERB, "GUID_CREATE (new, local) response: GUID: "GUIDF"\n",
                             GUIDA(PD_MSG_FIELD_IO(guid.guid)));
                     returnCode = ceProcessResponse(self, msg, 0);
@@ -1834,7 +1834,7 @@ u8 cePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
                     ASSERT(otherPd->myLocation == guidLocation);
                     PD_MSG_FIELD_O(returnDetail) = otherPd->guidProviders[0]->fcts.createGuid(
                         otherPd->guidProviders[0], &(PD_MSG_FIELD_IO(guid)), PD_MSG_FIELD_I(size),
-                        PD_MSG_FIELD_I(kind), PD_MSG_FIELD_I(properties));
+                        PD_MSG_FIELD_I(kind), PD_MSG_FIELD_I(targetLoc), PD_MSG_FIELD_I(properties));
                     DPRINTF(DEBUG_LVL_VVERB, "GUID_CREATE (new, remote) response: GUID: "GUIDF"\n",
                             GUIDA(PD_MSG_FIELD_IO(guid.guid)));
                     returnCode = ceProcessResponse(self, msg, 0);
@@ -1843,7 +1843,7 @@ u8 cePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
                 DPRINTF(DEBUG_LVL_VVERB, "GUID_CREATE (new), non-labeled, processed locally\n");
                 PD_MSG_FIELD_O(returnDetail) = self->guidProviders[0]->fcts.createGuid(
                     self->guidProviders[0], &(PD_MSG_FIELD_IO(guid)), PD_MSG_FIELD_I(size),
-                    PD_MSG_FIELD_I(kind), PD_MSG_FIELD_I(properties));
+                    PD_MSG_FIELD_I(kind), PD_MSG_FIELD_I(targetLoc), PD_MSG_FIELD_I(properties));
                 DPRINTF(DEBUG_LVL_VVERB, "GUID_CREATE (new) response: GUID: "GUIDF"\n",
                         GUIDA(PD_MSG_FIELD_IO(guid.guid)));
                 returnCode = ceProcessResponse(self, msg, 0);
@@ -1855,7 +1855,7 @@ u8 cePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
             DPRINTF(DEBUG_LVL_VVERB, "GUID_CREATE (exist) for value %p\n", PD_MSG_FIELD_IO(guid.metaDataPtr));
             PD_MSG_FIELD_O(returnDetail) = self->guidProviders[0]->fcts.getGuid(
                 self->guidProviders[0], &temp, (u64)PD_MSG_FIELD_IO(guid.metaDataPtr),
-                PD_MSG_FIELD_I(kind));
+                PD_MSG_FIELD_I(kind), self->myLocation, GUID_PROP_TORECORD);
             PD_MSG_FIELD_IO(guid.guid) = temp;
             DPRINTF(DEBUG_LVL_VVERB, "GUID_CREATE (exist) response: GUID: "GUIDF"\n",
                     GUIDA(PD_MSG_FIELD_IO(guid.guid)));

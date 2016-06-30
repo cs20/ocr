@@ -106,6 +106,7 @@ ocrTaskTemplate_t * newTaskTemplateHc(ocrTaskTemplateFactory_t* factory, ocrEdt_
     PD_MSG_FIELD_IO(guid.metaDataPtr) = NULL;
     PD_MSG_FIELD_I(size) = sizeof(ocrTaskTemplateHc_t) + hintc*sizeof(u64);
     PD_MSG_FIELD_I(kind) = OCR_GUID_EDT_TEMPLATE;
+    PD_MSG_FIELD_I(targetLoc) = pd->myLocation;
     PD_MSG_FIELD_I(properties) = 0;
 
     RESULT_PROPAGATE2(pd->fcts.processMessage(pd, &msg, true), NULL);
@@ -705,6 +706,23 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
     PD_MSG_STACK(msg);
     // Create the task itself by getting a GUID
     getCurrentEnv(NULL, NULL, NULL, &msg);
+
+    ocrLocation_t targetLoc = pd->myLocation;
+    if (hint != NULL_HINT) {
+        u64 hintValue = 0ULL;
+        if ((ocrGetHintValue(hint, OCR_HINT_EDT_AFFINITY, &hintValue) == 0) && (hintValue != 0)) {
+            ocrGuid_t affGuid;
+#if GUID_BIT_COUNT == 64
+            affGuid.guid = hintValue;
+#elif GUID_BIT_COUNT == 128
+            affGuid.upper = 0ULL;
+            affGuid.lower = hintValue;
+#endif
+            ASSERT(!ocrGuidIsNull(affGuid));
+            targetLoc = affinityToLocation(affGuid);
+        }
+    }
+
 #define PD_MSG (&msg)
 #define PD_TYPE PD_MSG_GUID_CREATE
     msg.type = PD_MSG_GUID_CREATE | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
@@ -713,6 +731,7 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
     // We allocate everything in the meta-data to keep things simple
     PD_MSG_FIELD_I(size) = sizeof(ocrTaskHc_t) + paramc*sizeof(u64) + depc*sizeof(regNode_t) + hintc*sizeof(u64) + schedc*sizeof(u64);
     PD_MSG_FIELD_I(kind) = OCR_GUID_EDT;
+    PD_MSG_FIELD_I(targetLoc) = targetLoc;
     PD_MSG_FIELD_I(properties) = 0;
     RESULT_PROPAGATE2(pd->fcts.processMessage(pd, &msg, true), 1);
     ocrTaskHc_t *edt = (ocrTaskHc_t*)PD_MSG_FIELD_IO(guid.metaDataPtr);

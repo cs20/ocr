@@ -20,6 +20,7 @@
 #include "ocr-policy-domain.h"
 #include "ocr-sysboot.h"
 #include "utils/ocr-utils.h"
+#include "extensions/ocr-hints.h"
 
 #ifdef OCR_ENABLE_STATISTICS
 #include "ocr-statistics.h"
@@ -228,8 +229,23 @@ u8 newDataBlockRegular(ocrDataBlockFactory_t *factory, ocrFatGuid_t *guid, ocrFa
     ocrGuid_t resultGuid = NULL_GUID;
     u8 returnValue = 0;
     PD_MSG_STACK(msg);
-
     getCurrentEnv(&pd, NULL, &task, &msg);
+
+    ocrLocation_t targetLoc = pd->myLocation;
+    if (hint != NULL_HINT) {
+        u64 hintValue = 0ULL;
+        if ((ocrGetHintValue(hint, OCR_HINT_DB_AFFINITY, &hintValue) == 0) && (hintValue != 0)) {
+            ocrGuid_t affGuid;
+#if GUID_BIT_COUNT == 64
+            affGuid.guid = hintValue;
+#elif GUID_BIT_COUNT == 128
+            affGuid.upper = 0ULL;
+            affGuid.lower = hintValue;
+#endif
+            ASSERT(!ocrGuidIsNull(affGuid));
+            targetLoc = affinityToLocation(affGuid);
+        }
+    }
 
     u32 hintc = (flags & DB_PROP_NO_HINT) ? 0 : OCR_HINT_COUNT_DB_REGULAR;
 #define PD_MSG (&msg)
@@ -238,6 +254,7 @@ u8 newDataBlockRegular(ocrDataBlockFactory_t *factory, ocrFatGuid_t *guid, ocrFa
     PD_MSG_FIELD_IO(guid) = *guid;
     PD_MSG_FIELD_I(size) = sizeof(ocrDataBlockRegular_t) + hintc*sizeof(u64);
     PD_MSG_FIELD_I(kind) = OCR_GUID_DB;
+    PD_MSG_FIELD_I(targetLoc) = targetLoc;
     PD_MSG_FIELD_I(properties) = (flags & GUID_PROP_ALL);
 
     RESULT_PROPAGATE(pd->fcts.processMessage(pd, &msg, true));

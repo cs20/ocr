@@ -39,6 +39,7 @@ u8 ocrGuidMapCreate(ocrGuid_t *mapGuid, u32 numParams,
     // Size is properly rounded so that the s64 params are properly aligned
     PD_MSG_FIELD_I(size) = ((sizeof(ocrGuidMap_t) + sizeof(s64) - 1) & ~(sizeof(s64)-1)) + numParams*sizeof(s64);
     PD_MSG_FIELD_I(kind) = OCR_GUID_GUIDMAP;
+    PD_MSG_FIELD_I(targetLoc) = pd->myLocation;
     PD_MSG_FIELD_I(properties) = 0;
     u8 returnCode = pd->fcts.processMessage(pd, &msg, true);
     if(!((returnCode == 0) && ((returnCode = PD_MSG_FIELD_O(returnDetail)) == 0))) {
@@ -89,6 +90,7 @@ u8 ocrGuidRangeCreate(ocrGuid_t *mapGuid,
     // Size is properly rounded so that the s64 params are properly aligned
     PD_MSG_FIELD_I(size) = sizeof(ocrGuidMap_t);
     PD_MSG_FIELD_I(kind) = OCR_GUID_GUIDMAP;
+    PD_MSG_FIELD_I(targetLoc) = pd->myLocation;
     PD_MSG_FIELD_I(properties) = 0;
     u8 returnCode = pd->fcts.processMessage(pd, &msg, true);
     if(!((returnCode == 0) && ((returnCode = PD_MSG_FIELD_O(returnDetail)) == 0))) {

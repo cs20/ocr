@@ -294,11 +294,13 @@ u8 countedMapGuidUnreserve(ocrGuidProvider_t *self, ocrGuid_t startGuid, u64 ski
 /**
  * @brief Generate a guid for 'val' by increasing the guid counter.
  */
-static u8 countedMapGetGuid(ocrGuidProvider_t* self, ocrGuid_t* guid, u64 val, ocrGuidKind kind) {
+static u8 countedMapGetGuid(ocrGuidProvider_t* self, ocrGuid_t* guid, u64 val, ocrGuidKind kind, ocrLocation_t targetLoc, u32 properties) {
     // Here no need to allocate
     u64 newGuid = generateNextGuid(self, kind);
 
-    GP_HASHTABLE_PUT(((ocrGuidProviderCountedMap_t *) self)->guidImplTable, (void *) newGuid, (void *) val);
+    if (properties & GUID_PROP_TORECORD) {
+        GP_HASHTABLE_PUT(((ocrGuidProviderCountedMap_t *) self)->guidImplTable, (void *) newGuid, (void *) val);
+    }
     // See BUG #928 on GUID issues
 
 #if GUID_BIT_COUNT == 64
@@ -318,7 +320,7 @@ static u8 countedMapGetGuid(ocrGuidProvider_t* self, ocrGuid_t* guid, u64 val, o
  * the guid and some meta-data payload behind it
  * fatGuid's metaDataPtr will point to.
  */
-u8 countedMapCreateGuid(ocrGuidProvider_t* self, ocrFatGuid_t *fguid, u64 size, ocrGuidKind kind, u32 properties) {
+u8 countedMapCreateGuid(ocrGuidProvider_t* self, ocrFatGuid_t *fguid, u64 size, ocrGuidKind kind, ocrLocation_t targetLoc, u32 properties) {
     if(properties & GUID_PROP_IS_LABELED) {
         // Not supported; use labeled provider
         DPRINTF(DEBUG_LVL_WARN, "error: Must use labeled GUID provider for labeled GUID support, current is counted-map\n");
@@ -340,7 +342,7 @@ u8 countedMapCreateGuid(ocrGuidProvider_t* self, ocrFatGuid_t *fguid, u64 size, 
     void * ptr = (void *)PD_MSG_FIELD_O(ptr);
     // Fill in the GUID value and in the fatGuid
     // and registers its associated metadata ptr
-    countedMapGetGuid(self, &(fguid->guid), (u64) ptr, kind);
+    countedMapGetGuid(self, &(fguid->guid), (u64) ptr, kind, targetLoc, GUID_PROP_TORECORD);
     // Update the fat GUID's metaDataPtr
     fguid->metaDataPtr = ptr;
 #undef PD_MSG
@@ -613,8 +615,8 @@ ocrGuidProviderFactory_t *newGuidProviderFactoryCountedMap(ocrParamList_t *typeA
                                                          phase_t, u32, void (*)(ocrPolicyDomain_t*, u64), u64), countedMapSwitchRunlevel);
     base->providerFcts.guidReserve = FUNC_ADDR(u8 (*)(ocrGuidProvider_t*, ocrGuid_t*, u64*, u64, ocrGuidKind), countedMapGuidReserve);
     base->providerFcts.guidUnreserve = FUNC_ADDR(u8 (*)(ocrGuidProvider_t*, ocrGuid_t, u64, u64), countedMapGuidUnreserve);
-    base->providerFcts.getGuid = FUNC_ADDR(u8 (*)(ocrGuidProvider_t*, ocrGuid_t*, u64, ocrGuidKind), countedMapGetGuid);
-    base->providerFcts.createGuid = FUNC_ADDR(u8 (*)(ocrGuidProvider_t*, ocrFatGuid_t*, u64, ocrGuidKind, u32), countedMapCreateGuid);
+    base->providerFcts.getGuid = FUNC_ADDR(u8 (*)(ocrGuidProvider_t*, ocrGuid_t*, u64, ocrGuidKind, ocrLocation_t, u32 properties), countedMapGetGuid);
+    base->providerFcts.createGuid = FUNC_ADDR(u8 (*)(ocrGuidProvider_t*, ocrFatGuid_t*, u64, ocrGuidKind, ocrLocation_t, u32), countedMapCreateGuid);
     base->providerFcts.getVal = FUNC_ADDR(u8 (*)(ocrGuidProvider_t*, ocrGuid_t, u64*, ocrGuidKind*, u32, MdProxy_t**), countedMapGetVal);
     base->providerFcts.getKind = FUNC_ADDR(u8 (*)(ocrGuidProvider_t*, ocrGuid_t, ocrGuidKind*), countedMapGetKind);
     base->providerFcts.getLocation = FUNC_ADDR(u8 (*)(ocrGuidProvider_t*, ocrGuid_t, ocrLocation_t*), countedMapGetLocation);
