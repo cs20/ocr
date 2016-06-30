@@ -19,6 +19,9 @@
 #include "ocr-hal.h"
 #include "ocr-task.h"
 #include "utils/ocr-utils.h"
+#ifdef ENABLE_OCR_API_DEFERRABLE_MT
+#include "ocr-policy-domain-tasks.h"
+#endif
 
 #ifdef ENABLE_HINTS
 /**< The number of hint properties supported by this implementation
@@ -45,6 +48,10 @@ ocrTaskTemplateFactory_t * newTaskTemplateFactoryHc(ocrParamList_t* perType, u32
 
 #ifdef ENABLE_TASK_HC
 
+#ifdef ENABLE_OCR_API_DEFERRABLE
+#include "utils/queue.h"
+#endif
+
 /*! \brief Event Driven Task(EDT) implementation for OCR Tasks
  */
 typedef struct {
@@ -63,6 +70,14 @@ typedef struct {
     ocrEdtDep_t * resolvedDeps; /**< List of satisfied dependences */
     u64 doNotReleaseSlots[OCR_MAX_MULTI_SLOT];
     ocrRuntimeHint_t hint;
+#ifdef ENABLE_OCR_API_DEFERRABLE
+#ifdef ENABLE_OCR_API_DEFERRABLE_MT
+    pdEvent_t * evtHead;
+    pdStrand_t * tailStrand;
+#else
+    Queue_t * evts;
+#endif
+#endif
 } ocrTaskHc_t;
 
 #define HC_TASK_PARAMV_PTR(edt)     ((u64*)(((u64)edt) + sizeof(ocrTaskHc_t)))

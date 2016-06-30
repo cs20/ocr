@@ -36,7 +36,6 @@ u8 ocrDbCreate(ocrGuid_t *db, void** addr, u64 len, u16 flags,
     ocrTask_t *task = NULL;
     u8 returnCode = 0;
     getCurrentEnv(&policy, NULL, &task, &msg);
-
     //Copy the hints so that the runtime modifications
     //are not reflected back to the user
     ocrHint_t userHint;
@@ -57,6 +56,9 @@ u8 ocrDbCreate(ocrGuid_t *db, void** addr, u64 len, u16 flags,
     PD_MSG_FIELD_I(hint) = hint;
     PD_MSG_FIELD_I(dbType) = USER_DBTYPE;
     PD_MSG_FIELD_I(allocator) = allocator;
+#ifdef ENABLE_OCR_API_DEFERRABLE
+    tagDeferredMsg(&msg, task);
+#endif
     returnCode = policy->fcts.processMessage(policy, &msg, true);
 
     if(returnCode == 0) {
@@ -80,6 +82,7 @@ u8 ocrDbCreate(ocrGuid_t *db, void** addr, u64 len, u16 flags,
         // This is most likely ALWAYS a local message but let's leave the
         // API as it is for now. It is possible that the EDTs move at some point so
         // just to be safe
+        //TODO-DEFERRED: Orthogonal but is this assuming too much of the implementation ?
 #define PD_MSG (&msg)
 #define PD_TYPE PD_MSG_DEP_DYNADD
         getCurrentEnv(NULL, NULL, NULL, &msg);
@@ -89,6 +92,9 @@ u8 ocrDbCreate(ocrGuid_t *db, void** addr, u64 len, u16 flags,
         PD_MSG_FIELD_I(db.guid) = *db;
         PD_MSG_FIELD_I(db.metaDataPtr) = NULL;
         PD_MSG_FIELD_I(properties) = 0;
+#ifdef ENABLE_OCR_API_DEFERRABLE
+        tagDeferredMsg(&msg, task);
+#endif
         returnCode = policy->fcts.processMessage(policy, &msg, false);
         if(returnCode != 0) {
             DPRINTF(DEBUG_LVL_WARN, "EXIT ocrDbCreate -> %"PRIu32"; Issue registering datablock\n", returnCode);
@@ -134,6 +140,9 @@ u8 ocrDbDestroy(ocrGuid_t db) {
         PD_MSG_FIELD_I(db.guid) = db;
         PD_MSG_FIELD_I(db.metaDataPtr) = NULL;
         PD_MSG_FIELD_I(properties) = 0;
+#ifdef ENABLE_OCR_API_DEFERRABLE
+        tagDeferredMsg(&msg, task);
+#endif
         returnCode = policy->fcts.processMessage(policy, &msg, true);
         if(returnCode != 0) {
             DPRINTF(DEBUG_LVL_WARN, "Destroying DB (GUID: "GUIDF") -> %"PRIu32"; Issue unregistering the datablock\n", GUIDA(db), returnCode);
@@ -159,6 +168,9 @@ u8 ocrDbDestroy(ocrGuid_t db) {
         // to know if the DB actually needs to be released or not.
         // If dynRemoved is true, we will release the data-block. Otherwise, we won't
         PD_MSG_FIELD_I(properties) = dynRemoved ? 0 : DB_PROP_NO_RELEASE;
+#ifdef ENABLE_OCR_API_DEFERRABLE
+        tagDeferredMsg(&msg, task);
+#endif
         returnCode = policy->fcts.processMessage(policy, &msg, false);
         if(returnCode == 0)
             returnCode = PD_MSG_FIELD_O(returnDetail);
@@ -192,6 +204,9 @@ u8 ocrDbRelease(ocrGuid_t db) {
     PD_MSG_FIELD_I(ptr) = NULL;
     PD_MSG_FIELD_I(size) = 0;
     PD_MSG_FIELD_I(properties) = 0;
+#ifdef ENABLE_OCR_API_DEFERRABLE
+    tagDeferredMsg(&msg, task);
+#endif
     u8 returnCode = policy->fcts.processMessage(policy, &msg, true);
     if(returnCode == 0) {
         returnCode = PD_MSG_FIELD_O(returnDetail);
@@ -213,6 +228,9 @@ u8 ocrDbRelease(ocrGuid_t db) {
         PD_MSG_FIELD_I(db.guid) = db;
         PD_MSG_FIELD_I(db.metaDataPtr) = NULL;
         PD_MSG_FIELD_I(properties) = 0;
+#ifdef ENABLE_OCR_API_DEFERRABLE
+        tagDeferredMsg(&msg, task);
+#endif
         returnCode = policy->fcts.processMessage(policy, &msg, true);
         if (returnCode != 0) {
             DPRINTF(DEBUG_LVL_WARN, "Releasing DB  -> %"PRIu32"; Issue unregistering DB datablock\n", returnCode);

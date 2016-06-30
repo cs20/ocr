@@ -35,11 +35,7 @@ typedef struct {
     // The HC implementation relies on integer ids to
     // map workers, schedulers and workpiles together
     u64 id;
-    //Pause/Query/Resume variables for displaying EDTS
-    //BUG #559: Possibly wrap in ifdef
-    ocrGuid_t templateGuid;
     ocrGuid_t edtGuid;
-    ocrEdt_t fctPtr;
 #ifdef OCR_ENABLE_EDT_NAMING
     const char * name;
 #endif

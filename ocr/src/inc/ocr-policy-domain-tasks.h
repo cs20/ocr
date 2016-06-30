@@ -106,6 +106,7 @@ struct _pdStrand_t;
 /**< Basic event type that is a purely control event */
 #define PDEVT_TYPE_CONTROL (PDEVT_TYPE_BASE_CONTROL | (1<<4))
 /**
+ *
  * @brief Base type for runtime micro-events
  *
  * An event is essentially ready or non-ready and optionally contains a payload.
@@ -135,11 +136,13 @@ typedef struct _pdEventCommStatus_t {
 
 /**< Basic event type that contains a policy message */
 #define PDEVT_TYPE_MSG (PDEVT_TYPE_BASE_MSG | (1<<4))
+
 /**< Basic event containing simply a policy message */
 typedef struct _pdEventMsg_t {
     pdEvent_t base;
     ocrPolicyMsg_t *msg;    /**< Payload for the event. These are the
                              * "arguments" when passed to a function. */
+    ocrTask_t *ctx;         /**< Context for executing this message */
     struct _pdTask_t *continuation; /**< Current continuation to execute (cached version
                              * from the strands table) */
     u32 properties;         /**< Additional properties field (COMM_) */
@@ -175,6 +178,23 @@ typedef struct _pdEventMerge_t {
     pdEvent_t *events[PDEVT_MERGE_SIZE]; /**< Events in this list event */
     pdEvent_t **others;                 /**< An array of additional events */
 } pdEventMerge_t;
+
+/**< Base type indicating the event contains callback function to processEvent */
+#define PDEVT_TYPE_BASE_FCT 0x0005
+
+/**< Basic event type that contains callback function into processEvent */
+#define PDEVT_TYPE_FCT (PDEVT_TYPE_BASE_FCT | (1<<4))
+
+/**< Basic event for processEvent callbacks */
+typedef struct _pdEventFct_t {
+    pdEvent_t base;
+    ocrTask_t *ctx;         /**< Context for executing this message */
+    ocrObject_t * object;   /**< The object processEvent is called on */
+    u32 id;                 /**< Continuation id */
+    void * args;            /**< Additional arguments to processEvents */
+    struct _pdTask_t *continuation; /**< Current continuation to execute (cached version
+                             * from the strands table) */
+} pdEventFct_t;
 
 
 /***************************************/

@@ -92,10 +92,7 @@ static void hcWorkShift(ocrWorker_t * worker) {
                 DPRINTF(DEBUG_LVL_VERB, "Worker shifting to execute EDT GUID "GUIDF"\n", GUIDA(taskGuid.guid));
                 u32 factoryId = PD_MSG_FIELD_O(factoryId);
                 ((ocrTaskFactory_t*)(pd->factories[factoryId]))->fcts.execute(curTask);
-                //Store state at worker level to report most recent state on pause.
-                hcWorker->templateGuid = curTask->templateGuid;
                 hcWorker->edtGuid = curTask->guid;
-                hcWorker->fctPtr  = curTask->funcPtr;
 #ifdef OCR_ENABLE_EDT_NAMING
                 hcWorker->name = curTask->name;
 #endif

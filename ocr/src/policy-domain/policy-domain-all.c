@@ -1419,7 +1419,6 @@ u8 ocrPolicyMsgUnMarshallMsg(u8* mainBuffer, u8* addlBuffer,
     return 0;
 }
 
-
 // Process incoming message from other policy-domains
 // There are two impl to asynchronously process incoming message based on MT or EDTs
 // The later will be stripped out.
@@ -1527,6 +1526,13 @@ u8 resolveRemoteMetaData(ocrPolicyDomain_t * pd, ocrFatGuid_t * fatGuid,
     fatGuid->metaDataPtr = (void *) val;
     return 0;
 }
+#endif
 
+#ifdef ENABLE_OCR_API_DEFERRABLE
+void tagDeferredMsg(ocrPolicyMsg_t * msg, ocrTask_t * task) {
+    if (task) {
+        msg->type |= PD_MSG_DEFERRABLE;
+    }
+}
 #endif
 

@@ -46,7 +46,7 @@ static u8 createUTask(ocrPolicyDomain_t * pd, ocrPolicyMsg_t * msg) {
     // processIncomingMsg call that does the free of the message
     pdEvent->properties |= PDEVT_GC /*| PDEVT_DESTROY_DEEP*/;
     ((pdEventMsg_t *) pdEvent)->msg = msg;
-    DPRINTF(DEBUG_LVL_VERB, "Created micro-task from incomming comm: %p\n", pdEvent);
+    DPRINTF(DEBUG_LVL_VERB, "Created micro-task from incoming comm: %p\n", pdEvent);
     RESULT_ASSERT(pdMarkReadyEvent(pd, pdEvent), ==, 0);
     pdStrand_t * msgStrand;
     RESULT_ASSERT(pdGetNewStrand(pd, &msgStrand, pd->strandTables[PDSTT_COMM-1], pdEvent, 0 /*unused*/), ==, 0);

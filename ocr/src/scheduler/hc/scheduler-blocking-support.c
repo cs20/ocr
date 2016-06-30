@@ -30,6 +30,7 @@ static u8 masterHelper(ocrWorker_t * worker) {
             GUIDA(suspendedTask->guid));
     // In helper mode, just try to execute another task
     // on top of the currently executing task's stack.
+    worker->curTask = NULL; // nullify because we may execute MT
     worker->fcts.workShift(worker);
 
     // restore worker context

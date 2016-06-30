@@ -173,12 +173,27 @@ static inline bool isEdtGuid(ocrPolicyDomain_t *pd, ocrFatGuid_t guid) {
 }
 
 static inline ocrEventTypes_t eventType(ocrPolicyDomain_t *pd, ocrFatGuid_t guid) {
-
     if(!guid.metaDataPtr) {
         RESULT_ASSERT(deguidify(pd, &guid, NULL), ==, 0);
     }
     // We now have a R/O copy of the event
     return (((ocrEvent_t*)guid.metaDataPtr)->kind);
+}
+
+static inline ocrGuidKind eventTypeToGuidKind(ocrEventTypes_t eventType) {
+    switch(eventType) {
+        case OCR_EVENT_ONCE_T:
+            return OCR_GUID_EVENT_ONCE;
+        case OCR_EVENT_IDEM_T:
+            return OCR_GUID_EVENT_IDEM;
+        case OCR_EVENT_STICKY_T:
+            return OCR_GUID_EVENT_STICKY;
+        case OCR_EVENT_LATCH_T:
+            return OCR_GUID_EVENT_LATCH;
+        default:
+            ASSERT(false && "Unknown type of event");
+        return OCR_GUID_NONE;
+    }
 }
 
 #endif /* __OCR_GUID_END_H__ */

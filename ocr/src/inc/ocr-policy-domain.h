@@ -305,9 +305,12 @@ typedef struct _paramListPolicyDomainInst_t {
 #define PD_MSG_REQ_POST_PROCESS_SCHEDULER   0x20000000 /* Bit to indicate if msg requires post processing */
 #define PD_MSG_LOCAL_PROCESS                0x40000000 /* Bit to indicate that the msg should be locally processed by the PD */
 
+// This is mainly used as a mean to tag a message comes from the user/rt interface
+// The runtime may or may not allow the deferrability
+#define PD_MSG_DEFERRABLE                0x80000000 /* Bit to indicate if msg execution can be deferred until end of EDT */
+
 #define PD_MSG_ARG_NAME_SUB(ID) _data_##ID
 #define PD_MSG_STRUCT_NAME(ID) PD_MSG_ARG_NAME_SUB(ID)
-
 
 #define _PD_MSG_FIELD_FULL_SUB_QUAL(ptr, type, qual, field) ptr->args._data_##type.qual.field
 #define _PD_MSG_FIELD_FULL_SUB(ptr, type, field) ptr->args._data_##type.field
@@ -1695,6 +1698,10 @@ u8 ocrPolicyMsgMarshallMsg(struct _ocrPolicyMsg_t* msg, u64 baseSize, u8* buffer
  */
 u8 ocrPolicyMsgUnMarshallMsg(u8* mainBuffer, u8* addlBuffer,
                              struct _ocrPolicyMsg_t* msg, u32 mode);
+
+#ifdef ENABLE_OCR_API_DEFERRABLE
+void tagDeferredMsg(ocrPolicyMsg_t * msg, ocrTask_t * task);
+#endif
 
 #define __GUID_END_MARKER__
 #include "ocr-guid-end.h"

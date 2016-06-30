@@ -17,10 +17,16 @@ static void ocrShutdownInternal(u8 errorCode) {
     ocrPolicyDomain_t *pd = NULL;
     PD_MSG_STACK(msg);
     ocrPolicyMsg_t * msgPtr = &msg;
-    getCurrentEnv(&pd, NULL, NULL, msgPtr);
+    ocrTask_t * curTask;
+    getCurrentEnv(&pd, NULL, &curTask, msgPtr);
 #define PD_MSG msgPtr
 #define PD_TYPE PD_MSG_MGT_RL_NOTIFY
     msgPtr->type = PD_MSG_MGT_RL_NOTIFY | PD_MSG_REQUEST;
+#ifdef ENABLE_OCR_API_DEFERRABLE
+    if (!errorCode) {
+        tagDeferredMsg(msgPtr, curTask);
+    }
+#endif
     PD_MSG_FIELD_I(runlevel) = RL_COMPUTE_OK;
     PD_MSG_FIELD_I(properties) = RL_REQUEST | RL_BARRIER | RL_TEAR_DOWN;
     PD_MSG_FIELD_I(errorCode) = errorCode;

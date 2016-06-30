@@ -39,7 +39,18 @@ u8 ocrEventCreateParams(ocrGuid_t *guid, ocrEventTypes_t eventType, u16 properti
 #endif
     PD_MSG_FIELD_I(properties) = properties;
     PD_MSG_FIELD_I(type) = eventType;
+#ifdef ENABLE_OCR_API_DEFERRABLE
+    tagDeferredMsg(&msg, curEdt);
+#endif
     returnCode = pd->fcts.processMessage(pd, &msg, true);
+    //TODO-deferred check if OCR_EPEND ?
+    // I think we need to define convention here:
+    // Sounds we should return OCR_EPEND or some error code to indicate the operation is not
+    // completed, still can we say the I fields are gone and caller can only read IO/O ?
+    // Either it fully executed and we can read everything or it has been deferred
+    // which means there's a subset of fields one can read ?
+    // Most likely only IO fields ?
+    // - Read and set the *guid
     if(returnCode == 0) {
         returnCode = PD_MSG_FIELD_O(returnDetail);
         // Leave the GUID unchanged if the error is OCR_EGUIDEXISTS
@@ -80,7 +91,9 @@ u8 ocrEventDestroy(ocrGuid_t eventGuid) {
     PD_MSG_FIELD_I(currentEdt.guid) = curEdt ? curEdt->guid : NULL_GUID;
     PD_MSG_FIELD_I(currentEdt.metaDataPtr) = curEdt;
     PD_MSG_FIELD_I(properties) = 0;
-
+#ifdef ENABLE_OCR_API_DEFERRABLE
+    tagDeferredMsg(&msg, curEdt);
+#endif
     u8 returnCode = pd->fcts.processMessage(pd, &msg, false);
     DPRINTF_COND_LVL(returnCode, DEBUG_LVL_WARN, DEBUG_LVL_INFO,
                      "EXIT ocrEventDestroy(guid="GUIDF") -> %"PRIu32"\n", GUIDA(eventGuid), returnCode);
@@ -115,6 +128,9 @@ u8 ocrEventSatisfySlot(ocrGuid_t eventGuid, ocrGuid_t dataGuid /*= INVALID_GUID*
     PD_MSG_FIELD_I(mode) = -1;
 #endif
     PD_MSG_FIELD_I(properties) = 0;
+#ifdef ENABLE_OCR_API_DEFERRABLE
+    tagDeferredMsg(&msg, curEdt);
+#endif
     u8 returnCode = pd->fcts.processMessage(pd, &msg, false);
     DPRINTF_COND_LVL(returnCode, DEBUG_LVL_WARN, DEBUG_LVL_INFO,
                     "EXIT ocrEventSatisfySlot(evt="GUIDF") -> %"PRIu32"\n", GUIDA(eventGuid), returnCode);
@@ -164,7 +180,9 @@ u8 ocrEdtTemplateCreate_internal(ocrGuid_t *guid, ocrEdt_t funcPtr, u32 paramc, 
         PD_MSG_FIELD_I(funcNameLen) = t;
     }
 #endif
-
+#ifdef ENABLE_OCR_API_DEFERRABLE
+    tagDeferredMsg(&msg, curEdt);
+#endif
     returnCode = pd->fcts.processMessage(pd, &msg, true);
     if(returnCode == 0) {
         returnCode = PD_MSG_FIELD_O(returnDetail);
@@ -194,6 +212,9 @@ u8 ocrEdtTemplateDestroy(ocrGuid_t guid) {
     PD_MSG_FIELD_I(currentEdt.guid) = curEdt ? curEdt->guid : NULL_GUID;
     PD_MSG_FIELD_I(currentEdt.metaDataPtr) = curEdt;
     PD_MSG_FIELD_I(properties) = 0;
+#ifdef ENABLE_OCR_API_DEFERRABLE
+    tagDeferredMsg(&msg, curEdt);
+#endif
     u8 returnCode = pd->fcts.processMessage(pd, &msg, false);
     DPRINTF_COND_LVL(returnCode, DEBUG_LVL_WARN, DEBUG_LVL_INFO,
                      "EXIT ocrEdtTemplateDestroy(guid="GUIDF") -> %"PRIu32"\n", GUIDA(guid), returnCode);
@@ -294,7 +315,9 @@ u8 ocrEdtCreate(ocrGuid_t* edtGuidPtr, ocrGuid_t templateGuid,
     PD_MSG_FIELD_I(depv) = depvFatGuids;
     PD_MSG_FIELD_I(workType) = EDT_USER_WORKTYPE;
     PD_MSG_FIELD_I(properties) = properties;
-
+#ifdef ENABLE_OCR_API_DEFERRABLE
+    tagDeferredMsg(&msg, curEdt);
+#endif
     returnCode = pd->fcts.processMessage(pd, &msg, true);
     if ((returnCode == 0) && (reqResponse)) {
         returnCode = PD_MSG_FIELD_O(returnDetail);
@@ -370,6 +393,9 @@ u8 ocrEdtDestroy(ocrGuid_t edtGuid) {
     PD_MSG_FIELD_I(currentEdt.guid) = curEdt ? curEdt->guid : NULL_GUID;
     PD_MSG_FIELD_I(currentEdt.metaDataPtr) = curEdt;
     PD_MSG_FIELD_I(properties) = 0;
+#ifdef ENABLE_OCR_API_DEFERRABLE
+    tagDeferredMsg(&msg, curEdt);
+#endif
     u8 returnCode = pd->fcts.processMessage(pd, &msg, false);
     DPRINTF_COND_LVL(returnCode, DEBUG_LVL_WARN, DEBUG_LVL_INFO,
                      "EXIT ocrEdtDestroy(guid="GUIDF") -> %"PRIu32"\n", GUIDA(edtGuid), returnCode);
@@ -400,6 +426,9 @@ u8 ocrAddDependence(ocrGuid_t source, ocrGuid_t destination, u32 slot,
         PD_MSG_FIELD_IO(properties) = mode;
         PD_MSG_FIELD_I(currentEdt.guid) = curEdt ? curEdt->guid : NULL_GUID;
         PD_MSG_FIELD_I(currentEdt.metaDataPtr) = curEdt;
+#ifdef ENABLE_OCR_API_DEFERRABLE
+        tagDeferredMsg(&msg, curEdt);
+#endif
         returnCode = pd->fcts.processMessage(pd, &msg, true);
         DPRINTF_COND_LVL(returnCode, DEBUG_LVL_WARN, DEBUG_LVL_INFO,
                      "EXIT ocrAddDependence through PD_MSG_DEP_ADD(src="GUIDF", dest="GUIDF") -> %"PRIu32"\n",
@@ -419,6 +448,9 @@ u8 ocrAddDependence(ocrGuid_t source, ocrGuid_t destination, u32 slot,
         PD_MSG_FIELD_IO(properties) = mode;
         PD_MSG_FIELD_I(currentEdt.guid) = curEdt ? curEdt->guid : NULL_GUID;
         PD_MSG_FIELD_I(currentEdt.metaDataPtr) = curEdt;
+#ifdef ENABLE_OCR_API_DEFERRABLE
+        tagDeferredMsg(&msg, curEdt);
+#endif
         returnCode = pd->fcts.processMessage(pd, &msg, true);
         DPRINTF_COND_LVL(returnCode, DEBUG_LVL_WARN, DEBUG_LVL_INFO,
                      "EXIT ocrAddDependence through PD_MSG_DEP_ADD(src="GUIDF", dest="GUIDF") -> %"PRIu32"\n",
@@ -444,6 +476,10 @@ u8 ocrAddDependence(ocrGuid_t source, ocrGuid_t destination, u32 slot,
         PD_MSG_FIELD_I(mode) = mode;
 #endif
         PD_MSG_FIELD_I(properties) = 0;
+#ifdef ENABLE_OCR_API_DEFERRABLE
+        tagDeferredMsg(&msg, curEdt);
+#endif
+
         returnCode = pd->fcts.processMessage(pd, &msg, true);
         DPRINTF_COND_LVL(returnCode, DEBUG_LVL_WARN, DEBUG_LVL_INFO,
                      "EXIT ocrAddDependence through PD_MSG_DEP_SATISFY(src="GUIDF", dest="GUIDF") -> %"PRIu32"\n",

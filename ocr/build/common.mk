@@ -37,6 +37,10 @@ DEFAULT_CONFIG ?= jenkins-common-8w-lockableDB.cfg
 # Number of elements in EDT local storage
 # CFLAGS += -DELS_USER_SIZE=0
 
+# **** Deferred Execution Model ****
+
+# CFLAGS += -DENABLE_OCR_API_DEFERRABLE
+
 # **** Workpiles Parameters ****
 
 # Impl-specific for Work-stealing deques

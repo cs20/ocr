@@ -890,8 +890,6 @@ static u8 createEventHelper(ocrPolicyDomain_t *self, ocrFatGuid_t *guid,
         (ocrEventFactory_t*)(self->factories[self->eventFactoryIdx]), guid, type, properties, paramList);
 }
 
-
-
 #ifdef REG_ASYNC_SGL
 static u8 convertDepAddToSatisfy(ocrPolicyDomain_t *self, ocrFatGuid_t dbGuid,
                                  ocrFatGuid_t destGuid, u32 slot, ocrDbAccessMode_t mode, bool sync) {
@@ -957,6 +955,359 @@ static inline void hcSchedNotifyPostProcessMessage(ocrPolicyDomain_t *self, ocrP
     msg->type &= ~PD_MSG_REQ_POST_PROCESS_SCHEDULER;
 }
 
+#ifdef ENABLE_OCR_API_DEFERRABLE
+// Need a strand table
+//  => Think this one can go as a per worker
+// Each deferred call is represented by a pdEvent and the succession
+// of API calls made in the EDT user code forms a chain.
+//
+// For each EDT need to maintain the head of the chain and the last inserted
+//
+// Then on each deferred call:
+// - marshall the msg
+// - create a pd event for msg
+// - Chain the last event for that EDT with the newly created
+// - get a new strand
+// - enqueue action process message
+// - unlock the strand
+
+static void setDeferredReturnDetail(ocrPolicyMsg_t * msg, u8 returnDetail) {
+    switch(msg->type & PD_MSG_TYPE_ONLY) {
+    case PD_MSG_EVT_CREATE:
+    {
+#define PD_MSG (msg)
+#define PD_TYPE PD_MSG_EVT_CREATE
+        PD_MSG_FIELD_O(returnDetail) = returnDetail;
+#undef PD_MSG
+#undef PD_TYPE
+    break;
+    }
+    case PD_MSG_EVT_DESTROY:
+    {
+#define PD_MSG (msg)
+#define PD_TYPE PD_MSG_EVT_DESTROY
+        PD_MSG_FIELD_O(returnDetail) = returnDetail;
+#undef PD_MSG
+#undef PD_TYPE
+    break;
+    }
+    case PD_MSG_DEP_SATISFY:
+    {
+#define PD_MSG (msg)
+#define PD_TYPE PD_MSG_DEP_SATISFY
+        PD_MSG_FIELD_O(returnDetail) = returnDetail;
+#undef PD_MSG
+#undef PD_TYPE
+    break;
+    }
+    case PD_MSG_EDTTEMP_CREATE:
+    {
+#define PD_MSG (msg)
+#define PD_TYPE PD_MSG_EDTTEMP_CREATE
+        PD_MSG_FIELD_O(returnDetail) = returnDetail;
+#undef PD_MSG
+#undef PD_TYPE
+    break;
+    }
+    case PD_MSG_EDTTEMP_DESTROY:
+    {
+#define PD_MSG (msg)
+#define PD_TYPE PD_MSG_EDTTEMP_DESTROY
+        PD_MSG_FIELD_O(returnDetail) = returnDetail;
+#undef PD_MSG
+#undef PD_TYPE
+    break;
+    }
+    case PD_MSG_WORK_CREATE:
+    {
+#define PD_MSG (msg)
+#define PD_TYPE PD_MSG_WORK_CREATE
+        PD_MSG_FIELD_O(returnDetail) = returnDetail;
+#undef PD_MSG
+#undef PD_TYPE
+    break;
+    }
+    case PD_MSG_WORK_DESTROY:
+    {
+#define PD_MSG (msg)
+#define PD_TYPE PD_MSG_WORK_DESTROY
+        PD_MSG_FIELD_O(returnDetail) = returnDetail;
+#undef PD_MSG
+#undef PD_TYPE
+    break;
+    }
+    case PD_MSG_DEP_ADD:
+    {
+#define PD_MSG (msg)
+#define PD_TYPE PD_MSG_DEP_ADD
+        PD_MSG_FIELD_O(returnDetail) = returnDetail;
+#undef PD_MSG
+#undef PD_TYPE
+    break;
+    }
+    case PD_MSG_DB_CREATE:
+    {
+#define PD_MSG (msg)
+#define PD_TYPE PD_MSG_DB_CREATE
+        PD_MSG_FIELD_O(returnDetail) = returnDetail;
+#undef PD_MSG
+#undef PD_TYPE
+    break;
+    }
+    case PD_MSG_DEP_DYNADD:
+    {
+#define PD_MSG (msg)
+#define PD_TYPE PD_MSG_DEP_DYNADD
+        PD_MSG_FIELD_O(returnDetail) = returnDetail;
+#undef PD_MSG
+#undef PD_TYPE
+    break;
+    }
+    case PD_MSG_DEP_DYNREMOVE:
+    {
+#define PD_MSG (msg)
+#define PD_TYPE PD_MSG_DEP_DYNREMOVE
+        PD_MSG_FIELD_O(returnDetail) = returnDetail;
+#undef PD_MSG
+#undef PD_TYPE
+    break;
+    }
+    case PD_MSG_DB_FREE:
+    {
+#define PD_MSG (msg)
+#define PD_TYPE PD_MSG_DB_FREE
+        PD_MSG_FIELD_O(returnDetail) = returnDetail;
+#undef PD_MSG
+#undef PD_TYPE
+    break;
+    }
+    case PD_MSG_DB_RELEASE:
+    {
+#define PD_MSG (msg)
+#define PD_TYPE PD_MSG_DB_RELEASE
+        PD_MSG_FIELD_O(returnDetail) = returnDetail;
+#undef PD_MSG
+#undef PD_TYPE
+    break;
+    }
+    default:
+    ASSERT("Unhandled message type in setReturnDetail");
+    break;
+    }
+}
+
+static pdEvent_t * createDeferredMT(ocrPolicyDomain_t * pd, ocrPolicyMsg_t * msg) {
+    pdEvent_t * pdEvent;
+    RESULT_ASSERT(pdCreateEvent(pd, &pdEvent, PDEVT_TYPE_MSG, 0), ==, 0);
+    pdEvent->properties |= PDEVT_GC | PDEVT_DESTROY_DEEP;
+    ((pdEventMsg_t *) pdEvent)->msg = msg;
+    DPRINTF(DEBUG_LVL_VERB, "Created micro-task for deferred API call: %p\n", pdEvent);
+#ifdef ENABLE_OCR_API_DEFERRABLE_MT
+    // The event will be marked ready whenever the previous MT is completed.
+    // This is to the exception of the first deferred event that's made ready
+    // when the EDT user code has finished executing
+#else
+    //TODO-MT-DEFERRED: I was assuming the pdEvent would be eligible for scheduling if
+    //marked ready. Is this currently working because the pdCreateEvent doesn't reserve in the table ?
+    RESULT_ASSERT(pdMarkReadyEvent(pd, pdEvent), ==, 0);
+#endif
+    return pdEvent;
+}
+
+static ocrPolicyMsg_t * hcPdDeferredMarshall(ocrPolicyDomain_t *pd, ocrPolicyMsg_t *msg) {
+    u64 baseSize = 0, marshalledSize = 0;
+    ocrPolicyMsgGetMsgSize(msg, &baseSize, &marshalledSize, 0);
+    u64 fullMsgSize = baseSize + marshalledSize;
+    ocrPolicyMsg_t * msgCopy = (ocrPolicyMsg_t *) pd->fcts.pdMalloc(pd, fullMsgSize);
+    initializePolicyMessage(msgCopy, fullMsgSize);
+    ocrPolicyMsgMarshallMsg(msg, baseSize, (u8*)msgCopy, MARSHALL_DUPLICATE);
+    return msgCopy;
+}
+
+#define DEFERRED_MSG_QUEUE_SIZE_DEFAULT 4
+
+static void hcPdDeferredRecord(ocrPolicyDomain_t *pd, ocrPolicyMsg_t *msg) {
+    ocrTask_t *curTask = NULL;
+    getCurrentEnv(NULL, NULL, &curTask, NULL);
+    ASSERT(curTask != NULL);
+    ocrTaskHc_t * hcTask = (ocrTaskHc_t *) curTask;
+#ifdef ENABLE_OCR_API_DEFERRABLE_MT
+#else
+    if (hcTask->evts == NULL) {
+        hcTask->evts = newBoundedQueue(pd, DEFERRED_MSG_QUEUE_SIZE_DEFAULT);
+    }
+    if (queueIsFull(hcTask->evts)) {
+        hcTask->evts = queueDoubleResize(hcTask->evts, /*freeOld=*/true);
+    }
+#endif
+    pdEvent_t * pdEvent = createDeferredMT(pd, msg);
+#ifdef ENABLE_OCR_API_DEFERRABLE_MT
+    pdStrand_t * tailStrand;
+    RESULT_ASSERT(pdGetNewStrand(pd, &tailStrand, pd->strandTables[PDSTT_EVT], pdEvent, 0 /*unused*/), ==, 0);
+    pdAction_t * processAction = pdGetProcessMessageAction(NP_WORK);
+    RESULT_ASSERT(pdEnqueueActions(pd, tailStrand, 1, &processAction, false/*clear hold*/), ==, 0);
+    RESULT_ASSERT(pdUnlockStrand(tailStrand), ==, 0);
+    if (hcTask->evtHead == NULL) {
+        hcTask->evtHead = pdEvent;
+    } else {
+        // Chain the previous event to the new one
+        pdStrand_t * oldTailStrand = hcTask->tailStrand;
+        pdAction_t* satisfyAction = pdGetMarkReadyAction(pdEvent);
+        RESULT_ASSERT(pdLockStrand(oldTailStrand, 0), ==, 0);
+        RESULT_ASSERT(pdEnqueueActions(pd, oldTailStrand, 1, &satisfyAction, true/*clear hold*/), ==, 0);
+        RESULT_ASSERT(pdUnlockStrand(oldTailStrand), ==, 0);
+    }
+    hcTask->tailStrand = tailStrand;
+#else
+    // This is to be substituted to chaining MT
+    queueAddLast(hcTask->evts, (void *) pdEvent);
+#endif
+}
+
+static u8 getDeferredGuid(ocrPolicyDomain_t * pd, ocrGuid_t * guid, ocrGuidKind kind, ocrLocation_t targetLocation) {
+    ocrPolicyMsg_t msgGuid;
+    getCurrentEnv(NULL, NULL, NULL, &msgGuid);
+#define PD_MSG (&msgGuid)
+#define PD_TYPE PD_MSG_GUID_CREATE
+    msgGuid.type = PD_MSG_GUID_CREATE | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
+    PD_MSG_FIELD_IO(guid.guid) = NULL_GUID;
+    PD_MSG_FIELD_IO(guid.metaDataPtr) = NULL;
+    // We allocate everything in the meta-data to keep things simple
+    PD_MSG_FIELD_I(size) = 0;
+    PD_MSG_FIELD_I(kind) = kind;
+    PD_MSG_FIELD_I(targetLoc) = targetLocation;
+    PD_MSG_FIELD_I(properties) = 0; // Not valid and do not record
+    RESULT_PROPAGATE(pd->fcts.processMessage(pd, &msgGuid, true));
+    ASSERT(PD_MSG_FIELD_IO(guid.metaDataPtr) == NULL);
+    // Set-up base structures
+    *guid = PD_MSG_FIELD_IO(guid.guid);
+    return PD_MSG_FIELD_O(returnDetail);
+#undef PD_MSG
+#undef PD_TYPE
+}
+
+// Returns true if the operation has been deferred. Otherwise the PD must process the message.
+static u8 hcPdDeferredProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlocking) {
+    // ocrPolicyDomainHc_t * dself = (ocrPolicyDomainHc_t *) self;
+
+    // Note: Here we loose the 'isBlocking' argument value but it's ok because in this implementation
+    // of deferred all the messages are rooted in the user API which doesn't support asynchrony anyway.
+    ASSERT(msg->type & PD_MSG_DEFERRABLE);
+
+    // Disable the deferrable flag so that next time we do process the messages fully.
+    msg->type &= (~PD_MSG_DEFERRABLE);
+
+#define PD_MSG msg
+    switch(msg->type & PD_MSG_TYPE_ONLY) {
+        case PD_MSG_DB_CREATE: {
+#define PD_TYPE PD_MSG_DB_CREATE
+            //O(returnDetail)
+            //O(ptr)
+            //IO(guid)
+            //TODO-deferred for NO_ACQUIRE we could actually defer
+            if (PD_MSG_FIELD_IO(properties) & DB_PROP_NO_ACQUIRE) {
+                ASSERT(false && "Implement deferred DB create in DB_PROP_NO_ACQUIRE"); // Just as a reminder
+            } else {
+                return OCR_EPERM;
+            }
+            // Note there is a subsequent PD_MSG_DEP_DYNADD in the user/rt interface.
+            // It's ok to not do dynadd immediately as the 'uses' for that information
+            // will be deferred too. Hence, the operation's side-effects will be seen
+            // in the same order.
+#undef PD_TYPE
+        break;
+        }
+        case PD_MSG_DEP_DYNADD:
+        case PD_MSG_DEP_DYNREMOVE: {
+            //TODO-DEFERRED: As currently setup in the ocrDbDestroy of the user/rt interface, we need
+            // to get the output of DYN_REMOVE to feed it as an input parameter to DB_FREE.
+            // Two possible approaches:
+            // 1) Forbid DYNs to be deferred so that the accounting is done properly and DB_FREE is
+            //    called with the proper parameter. Wrt resiliency it's ok because those messages do not have
+            //    side-effects visible outside the EDT.
+            // 2) Another approach would be to have a deferred processing of DYN_REMOVE that in deferred mode
+            //    also does a subsequent DB_FREE
+            return OCR_EPERM; //TODO: do minimal work and defer
+        }
+        case PD_MSG_DB_RELEASE: {
+            // Similar issue to ocrDbDestroy. Depending on the output of DB_RELEASE, the user/rt interface
+            // does a DYN_REMOVE. However, here we really must defer the call as it's expensive in the
+            // current implementation.
+            // So go with approach 2) mentioned above to invoke PD_MSG_DEP_DYNREMOVE after the facts
+        break;
+        }
+        case PD_MSG_WORK_CREATE: {
+#define PD_TYPE PD_MSG_WORK_CREATE
+            //O(returnDetail)
+            //IO(guid)
+            //IO(paramc)
+            //IO(paramv)
+            //IO(outputEvent)
+            //TODO-DEFERRED: Limitations EDTs: Proposal to remove EDT_PARAM_DEF from OCR User APIs
+            if ((PD_MSG_FIELD_IO(paramc) == EDT_PARAM_DEF) || (PD_MSG_FIELD_IO(depc) == EDT_PARAM_DEF)) {
+                //TODO-DEFERRED: This is going to be an issue if I've deferred the template creation then
+                //I can't issue this call since the other end will try to resolve the template and it doesn't exists.
+                DPRINTF(DEBUG_LVL_WARN, "[DFRD] Warning: EDT creation cannot be deferred because of EDT_PARAM_DEF being used\n");
+                return OCR_EPERM;
+            }
+            // Only generate GUIDs for two-way EDTs
+            if (msg->type & PD_MSG_REQ_RESPONSE) {
+                ocrGuid_t edtGuid;
+                getDeferredGuid(self, &edtGuid, OCR_GUID_EDT, msg->destLocation);
+                PD_MSG_FIELD_IO(guid.guid) = edtGuid;
+                PD_MSG_FIELD_IO(guid.metaDataPtr) = NULL;
+                ocrGuid_t oeGuid = NULL_GUID;
+                if (ocrGuidIsUninitialized(PD_MSG_FIELD_IO(outputEvent.guid))) {
+                    ocrEventTypes_t evtType = OCR_GUID_EVENT_ONCE;
+                    if (PD_MSG_FIELD_I(properties) & EDT_PROP_FINISH) {
+                        evtType = OCR_GUID_EVENT_LATCH;
+                    }
+                    getDeferredGuid(self, &oeGuid, evtType, msg->destLocation);
+                    PD_MSG_FIELD_IO(outputEvent.guid) = oeGuid;
+                    PD_MSG_FIELD_IO(outputEvent.metaDataPtr) = NULL;
+                }
+                PD_MSG_FIELD_I(properties) |= (GUID_PROP_ISVALID); // Record the GUID is valid for subsequent processMessage
+                DPRINTF(DEBUG_LVL_VVERB, "[DFRD] Creating deferred EDT (GUID: "GUIDF") (OE-GUID: "GUIDF") msg->destLocation=%"PRIu64"\n", GUIDA(edtGuid), GUIDA(oeGuid), (u64)msg->destLocation);
+            }
+#undef PD_TYPE
+        break;
+        }
+        case PD_MSG_EVT_CREATE: {
+#define PD_TYPE PD_MSG_EVT_CREATE
+            //O(returnDetail)
+            //IO(guid)
+            //TODO-DEFERRED: need to think about labelled
+            ocrGuid_t evtGuid;
+            ocrGuidKind kind = eventTypeToGuidKind(PD_MSG_FIELD_I(type));
+            getDeferredGuid(self, &evtGuid, kind, msg->destLocation);
+            PD_MSG_FIELD_IO(guid.guid) = evtGuid;
+            PD_MSG_FIELD_IO(guid.metaDataPtr) = NULL;
+            PD_MSG_FIELD_I(properties) |= (GUID_PROP_ISVALID); // Record the GUID is valid for subsequent processMessage
+#undef PD_TYPE
+        break;
+        }
+        case PD_MSG_EDTTEMP_CREATE: {
+#define PD_TYPE PD_MSG_EDTTEMP_CREATE
+            //O(returnDetail)
+            //IO(guid)
+            //TODO-DEFERRED see current limitation for EDT_PARAM_DEF
+            return OCR_EPERM; //TODO: do minimal work and defer
+#undef PD_TYPE
+        break;
+        }
+    }
+#undef PD_MSG
+    // Just defer the call
+    ocrPolicyMsg_t * msgCopy = hcPdDeferredMarshall(self, msg);
+    hcPdDeferredRecord(self, msgCopy);
+    DPRINTF(DEBUG_LVL_VVERB, "[DFRD] Creating copy msg %p of original %p\n", msgCopy, msg);
+    //TODO-DEFERRED: for now keep returning zero but we may want to get an error code.
+    //If we do so, we'll need to update the user/rt interface too
+    setDeferredReturnDetail(msg, 0);
+    return 0;
+}
+#endif
+
 u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlocking) {
     START_PROFILE(pd_hc_ProcessMessage);
     u8 returnCode = 0;
@@ -975,6 +1326,19 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
     u64 baseSizeIn = ocrPolicyMsgGetMsgBaseSize(msg, true);
     u64 baseSizeOut = ocrPolicyMsgGetMsgBaseSize(msg, false);
     ASSERT(((baseSizeIn < baseSizeOut) && (msg->bufferSize >= baseSizeOut)) || (baseSizeIn >= baseSizeOut));
+#endif
+
+    //TODO-DEFERRED:
+#ifdef ENABLE_OCR_API_DEFERRABLE
+#ifdef ENABLE_POLICY_DOMAIN_HC_DIST
+    if ((msg->type & PD_MSG_DEFERRABLE)) {
+        return hcPdDeferredProcessMessage(self, msg, isBlocking);
+    }
+#else
+    if ((msg->type & PD_MSG_DEFERRABLE) && !hcPdDeferredProcessMessage(self, msg, isBlocking)) {
+        return 0;
+    }
+#endif
 #endif
 
     hcSchedNotifyPreProcessMessage(self, msg);
@@ -1000,10 +1364,9 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
             ocrDataBlock_t *db = PD_MSG_FIELD_IO(guid.metaDataPtr);
             if(db == NULL) {
                 DPRINTF(DEBUG_LVL_WARN, "DB Create failed for size %"PRIx64"\n", PD_MSG_FIELD_IO(size));
-
             } else{
-                DPRINTF(DEBUG_LVL_VERB, "Creating a datablock of size %"PRIu64" @ 0x%p (GUID: "GUIDF")\n",
-                        db->size, db->ptr, GUIDA(db->guid));
+                DPRINTF(DEBUG_LVL_WARN, "Creating a datablock of size %"PRIu64" @ %p (GUID: "GUIDF") (edt GUID: "GUIDF")\n",
+                        db->size, db->ptr, GUIDA(db->guid), GUIDA(tEdt.guid));
                 OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_DATABLOCK, OCR_ACTION_CREATE, traceDataCreate, db->guid, db->size);
             }
             ASSERT(db);
@@ -1211,11 +1574,7 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         localDeguidify(self, &(PD_MSG_FIELD_I(currentEdt)));
         localDeguidify(self, &(PD_MSG_FIELD_I(parentLatch)));
 
-        ocrFatGuid_t *outputEvent = NULL;
-        if(ocrGuidIsUninitialized(PD_MSG_FIELD_IO(outputEvent.guid))) {
-            outputEvent = &(PD_MSG_FIELD_IO(outputEvent));
-        }
-
+        ocrFatGuid_t *outputEvent = &(PD_MSG_FIELD_IO(outputEvent));
         if((PD_MSG_FIELD_I(workType) != EDT_USER_WORKTYPE) && (PD_MSG_FIELD_I(workType) != EDT_RT_WORKTYPE)) {
             // This is a runtime error and should be reported as such
             DPRINTF(DEBUG_LVL_WARN, "Invalid worktype %"PRIx32"\n", PD_MSG_FIELD_I(workType));
@@ -1399,7 +1758,7 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         if (isBlocking == false) {
             u32 returnDetail = createEventHelper(
                 self, &(PD_MSG_FIELD_IO(guid)),
-                PD_MSG_FIELD_I(type), PD_MSG_FIELD_I(properties), paramList);
+                PD_MSG_FIELD_I(type), (PD_MSG_FIELD_I(properties) | GUID_PROP_TORECORD), paramList);
             if (returnDetail == OCR_EGUIDEXISTS) {
                 RETURN_PROFILE(OCR_EPEND);
             } else {
@@ -1411,7 +1770,7 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
 #endif
         PD_MSG_FIELD_O(returnDetail) = createEventHelper(
             self, &(PD_MSG_FIELD_IO(guid)),
-            PD_MSG_FIELD_I(type), PD_MSG_FIELD_I(properties), paramList);
+            PD_MSG_FIELD_I(type), (PD_MSG_FIELD_I(properties) | GUID_PROP_TORECORD), paramList);
             msg->type &= ~PD_MSG_REQUEST;
             msg->type |= PD_MSG_RESPONSE;
 #ifdef ENABLE_EXTENSION_BLOCKING_SUPPORT
@@ -1988,6 +2347,7 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
             PD_MSG_FIELD_O(returnDetail) = ((ocrEventFactory_t*)(self->factories[self->eventFactoryIdx]))->fcts[evt->kind].registerSignaler(
                 evt, signaler, PD_MSG_FIELD_I(slot), PD_MSG_FIELD_I(mode), isAddDep);
         } else if (dstKind == OCR_GUID_EDT) {
+            DPRINTF(DEBUG_LVL_WARN, "Add Dep to EDT (GUID: "GUIDF")\n", GUIDA(dest.guid));
             ocrTask_t *edt = (ocrTask_t*)(dest.metaDataPtr);
             ASSERT(edt->fctId == ((ocrTaskFactory_t*)(self->factories[self->taskFactoryIdx]))->factoryId);
             PD_MSG_FIELD_O(returnDetail) = ((ocrTaskFactory_t*)(self->factories[self->taskFactoryIdx]))->fcts.registerSignaler(
@@ -2028,6 +2388,12 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         bool isAddDep = PD_MSG_FIELD_I(properties);
         if (dstKind & OCR_GUID_EVENT) {
             ocrEvent_t *evt = (ocrEvent_t*)(dest.metaDataPtr);
+#ifdef OCR_ASSERT
+            ocrLocation_t tmpL;
+            self->guidProviders[0]->fcts.getLocation(
+                self->guidProviders[0], dest.guid, &tmpL);
+            ASSERT(tmpL == self->myLocation);
+#endif
             ASSERT(evt->fctId == ((ocrEventFactory_t*)(self->factories[self->eventFactoryIdx]))->factoryId);
             // Warning: A counted-event can be destroyed by this call
 #ifdef REG_ASYNC_SGL
@@ -2391,11 +2757,20 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
 u8 hcPdProcessEvent(ocrPolicyDomain_t* self, pdEvent_t **evt, u32 idx) {
     // Simple version to test out micro tasks for now. This just executes a blocking
     // call to the regular process message and returns NULL
-
     ASSERT(idx == 0);
     ASSERT(((*evt)->properties & PDEVT_TYPE_MASK) == PDEVT_TYPE_MSG);
     pdEventMsg_t *evtMsg = (pdEventMsg_t*)*evt;
+    ocrWorker_t * worker;
+    getCurrentEnv(NULL, &worker, NULL, NULL);
+    // Check if we need to restore a context in which the MT is supposed to execute.
+    // Can typically happen in deferred execution where the EDT user code is done
+    // but there still is pending OCR operations in the form of MT to execute.
+    ocrTask_t * curTask = worker->curTask;
+    if (evtMsg->ctx) {
+        worker->curTask = evtMsg->ctx;
+    }
     hcPolicyDomainProcessMessage(self, evtMsg->msg, true);
+    worker->curTask = curTask;
     *evt = NULL;
     return 0;
 }

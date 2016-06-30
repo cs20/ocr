@@ -390,7 +390,22 @@ u8 labeledGuidCreateGuid(ocrGuidProvider_t* self, ocrFatGuid_t *fguid, u64 size,
 #endif
         }
     } else { // Not labeled
-        labeledGuidGetGuid(self, &(fguid->guid), (u64)(fguid->metaDataPtr), kind, targetLoc, properties | GUID_PROP_TORECORD);
+        if (properties & GUID_PROP_ISVALID) {
+            if (properties & GUID_PROP_TORECORD) {
+                DPRINTF(DEBUG_LVL_VVERB, "Recording "GUIDF" @ %p\n", GUIDA(fguid->guid), ptr);
+    #if GUID_BIT_COUNT == 64
+                u64 guid = fguid->guid.guid;
+    #elif GUID_BIT_COUNT == 128
+                u64 guid = fguid->guid.lower;
+    #else
+    #error Unknown type of GUID
+    #endif
+                GP_HASHTABLE_PUT(((ocrGuidProviderLabeled_t *) self)->guidImplTable, (void *) guid, (void *) ptr);
+            }
+        } else {
+            labeledGuidGetGuid(self, &(fguid->guid), (u64) (fguid->metaDataPtr), kind, targetLoc, GUID_PROP_TORECORD);
+            DPRINTF(DEBUG_LVL_VVERB, "Generating GUID "GUIDF"\n", GUIDA(fguid->guid));
+        }
     }
 #undef PD_MSG
     DPRINTF(DEBUG_LVL_VERB, "LabeledGUID: create GUID: "GUIDF" -> 0x%p\n", GUIDA(fguid->guid), fguid->metaDataPtr);

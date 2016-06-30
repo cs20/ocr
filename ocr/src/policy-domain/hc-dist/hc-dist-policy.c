@@ -548,6 +548,15 @@ static inline void hcDistSchedNotifyPostProcessMessage(ocrPolicyDomain_t *self, 
     msg->type &= ~PD_MSG_REQ_POST_PROCESS_SCHEDULER;
 }
 
+
+#ifdef ENABLE_OCR_API_DEFERRABLE
+static u8 hcDistDeferredProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlocking) {
+    // Systematically delegate to the base PD
+    ocrPolicyDomainHcDist_t * pdSelfDist = (ocrPolicyDomainHcDist_t *) self;
+    return pdSelfDist->baseProcessMessage(self, msg, isBlocking);
+}
+#endif
+
 /*
  * Handle messages requiring remote communications, delegate locals to shared memory implementation.
  */
@@ -598,6 +607,7 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
     u32 properties = 0;
 #endif
 
+
 #ifdef PLACER_LEGACY //BUG #476 - This code is being deprecated
     // Try to automatically place datablocks and edts. Only support naive PD-based placement for now.
     suggestLocationPlacement(self, curLoc, (ocrPlatformModelAffinity_t *) self->platformModel,
@@ -606,7 +616,23 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
     hcDistSchedNotifyPreProcessMessage(self, msg);
 #endif
 
+#ifdef ENABLE_OCR_API_DEFERRABLE
+    //TODO-DEFERRED:
+    // There's a tradeoff for enqueuing before or after the scheduler notify. Do we want the scheduler
+    // to see operations ahead of time now, or a more "global" analysis at the end of the EDT when
+    // all the operations are deferred.
+    //
+    //TODO-DEFERRED: The management of PD_MSG_IGNORE is okay-ish here. Notify is invoked once now
+    //so that we make a placement decision that gives a target location and we use that to generate
+    //a remote GUID. Ideally we would do a local GUID+MD to actual location so that the placement
+    //decision can be made after the facts.
+    if ((msg->type & PD_MSG_DEFERRABLE) && !hcDistDeferredProcessMessage(self, msg, isBlocking)) {
+        return 0;
+    }
+#endif
+
     DPRINTF(DEBUG_LVL_VERB, "HC-dist processing message @ %p of type 0x%"PRIx32"\n", msg, msg->type);
+
 
     switch(msg->type & PD_MSG_TYPE_ONLY) {
     case PD_MSG_WORK_CREATE:
@@ -2060,7 +2086,9 @@ u8 hcDistProcessEvent(ocrPolicyDomain_t* self, pdEvent_t **evt, u32 idx) {
         *evt = NULL;
     } else {
         // HACK: For now, this path should not be exercised
+#ifndef ENABLE_OCR_API_DEFERRABLE
         ASSERT(0);
+#endif
         hcDistProcessMessage(self, evtMsg->msg, true);
         *evt = NULL;
     }

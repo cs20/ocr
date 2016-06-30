@@ -458,6 +458,7 @@ u8 pdCreateEvent(ocrPolicyDomain_t *pd, pdEvent_t **event, u32 type, u8 reserveI
     case PDEVT_TYPE_MSG: {
         pdEventMsg_t *t = (pdEventMsg_t*)(*event);
         t->msg = NULL;
+        getCurrentEnv(NULL, NULL, &(t->ctx), NULL);
         t->continuation = NULL;
         t->properties = 0;
         break;
@@ -513,7 +514,7 @@ u8 pdCreateEvent(ocrPolicyDomain_t *pd, pdEvent_t **event, u32 type, u8 reserveI
 END_LABEL(createEventEnd)
     DPRINTF(DEBUG_LVL_INFO, "EXIT pdCreateEvent -> %"PRIu32"; event: %p; event->strand->index: %"PRIu64"\n",
             toReturn, *event, (*event)->strand?(*event)->strand->index:0);
-    return toReturn;
+return toReturn;
 #undef _END_FUNC
 }
 

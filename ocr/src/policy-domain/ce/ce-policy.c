@@ -1528,16 +1528,12 @@ u8 cePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         localDeguidify(self, &(PD_MSG_FIELD_I(templateGuid)), NULL);
         localDeguidify(self, &(PD_MSG_FIELD_I(currentEdt)), NULL);
         localDeguidify(self, &(PD_MSG_FIELD_I(parentLatch)), NULL);
-        ocrFatGuid_t *outputEvent = NULL;
-        if(ocrGuidIsUninitialized(PD_MSG_FIELD_IO(outputEvent.guid))) {
-            outputEvent = &(PD_MSG_FIELD_IO(outputEvent));
-        }
         ASSERT((PD_MSG_FIELD_I(workType) == EDT_USER_WORKTYPE) || (PD_MSG_FIELD_I(workType) == EDT_RT_WORKTYPE));
         DPRINTF(DEBUG_LVL_VERB, "Processing WORK_CREATE request\n");
         PD_MSG_FIELD_O(returnDetail) = ceCreateEdt(
             self, &(PD_MSG_FIELD_IO(guid)), PD_MSG_FIELD_I(templateGuid),
             &PD_MSG_FIELD_IO(paramc), PD_MSG_FIELD_I(paramv), &PD_MSG_FIELD_IO(depc),
-            PD_MSG_FIELD_I(properties), PD_MSG_FIELD_I(hint), outputEvent,
+            PD_MSG_FIELD_I(properties), PD_MSG_FIELD_I(hint), &PD_MSG_FIELD_IO(outputEvent),
             (ocrTask_t*)(PD_MSG_FIELD_I(currentEdt).metaDataPtr), PD_MSG_FIELD_I(parentLatch));
         DPRINTF(DEBUG_LVL_VERB, "WORK_CREATE response: GUID: "GUIDF"\n",
                 GUIDA(PD_MSG_FIELD_IO(guid.guid)));

@@ -591,7 +591,6 @@ u8 newDataBlockLockable(ocrDataBlockFactory_t *factory, ocrFatGuid_t *guid, ocrF
     ocrGuid_t resultGuid = NULL_GUID;
     PD_MSG_STACK(msg);
     getCurrentEnv(&pd, NULL, NULL, &msg);
-
     ocrDataBlockLockable_t *result = NULL;
     u32 hintc = (flags & DB_PROP_NO_HINT) ? 0 : OCR_HINT_COUNT_DB_LOCKABLE;
     u32 mSize = sizeof(ocrDataBlockLockable_t) + hintc*sizeof(u64);
@@ -622,7 +621,7 @@ u8 newDataBlockLockable(ocrDataBlockFactory_t *factory, ocrFatGuid_t *guid, ocrF
         PD_MSG_FIELD_I(size) = mSize;
         PD_MSG_FIELD_I(kind) = OCR_GUID_DB;
         PD_MSG_FIELD_I(targetLoc) = targetLoc;
-        PD_MSG_FIELD_I(properties) = flags & GUID_PROP_ALL;
+        PD_MSG_FIELD_I(properties) = ((flags & (GUID_RT_PROP_ALL|GUID_PROP_ALL)) | GUID_PROP_TORECORD);
 
         RESULT_PROPAGATE(pd->fcts.processMessage(pd, &msg, true));
 
@@ -632,7 +631,6 @@ u8 newDataBlockLockable(ocrDataBlockFactory_t *factory, ocrFatGuid_t *guid, ocrF
 #undef PD_MSG
 #undef PD_TYPE
     }
-
     if(returnValue != 0) {
         return returnValue;
     }

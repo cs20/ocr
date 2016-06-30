@@ -255,8 +255,7 @@ u8 newDataBlockRegular(ocrDataBlockFactory_t *factory, ocrFatGuid_t *guid, ocrFa
     PD_MSG_FIELD_I(size) = sizeof(ocrDataBlockRegular_t) + hintc*sizeof(u64);
     PD_MSG_FIELD_I(kind) = OCR_GUID_DB;
     PD_MSG_FIELD_I(targetLoc) = targetLoc;
-    PD_MSG_FIELD_I(properties) = (flags & GUID_PROP_ALL);
-
+    PD_MSG_FIELD_I(properties) = ((flags & (GUID_RT_PROP_ALL|GUID_PROP_ALL)) | GUID_PROP_TORECORD);
     RESULT_PROPAGATE(pd->fcts.processMessage(pd, &msg, true));
 
     ocrDataBlockRegular_t *result = (ocrDataBlockRegular_t*)PD_MSG_FIELD_IO(guid.metaDataPtr);

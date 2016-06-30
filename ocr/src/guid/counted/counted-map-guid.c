@@ -206,6 +206,7 @@ static u8 countedMapGetGuid(ocrGuidProvider_t* self, ocrGuid_t* guid, u64 val, o
     u64 newGuid = generateNextGuid(self, kind, targetLoc, 1);
 
     if (properties & GUID_PROP_TORECORD) {
+        DPRINTF(DEBUG_LVL_VVERB,"Recording %"PRIx64" @ %"PRIx64"\n", newGuid, val);
         GP_HASHTABLE_PUT(((ocrGuidProviderCountedMap_t *) self)->guidImplTable, (void *) newGuid, (void *) val);
     }
     // See BUG #928 on GUID issues
@@ -248,10 +249,22 @@ u8 countedMapCreateGuid(ocrGuidProvider_t* self, ocrFatGuid_t *fguid, u64 size, 
     RESULT_PROPAGATE(policy->fcts.processMessage (policy, &msg, true));
 
     void * ptr = (void *)PD_MSG_FIELD_O(ptr);
-    //GUID_PROP_IS_LABELED was used in place of VALID|RECORD previously
-    // if(!(properties & GUID_PROP_IS_LABELED)) {
-    countedMapGetGuid(self, &(fguid->guid), (u64) ptr, kind, targetLoc, GUID_PROP_TORECORD);
-    // }
+    if (properties & GUID_PROP_ISVALID) {
+        if (properties & GUID_PROP_TORECORD) {
+            DPRINTF(DEBUG_LVL_VVERB, "Recording "GUIDF" @ %p\n", GUIDA(fguid->guid), ptr);
+#if GUID_BIT_COUNT == 64
+            u64 guid = fguid->guid.guid;
+#elif GUID_BIT_COUNT == 128
+            u64 guid = fguid->guid.lower;
+#else
+#error Unknown type of GUID
+#endif
+            GP_HASHTABLE_PUT(((ocrGuidProviderCountedMap_t *) self)->guidImplTable, (void *) guid, (void *) ptr);
+        }
+    } else {
+        countedMapGetGuid(self, &(fguid->guid), (u64) ptr, kind, targetLoc, GUID_PROP_TORECORD);
+        DPRINTF(DEBUG_LVL_VVERB, "Generating GUID "GUIDF"\n", GUIDA(fguid->guid));
+    }
     // Update the fat GUID's metaDataPtr
     fguid->metaDataPtr = ptr;
 #undef PD_MSG
@@ -348,7 +361,7 @@ static u8 countedMapGetVal(ocrGuidProvider_t* self, ocrGuid_t guid, u64* val, oc
             }
         } else {
             // Implementation limitation. For now DB relies on the proxy mecanism in hc-dist-policy
-            *val = ((getKindFromGuid(guid) == OCR_GUID_DB) ? ((u64) mdProxy) : ((u64) mdProxy->ptr));
+            *val = ((getKindFromGuid(guid) == OCR_GUID_DB) ? (u64) mdProxy : (u64) mdProxy->ptr);
         }
         if (mode == MD_FETCH) {
             ASSERT(proxy != NULL);
