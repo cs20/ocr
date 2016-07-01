@@ -242,8 +242,8 @@ u8 dbspaceSchedulerObjectOcrPolicyMsgUnMarshallMsg(ocrSchedulerObjectFactory_t *
     ASSERT(dbMap);
     ocrSchedulerObjectFactory_t *mapFact = pd->schedulerObjectFactories[dbMap->fctId];
     ocrSchedulerObjectIterator_t *mapIt = mapFact->fcts.createIterator(mapFact, dbMap, 0);
-#if GUID_BIT_SIZE == 64
-    mapIt->data = (void*)(schedObj->guid.guid);
+#if GUID_BIT_COUNT == 64
+    mapIt->data = (void*)(schedObj->guid.guid.guid);
 #elif GUID_BIT_COUNT == 128
     mapIt->data = (void*)(schedObj->guid.guid.lower);
 #endif

@@ -1320,7 +1320,7 @@ u8 ocrPolicyMsgUnMarshallMsg(u8* mainBuffer, u8* addlBuffer,
             ocrPolicyDomain_t *pd = NULL;
             getCurrentEnv(&pd, NULL, NULL, NULL);
             while(count) {
-                if (!(ocrGuidIsNull(guids->guid))) {
+                if (!ocrGuidIsNull(guids->guid) && !ocrGuidIsError(guids->guid) && !ocrGuidIsUninitialized(guids->guid)) {
                     // Determine if GUID is local
                     //BUG #581: what we should really do is compare the PD location and the guid's one
                     // but the overhead going through the current api sounds unreasonnable.
