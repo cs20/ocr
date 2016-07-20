@@ -81,7 +81,7 @@ static void pdspaceSchedulerObjectInitialize(ocrSchedulerObjectFactory_t *fact, 
     ocrSchedulerObjectPdspace_t* pdspaceSchedObj = (ocrSchedulerObjectPdspace_t*)self;
     pdspaceSchedObj->dbMap = NULL;
     pdspaceSchedObj->wst = NULL;
-    pdspaceSchedObj->lock = 0;
+    pdspaceSchedObj->lock = INIT_LOCK;
 }
 
 ocrSchedulerObject_t* newSchedulerObjectPdspace(ocrSchedulerObjectFactory_t *factory, ocrParamList_t *perInstance) {

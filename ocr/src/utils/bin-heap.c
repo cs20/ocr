@@ -47,7 +47,7 @@ static void _baseBinHeapInit(binHeap_t* heap, ocrPolicyDomain_t *pd) {
 
 static void _lockedBinHeapInit(binHeapLocked_t* heap, ocrPolicyDomain_t *pd) {
     _baseBinHeapInit((binHeap_t*)heap, pd);
-    heap->lock = 0;
+    heap->lock = INIT_LOCK;
 }
 
 static binHeap_t * _newBaseBinHeap(ocrPolicyDomain_t *pd, ocrBinHeapType_t type) {
@@ -174,9 +174,9 @@ void *nonConcBinHeapPop(binHeap_t *heap, u8 doTry) {
  */
 void lockedBinHeapPush(binHeap_t *self, void *entry, s64 priority, u8 doTry) {
     binHeapLocked_t* dself = (binHeapLocked_t*)self;
-    hal_lock32(&dself->lock);
+    hal_lock(&dself->lock);
     nonConcBinHeapPush(self, entry, priority, doTry);
-    hal_unlock32(&dself->lock);
+    hal_unlock(&dself->lock);
 }
 
 /*
@@ -185,9 +185,9 @@ void lockedBinHeapPush(binHeap_t *self, void *entry, s64 priority, u8 doTry) {
  */
 void * lockedBinHeapPop(binHeap_t * self, u8 doTry) {
     binHeapLocked_t* dself = (binHeapLocked_t*)self;
-    hal_lock32(&dself->lock);
+    hal_lock(&dself->lock);
     void *rt = nonConcBinHeapPop(self, doTry);
-    hal_unlock32(&dself->lock);
+    hal_unlock(&dself->lock);
     return rt;
 }
 

@@ -47,7 +47,7 @@
 
 #define PROPAGATE_UP_TREE(__node, __parent, __npidx, __cond, __actions) do { \
     while (((__parent) != NULL) && (__cond)) {                      \
-        hal_lock32(&((__parent)->lock));                                \
+        hal_lock(&((__parent)->lock));                                \
         DPRINTF(DEBUG_LVL_VVERB, "BEFORE: %p -> %p [%"PRIu32"] "        \
                 "curNode: [F;NP[%"PRIu32"];R: 0x%"PRIx64"; 0x%"PRIx64"; 0x%"PRIx64"], " \
                 "parent: [F;NP[%"PRIu32"];R: 0x%"PRIx64"; 0x%"PRIx64"; 0x%"PRIx64"]\n", \
@@ -65,48 +65,20 @@
                 (__node)->nodeFree, (__node)->nodeNeedsProcess[__npidx], \
                 (__node)->nodeReady, (__npidx), (__parent)->nodeFree,    \
                 (__parent)->nodeNeedsProcess[__npidx], (__parent)->nodeReady); \
-        hal_unlock32(&(__node->lock));                                 \
+        hal_unlock(&(__node->lock));                                 \
         __node = __parent;                                              \
         __parent = __node->parent;                                      \
     }                                                                   \
     /* Unlock the final one */                                          \
-    hal_unlock32(&(__node->lock));                                      \
+    hal_unlock(&(__node->lock));                                      \
     } while(0);
 
-#define PROPAGATE_UP_TREE_CHECK_LOCK(__node, __parent, __npidx, __cond, __actions) do { \
-    bool _releaseLock = __node->lock == 1;                                \
-    while (((__parent) != NULL) && (__cond)) {                              \
-        hal_lock32(&((__parent)->lock));                                  \
-        DPRINTF(DEBUG_LVL_VVERB, "BEFORE: %p -> %p [%"PRIu32"] "        \
-                "curNode: [F;NP[%"PRIu32"];R: 0x%"PRIx64"; 0x%"PRIx64"; 0x%"PRIx64"], " \
-                "parent: [F;NP[%"PRIu32"];R: 0x%"PRIx64"; 0x%"PRIx64"; 0x%"PRIx64"]\n", \
-                (__node), (__parent), (__node)->parentSlot,             \
-                (__npidx),                                              \
-                (__node)->nodeFree, (__node)->nodeNeedsProcess[__npidx], \
-                (__node)->nodeReady, (__npidx), (__parent)->nodeFree,    \
-                (__parent)->nodeNeedsProcess[__npidx], (__parent)->nodeReady); \
-        __actions;                                                      \
-        DPRINTF(DEBUG_LVL_VVERB, "AFTER: %p -> %p [%"PRIu32"] "         \
-                "curNode: [F;NP[%"PRIu32"];R: 0x%"PRIx64"; 0x%"PRIx64"; 0x%"PRIx64"], " \
-                "parent: [F;NP[%"PRIu32"];R: 0x%"PRIx64"; 0x%"PRIx64"; 0x%"PRIx64"]\n", \
-                (__node), (__parent), (__node)->parentSlot,             \
-                (__npidx),                                              \
-                (__node)->nodeFree, (__node)->nodeNeedsProcess[__npidx], \
-                (__node)->nodeReady, (__npidx), (__parent)->nodeFree,    \
-                (__parent)->nodeNeedsProcess[__npidx], (__parent)->nodeReady); \
-        if(_releaseLock) hal_unlock32(&(__node->lock));                 \
-        _releaseLock = true; /* Always lock/unlock up the chain */      \
-        __node = __parent;                                              \
-        __parent = __node->parent;                                      \
-    }                                                                   \
-    /* Unlock the final one (which can be the first one */              \
-    if(_releaseLock) hal_unlock32(&(__node->lock));                     \
-    } while(0);
+
 
 #define PROPAGATE_UP_TREE_NO_UNLOCK(__node, __parent, __npidx, __cond, __actions) do { \
     bool _releaseLock = false;                                      \
     while (((__parent) != NULL) && (__cond)) {                              \
-        hal_lock32(&((__parent)->lock));                                \
+        hal_lock(&((__parent)->lock));                                \
         DPRINTF(DEBUG_LVL_VVERB, "BEFORE: %p -> %p [%"PRIu32"] "        \
                 "curNode: [F;NP[%"PRIu32"];R: 0x%"PRIx64"; 0x%"PRIx64"; 0x%"PRIx64"], " \
                 "parent: [F;NP[%"PRIu32"];R: 0x%"PRIx64"; 0x%"PRIx64"; 0x%"PRIx64"]\n", \
@@ -124,13 +96,13 @@
                 (__node)->nodeFree, (__node)->nodeNeedsProcess[__npidx], \
                 (__node)->nodeReady, (__npidx), (__parent)->nodeFree,    \
                 (__parent)->nodeNeedsProcess[__npidx], (__parent)->nodeReady); \
-        if(_releaseLock) hal_unlock32(&(__node->lock));                 \
+        if(_releaseLock) hal_unlock(&(__node->lock));                 \
         _releaseLock = true; /* Always lock/unlock up the chain */      \
         __node = __parent;                                              \
         __parent = __node->parent;                                      \
     }                                                                   \
     /* Unlock the final one (which can be the first one) */             \
-    if(_releaseLock) hal_unlock32(&(__node->lock));                     \
+    if(_releaseLock) hal_unlock(&(__node->lock));                     \
     } while(0);
 // Size of the bit vector we use
 #define BV_SIZE 64
@@ -211,8 +183,7 @@ static inline u8 _pdUnlockStrand(pdStrand_t *strand) {
         getCurrentEnv(NULL, &worker, NULL, NULL);
         if(worker == strand->processingWorker) return 0;
     }
-    ASSERT(strand->lock == 1);
-    strand->lock = 0;
+    hal_unlock(&(strand->lock));
     return 0;
 }
 
@@ -504,7 +475,8 @@ u8 pdResolveEvent(ocrPolicyDomain_t *pd, u64 *evtValue, u8 clearFwdHold) {
         // observe the state freely
         DPRINTF(DEBUG_LVL_VVERB, "Event 0x%"PRIx64" -> strand %p (props: 0x%"PRIx32")\n",
                 *evtValue, myStrand, myStrand->properties);
-        ASSERT(myStrand->lock == 1);
+
+        ASSERT(hal_islocked(&(myStrand->lock)));
         if((myStrand->properties & PDST_WAIT) == 0) {
             // Event is ready
             // The following assert ensures that the event in the slot has
@@ -558,7 +530,7 @@ u8 pdResolveEvent(ocrPolicyDomain_t *pd, u64 *evtValue, u8 clearFwdHold) {
                     RESULT_ASSERT(_pdLockStrand(evt->strand, BLOCK), ==, 0);
                     DPRINTF(DEBUG_LVL_VVERB, "Event %p has strand %p (props: 0x%"PRIx32")\n",
                             evt, evt->strand, evt->strand->properties);
-                    ASSERT(evt->strand->lock == 1);
+                    ASSERT(hal_islocked(&(evt->strand->lock)));
                     if((evt->strand->properties & PDST_WAIT) != 0) {
                         // Event is not fully ready, there is some stuff left to process
                         DPRINTF(DEBUG_LVL_VERB, "Event %p is ready but strand is not\n", evt);
@@ -625,7 +597,7 @@ u8 pdMarkReadyEvent(ocrPolicyDomain_t *pd, pdEvent_t *evt) {
             //     - there are no actions -> this strand becomes ready (destroyed or kept around)
             bool propagateReady = false, propagateNP = false, didFree = false;
             u32 npIdx = 0;
-            hal_lock32(&(curNode->lock));
+            hal_lock(&(curNode->lock));
             if ((strand->properties & PDST_WAIT_ACT) != 0) {
                 // Get the NP index for the first action to do
                 u32 npIdx = 0;
@@ -651,7 +623,7 @@ u8 pdMarkReadyEvent(ocrPolicyDomain_t *pd, pdEvent_t *evt) {
                     strand, strand->index);
                     // We unset the nodeReady bit to prevent unecessary propagation
                     curNode->nodeReady &= ~(1ULL<<stIdx);
-                    hal_unlock32(&(curNode->lock));
+                    hal_unlock(&(curNode->lock));
                     RESULT_ASSERT(_pdDestroyStrand(pd, strand), ==, 0);
                     ASSERT(!propagateNP);
                     propagateReady = false; // No need to change this since we freed the node
@@ -672,7 +644,7 @@ u8 pdMarkReadyEvent(ocrPolicyDomain_t *pd, pdEvent_t *evt) {
                         propagateReady, propagateNP);
 
                 pdStrandTableNode_t *parent = curNode->parent;
-                ASSERT(curNode->lock == 1);
+                ASSERT(hal_islocked(&(curNode->lock)));
                 // We flipped nodeReady from 0 to 1; to up until we see a 1
                 // We flipped nodeNeedsProcessing from 0 to 1; same as above
                 PROPAGATE_UP_TREE(curNode, parent, npIdx,
@@ -688,7 +660,7 @@ u8 pdMarkReadyEvent(ocrPolicyDomain_t *pd, pdEvent_t *evt) {
                 });
             } else {
                 if(!didFree)
-                    hal_unlock32(&(curNode->lock));
+                    hal_unlock(&(curNode->lock));
             }
         } else {
             DPRINTF(DEBUG_LVL_VERB, "Skipping propagation as worker is processing worker\n");
@@ -743,7 +715,7 @@ u8 pdMarkWaitEvent(ocrPolicyDomain_t *pd, pdEvent_t *evt) {
             bool propagateReady = false, propagateNP = false;
             // Need Processing index (what's the next work to do)
             u32 npIdx = 0;
-            hal_lock32(&(curNode->lock));
+            hal_lock(&(curNode->lock));
             if ((strand->properties & PDST_WAIT_ACT) != 0) {
                 DPRINTF(DEBUG_LVL_VERB, "(POSSIBLE RACE) Strand %p has waiting actions\n", strand);
                 pdAction_t *tAct = NULL;
@@ -767,7 +739,7 @@ u8 pdMarkWaitEvent(ocrPolicyDomain_t *pd, pdEvent_t *evt) {
                     propagateReady, propagateNP);
 
                 pdStrandTableNode_t *parent = curNode->parent;
-                ASSERT(curNode->lock == 1);
+                ASSERT(hal_islocked(&(curNode->lock)));
                 // We flipped nodeReady from 1 to 0; to up until we see a sibbling
                 // We flipped nodeNeedsProcessing from 1 to 0; same as above
                 PROPAGATE_UP_TREE(curNode, parent, npIdx,
@@ -782,7 +754,7 @@ u8 pdMarkWaitEvent(ocrPolicyDomain_t *pd, pdEvent_t *evt) {
                     }
                 });
             } else {
-                hal_unlock32(&(curNode->lock));
+                hal_unlock(&(curNode->lock));
             }
         } else {
             DPRINTF(DEBUG_LVL_VERB, "Skipping propagation as worker is processing worker\n");
@@ -827,7 +799,7 @@ u8 pdInitializeStrandTable(ocrPolicyDomain_t* pd, pdStrandTable_t *table,
 
     table->levelCount = 0;
     table->head = NULL;
-    table->lock = 0;
+    table->lock = INIT_LOCK;
 
 END_LABEL(initializeStrandTableEnd)
     DPRINTF(DEBUG_LVL_INFO, "EXIT pdInitializeStrandTable -> %"PRIu32"\n",
@@ -845,15 +817,15 @@ u8 pdDestroyStrandTable(ocrPolicyDomain_t* pd, pdStrandTable_t *table,
     u8 toReturn = 0;
 
     CHECK_RESULT_T(table != NULL, , toReturn |= OCR_EINVAL);
-    hal_lock32(&(table->lock));
+    hal_lock(&(table->lock));
     if (table->head != NULL) {
         // If the head exists, make sure all nodes are marked as free
-        hal_lock32(&(table->head->lock));
+        hal_lock(&(table->head->lock));
         CHECK_RESULT_T(table->head->nodeFree == ~0ULL, {
-                hal_unlock32(&(table->head->lock));
-                hal_unlock32(&(table->lock));
+                hal_unlock(&(table->head->lock));
+                hal_unlock(&(table->lock));
             }, toReturn |= OCR_EINVAL);
-        hal_unlock32(&(table->head->lock));
+        hal_unlock(&(table->head->lock));
         // At this point, we hold the lock on the table and unless something is
         // fishy, since the table is empty, nothing else can be happening in
         // parallel. We will therefore free stuff happily.
@@ -862,7 +834,7 @@ u8 pdDestroyStrandTable(ocrPolicyDomain_t* pd, pdStrandTable_t *table,
     } else {
         DPRINTF(DEBUG_LVL_VERB, "Freeing NULL table\n");
     }
-    hal_unlock32(&(table->lock));
+    hal_unlock(&(table->lock));
 
 END_LABEL(destroyStrandTableEnd)
     DPRINTF(DEBUG_LVL_INFO, "EXIT pdDestroyStrandTable -> %"PRIu32"\n",
@@ -891,7 +863,7 @@ u8 pdGetNewStrand(ocrPolicyDomain_t *pd, pdStrand_t **returnStrand, pdStrandTabl
     CHECK_RESULT(properties & ~(PDST_UHOLD), , toReturn |= OCR_EINVAL);
 
     pdStrandTableNode_t *leafToUse = NULL;
-    hal_lock32(&(table->lock));
+    hal_lock(&(table->lock));
     // Look for a leaf to use
     u32 curLevel = 1;
     u32 cachedLevelCount = table->levelCount; // To be able to release the lock earlier
@@ -903,24 +875,24 @@ u8 pdGetNewStrand(ocrPolicyDomain_t *pd, pdStrand_t **returnStrand, pdStrandTabl
                 table);
         // See BUG #899: this should be slab allocated
         CHECK_MALLOC(table->head = (pdStrandTableNode_t*)pd->fcts.pdMalloc
-                     (pd, sizeof(pdStrandTableNode_t)), hal_unlock32(&(table->lock)));
+                     (pd, sizeof(pdStrandTableNode_t)), hal_unlock(&(table->lock)));
         CHECK_RESULT(
             toReturn |= _pdInitializeStrandTableNode(pd, table->head, NULL, 0, 0, PDST_NODE_SIZE, IS_LEAF),
-                     {hal_unlock32(&(table->lock)); pd->fcts.pdFree(pd, table->head);},);
+                     {hal_unlock(&(table->lock)); pd->fcts.pdFree(pd, table->head);},);
         DPRINTF(DEBUG_LVL_VVERB, "Table %p: added head %p\n", table, table->head);
         table->levelCount = 1;
         cachedLevelCount = 1;
         leafToUse = table->head;
-        hal_lock32(&(leafToUse->lock)); // Need lock to be able to read nodeFree later in a race-free manner
+        hal_lock(&(leafToUse->lock)); // Need lock to be able to read nodeFree later in a race-free manner
                                         // (otherwise, another thread may grab the head)
-        hal_unlock32(&(table->lock));
+        hal_unlock(&(table->lock));
         // Lock held here: leafToUse
     } else {
         // In this case, there is at least something in the table, go down the tree
         // to find something that is free. If nothing is found, we will create a new
         // leaf node
         pdStrandTableNode_t *curNode = table->head;
-        hal_lock32(&(curNode->lock)); // Need lock to check curNode->nodeFree
+        hal_lock(&(curNode->lock)); // Need lock to check curNode->nodeFree
 
         // Before releasing the table, we check if we have a snowball's chance in hell
         // of getting a free slot
@@ -932,19 +904,19 @@ u8 pdGetNewStrand(ocrPolicyDomain_t *pd, pdStrand_t **returnStrand, pdStrandTabl
             // See BUG #899: this should be slab allocated
             CHECK_MALLOC(newNode = (pdStrandTableNode_t*)pd->fcts.pdMalloc
                          (pd, sizeof(pdStrandTableNode_t)),
-                {hal_unlock32(&(curNode->lock)); hal_unlock32(&(table->lock));});
+                {hal_unlock(&(curNode->lock)); hal_unlock(&(table->lock));});
 
             // We don't initialize any sub nodes. This is also always a non-leaf node
             CHECK_RESULT(
                 toReturn |=_pdInitializeStrandTableNode(pd, newNode, NULL, 0, cachedLevelCount, 0, 0),
-                {pd->fcts.pdFree(pd, table->head); hal_unlock32(&(curNode->lock)); hal_unlock32(&(table->lock));},);
+                {pd->fcts.pdFree(pd, table->head); hal_unlock(&(curNode->lock)); hal_unlock(&(table->lock));},);
 
             // We need to "update" curNode to pretend we initialized it. In particular, we need
             // to set the parent
             curNode->parent = newNode;
             curNode->parentSlot = 0;
             RESULT_ASSERT(_pdSetStrandNodeAtIdx(pd, newNode, 0, curNode, 0), ==, 0);
-            hal_unlock32(&(curNode->lock));
+            hal_unlock(&(curNode->lock));
 
             // newNode->nodeFree should be 0 at bit 0 since curNode is full)
             ASSERT((newNode->nodeFree & 1ULL) == 0ULL);
@@ -962,13 +934,13 @@ u8 pdGetNewStrand(ocrPolicyDomain_t *pd, pdStrand_t **returnStrand, pdStrandTabl
                     table, newNode, curNode);
             cachedLevelCount = ++table->levelCount;
             curNode = table->head = newNode;
-            hal_lock32(&(curNode->lock)); // At this point, the head is visible
-            hal_unlock32(&(table->lock));
+            hal_lock(&(curNode->lock)); // At this point, the head is visible
+            hal_unlock(&(table->lock));
             // Lock held here: curNode
         } else if(table->levelCount == 1) {
             DPRINTF(DEBUG_LVL_VERB, "Table %p has one level with free space (%p)\n",
                     table, curNode);
-            hal_unlock32(&(table->lock));
+            hal_unlock(&(table->lock));
             // If we have some free room and only one level, we know what to use
             leafToUse = curNode;
             // Lock held here: curNode/leafToUse
@@ -976,7 +948,7 @@ u8 pdGetNewStrand(ocrPolicyDomain_t *pd, pdStrand_t **returnStrand, pdStrandTabl
         } else {
             DPRINTF(DEBUG_LVL_VERB, "Proceeding down table with curNode %p\n",
                     curNode);
-            hal_unlock32(&(table->lock));
+            hal_unlock(&(table->lock));
 
         }
 
@@ -998,7 +970,7 @@ u8 pdGetNewStrand(ocrPolicyDomain_t *pd, pdStrand_t **returnStrand, pdStrandTabl
                 pdStrandTableNode_t *t = NULL;
                 CHECK_MALLOC(
                     t = (pdStrandTableNode_t*)pd->fcts.pdMalloc(pd, sizeof(pdStrandTableNode_t)),
-                                                                hal_unlock32(&(curNode->lock)));
+                                                                hal_unlock(&(curNode->lock)));
                 // If we are at the penultimate level, create a leaf node, otherwise
                 // create a regular one
                 if (curLevel == cachedLevelCount - 1) {
@@ -1008,44 +980,44 @@ u8 pdGetNewStrand(ocrPolicyDomain_t *pd, pdStrand_t **returnStrand, pdStrandTabl
                         toReturn |= _pdInitializeStrandTableNode(pd, t, curNode,
                                                                  freeSlot, 0,
                                                                  PDST_NODE_SIZE, IS_LEAF),
-                                 {pd->fcts.pdFree(pd, *node); hal_unlock32(&(curNode->lock));},);
+                                 {pd->fcts.pdFree(pd, *node); hal_unlock(&(curNode->lock));},);
                     // An error here indicates a runtime logic error
                     RESULT_ASSERT(_pdSetStrandNodeAtIdx(pd, curNode, freeSlot, t, 0), ==, 0);
                     // Set the bit for nodeFree on curNode to prevent anyone else from
                     // going down this path.
                     curNode->nodeFree &= ~(1ULL<<freeSlot);
-                    hal_unlock32(&(curNode->lock));
+                    hal_unlock(&(curNode->lock));
                     leafToUse = *node = t;
-                    hal_lock32(&(leafToUse->lock));
+                    hal_lock(&(leafToUse->lock));
                     // Lock held here: leafToUse
                 } else {
                     CHECK_RESULT(
                         toReturn |= _pdInitializeStrandTableNode(pd, t, curNode,
                                                                  freeSlot, cachedLevelCount - curLevel,
                                                                  0, 0),
-                        {pd->fcts.pdFree(pd, t); hal_unlock32(&(curNode->lock));},);
+                        {pd->fcts.pdFree(pd, t); hal_unlock(&(curNode->lock));},);
                     // An error here indicates a runtime logic error
                     RESULT_ASSERT(_pdSetStrandNodeAtIdx(pd, curNode, freeSlot, t, 0), ==, 0);
                     // Set the bit for nodeFree on curNode to prevent anyone else from
                     // going down this path.
                     curNode->nodeFree &= ~(1ULL<<freeSlot);
-                    hal_unlock32(&(curNode->lock));
+                    hal_unlock(&(curNode->lock));
                     curNode = *node = t;
-                    hal_lock32(&(curNode->lock));
+                    hal_lock(&(curNode->lock));
                     // Lock held here: curNode
                 }
             } else {
                 // Set the bit for nodeFree on curNode to prevent anyone else from
                 // going down this path.
                 curNode->nodeFree &= ~(1ULL<<freeSlot);
-                hal_unlock32(&(curNode->lock));
+                hal_unlock(&(curNode->lock));
                 // The node exists. If this is a leaf node, we are good to go
                 if (curLevel == cachedLevelCount - 1) {
                     leafToUse = *node;
-                    hal_lock32(&(leafToUse->lock));
+                    hal_lock(&(leafToUse->lock));
                 } else {
                     curNode = *node;
-                    hal_lock32(&(curNode->lock));
+                    hal_lock(&(curNode->lock));
                 }
             }
             ++curLevel;
@@ -1084,7 +1056,7 @@ u8 pdGetNewStrand(ocrPolicyDomain_t *pd, pdStrand_t **returnStrand, pdStrandTabl
     strand->properties |= properties;
     DPRINTF(DEBUG_LVL_VVERB, "Strand %p: event: %p | actions: %p | props: 0x%"PRIx32"\n",
             strand, strand->curEvent, strand->actions, strand->properties);
-    ASSERT(strand->lock == 1);
+    ASSERT(hal_islocked(&(strand->lock)));
 
     // Now set the value for the event
     event->strand = strand;
@@ -1108,7 +1080,7 @@ u8 pdGetNewStrand(ocrPolicyDomain_t *pd, pdStrand_t **returnStrand, pdStrandTabl
 
     pdStrandTableNode_t *curNode = leafToUse;
     pdStrandTableNode_t *parent = leafToUse->parent;
-    ASSERT(curNode->lock  == 1);
+    ASSERT(hal_islocked(&(curNode->lock)));
     // This propagation needs to go all the way up irrespective
     // since we cleared the nodeFree bit to go down and know nothing of
     // sibling states
@@ -1124,7 +1096,7 @@ u8 pdGetNewStrand(ocrPolicyDomain_t *pd, pdStrand_t **returnStrand, pdStrandTabl
                 parent->nodeReady |= (1ULL << curNode->parentSlot);
             }
         });
-    ASSERT(strand->lock == 1);
+    ASSERT(hal_islocked(&(strand->lock)));
 END_LABEL(getNewStrandEnd)
     DPRINTF(DEBUG_LVL_INFO, "EXIT pdGetNewStrand -> %"PRIu32" [strand: %p]\n",
             toReturn, *returnStrand);
@@ -1147,11 +1119,11 @@ u8 pdGetStrandForIndex(ocrPolicyDomain_t* pd, pdStrand_t **returnStrand, pdStran
     }
 
     // We will just go down the tree until we find the strand we need
-    hal_lock32(&(table->lock));
+    hal_lock(&(table->lock));
     u32 maxLevel = table->levelCount;
     pdStrandTableNode_t *curNode = table->head;
     u32 curIndex;
-    hal_unlock32(&(table->lock));
+    hal_unlock(&(table->lock));
     if (maxLevel == 0) {
         DPRINTF(DEBUG_LVL_WARN, "Table empty; index %"PRIu64" not found\n", index);
         CHECK_RESULT_T(false, , toReturn = OCR_EINVAL);
@@ -1202,7 +1174,7 @@ u8 pdEnqueueActions(ocrPolicyDomain_t *pd, pdStrand_t* strand, u32 actionCount,
 
     // A lock should be held while we enqueue actions. Make sure it is. If this
     // fails, most likely an internal runtime error
-    ASSERT(strand->lock == 1);
+    ASSERT(hal_islocked(&(strand->lock)));
 
     u32 npIdx = _pdActionToNP(actions[0]);
     if(strand->actions == NULL) {
@@ -1241,7 +1213,7 @@ u8 pdEnqueueActions(ocrPolicyDomain_t *pd, pdStrand_t* strand, u32 actionCount,
             u32 stIdx = strand->index & ((1<<BV_SIZE_LOG2)-1);
             bool propagateReady = false, propagateNP = false;
 
-            hal_lock32(&(curNode->lock));
+            hal_lock(&(curNode->lock));
             // We need processing
             propagateNP = curNode->nodeNeedsProcess[npIdx] == 0ULL;
             curNode->nodeNeedsProcess[npIdx] |= (1ULL<<stIdx);
@@ -1250,7 +1222,7 @@ u8 pdEnqueueActions(ocrPolicyDomain_t *pd, pdStrand_t* strand, u32 actionCount,
             curNode->nodeReady &= ~(1ULL<<stIdx);
             propagateReady = (curNode->nodeReady == 0ULL);
 
-            ASSERT(curNode->lock  == 1);
+            ASSERT(hal_islocked(&(curNode->lock)));
             // In this case, we flipped:
             // NP from 0 to 1 (stop when we see a 1)
             // Ready from 1 to 0 (stop when sibblings have ready nodes)
@@ -1304,7 +1276,7 @@ u8 pdUnlockStrand(pdStrand_t *strand) {
 #define _END_FUNC unlockStrandEnd
 
     u8 toReturn = 0;
-    CHECK_RESULT_T(((strand->lock == 1)), , toReturn = OCR_EINVAL);
+    CHECK_RESULT_T(hal_islocked(&(strand->lock)), , toReturn = OCR_EINVAL);
 
     _pdUnlockStrand(strand);
 
@@ -1396,14 +1368,14 @@ u32 _pdProcessStrandsCount(ocrPolicyDomain_t *pd, u32 processType, u32 count, u3
         pdStrandTable_t *table = pd->strandTables[i];
         DPRINTF(DEBUG_LVL_VERB, "Looking at table %p [idx: %"PRIu32"]\n", table, i);
         processCount = 0;
-        hal_lock32(&(table->lock));
+        hal_lock(&(table->lock));
         pdStrandTableNode_t *curNode = table->head;
-        hal_unlock32(&(table->lock));
+        hal_unlock(&(table->lock));
         if (curNode == NULL) {
             DPRINTF(DEBUG_LVL_VVERB, "Table empty -- continuing to next table\n");
             continue; // We don't even have a head so we really don't have much to do
         }
-        hal_lock32(&(curNode->lock));
+        hal_lock(&(curNode->lock));
         // Continue "forever" if emptytables or just until the maximum count is reached
         while ((properties & PDSTT_EMPTYTABLES) || (processCount < count)) {
             // Go down the tree and see if we have nodeNeedsProcess set anywhere
@@ -1412,7 +1384,7 @@ u32 _pdProcessStrandsCount(ocrPolicyDomain_t *pd, u32 processType, u32 count, u3
             // in this endeavor. This can also happen concurrently with adding new strands and
             // what not
             ASSERT(curNode);
-            ASSERT(curNode->lock == 1);
+            ASSERT(hal_islocked(&(curNode->lock)));
             if (curNode->nodeNeedsProcess[processType]) {
                 DPRINTF(DEBUG_LVL_VERB, "Node %p has children of type %"PRIu32" to process [0x%"PRIx64"]\n",
                         curNode, processType, curNode->nodeNeedsProcess[processType]);
@@ -1425,11 +1397,11 @@ u32 _pdProcessStrandsCount(ocrPolicyDomain_t *pd, u32 processType, u32 count, u3
                     // This is not a leaf node so we need to keep going down
                     pdStrandTableNode_t *node = curNode->data.nodes[processSlot];
                     // If we have something that needs to be processed, there should definitely be a node
-                    hal_unlock32(&(curNode->lock));
+                    hal_unlock(&(curNode->lock));
                     ASSERT(node);
                     DPRINTF(DEBUG_LVL_VERB, "Going down slot %"PRIu32" to %p\n", processSlot, node);
                     curNode = node;
-                    hal_lock32(&(curNode->lock));
+                    hal_lock(&(curNode->lock));
                     ++curLevel;
                     continue;
                 }
@@ -1449,7 +1421,7 @@ u32 _pdProcessStrandsCount(ocrPolicyDomain_t *pd, u32 processType, u32 count, u3
                 // way up
                 DPRINTF(DEBUG_LVL_VVERB, "Going back up the stack to set nodeNeedsProcess\n");
                 pdStrandTableNode_t *parent = curNode->parent;
-                ASSERT(curNode->lock == 1);
+                ASSERT(hal_islocked(&(curNode->lock)));
                 PROPAGATE_UP_TREE(curNode, parent, processType, true, {
                         /* We cleared it on the way down
                          * We need to check all the way up because the way down was to "lock"
@@ -1496,7 +1468,7 @@ u32 _pdProcessStrandsCount(ocrPolicyDomain_t *pd, u32 processType, u32 count, u3
                 toProcess->properties &= ~PDST_MODIFIED;
 
                 // Update properties
-                hal_lock32(&(curNode->lock));
+                hal_lock(&(curNode->lock));
                 bool propagateReady = false, propagateNP = false, didFree = false;
                 u32 nextProcessType = 0;
                 if(arrayDequeSize(toProcess->actions) == 0) {
@@ -1516,7 +1488,7 @@ u32 _pdProcessStrandsCount(ocrPolicyDomain_t *pd, u32 processType, u32 count, u3
                             DPRINTF(DEBUG_LVL_VERB, "Freeing strand %p [idx %"PRIu64"] after processing actions\n",
                                     toProcess, toProcess->index);
                             // Unlock the curNode because it will be locked again in _pdDestroyStrand
-                            hal_unlock32(&(curNode->lock));
+                            hal_unlock(&(curNode->lock));
                             RESULT_ASSERT(_pdDestroyStrand(pd, toProcess), ==, 0);
                             didFree = true;
                         } else {
@@ -1573,7 +1545,7 @@ u32 _pdProcessStrandsCount(ocrPolicyDomain_t *pd, u32 processType, u32 count, u3
                             propagateReady, propagateNP);
 
                     pdStrandTableNode_t *parent = curNode->parent;
-                    ASSERT(curNode->lock == 1);
+                    ASSERT(hal_islocked(&(curNode->lock)));
                     // We flip nodeReady from 0 to 1; to up until we see a 1
                     // We flip nodeNeedsProcessing from 0 to 1; same as above
                     PROPAGATE_UP_TREE(
@@ -1590,16 +1562,16 @@ u32 _pdProcessStrandsCount(ocrPolicyDomain_t *pd, u32 processType, u32 count, u3
                         });
                 } else {
                     if(!didFree)
-                        hal_unlock32(&(curNode->lock));
+                        hal_unlock(&(curNode->lock));
                 }
 
                 // We processed a node so we go and look for the next one
                 ++processCount;
-                hal_lock32(&(table->lock));
+                hal_lock(&(table->lock));
                 curNode = table->head;
-                hal_unlock32(&(table->lock));
+                hal_unlock(&(table->lock));
                 ASSERT(curNode); // The table can't empty out from under us
-                hal_lock32(&(curNode->lock));
+                hal_lock(&(curNode->lock));
             } else {
                 // Nothing left to process
                 DPRINTF(DEBUG_LVL_VERB, "No actions to process -- breaking out after %"PRIu32"\n",
@@ -1609,7 +1581,7 @@ u32 _pdProcessStrandsCount(ocrPolicyDomain_t *pd, u32 processType, u32 count, u3
         } /* End of while loop in one table */
         // At the end of the loop, we always hold the lock on curNode so
         // we release it
-        hal_unlock32(&(curNode->lock));
+        hal_unlock(&(curNode->lock));
     } /* End of for loop on tables */
 
 END_LABEL(processStrandsEnd)
@@ -1697,7 +1669,7 @@ u8 pdProcessResolveEvents(ocrPolicyDomain_t *pd, u32 processType, u32 count, pdE
                     // the usual "go-down-the-tree" approach, we lock our parent, check that we need
                     // processing, lock the strand and propagate any relevant information back up the tree
                     pdStrandTableNode_t *curNode = toProcess->parent;
-                    hal_lock32(&(curNode->lock));
+                    hal_lock(&(curNode->lock));
                     // We should be looking at toProcess
                     ASSERT(curNode->data.slots[stIdx] == toProcess);
                     if(curNode->nodeNeedsProcess[processType] & (1ULL<<stIdx)) {
@@ -1751,7 +1723,7 @@ u8 pdProcessResolveEvents(ocrPolicyDomain_t *pd, u32 processType, u32 count, pdE
                         toProcess->processingWorker = NULL;
                         toProcess->properties &= ~PDST_MODIFIED;
 
-                        hal_lock32(&(curNode->lock));
+                        hal_lock(&(curNode->lock));
                         bool propagateReady = false, propagateNP = false, didFree = false;
                         u32 nextProcessType = 0;
                         if(arrayDequeSize(toProcess->actions) == 0) {
@@ -1776,7 +1748,7 @@ u8 pdProcessResolveEvents(ocrPolicyDomain_t *pd, u32 processType, u32 count, pdE
                                     DPRINTF(DEBUG_LVL_VERB, "Freeing strand %p [idx %"PRIu64"] after processing actions\n",
                                             toProcess, toProcess->index);
                                     // Unlock the curNode because it will be locked again in _pdDestroyStrand
-                                    hal_unlock32(&(curNode->lock));
+                                    hal_unlock(&(curNode->lock));
                                     RESULT_ASSERT(_pdDestroyStrand(pd, toProcess), ==, 0);
                                     didFree = true;
                                 } else {
@@ -1833,7 +1805,7 @@ u8 pdProcessResolveEvents(ocrPolicyDomain_t *pd, u32 processType, u32 count, pdE
                                     propagateReady, propagateNP);
 
                             pdStrandTableNode_t *parent = curNode->parent;
-                            ASSERT(curNode->lock == 1);
+                            ASSERT(hal_islocked(&(curNode->lock)));
                             // We flip nodeReady from 0 to 1; to up until we see a 1
                             // We flip nodeNeedsProcessing from 0 to 1; same as above
                             PROPAGATE_UP_TREE(
@@ -1850,10 +1822,10 @@ u8 pdProcessResolveEvents(ocrPolicyDomain_t *pd, u32 processType, u32 count, pdE
                                 });
                         } else {
                             if(!didFree)
-                                hal_unlock32(&(curNode->lock));
+                                hal_unlock(&(curNode->lock));
                         }
                     } else { /* Node does not need processing or cannot be processed by us */
-                        hal_unlock32(&(curNode->lock));
+                        hal_unlock(&(curNode->lock));
                         // We attempt to resolve the event again
                         if(pdResolveEvent(pd, (u64*)(&(events[curEvent])), doClearHold) != OCR_EBUSY) {
                             isNotReady &= ~(1ULL<<curEvent);
@@ -2030,21 +2002,17 @@ static u8 _pdLockStrand(pdStrand_t *strand, u32 properties) {
             return 0;
     }
 
-    u32 initialValue = strand->lock;
-    if(((properties & BLOCK) == 0) && (initialValue == 1)) {
-        return OCR_EBUSY; // Already locked so no point trying
+    u32 res = hal_trylock(&(strand->lock));
+    if(res) {
+        if(properties & BLOCK) {
+            // Do a proper lock
+            hal_lock(&(strand->lock));
+        } else {
+            return OCR_EBUSY; // Busy lock and we tried
+        }
     }
-    // Try once
-    u32 oldValue = hal_cmpswap32(&(strand->lock), 0, 1);
-
-    if ((oldValue != 0) && ((properties & BLOCK) == 0))
-        return OCR_EBUSY;
-    if (oldValue == 0) {
-        return 0; // Successful
-    }
-
-    // Do a proper lock here
-    hal_lock32(&(strand->lock));
+    // Here it means res == 0 and therefore the trylock succeeded
+    // or hal_lock finished so we also have the lock
     return 0;
 }
 
@@ -2065,7 +2033,7 @@ static u8 _pdInitializeStrandTableNode(ocrPolicyDomain_t *pd, pdStrandTableNode_
     ASSERT(pd);
 
     if (parent) {
-        CHECK_RESULT_T(parent->lock, , toReturn = OCR_EINVAL);
+        CHECK_RESULT_T(hal_islocked(&(parent->lock)), , toReturn = OCR_EINVAL);
     }
 
     // Some sanity checks
@@ -2086,7 +2054,7 @@ static u8 _pdInitializeStrandTableNode(ocrPolicyDomain_t *pd, pdStrandTableNode_
     node->nodeReady = 0;        // Nothing is ready
     // This is parent->lmIndex + parentSlot*BV_SIZE^(rdepth+1)
     node->lmIndex = parent?(parent->lmIndex + (parentSlot << (BV_SIZE_LOG2*(rdepth+1))))<<1:0;
-    node->lock = 0;             // No lock for now.
+    node->lock = INIT_LOCK;             // No lock for now.
     node->parent = parent;
     node->parentSlot = parent?parentSlot:(u32)-1; // If no parent, put -1
 
@@ -2109,7 +2077,7 @@ static u8 _pdInitializeStrandTableNode(ocrPolicyDomain_t *pd, pdStrandTableNode_
             slab->actions = NULL;
             slab->parent = node;
             slab->properties = PDST_FREE;
-            slab->lock = 0;
+            slab->lock = INIT_LOCK;
             slab->index = (node->lmIndex>>1) + (u64)i;
             slab->processingWorker = NULL;
             node->data.slots[i] = slab;
@@ -2272,7 +2240,7 @@ static u8 _pdDestroyStrand(ocrPolicyDomain_t* pd, pdStrand_t *strand) {
     ASSERT(pd);
 
     // The lock must be held on the strand
-    CHECK_RESULT_T((strand->lock == 1), , toReturn = OCR_EINVAL);
+    CHECK_RESULT_T(hal_islocked(&(strand->lock)), , toReturn = OCR_EINVAL);
 
     // We should not be freeing strands that are still going to be used, so a bit
     // of sanity check here
@@ -2295,9 +2263,9 @@ static u8 _pdDestroyStrand(ocrPolicyDomain_t* pd, pdStrand_t *strand) {
     // free slots
     pdStrandTableNode_t *curNode = strand->parent;
     ASSERT(curNode);
-    hal_lock32(&(curNode->lock));
+    hal_lock(&(curNode->lock));
 
-    strand->lock = 0;
+    hal_unlock(&(strand->lock));
 
     // Propgate things up. We free a node and it may remove the
     // "ready" flag from it. It can't be NP because none of the
@@ -2326,7 +2294,7 @@ static u8 _pdDestroyStrand(ocrPolicyDomain_t* pd, pdStrand_t *strand) {
     }
     pdStrandTableNode_t *parent = curNode->parent;
 
-    ASSERT(curNode->lock == 1);
+    ASSERT(hal_islocked(&(curNode->lock)));
     // We flipped nodeFree from 0 to 1. Propagate until we hit a 1
     // We flipped nodeReady from 1 to 0. Propagate until we find sibblings
     PROPAGATE_UP_TREE(

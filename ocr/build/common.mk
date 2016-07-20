@@ -18,6 +18,20 @@ DEFAULT_CONFIG ?= jenkins-common-8w-lockableDB.cfg
 # User Configurable settings
 ####################################################
 
+# for jenkins testing purpose
+#CFLAGS += -DUTASK_COMM -DUTASK_COMM2
+
+# **** Lock implementation ****
+# By default, a test test-and-set lock is used but you
+# can also enable a ticket-lock instead. This increase space
+# requirements for each lock (from 32 bits to 64 bits)
+#CFLAGS += -DOCR_TICKETLOCK
+
+# You can optionally set a back-off for the ticket lock. This
+# is a proportional backoff and should be roughly the lenght
+# of critical sections. By default, there is no back-off (value of 0)
+#CFLAGS += -DOCR_TICKETLOCK_BACKOFF=0
+
 # **** Runtime extension parameters (ENABLE_EXTENSION_RTITF) ****
 
 # Number of elements in EDT local storage

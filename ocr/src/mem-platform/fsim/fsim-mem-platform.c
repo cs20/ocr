@@ -23,9 +23,9 @@
 #define DEBUG_TYPE MEM_PLATFORM
 
 // Poor man's basic lock
-#define INIT_LOCK(addr) do {*addr = 0;} while(0);
-#define LOCK(addr) do { hal_lock32(addr); } while(0);
-#define UNLOCK(addr) do { hal_unlock32(addr); } while(0);
+#define INIT_LOCKF(addr) do {*addr = INIT_LOCK;} while(0);
+#define LOCK(addr) do { hal_lock(addr); } while(0);
+#define UNLOCK(addr) do { hal_unlock(addr); } while(0);
 
 /******************************************************/
 /* OCR MEM PLATFORM FSIM IMPLEMENTATION             */
@@ -233,7 +233,7 @@ void initializeMemPlatformFsim(ocrMemPlatformFactory_t * factory,
     initializeMemPlatformOcr(factory, result, perInstance);
     ocrMemPlatformFsim_t *rself = (ocrMemPlatformFsim_t*)result;
     result->startAddr = ((paramListMemPlatformFsim_t *)perInstance)->start;
-    INIT_LOCK(&(rself->lock));
+    INIT_LOCKF(&(rself->lock));
 }
 
 /******************************************************/

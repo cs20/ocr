@@ -279,7 +279,7 @@ static u8 initTaskHcInternal(ocrTaskHc_t *task, ocrPolicyDomain_t * pd,
                              ocrFatGuid_t parentLatch, u32 properties) {
     task->frontierSlot = 0;
 #if !(defined(REG_ASYNC) || defined(REG_ASYNC_SGL))
-    task->lock = 0;
+    task->lock = INIT_LOCK;
 #endif
     task->slotSatisfiedCount = 0;
     task->unkDbs = NULL;
@@ -916,7 +916,7 @@ u8 satisfyTaskHc(ocrTask_t * base, ocrFatGuid_t data, u32 slot) {
     // Replace the signaler's guid by the data guid, this is to avoid
     // further references to the event's guid, which is good in general
     // and crucial for once-event since they are being destroyed on satisfy.
-    hal_lock32(&(self->lock));
+    hal_lock(&(self->lock));
     DPRINTF(DEBUG_LVL_INFO,
             "Satisfy on task "GUIDF" slot %"PRId32" with "GUIDF" slotSatisfiedCount=%"PRIu32" frontierSlot=%"PRIu32" depc=%"PRIu32"\n",
             GUIDA(self->base.guid), slot, GUIDA(data.guid), self->slotSatisfiedCount, self->frontierSlot, base->depc);
@@ -941,7 +941,7 @@ u8 satisfyTaskHc(ocrTask_t * base, ocrFatGuid_t data, u32 slot) {
         DPRINTF(DEBUG_LVL_VERB, "Scheduling task "GUIDF", satisfied dependences %"PRId32"/%"PRId32"\n",
                 GUIDA(self->base.guid), self->slotSatisfiedCount , base->depc);
 
-        hal_unlock32(&(self->lock));
+        hal_unlock(&(self->lock));
         // All dependences have been satisfied, schedule the edt
         RESULT_PROPAGATE(taskAllDepvSatisfied(base));
     } else {
@@ -1008,7 +1008,7 @@ u8 satisfyTaskHc(ocrTask_t * base, ocrFatGuid_t data, u32 slot) {
 #endif
                 ASSERT(cond);
 #endif
-                hal_unlock32(&(self->lock));
+                hal_unlock(&(self->lock));
                 // Case 2: A sticky, the EDT registers as a lazy waiter
                 // Here it should be ok to read the frontierSlot since we are on the frontier
                 // only a satisfy on the event in that slot can advance the frontier and we
@@ -1030,7 +1030,7 @@ u8 satisfyTaskHc(ocrTask_t * base, ocrFatGuid_t data, u32 slot) {
         //   and a concurrent satisfy incrementing the frontier. i.e. it skips
         //   over the DB guid because its .slot is 'SLOT_SATISFIED_DB'.
         //   When the DB satisfy happens it falls-through here.
-        hal_unlock32(&(self->lock));
+        hal_unlock(&(self->lock));
     }
     return 0;
 }
@@ -1049,7 +1049,7 @@ u8 registerSignalerTaskHc(ocrTask_t * base, ocrFatGuid_t signalerGuid, u32 slot,
     ocrGuidKind signalerKind = OCR_GUID_NONE;
     deguidify(pd, &signalerGuid, &signalerKind);
     regNode_t * node = &(self->signalers[slot]);
-    hal_lock32(&(self->lock));
+    hal_lock(&(self->lock));
     node->mode = mode;
     ASSERT_BLOCK_BEGIN(node->slot < base->depc);
     DPRINTF(DEBUG_LVL_WARN, "User-level error detected: add dependence slot is out of bounds: EDT="GUIDF" slot=%"PRIu32" depc=%"PRIu32"\n",
@@ -1067,14 +1067,14 @@ u8 registerSignalerTaskHc(ocrTask_t * base, ocrFatGuid_t signalerGuid, u32 slot,
 #endif
         if(cond) {
             node->slot = SLOT_REGISTERED_EPHEMERAL_EVT; // To record this slot is for a once event
-            hal_unlock32(&(self->lock));
+            hal_unlock(&(self->lock));
         } else {
             // Must be a sticky event. Read the frontierSlot now that we have the lock.
             // If 'register' is on the frontier, do the registration. Otherwise the edt
             // will lazily register on the signalerGuid when the frontier reaches the
             // signaler's slot.
             bool doRegister = (slot == self->frontierSlot);
-            hal_unlock32(&(self->lock));
+            hal_unlock(&(self->lock));
             if(doRegister) {
                 // The EDT registers itself as a waiter here
                 ocrPolicyDomain_t *pd = NULL;
@@ -1092,8 +1092,7 @@ u8 registerSignalerTaskHc(ocrTask_t * base, ocrFatGuid_t signalerGuid, u32 slot,
         // Setting the slot and incrementing the frontier in two steps
         // introduce a race between the satisfy here after and another
         // concurrent satisfy advancing the frontier.
-        hal_unlock32(&(self->lock));
-
+        hal_unlock(&(self->lock));
         //Convert to a satisfy now that we've recorded the mode
         //NOTE: Could improve implementation by figuring out how
         //to properly iterate the frontier when adding the DB

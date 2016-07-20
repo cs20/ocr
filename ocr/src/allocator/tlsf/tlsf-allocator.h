@@ -15,6 +15,7 @@
 #ifdef ENABLE_ALLOCATOR_TLSF
 
 #include "ocr-allocator.h"
+#include "ocr-hal.h"
 #include "ocr-types.h"
 #include "utils/ocr-utils.h"
 
@@ -24,7 +25,7 @@ typedef struct {
 
 typedef struct _ocrAllocatorTlsf_t {
     ocrAllocator_t base;
-    u32 lockForInit;        // This lock is used solely to serialize initialization of a shared pool by its multiple clients.
+    lock_t lockForInit;     // This lock is used solely to serialize initialization of a shared pool by its multiple clients.
     u64 initAttributed;     // Used in the initialization process. Will be the address of the ocrAllocatorTlsf_t that gets
                             // to change the runlevel of the underlying memory
     u8  poolStorageOffset;  // Distance from poolAddr to storage address of the pool (which wasn't necessarily 8-byte aligned).

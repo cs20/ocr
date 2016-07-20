@@ -16,6 +16,7 @@
 
 #include "ocr-allocator.h"
 #include "ocr-datablock.h"
+#include "ocr-hal.h"
 #include "ocr-types.h"
 #include "utils/ocr-utils.h"
 #include "ocr-worker.h"
@@ -50,7 +51,7 @@ typedef struct _ocrDataBlockLockable_t {
     ocrDataBlock_t base;
 
     /* Data for the data-block */
-    u32 lock; /**< Lock for this data-block */
+    lock_t lock; /**< Lock for this data-block */
     ocrDataBlockLockableAttr_t attributes; /**< Attributes for this data-block */
 
     struct _dbWaiter_t * ewWaiterList;  /**< EDTs waiting for exclusive write access */

@@ -90,13 +90,13 @@ static void baseDequeInit(deque_t* self, ocrPolicyDomain_t *pd, void * initValue
 
 static void singleLockedDequeInit(dequeSingleLocked_t* self, ocrPolicyDomain_t *pd, void * initValue) {
     baseDequeInit((deque_t*)self, pd, initValue);
-    self->lock = 0;
+    self->lock = INIT_LOCK;
 }
 
 static void dualLockedDequeInit(dequeDualLocked_t* self, ocrPolicyDomain_t *pd, void * initValue) {
     baseDequeInit((deque_t*)self, pd, initValue);
-    self->lockH = 0;
-    self->lockT = 0;
+    self->lockH = INIT_LOCK;
+    self->lockT = INIT_LOCK;
 }
 
 static deque_t * newBaseDeque(ocrPolicyDomain_t *pd, void * initValue, ocrDequeType_t type) {
@@ -263,7 +263,7 @@ void * wstDequePopHead(deque_t * self, u8 doTry) {
  */
 void lockedDequePushTail(deque_t* self, void* entry, u8 doTry) {
     dequeSingleLocked_t* dself = (dequeSingleLocked_t*)self;
-    hal_lock32(&dself->lock);
+    hal_lock(&dself->lock);
     u32 head = self->head;
     u32 tail = self->tail;
     if (tail == INIT_DEQUE_CAPACITY + head) { /* deque looks full */
@@ -273,7 +273,7 @@ void lockedDequePushTail(deque_t* self, void* entry, u8 doTry) {
     u32 n = (self->tail) % INIT_DEQUE_CAPACITY;
     self->data[n] = entry;
     ++(self->tail);
-    hal_unlock32(&dself->lock);
+    hal_unlock(&dself->lock);
 }
 
 /*
@@ -282,15 +282,15 @@ void lockedDequePushTail(deque_t* self, void* entry, u8 doTry) {
  */
 void * lockedDequePopTail(deque_t * self, u8 doTry) {
     dequeSingleLocked_t* dself = (dequeSingleLocked_t*)self;
-    hal_lock32(&dself->lock);
+    hal_lock(&dself->lock);
     ASSERT(self->tail >= self->head);
     if (self->tail == self->head) {
-        hal_unlock32(&dself->lock);
+        hal_unlock(&dself->lock);
         return NULL;
     }
     --(self->tail);
     void * rt = (void*) self->data[(self->tail) % INIT_DEQUE_CAPACITY];
-    hal_unlock32(&dself->lock);
+    hal_unlock(&dself->lock);
     return rt;
 }
 
@@ -300,7 +300,7 @@ void * lockedDequePopTail(deque_t * self, u8 doTry) {
  */
 void lockedDequePushHead(deque_t* self, void* entry, u8 doTry) {
     dequeSingleLocked_t* dself = (dequeSingleLocked_t*)self;
-    hal_lock32(&dself->lock);
+    hal_lock(&dself->lock);
     u32 head = self->head;
     u32 tail = self->tail;
     if (tail == INIT_DEQUE_CAPACITY + head) { /* deque looks full */
@@ -321,7 +321,7 @@ void lockedDequePushHead(deque_t* self, void* entry, u8 doTry) {
         n = (head-1) % INIT_DEQUE_CAPACITY;
     }
     self->data[n] = entry;
-    hal_unlock32(&dself->lock);
+    hal_unlock(&dself->lock);
 }
 
 
@@ -331,15 +331,15 @@ void lockedDequePushHead(deque_t* self, void* entry, u8 doTry) {
  */
 void * lockedDequePopHead(deque_t * self, u8 doTry) {
     dequeSingleLocked_t* dself = (dequeSingleLocked_t*)self;
-    hal_lock32(&dself->lock);
+    hal_lock(&dself->lock);
     ASSERT(self->tail >= self->head);
     if (self->tail == self->head) {
-        hal_unlock32(&dself->lock);
+        hal_unlock(&dself->lock);
         return NULL;
     }
     void * rt = (void*) self->data[(self->head) % INIT_DEQUE_CAPACITY];
     ++(self->head);
-    hal_unlock32(&dself->lock);
+    hal_unlock(&dself->lock);
     return rt;
 }
 
@@ -351,7 +351,7 @@ void * lockedDequePopHead(deque_t * self, u8 doTry) {
 void lockedDequePushTailSemiConc(deque_t* self, void* entry, u8 doTry) {
     dequeSingleLocked_t* dself = (dequeSingleLocked_t*)self;
     ASSERT(entry != NULL);
-    hal_lock32(&dself->lock);
+    hal_lock(&dself->lock);
     u32 head = self->head;
     u32 tail = ((u32)self->tail);
     u32 ptail = (tail == (INIT_DEQUE_CAPACITY-1)) ? 0 : tail+1;
@@ -363,7 +363,7 @@ void lockedDequePushTailSemiConc(deque_t* self, void* entry, u8 doTry) {
     // self->tail increased without seeing the entry being written
     hal_fence();
     self->tail = ptail;
-    hal_unlock32(&dself->lock);
+    hal_unlock(&dself->lock);
 }
 
 /*

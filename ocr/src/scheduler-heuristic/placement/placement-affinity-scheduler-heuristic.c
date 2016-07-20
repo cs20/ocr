@@ -60,7 +60,7 @@ static u8 placerAffinitySchedHeuristicSwitchRunlevel(ocrSchedulerHeuristic_t *se
     {
         if((properties & RL_BRING_UP) && RL_IS_FIRST_PHASE_UP(PD, RL_MEMORY_OK, phase)) {
             ocrSchedulerHeuristicPlacementAffinity_t * dself  = (ocrSchedulerHeuristicPlacementAffinity_t *) self;
-            dself->lock = 0;
+            dself->lock = INIT_LOCK;
             dself->edtLastPlacementIndex = 0;
             // Following are cached from the PD
             dself->myLocation = PD->myLocation;
@@ -188,14 +188,14 @@ static u8 placerAffinitySchedHeuristicNotifyProcessMsgInvoke(ocrSchedulerHeurist
         }
         // Auto placement
         if (doAutoPlace) {
-            hal_lock32(&(dself->lock));
+            hal_lock(&(dself->lock));
             u32 placementIndex = dself->edtLastPlacementIndex;
             ocrGuid_t pdLocAffinity = model->pdLocAffinities[placementIndex];
             dself->edtLastPlacementIndex++;
             if (dself->edtLastPlacementIndex == model->pdLocAffinitiesSize) {
                 dself->edtLastPlacementIndex = 0;
             }
-            hal_unlock32(&(dself->lock));
+            hal_unlock(&(dself->lock));
             msg->destLocation = affinityToLocation(pdLocAffinity);
             DPRINTF(DEBUG_LVL_VVERB,"Auto-Placement for msg %p, type 0x%"PRIx64", at location %"PRId32"\n",
                     msg, (msg->type & PD_MSG_TYPE_ONLY), (u32)placementIndex);

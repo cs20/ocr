@@ -10,6 +10,7 @@
 #include "ocr-config.h"
 #ifdef ENABLE_SCHEDULER_HEURISTIC_ST
 
+#include "ocr-hal.h"
 #include "ocr-scheduler-heuristic.h"
 #include "ocr-types.h"
 #include "utils/ocr-utils.h"
@@ -51,7 +52,7 @@ typedef struct _ocrSchedulerHeuristicSt_t {
     ocrSchedulerHeuristic_t base;
     ocrLocation_t schedulerLocation;            // The node location where the scheduling analysis is done on behalf of this node.
     ocrLocation_t locationPlacement;            // Location where last EDT was placed
-    u32 locationLock;                           // Lock to make round-robin decision
+    lock_t locationLock;                        // Lock to make round-robin decision
 } ocrSchedulerHeuristicSt_t;
 
 /****************************************************/

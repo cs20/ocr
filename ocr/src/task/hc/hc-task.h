@@ -16,6 +16,7 @@
 #endif
 
 #include "hc/hc.h"
+#include "ocr-hal.h"
 #include "ocr-task.h"
 #include "utils/ocr-utils.h"
 
@@ -50,7 +51,7 @@ typedef struct {
     ocrTask_t base;
 
 #if !(defined(REG_ASYNC) || defined(REG_ASYNC_SGL))
-    u32 lock;
+    lock_t lock;
 #endif
     u32 frontierSlot; /**< Slot of the execution frontier
                            This excludes once events */

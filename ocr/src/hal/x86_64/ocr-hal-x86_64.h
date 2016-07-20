@@ -28,6 +28,22 @@
 /* OCR LOW-LEVEL MACROS                             */
 /****************************************************/
 
+#ifdef OCR_TICKETLOCK
+typedef struct {
+    u32 ticket;
+    volatile u32 now;
+} lock_t;
+#define INIT_LOCK ((lock_t){0, 0})
+
+#ifndef OCR_TICKETLOCK_BACKOFF
+#define OCR_TICKETLOCK_BACKOFF 0
+#endif
+#else
+/* Default is a test test-and-set type of locking */
+typedef volatile u32 lock_t;
+#define INIT_LOCK 0
+#endif
+
 /**
  * @brief Perform a memory fence
  *
@@ -180,6 +196,42 @@
 #define hal_radd32(atomic, addValue)            \
     __sync_fetch_and_add(atomic, addValue)
 
+
+#ifdef OCR_TICKETLOCK
+#define hal_lock(__l)                                       \
+    do {                                                    \
+        volatile u32 _i;                                    \
+        u32 _t = __sync_fetch_and_add(&((__l)->ticket), 1); \
+        while(true) {                                       \
+            u32 _spinTime = OCR_TICKETLOCK_BACKOFF*(_t - (__l)->now);         \
+            for(_i = 0; _i < _spinTime; ++_i)               \
+                ;                                           \
+            if(_t == (__l)->now) break;                     \
+        }                                                   \
+    } while(0);
+
+#define hal_unlock(__l)                                     \
+    do {                                                    \
+        u32 _t = 1;                                         \
+        __sync_lock_release(&_t);                           \
+        ++((__l)->now);                                     \
+    } while(0);
+
+#define hal_trylock(__l)                                    \
+    ({                                                      \
+        u8 _r = 0;                                          \
+        u32 _val = (__l)->ticket;                           \
+        if(_val == (__l)->now) {                            \
+            u32 _old = __sync_val_compare_and_swap(&((__l)->ticket), _val, _val+1);\
+            if(_old != _val) _r = 1;                        \
+        } else {                                            \
+            _r = 1;                                         \
+        }                                                   \
+        _r;                                                 \
+    })
+
+#define hal_islocked(__l) ((__l)->ticket > (__l)->now)
+#else
 /**
  * @brief Convenience function that basically implements a simple
  * lock
@@ -189,9 +241,11 @@
  *
  * @param lock      Pointer to a 32 bit value
  */
-#define hal_lock32(lock)                                    \
+#define hal_lock(__l)                                       \
     do {                                                    \
-        while(__sync_lock_test_and_set(lock, 1) != 0) ;     \
+        while(__sync_lock_test_and_set(__l, 1) != 0)        \
+            while(*(__l))                                   \
+                ;                                           \
     } while(0);
 
 /**
@@ -200,10 +254,10 @@
  *
  * @param lock      Pointer to a 32 bit value
  */
-#define hal_unlock32(lock)         \
-    do {                           \
-        __sync_lock_release(lock); \
-    } while(0)
+#define hal_unlock(__l)           \
+    do {                          \
+    __sync_lock_release(__l);     \
+    } while(0);
 
 /**
  * @brief Convenience function to implement a simple
@@ -213,11 +267,20 @@
  * @return 0 if the lock has been acquired and a non-zero
  * value if it cannot be acquired
  */
-#define hal_trylock32(lock)                                             \
-    ({                                                                  \
-        u32 __tmp = __sync_lock_test_and_set(lock, 1);                  \
-        __tmp;                                                          \
+#define hal_trylock(__l)            \
+    ({                              \
+        u8 _r = 0;                  \
+        if(*(__l) == 1)             \
+            _r = 1;                 \
+        else {                      \
+            if(__sync_lock_test_and_set(__l, 1) != 0)\
+                _r =1;              \
+        }                           \
+        _r;                         \
     })
+
+#define hal_islocked(__l) (*(__l) == 1)
+#endif
 
 /**
  * @brief Abort the runtime

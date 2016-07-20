@@ -372,10 +372,9 @@ u8 arrayDequePeekFromHead(arrayDeque_t* deque, void** entry) {
 static u32 adWsize(struct _ocrDeque_t *self) {
     arrayDequeWrapper_t *rself = (arrayDequeWrapper_t*)self;
     arrayDeque_t * dself = (arrayDeque_t*)(&(rself->derived));
-    // Head is hijacked as lock
-    hal_lock32(&(self->head));
+    hal_lock(&(self->lock));
     u32 cnt = arrayDequeSize(dself);
-    hal_unlock32(&(self->head));
+    hal_unlock(&(self->lock));
     return cnt;
 }
 
@@ -385,10 +384,9 @@ static u32 adWsize(struct _ocrDeque_t *self) {
 static void adWdestruct(ocrPolicyDomain_t *pd, struct _ocrDeque_t *self) {
     arrayDequeWrapper_t *rself = (arrayDequeWrapper_t*)self;
     arrayDeque_t * dself = (arrayDeque_t*)(&(rself->derived));
-    // Head is hijacked as lock
-    hal_lock32(&(self->head));
+    hal_lock(&(self->lock));
     RESULT_ASSERT(arrayDequeDestruct(dself), ==, 0);
-    hal_unlock32(&(self->head));
+    hal_unlock(&(self->lock));
     pd->fcts.pdFree(pd, self);
 }
 
@@ -398,10 +396,9 @@ static void adWdestruct(ocrPolicyDomain_t *pd, struct _ocrDeque_t *self) {
 static void adWpushAtTail(struct _ocrDeque_t *self, void* entry, u8 doTry) {
     arrayDequeWrapper_t *rself = (arrayDequeWrapper_t*)self;
     arrayDeque_t * dself = (arrayDeque_t*)(&(rself->derived));
-    // Head is hijacked as lock
-    hal_lock32(&(self->head));
+    hal_lock(&(self->lock));
     RESULT_ASSERT(arrayDequePushAtTail(dself, entry), ==, 0);
-    hal_unlock32(&(self->head));
+    hal_unlock(&(self->lock));
 }
 
 /**
@@ -412,10 +409,9 @@ static void* adWpopFromTail(struct _ocrDeque_t *self, u8 doTry) {
     arrayDeque_t * dself = (arrayDeque_t*)(&(rself->derived));
     void * entry = NULL;
     u8 status = 0;
-    // Head is hijacked as lock
-    hal_lock32(&(self->head));
+    hal_lock(&(self->lock));
     status = arrayDequePopFromTail(dself, &entry);
-    hal_unlock32(&(self->head));
+    hal_unlock(&(self->lock));
     if(status == OCR_EAGAIN)
         return NULL;
     ASSERT(status == 0);
@@ -428,10 +424,9 @@ static void* adWpopFromTail(struct _ocrDeque_t *self, u8 doTry) {
 static void adWpushAtHead(struct _ocrDeque_t *self, void* entry, u8 doTry) {
     arrayDequeWrapper_t *rself = (arrayDequeWrapper_t*)self;
     arrayDeque_t * dself = (arrayDeque_t*)(&(rself->derived));
-    // Head is hijacked as lock
-    hal_lock32(&(self->head));
+    hal_lock(&(self->lock));
     RESULT_ASSERT(arrayDequePushAtHead(dself, entry), ==, 0);
-    hal_unlock32(&(self->head));
+    hal_unlock(&(self->lock));
 }
 
 /**
@@ -442,10 +437,9 @@ static void* adWpopFromHead(struct _ocrDeque_t *self, u8 doTry) {
     arrayDeque_t * dself = (arrayDeque_t*)(&(rself->derived));
     void * entry = NULL;
     u8 status = 0;
-    // Head is hijacked as lock
-    hal_lock32(&(self->head));
+    hal_lock(&(self->lock));
     status = arrayDequePopFromHead(dself, &entry);
-    hal_unlock32(&(self->head));
+    hal_unlock(&(self->lock));
     if(status == OCR_EAGAIN)
         return NULL;
     ASSERT(status == 0);
@@ -460,6 +454,7 @@ deque_t* newArrayQueue(ocrPolicyDomain_t *pd, void * initValue) {
         pd, sizeof(arrayDequeWrapper_t));
 
     arrayDequeInit(&(self->derived), 4);
+    self->base.lock = INIT_LOCK;
     self->base.head = 0;
     self->base.tail = 0;
     self->base.data = NULL;

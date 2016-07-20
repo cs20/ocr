@@ -12,6 +12,7 @@
 
 #include "hc/hc.h"
 #include "ocr-event.h"
+#include "ocr-hal.h"
 #include "ocr-types.h"
 #include "utils/ocr-utils.h"
 
@@ -44,7 +45,7 @@ typedef struct ocrEventHc_t {
                              * events/EDTs depending on this event */
     volatile u32 waitersCount; /**< Number of waiters in waitersDb */
     u32 waitersMax; /**< Maximum number of waiters in waitersDb */
-    u32 waitersLock;
+    lock_t waitersLock;
     ocrRuntimeHint_t hint;
 } ocrEventHc_t;
 

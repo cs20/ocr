@@ -10,6 +10,7 @@
 #include "ocr-config.h"
 #ifdef ENABLE_SCHEDULER_OBJECT_DBSPACE
 
+#include "ocr-hal.h"
 #include "ocr-scheduler-object.h"
 #include "ocr-types.h"
 #include "utils/ocr-utils.h"
@@ -49,7 +50,7 @@ typedef struct _ocrSchedulerObjectDbspace_t {
     void *dbPtr;                                    //Data pointer for the DB (BUG #920 Cleanup)
     ocrDbState state;                               //Current state of the DB
     u64 time;                                       //Time where DB is currently located
-    volatile u32 lock;                              //Lock for this scheduler object
+    lock_t lock;                                    //Lock for this scheduler object
     u64 activeCount;                                //Number of EDTs actively accessing this DB
     ocrDbAcquireMode mode;                          //Current mode of acquire of the DB (BUG #920 Cleanup)
     bool free;                                      //Flag that indicates that DB is marked to be freed

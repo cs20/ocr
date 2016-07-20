@@ -431,13 +431,13 @@ static u8 commonSatisfyEventHcPersist(ocrEvent_t *base, ocrFatGuid_t db, u32 slo
 u8 satisfyEventHcCounted(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
     ocrEventHc_t * event = (ocrEventHc_t*) base;
     bool destroy = false;
-    hal_lock32(&(event->waitersLock));
+    hal_lock(&(event->waitersLock));
     //BUG #809 Nanny-mode
     if ((event->waitersCount == STATE_CHECKED_IN) ||
         (event->waitersCount == STATE_CHECKED_OUT)) {
         DPRINTF(DEBUG_LVL_WARN, "User-level error detected: try to satisfy a counted event that's already satisfied: "GUIDF"\n", GUIDA(base->guid));
         ASSERT(false);
-        hal_unlock32(&(event->waitersLock));
+        hal_unlock(&(event->waitersLock));
         return 1; //BUG #603 error codes: Put some error code here.
     }
     ((ocrEventHcPersist_t*)event)->data = db.guid;
@@ -450,7 +450,7 @@ u8 satisfyEventHcCounted(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
 
     devt->nbDeps -= waitersCount;
     destroy = ((devt->nbDeps) == 0);
-    hal_unlock32(&(event->waitersLock));
+    hal_unlock(&(event->waitersLock));
     u8 ret = commonSatisfyEventHcPersist(base, db, slot, waitersCount);
     if (destroy) {
         ret = destructEventHc(base);
@@ -463,16 +463,16 @@ u8 satisfyEventHcCounted(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
 u8 satisfyEventHcPersistIdem(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
     ocrEventHc_t * event = (ocrEventHc_t*) base;
     u32 waitersCount;
-    hal_lock32(&(event->waitersLock));
+    hal_lock(&(event->waitersLock));
     if ((event->waitersCount == STATE_CHECKED_IN) || (event->waitersCount == STATE_CHECKED_OUT)) {
-        hal_unlock32(&(event->waitersLock));
+        hal_unlock(&(event->waitersLock));
         // Legal for idempotent to ignore subsequent satisfy
         return 1; //BUG #603 error codes: Put some error code here.
     } else {
         ((ocrEventHcPersist_t*)event)->data = db.guid;
         waitersCount = event->waitersCount;
         event->waitersCount = STATE_CHECKED_IN; // Indicate the event is satisfied
-        hal_unlock32(&(event->waitersLock));
+        hal_unlock(&(event->waitersLock));
     }
     return commonSatisfyEventHcPersist(base, db, slot, waitersCount);
 }
@@ -480,19 +480,19 @@ u8 satisfyEventHcPersistIdem(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
 // For sticky event
 u8 satisfyEventHcPersistSticky(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
     ocrEventHc_t * event = (ocrEventHc_t*) base;
-    hal_lock32(&(event->waitersLock));
+    hal_lock(&(event->waitersLock));
     //BUG #809 Nanny-mode
     if ((event->waitersCount == STATE_CHECKED_IN) ||
         (event->waitersCount == STATE_CHECKED_OUT)) {
         DPRINTF(DEBUG_LVL_WARN, "User-level error detected: try to satisfy a sticky event that's already satisfied: "GUIDF"\n", GUIDA(base->guid));
         ASSERT(false);
-        hal_unlock32(&(event->waitersLock));
+        hal_unlock(&(event->waitersLock));
         return 1; //BUG #603 error codes: Put some error code here.
     }
     ((ocrEventHcPersist_t*)event)->data = db.guid;
     u32 waitersCount = event->waitersCount;
     event->waitersCount = STATE_CHECKED_IN; // Indicate the event is satisfied
-    hal_unlock32(&(event->waitersLock));
+    hal_unlock(&(event->waitersLock));
 
     return commonSatisfyEventHcPersist(base, db, slot, waitersCount);
 }
@@ -572,7 +572,7 @@ static u8 commonEnqueueWaiter(ocrPolicyDomain_t *pd, ocrEvent_t *base, ocrFatGui
 #endif
         ++event->waitersCount;
         // We can release the lock now
-        hal_unlock32(&(event->waitersLock));
+        hal_unlock(&(event->waitersLock));
     } else {
 #endif
         ocrFatGuid_t oldDbGuid = {.guid = NULL_GUID, .metaDataPtr = NULL};
@@ -586,7 +586,7 @@ static u8 commonEnqueueWaiter(ocrPolicyDomain_t *pd, ocrEvent_t *base, ocrFatGui
             u8 toReturn = createDbRegNode(&(event->waitersDb), HCEVT_WAITER_DYNAMIC_COUNT, false, &waiters);
             if (toReturn) {
                 ASSERT(false && "Failed allocating db waiter");
-                hal_unlock32(&(event->waitersLock));
+                hal_unlock(&(event->waitersLock));
                 return toReturn;
             }
             dbGuid = event->waitersDb; // for release
@@ -607,7 +607,7 @@ static u8 commonEnqueueWaiter(ocrPolicyDomain_t *pd, ocrEvent_t *base, ocrFatGui
                 // should be the only writer active on the waiter DB since we have the lock
                 ASSERT(false); // debug
                 ASSERT(toReturn != OCR_EBUSY);
-                hal_unlock32(&(event->waitersLock));
+                hal_unlock(&(event->waitersLock));
                 return toReturn; //BUG #603 error codes
             }
             waiters = (regNode_t*)PD_MSG_FIELD_O(ptr);
@@ -629,7 +629,7 @@ static u8 commonEnqueueWaiter(ocrPolicyDomain_t *pd, ocrEvent_t *base, ocrFatGui
                 PD_MSG_FIELD_I(allocator) = NO_ALLOC;
                 if((toReturn = pd->fcts.processMessage(pd, msg, true))) {
                     ASSERT(false); // debug
-                    hal_unlock32(&(event->waitersLock));
+                    hal_unlock(&(event->waitersLock));
                     return toReturn; //BUG #603 error codes
                 }
                 waitersNew = (regNode_t*)PD_MSG_FIELD_O(ptr);
@@ -663,7 +663,7 @@ static u8 commonEnqueueWaiter(ocrPolicyDomain_t *pd, ocrEvent_t *base, ocrFatGui
         ++event->waitersCount;
 
         // We can release the lock now
-        hal_unlock32(&(event->waitersLock));
+        hal_unlock(&(event->waitersLock));
 
         // Release the waiter datablock / free old waiter DB when necessary
         //
@@ -736,7 +736,7 @@ u8 registerWaiterEventHc(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot, bool i
          return 1; //BUG #603 error codes: Put some error code here.
     }
     ocrFatGuid_t currentEdt = {.guid = curTask!=NULL?curTask->guid:NULL_GUID, .metaDataPtr = curTask};
-    hal_lock32(&(event->waitersLock)); // Lock is released by commonEnqueueWaiter
+    hal_lock(&(event->waitersLock)); // Lock is released by commonEnqueueWaiter
 #ifdef REG_ASYNC_SGL
     return commonEnqueueWaiter(pd, base, waiter, slot, mode, currentEdt, &msg);
 #else
@@ -794,10 +794,10 @@ u8 registerWaiterEventHcPersist(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot,
     DPRINTF(DEBUG_LVL_INFO, "Register waiter %s: "GUIDF" with waiter "GUIDF" on slot %"PRId32"\n",
             eventTypeToString(base), GUIDA(base->guid), GUIDA(waiter.guid), slot);
     // Lock to read the event->data
-    hal_lock32(&(event->base.waitersLock));
+    hal_lock(&(event->base.waitersLock));
     if (!(ocrGuidIsUninitialized(event->data))) {
         ocrFatGuid_t dataGuid = {.guid = event->data, .metaDataPtr = NULL};
-        hal_unlock32(&(event->base.waitersLock));
+        hal_unlock(&(event->base.waitersLock));
 
 #ifdef REG_ASYNC_SGL
         regNode_t node = {.guid = waiter.guid, .slot = slot, .mode = mode};
@@ -862,10 +862,10 @@ u8 registerWaiterEventHcCounted(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot,
     DPRINTF(DEBUG_LVL_INFO, "Register waiter %s: "GUIDF" with waiter "GUIDF" on slot %"PRId32"\n",
             eventTypeToString(base), GUIDA(base->guid), GUIDA(waiter.guid), slot);
     // Lock to read the data field
-    hal_lock32(&(event->base.waitersLock));
+    hal_lock(&(event->base.waitersLock));
     if(!(ocrGuidIsUninitialized(event->data))) {
         ocrFatGuid_t dataGuid = {.guid = event->data, .metaDataPtr = NULL};
-        hal_unlock32(&(event->base.waitersLock));
+        hal_unlock(&(event->base.waitersLock));
 #ifdef REG_ASYNC_SGL
         regNode_t node = {.guid = waiter.guid, .slot = slot, .mode = mode};
 #else
@@ -876,7 +876,7 @@ u8 registerWaiterEventHcCounted(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot,
         // Here it is still safe to use the base pointer because the satisfy
         // call cannot trigger the destruction of the event. For counted-events
         // the runtime takes care of it
-        hal_lock32(&(event->base.waitersLock));
+        hal_lock(&(event->base.waitersLock));
         ocrEventHcCounted_t * devt = (ocrEventHcCounted_t *) event;
         // Account for this registration. When it reaches zero the event
         // can be deallocated since it is already satisfied and this call
@@ -884,7 +884,7 @@ u8 registerWaiterEventHcCounted(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot,
         ASSERT(devt->nbDeps > 0);
         devt->nbDeps--;
         u64 nbDeps = devt->nbDeps;
-        hal_unlock32(&(event->base.waitersLock));
+        hal_unlock(&(event->base.waitersLock));
         // Check if we'll need to destroy the event
         if (nbDeps == 0) {
             // Can move that after satisfy to reduce CPL
@@ -983,10 +983,10 @@ u8 unregisterWaiterEventHcPersist(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slo
 
     getCurrentEnv(&pd, NULL, &curTask, &msg);
     ocrFatGuid_t curEdt = {.guid = curTask!=NULL?curTask->guid:NULL_GUID, .metaDataPtr = curTask};
-    hal_lock32(&(event->base.waitersLock));
+    hal_lock(&(event->base.waitersLock));
     if(!(ocrGuidIsUninitialized(event->data))) {
         // We don't really care at this point so we don't do anything
-        hal_unlock32(&(event->base.waitersLock));
+        hal_unlock(&(event->base.waitersLock));
         return 0;
     }
 
@@ -1002,7 +1002,7 @@ u8 unregisterWaiterEventHcPersist(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slo
     //Should be a local DB
     if((toReturn = pd->fcts.processMessage(pd, &msg, true))) {
         ASSERT(!toReturn); // Possible corruption of waitersDb
-        hal_unlock32(&(event->base.waitersLock));
+        hal_unlock(&(event->base.waitersLock));
         return toReturn;
     }
     //BUG #273: Guid reading
@@ -1022,7 +1022,7 @@ u8 unregisterWaiterEventHcPersist(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slo
     }
 
     // We can release the lock now
-    hal_unlock32(&(event->base.waitersLock));
+    hal_unlock(&(event->base.waitersLock));
 
     // We always release waitersDb
 #define PD_TYPE PD_MSG_DB_RELEASE
@@ -1166,7 +1166,7 @@ u8 newEventHc(ocrEventFactory_t * factory, ocrFatGuid_t *guid,
     // Set-up HC specific structures
     event->waitersCount = 0;
     event->waitersMax = HCEVT_WAITER_STATIC_COUNT;
-    event->waitersLock = 0;
+    event->waitersLock = INIT_LOCK;
 
     int jj = 0;
     while (jj < HCEVT_WAITER_STATIC_COUNT) {
@@ -1386,7 +1386,7 @@ u8 registerWaiterEventHcChannel(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot,
 #endif
     ocrEventHc_t * evt = ((ocrEventHc_t*)base);
     ocrEventHcChannel_t * devt = ((ocrEventHcChannel_t*)base);
-    hal_lock32(&evt->waitersLock);
+    hal_lock(&evt->waitersLock);
     ocrGuid_t data = popSatisfy(devt);
     regNode_t regnode;
     regnode.guid = waiter.guid;
@@ -1397,7 +1397,7 @@ u8 registerWaiterEventHcChannel(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot,
     if (!ocrGuidIsUninitialized(data)) {
         DPRINTF(DEBUG_LVL_CHANNEL, "registerWaiterEventHcChannel "GUIDF" push dep and deque satisfy\n",
                 GUIDA(base->guid));
-        hal_unlock32(&evt->waitersLock);
+        hal_unlock(&evt->waitersLock);
         // We can fire the event
         ocrPolicyDomain_t *pd = NULL;
         ocrTask_t *curTask = NULL;
@@ -1419,7 +1419,7 @@ u8 registerWaiterEventHcChannel(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot,
             channelWaiterResize(devt);
         }
         pushDependence(devt, &regnode);
-        hal_unlock32(&evt->waitersLock);
+        hal_unlock(&evt->waitersLock);
     }
     return 0;
 }
@@ -1427,13 +1427,13 @@ u8 registerWaiterEventHcChannel(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot,
 u8 satisfyEventHcChannel(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
     ocrEventHc_t * evt = ((ocrEventHc_t*)base);
     ocrEventHcChannel_t * devt = ((ocrEventHcChannel_t*)base);
-    hal_lock32(&evt->waitersLock);
+    hal_lock(&evt->waitersLock);
     regNode_t regnode;
     u8 res = popDependence(devt, &regnode);
     if (res == 0) {
         DPRINTF(DEBUG_LVL_CHANNEL, "satisfyEventHcChannel "GUIDF" satisfy go through\n",
                 GUIDA(base->guid));
-        hal_unlock32(&evt->waitersLock);
+        hal_unlock(&evt->waitersLock);
         // We can fire the event
         ocrPolicyDomain_t *pd = NULL;
         ocrTask_t *curTask = NULL;
@@ -1452,7 +1452,7 @@ u8 satisfyEventHcChannel(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
             channelSatisfyResize(devt);
         }
         pushSatisfy(devt, db.guid);
-        hal_unlock32(&evt->waitersLock);
+        hal_unlock(&evt->waitersLock);
     }
     return 0;
 }

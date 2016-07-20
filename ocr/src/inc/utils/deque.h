@@ -8,6 +8,7 @@
 #define DEQUE_H_
 
 #include "ocr-config.h"
+#include "ocr-hal.h"
 #include "ocr-types.h"
 #include "ocr-policy-domain.h"
 
@@ -49,6 +50,7 @@ typedef enum {
  */
 typedef struct _ocrDeque_t {
     ocrDequeType_t type;
+    lock_t lock;
     volatile s32 head;
     volatile s32 tail;
     volatile void ** data;
@@ -85,7 +87,7 @@ typedef struct _ocrDeque_t {
 // deque with single lock
 typedef struct _ocrDequeSingleLocked_t {
     deque_t base;
-    u32 lock;
+    lock_t lock;
 } dequeSingleLocked_t;
 
 /****************************************************/
@@ -95,8 +97,8 @@ typedef struct _ocrDequeSingleLocked_t {
 // deque with dual lock
 typedef struct _ocrDequeDualLocked_t {
     deque_t base;
-    volatile u32 lockH;
-    volatile u32 lockT;
+    lock_t lockH;
+    lock_t lockT;
 } dequeDualLocked_t;
 
 /****************************************************/

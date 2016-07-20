@@ -22,9 +22,9 @@
 #define INIT_MALLOC(area, size)  chunkInit((area), (size))
 #define MALLOC(area, size) chunkMalloc((area), (u64)(size))
 #define FREE(area, addr)   chunkFree((area), (void*)(addr))
-#define INIT_LOCK(addr) do {*addr = 0;} while(0);
-#define LOCK(addr) do {hal_lock32(addr);} while(0);
-#define UNLOCK(addr) do {hal_unlock32(addr);} while(0);
+#define INIT_LOCKF(addr) do {*addr = INIT_LOCK;} while(0);
+#define LOCK(addr) do {hal_lock(addr);} while(0);
+#define UNLOCK(addr) do {hal_unlock(addr);} while(0);
 
 // Very stupid allocator that just hands out chunks of things
 void chunkInit(u64 startChunk, u64 size) {
@@ -591,7 +591,7 @@ rangeTracker_t *initializeRange(u32 maxSplits,
 
         //    This is Romain's (disabled) fine-grained locking code for the future.
         //    See rangeTracker.h tagHead_t struct
-        //    INIT_LOCK(&(dest->heads[i].lock));
+        //    INIT_LOCKF(&(dest->heads[i].lock));
     }
 
     // Set up one point with initTag

@@ -349,7 +349,7 @@ typedef struct {
     u64 annexChecksum;  // Checksum, for detecting pool header annex corruption.
     u64 checksum;       // Checksum, for detecting pool header corruption.
 #endif
-    u32 lock;           // Lock to serialize shared access to pool's management data structures.
+    lock_t lock;           // Lock to serialize shared access to pool's management data structures.
     u32 flCount;        // Number of first-level buckets.  This is invariant after constructor runs.
     u32 offsetToGlebe;  // Offset in bytes from start of this struct to the start of the glebe.
     u32 currSliceNum;   // Round-robin counter for slice assignment (only used from poolHdr_t of remnant).
@@ -475,10 +475,6 @@ static inline blkHdr_t * GET_availBlkListHead (poolHdr_t * pPool, u32 firstLvlId
 
 static inline void SET_flCount (poolHdr_t * pPool, u32 value) {
     SET32((u64) (&(pPool->flCount)), value);
-}
-
-static inline void SET_lock (poolHdr_t * pPool, u32 value) {
-    SET32((u64) (&(pPool->lock)), value);
 }
 
 static inline void SET_offsetToGlebe (poolHdr_t * pPool, u32 value) {
@@ -1090,7 +1086,7 @@ static u32 tlsfInit(poolHdr_t * pPool, u64 size) {
 
     blkHdr_t * pNullBlock = &(pPool->nullBlock);
     setChecksum(pNullBlock, sizeof(blkHdr_t));                       // Init checksum, even though nullBlock is presently garbage.
-    SET_lock         (pPool, 0);
+    pPool->lock = INIT_LOCK;
     SET_flCount      (pPool, flBucketCount);
     SET_offsetToGlebe(pPool, poolHeaderSize);
     SET_currSliceNum (pPool, 0);
@@ -1149,10 +1145,10 @@ static u32 tlsfInit(poolHdr_t * pPool, u64 size) {
     // Add the glebe, i.e. the big free block
     addFreeBlock(pPool, pGlebe);
 
-    hal_lock32(&(pPool->lock));
+    hal_lock(&(pPool->lock));
     setChecksum(&pPool->checksum,      sizeof(poolHdr_t)-sizeof(u64));
     setChecksum(&pPool->annexChecksum, GET_offsetToGlebe(pPool));
-    hal_unlock32(&(pPool->lock));
+    hal_unlock(&(pPool->lock));
 
     VALGRIND_NOACCESS(pSentinelBlk);
 
@@ -1423,11 +1419,11 @@ void tlsfDestruct(ocrAllocator_t *self) {
 
 static bool isAnchor (ocrAllocatorTlsf_t * rself, ocrAllocatorTlsf_t * rAnchorCE) {
     bool result;
-    hal_lock32 (&(rAnchorCE->lockForInit));
+    hal_lock (&(rAnchorCE->lockForInit));
     { // Bracket the critical section code
-        result = (rself->lockForInit != 0);
+        result = hal_islocked(&(rself->lockForInit));
     } // End bracketing of the critical section code
-    hal_unlock32(&(rAnchorCE->lockForInit));
+    hal_unlock(&(rAnchorCE->lockForInit));
     return result;
 }
 
@@ -1508,11 +1504,11 @@ u8 tlsfSwitchRunlevel(ocrAllocator_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_t
         ocrAllocatorTlsf_t *rAnchorCE = (ocrAllocatorTlsf_t*)(getAnchorCE(self));
 
         if(isAnchor(rself, rAnchorCE)) {
-            hal_lock32(&(rAnchorCE->lockForInit));
+            hal_lock(&(rAnchorCE->lockForInit));
             if(rAnchorCE->initAttributed == 0) {
                 rAnchorCE->initAttributed = (u64)self;
             }
-            hal_unlock32(&(rAnchorCE->lockForInit));
+            hal_unlock(&(rAnchorCE->lockForInit));
         } else {
             rself->initAttributed = 0ULL; // We are definitely not in charge
         }
@@ -1650,7 +1646,7 @@ void* tlsfAllocate(
 // sliceNum to try next.  Otherwise, a different thread can whack the sliceNum such that it doesn't get reflected into
 // the checksum correctly.  In this one way, checksumming doesn't give us an accurate picture of what is going on in
 // the production runs.  (But this is considered a low-risk difference.)
-        hal_lock32(&(pPool->lock));
+        hal_lock(&(pPool->lock));
         checkChecksum(&pPool->checksum,      sizeof(poolHdr_t)-sizeof(u64), __LINE__, "poolHdr_t");
 #endif
         u64 sliceNum = GET_currSliceNum(pPool) + 1LL; // Read of thread-unsafe read-modify-write operation, but not a problem.
@@ -1659,7 +1655,7 @@ void* tlsfAllocate(
         SET_currSliceNum (pPool, sliceNum); // Write of thread-unsafe read-modify-write operation, but not a problem.
 #ifdef ENABLE_ALLOCATOR_CHECKSUM
         setChecksum(&pPool->checksum,      sizeof(poolHdr_t)-sizeof(u64));
-        hal_unlock32(&(pPool->lock));
+        hal_unlock(&(pPool->lock));
 #endif
 #ifdef ENABLE_VALGRIND
         VALGRIND_MAKE_MEM_NOACCESS((u64) pPool, sizeof(poolHdr_t));
@@ -1673,7 +1669,7 @@ void* tlsfAllocate(
     VALGRIND_MAKE_MEM_NOACCESS((u64) pPool, sizeof(poolHdr_t));
     VALGRIND_MAKE_MEM_DEFINED((u64) pPool, sizeOfPoolHdr);
 #endif
-    hal_lock32(&(pPool->lock));
+    hal_lock(&(pPool->lock));
     DPRINTF(DEBUG_LVL_INFO, "TLSF Allocate called with allocator %p, pool %p, for size %"PRId64" and useRemnant %"PRId32"\n",
             self, pPool, size, useRemnant);
     checkChecksum(&pPool->checksum,      sizeof(poolHdr_t)-sizeof(u64), __LINE__, "poolHdr_t");
@@ -1690,7 +1686,7 @@ void* tlsfAllocate(
         }
     }
 #endif
-    hal_unlock32(&(pPool->lock));
+    hal_unlock(&(pPool->lock));
 #ifdef ENABLE_VALGRIND
     if (toReturn) VALGRIND_MEMPOOL_ALLOC((u64) pPool, toReturn, size);
     VALGRIND_MAKE_MEM_NOACCESS((u64) pPool, sizeOfPoolHdr);
@@ -1708,7 +1704,7 @@ void tlsfDeallocate(void* address) {
     VALGRIND_MAKE_MEM_NOACCESS((u64) pBlock, sizeof(blkHdr_t));
     VALGRIND_MAKE_MEM_DEFINED((u64) pPool, sizeof(poolHdr_t));
 #endif
-    hal_lock32(&(pPool->lock));
+    hal_lock(&(pPool->lock));
     checkChecksum(&pPool->checksum,      sizeof(poolHdr_t)-sizeof(u64), __LINE__, "poolHdr_t");
     checkChecksum(&pPool->annexChecksum, GET_offsetToGlebe(pPool),      __LINE__, "poolHdr_t");
 #ifdef ENABLE_VALGRIND
@@ -1722,7 +1718,7 @@ void tlsfDeallocate(void* address) {
 #endif
     setChecksum(&pPool->checksum,      sizeof(poolHdr_t)-sizeof(u64));
     setChecksum(&pPool->annexChecksum, GET_offsetToGlebe(pPool));
-    hal_unlock32(&(pPool->lock));
+    hal_unlock(&(pPool->lock));
 #ifdef ENABLE_VALGRIND
     VALGRIND_MAKE_MEM_NOACCESS((u64) pPool, sizeOfPoolHdrWithAnnex);
 #endif
@@ -1752,7 +1748,7 @@ void* tlsfReallocate(
     if (pPoolOfExistingBlock <= pRemnantPool && pPoolOfExistingBlock >= pFirstSlicePool) {
         // Existing block is in one of the pools of this allocator, either in one of its slices or in its remnant.  Ignoring the useRemnant flag, attempt
         // to reallocate it to the same pool that it is already in.  Failing that, we will try reallocating it to the remnant.
-        hal_lock32(&(pPoolOfExistingBlock->lock));
+        hal_lock(&(pPoolOfExistingBlock->lock));
         checkChecksum(&pPoolOfExistingBlock->checksum,      sizeof(poolHdr_t)-sizeof(u64),           __LINE__, "poolHdr_t");
         checkChecksum(&pPoolOfExistingBlock->annexChecksum, GET_offsetToGlebe(pPoolOfExistingBlock), __LINE__, "poolHdr_t");
 #ifdef ENABLE_VALGRIND
@@ -1766,7 +1762,7 @@ void* tlsfReallocate(
 #endif
         setChecksum(&pPoolOfExistingBlock->checksum,      sizeof(poolHdr_t)-sizeof(u64));
         setChecksum(&pPoolOfExistingBlock->annexChecksum, GET_offsetToGlebe(pPoolOfExistingBlock));
-        hal_unlock32(&(pPoolOfExistingBlock->lock));
+        hal_unlock(&(pPoolOfExistingBlock->lock));
         if (pNewBlockPayload != _NULL) return (void *) pNewBlockPayload; // If we succeeded in reallocating it in its existing pool, return the successful result.
         if (pPoolOfExistingBlock == pRemnantPool) return _NULL;  // If the existing pool was the remnant, return failure so that the caller can try a different memory level.  Else, drop through to try remnant.
         useRemnant = 1;
@@ -1795,13 +1791,13 @@ void* tlsfReallocate(
     VALGRIND_MAKE_MEM_NOACCESS((u64) pPool, sizeof(poolHdr_t));
     VALGRIND_MAKE_MEM_DEFINED((u64) pPool, sizeOfPoolHdr);
 #endif
-    hal_lock32(&(pPool->lock));
+    hal_lock(&(pPool->lock));
     checkChecksum(&pPool->checksum,      sizeof(poolHdr_t)-sizeof(u64), __LINE__, "poolHdr_t");
     checkChecksum(&pPool->annexChecksum, GET_offsetToGlebe(pPool),      __LINE__, "poolHdr_t");
     blkPayload_t * pNewBlockPayload = tlsfMalloc(pPool, size);
     setChecksum(&pPool->checksum,      sizeof(poolHdr_t)-sizeof(u64));
     setChecksum(&pPool->annexChecksum, GET_offsetToGlebe(pPool));
-    hal_unlock32(&(pPool->lock));
+    hal_unlock(&(pPool->lock));
 
     if (pNewBlockPayload != _NULL) {
         u64 sizeOfOldBlock = GET_payloadSize(pExistingBlock);
@@ -1846,7 +1842,7 @@ void initializeAllocatorTlsf(ocrAllocatorFactory_t * factory, ocrAllocator_t * s
     derived->poolSize          = perInstanceReal->base.size;
     derived->poolStorageOffset = 0;
     derived->poolStorageSuffix = 0;
-    derived->lockForInit       = 0;
+    derived->lockForInit       = INIT_LOCK;
     derived->initAttributed    = 0ULL;
     DPRINTF(DEBUG_LVL_INFO, "TLSF Allocator instance @ %p initialized with "
             "sliceCount: %"PRId32", sliceSize: %"PRId64", poolSize: %"PRId64"",

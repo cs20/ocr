@@ -9,6 +9,7 @@
 
 #include "debug.h"
 #include "ocr-config.h"
+#include "ocr-hal.h"
 #include "ocr-policy-domain.h"
 #include "ocr-worker.h"
 #include "utils/arrayDeque.h"
@@ -284,7 +285,7 @@ typedef struct _pdStrand_t {
     ocrWorker_t* processingWorker;  /**< Worker that is processing this strand
                                          This has implications on locking among other things */
     u32 properties;/**< Properties and status of this slot. */
-    u32 lock;
+    lock_t lock;
 } pdStrand_t;
 
 
@@ -309,7 +310,7 @@ typedef struct _pdStrandTableNode_t {
     } data;
     struct _pdStrandTableNode_t *parent; /**< Parent of this node */
     u32 parentSlot;         /**< Slot position in our parent */
-    u32 lock;      /**< Lock on the status bits */
+    lock_t lock;            /**< Lock on the status bits */
 } pdStrandTableNode_t;
 
 /* The following constants are used as the last 3 bits of an event "pointer".
@@ -327,7 +328,7 @@ typedef struct _pdStrandTable_t {
     // The tree is not always full though
     u32 levelCount;             /**< Number of levels; 0 means empty */
     pdStrandTableNode_t *head;    /**< Root of the tree */
-    u32 lock;
+    lock_t lock;
 } pdStrandTable_t;
 
 

@@ -320,7 +320,7 @@ typedef struct {
 static u8 registerRemoteMetaData(ocrPolicyDomain_t * pd, ocrFatGuid_t tplFatGuid) {
     ocrPolicyDomainHcDist_t * dself = (ocrPolicyDomainHcDist_t *) pd;
     // The lock allows to not give out reference to the proxy while we work.
-    hal_lock32(&dself->lockTplLookup);
+    hal_lock(&dself->lockTplLookup);
     pd->guidProviders[0]->fcts.registerGuid(pd->guidProviders[0], tplFatGuid.guid, (u64) tplFatGuid.metaDataPtr);
     ProxyTpl_t * proxyTpl = NULL;
 
@@ -334,7 +334,7 @@ static u8 registerRemoteMetaData(ocrPolicyDomain_t * pd, ocrFatGuid_t tplFatGuid
 
     ASSERT(found && (proxyTpl != NULL));
     proxyTpl->count++;
-    hal_unlock32(&dself->lockTplLookup);
+    hal_unlock(&dself->lockTplLookup);
     // At this point all calls to 'resolveRemoteMetaData' see the update pointer
     // in the guid provider and do not try to get a reference on the proxy.
     // Other workers may already own a reference to the proxy and try to enqueue themselves.
@@ -347,12 +347,12 @@ static u8 registerRemoteMetaData(ocrPolicyDomain_t * pd, ocrFatGuid_t tplFatGuid
     } while(curValue != oldValue);
 
     // Also need to compete to check out and destroy the proxy
-    hal_lock32(&dself->lockTplLookup);
+    hal_lock(&dself->lockTplLookup);
     proxyTpl->count--;
     if (proxyTpl->count == 0) {
         pd->fcts.pdFree(pd, proxyTpl);
     }
-    hal_unlock32(&dself->lockTplLookup);
+    hal_unlock(&dself->lockTplLookup);
 
     ocrGuid_t processRequestTemplateGuid;
     ocrEdtTemplateCreate(&processRequestTemplateGuid, &processRequestEdt, 1, 0);
@@ -384,14 +384,14 @@ static u8 resolveRemoteMetaData(ocrPolicyDomain_t * pd, ocrFatGuid_t * tplFatGui
         bool isBlocking = (msg->srcLocation == pd->myLocation);
         ocrPolicyDomainHcDist_t * dself = (ocrPolicyDomainHcDist_t *) pd;
         // Nope, check the proxy template map
-        hal_lock32(&dself->lockTplLookup);
+        hal_lock(&dself->lockTplLookup);
         // Double check again if the template has been resolved.
         // Helps preserve the invariant that once a template is resolved
         // its proxy's reference count cannot increment. (lock compete in registerRemoteMetaData)
         pd->guidProviders[0]->fcts.getVal(pd->guidProviders[0], tplFatGuid->guid, &val, NULL);
         if (val != 0) {
             tplFatGuid->metaDataPtr = (void *) val;
-            hal_unlock32(&dself->lockTplLookup);
+            hal_unlock(&dself->lockTplLookup);
             return 0;
         }
         // Check if the proxy exists or not.
@@ -414,7 +414,7 @@ static u8 resolveRemoteMetaData(ocrPolicyDomain_t * pd, ocrFatGuid_t * tplFatGui
             ret = hashtableNonConcTryPut(dself->proxyTplMap, (void *) tplFatGuid->guid.lower, (void *) proxyTpl);
 #endif
             ASSERT(ret == proxyTpl);
-            hal_unlock32(&dself->lockTplLookup);
+            hal_unlock(&dself->lockTplLookup);
             // GUID is unknown, request a copy of the metadata
             PD_MSG_STACK(msgClone);
             getCurrentEnv(NULL, NULL, NULL, &msgClone);
@@ -429,7 +429,7 @@ static u8 resolveRemoteMetaData(ocrPolicyDomain_t * pd, ocrFatGuid_t * tplFatGui
 #undef PD_TYPE
         } else {
             proxyTpl->count++;
-            hal_unlock32(&dself->lockTplLookup);
+            hal_unlock(&dself->lockTplLookup);
         }
 
         if (isBlocking) {
@@ -480,12 +480,12 @@ static u8 resolveRemoteMetaData(ocrPolicyDomain_t * pd, ocrFatGuid_t * tplFatGui
             // This code becomes concurrent with the callback being invoked, possibly destroying 'msg'.
         }
         // Compete to check out of the proxy
-        hal_lock32(&dself->lockTplLookup);
+        hal_lock(&dself->lockTplLookup);
         proxyTpl->count--;
         if ((proxyTpl->count == 0) && (proxyTpl->queueHead == NULL)) {
             pd->fcts.pdFree(pd, proxyTpl);
         }
-        hal_unlock32(&dself->lockTplLookup);
+        hal_unlock(&dself->lockTplLookup);
         return (val == 0) ? OCR_EPEND : 0;
     } else {
         tplFatGuid->metaDataPtr = (void *) val;
@@ -519,7 +519,7 @@ typedef struct {
     ProxyDbState_t state;
     u32 nbUsers;
     u32 refCount;
-    u32 lock;
+    lock_t lock;
     Queue_t * acquireQueue;
     u16 mode;
     u64 size;
@@ -536,7 +536,7 @@ static ProxyDb_t * createProxyDb(ocrPolicyDomain_t * pd) {
     proxyDb->state = PROXY_DB_CREATED;
     proxyDb->nbUsers = 0;
     proxyDb->refCount = 0;
-    proxyDb->lock = 0;
+    proxyDb->lock = INIT_LOCK;
     proxyDb->acquireQueue = NULL;
     // Cached DB information
     proxyDb->mode = 0;
@@ -567,7 +567,7 @@ static void resetProxyDb(ProxyDb_t * proxyDb) {
  * @param createIfAbsent    Create the proxy DB if not found.
  */
 static ProxyDb_t * getProxyDb(ocrPolicyDomain_t * pd, ocrGuid_t dbGuid, bool createIfAbsent) {
-    hal_lock32(&((ocrPolicyDomainHcDist_t *) pd)->lockDbLookup);
+    hal_lock(&((ocrPolicyDomainHcDist_t *) pd)->lockDbLookup);
     ProxyDb_t * proxyDb = NULL;
     u64 val;
     pd->guidProviders[0]->fcts.getVal(pd->guidProviders[0], dbGuid, &val, NULL);
@@ -576,14 +576,14 @@ static ProxyDb_t * getProxyDb(ocrPolicyDomain_t * pd, ocrGuid_t dbGuid, bool cre
             proxyDb = createProxyDb(pd);
             pd->guidProviders[0]->fcts.registerGuid(pd->guidProviders[0], dbGuid, (u64) proxyDb);
         } else {
-            hal_unlock32(&((ocrPolicyDomainHcDist_t *) pd)->lockDbLookup);
+            hal_unlock(&((ocrPolicyDomainHcDist_t *) pd)->lockDbLookup);
             return NULL;
         }
     } else {
         proxyDb = (ProxyDb_t *) val;
     }
     proxyDb->refCount++;
-    hal_unlock32(&((ocrPolicyDomainHcDist_t *) pd)->lockDbLookup);
+    hal_unlock(&((ocrPolicyDomainHcDist_t *) pd)->lockDbLookup);
     return proxyDb;
 }
 
@@ -592,9 +592,9 @@ static ProxyDb_t * getProxyDb(ocrPolicyDomain_t * pd, ocrGuid_t dbGuid, bool cre
  * Warning: This is different from releasing a datablock.
  */
 static void relProxyDb(ocrPolicyDomain_t * pd, ProxyDb_t * proxyDb) {
-    hal_lock32(&((ocrPolicyDomainHcDist_t *) pd)->lockDbLookup);
+    hal_lock(&((ocrPolicyDomainHcDist_t *) pd)->lockDbLookup);
     proxyDb->refCount--;
-    hal_unlock32(&((ocrPolicyDomainHcDist_t *) pd)->lockDbLookup);
+    hal_unlock(&((ocrPolicyDomainHcDist_t *) pd)->lockDbLookup);
 }
 
 /**
@@ -1264,7 +1264,7 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
                 }
                 // Outgoing acquire request
                 ProxyDb_t * proxyDb = getProxyDb(self, PD_MSG_FIELD_IO(guid.guid), true);
-                hal_lock32(&(proxyDb->lock)); // lock the db
+                hal_lock(&(proxyDb->lock)); // lock the db
                 switch(proxyDb->state) {
                     case PROXY_DB_CREATED:
                         DPRINTF(DEBUG_LVL_VVERB,"DB_ACQUIRE: Outgoing request for DB GUID "GUIDF" with properties=0x%"PRIx32", creation fetch\n",
@@ -1288,7 +1288,7 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
                             msg->destLocation = curLoc; // optional, doing it to be consistent
                             PD_MSG_FIELD_O(returnDetail) = 0;
                             // No need to fall-through for local processing, proxy DB is used.
-                            hal_unlock32(&(proxyDb->lock));
+                            hal_unlock(&(proxyDb->lock));
                             relProxyDb(self, proxyDb);
                             PROCESS_MESSAGE_RETURN_NOW(self, 0);
                         } // else, not eligible to use the proxy, must enqueue the message
@@ -1302,7 +1302,7 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
                                 GUIDA(PD_MSG_FIELD_IO(guid.guid)), PD_MSG_FIELD_IO(properties));
                         enqueueAcquireMessageInProxy(self, proxyDb, msg);
                         // Inform caller the acquire is pending.
-                        hal_unlock32(&(proxyDb->lock));
+                        hal_unlock(&(proxyDb->lock));
                         relProxyDb(self, proxyDb);
                         //NOTE: Important to set return values correctly since the acquire is not done yet !
                         // Here we set the returnDetail of the original message (not the enqueued copy)
@@ -1313,7 +1313,7 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
                         ASSERT(false && "Unsupported proxy DB state");
                     // Fall-through to send the outgoing message
                 }
-                hal_unlock32(&(proxyDb->lock));
+                hal_unlock(&(proxyDb->lock));
                 relProxyDb(self, proxyDb);
             }
         } else { // DB_ACQUIRE response
@@ -1330,7 +1330,7 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
                 ProxyDb_t * proxyDb = getProxyDb(self, dbGuid, false);
                 // Cannot receive a response to an acquire if we don't have a proxy
                 ASSERT(proxyDb != NULL);
-                hal_lock32(&(proxyDb->lock)); // lock the db
+                hal_lock(&(proxyDb->lock)); // lock the db
                 DPRINTF(DEBUG_LVL_VVERB,"DB_ACQUIRE: Incoming response for DB GUID "GUIDF" with properties=0x%"PRIx32"\n",
                         GUIDA(PD_MSG_FIELD_IO(guid.guid)), PD_MSG_FIELD_IO(properties));
                 switch(proxyDb->state) {
@@ -1432,7 +1432,7 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
                             }
                             queueDestroy(eligibleQueue);
                         }
-                        hal_unlock32(&(proxyDb->lock));
+                        hal_unlock(&(proxyDb->lock));
                         relProxyDb(self, proxyDb);
                         if (PD_MSG_FIELD_IO(edtSlot) == EDT_SLOT_NONE) {
                             //BUG #190
@@ -1496,7 +1496,7 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
                 PD_MSG_FIELD_O(returnDetail) = 0;
                 PROCESS_MESSAGE_RETURN_NOW(self, OCR_EACCES);
             }
-            hal_lock32(&(proxyDb->lock)); // lock the db
+            hal_lock(&(proxyDb->lock)); // lock the db
             switch(proxyDb->state) {
                 case PROXY_DB_RUN:
                     if (proxyDb->nbUsers == 1) {
@@ -1535,7 +1535,7 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
                         msg->srcLocation = curLoc;
                         msg->destLocation = curLoc;
                         PD_MSG_FIELD_O(returnDetail) = 0;
-                        hal_unlock32(&(proxyDb->lock));
+                        hal_unlock(&(proxyDb->lock));
                         relProxyDb(self, proxyDb);
                         PROCESS_MESSAGE_RETURN_NOW(self, 0); // bypass local processing
                     }
@@ -1558,7 +1558,7 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
                     ASSERT(false && "Unsupported proxy DB state");
                 // Fall-through to send the outgoing message
             }
-            hal_unlock32(&(proxyDb->lock));
+            hal_unlock(&(proxyDb->lock));
             relProxyDb(self, proxyDb);
         }
 
@@ -1852,7 +1852,7 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
                 ocrGuid_t dbGuid = PD_MSG_FIELD_IO(guid.guid);
                 ProxyDb_t * proxyDb = getProxyDb(self, dbGuid, false);
                 ASSERT(proxyDb != NULL);
-                hal_lock32(&(proxyDb->lock)); // lock the db
+                hal_lock(&(proxyDb->lock)); // lock the db
                 switch(proxyDb->state) {
                 case PROXY_DB_RELINQUISH:
                     // Should have a single user since relinquish state
@@ -1861,14 +1861,14 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
                     // The release having occurred, the proxy's metadata is invalid.
                     if (queueIsEmpty(proxyDb->acquireQueue)) {
                         // There are no pending acquire for this DB, try to deallocate the proxy.
-                        hal_lock32(&((ocrPolicyDomainHcDist_t *) self)->lockDbLookup);
+                        hal_lock(&((ocrPolicyDomainHcDist_t *) self)->lockDbLookup);
                         // Here nobody else can acquire a reference on the proxy
                         if (proxyDb->refCount == 1) {
                             DPRINTF(DEBUG_LVL_VVERB,"DB_RELEASE response received for DB GUID "GUIDF", destroy proxy\n", GUIDA(dbGuid));
                             // Removes the entry for the proxy DB in the GUID provider
                             self->guidProviders[0]->fcts.unregisterGuid(self->guidProviders[0], dbGuid, (u64**) 0);
                             // Nobody else can get a reference on the proxy's lock now
-                            hal_unlock32(&((ocrPolicyDomainHcDist_t *) self)->lockDbLookup);
+                            hal_unlock(&((ocrPolicyDomainHcDist_t *) self)->lockDbLookup);
                             // Deallocate the proxy DB and the cached ptr
                             // NOTE: we do not unlock proxyDb->lock not call relProxyDb
                             // since we're destroying the whole proxy and we're the last user.
@@ -1881,14 +1881,14 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
                             self->fcts.pdFree(self, proxyDb);
                         } else {
                             // Not deallocating the proxy then allow others to grab a reference
-                            hal_unlock32(&((ocrPolicyDomainHcDist_t *) self)->lockDbLookup);
+                            hal_unlock(&((ocrPolicyDomainHcDist_t *) self)->lockDbLookup);
                             // Else no pending acquire enqueued but someone already got a reference
                             // to the proxyDb, repurpose the proxy for a new fetch
                             // Resetting the state to created means the any concurrent acquire
                             // to the currently executing call will try to fetch the DB.
                             resetProxyDb(proxyDb);
                             // Allow others to use the proxy
-                            hal_unlock32(&(proxyDb->lock));
+                            hal_unlock(&(proxyDb->lock));
                             DPRINTF(DEBUG_LVL_VVERB,"DB_RELEASE response received for DB GUID "GUIDF", proxy is referenced\n", GUIDA(dbGuid));
                             relProxyDb(self, proxyDb);
                         }
@@ -1903,7 +1903,7 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
                         // NOTE: There's a size check when an acquire fetch completes and we reuse the proxy.
                         // Pop one of the enqueued acquire and process it 'again'.
                         ocrPolicyMsg_t * pendingAcquireMsg = (ocrPolicyMsg_t *) queueRemoveLast(proxyDb->acquireQueue);
-                        hal_unlock32(&(proxyDb->lock));
+                        hal_unlock(&(proxyDb->lock));
                         relProxyDb(self, proxyDb);
                         // Now this processMessage call is potentially concurrent with new acquire being issued
                         // by other EDTs on this node. It's ok, either this call succeeds or the acquire is enqueued again.
@@ -2442,8 +2442,8 @@ void initializePolicyDomainHcDist(ocrPolicyDomainFactory_t * factory,
     ocrPolicyDomainHcDist_t * hcDistPd = (ocrPolicyDomainHcDist_t *) self;
     hcDistPd->baseProcessMessage = derivedFactory->baseProcessMessage;
     hcDistPd->baseSwitchRunlevel = derivedFactory->baseSwitchRunlevel;
-    hcDistPd->lockDbLookup = 0;
-    hcDistPd->lockTplLookup = 0;
+    hcDistPd->lockDbLookup = INIT_LOCK;
+    hcDistPd->lockTplLookup = INIT_LOCK;
     hcDistPd->shutdownAckCount = 0;
 }
 

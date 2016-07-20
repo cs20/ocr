@@ -61,16 +61,16 @@ u8 regularAcquire(ocrDataBlock_t *self, void** ptr, ocrFatGuid_t edt, u32 edtSlo
             (u64)self->ptr, GUIDA(rself->base.guid), GUIDA(edt.guid), (u32)isInternal, self->size);
 
     // Critical section
-    hal_lock32(&(rself->lock));
+    hal_lock(&(rself->lock));
     if(rself->attributes.freeRequested) {
-        hal_unlock32(&(rself->lock));
+        hal_unlock(&(rself->lock));
         return OCR_EACCES;
     }
     rself->attributes.numUsers += 1;
     if(isInternal)
         rself->attributes.internalUsers += 1;
 
-    hal_unlock32(&(rself->lock));
+    hal_unlock(&(rself->lock));
     // End critical section
     DPRINTF(DEBUG_LVL_VERB, "DB (GUID: "GUIDF") added EDT (GUID: "GUIDF"). Have %"PRId32" users (of which %"PRId32" runtime)\n",
             GUIDA(self->guid), GUIDA(edt.guid), rself->attributes.numUsers, rself->attributes.internalUsers);
@@ -93,7 +93,7 @@ u8 regularRelease(ocrDataBlock_t *self, ocrFatGuid_t edt,
             (u64)self->ptr, GUIDA(rself->base.guid), GUIDA(edt.guid), (u32)isInternal);
 
     // Start critical section
-    hal_lock32(&(rself->lock));
+    hal_lock(&(rself->lock));
 
     rself->attributes.numUsers -= 1;
     if(isInternal)
@@ -112,10 +112,10 @@ u8 regularRelease(ocrDataBlock_t *self, ocrFatGuid_t edt,
             rself->attributes.internalUsers == 0 &&
             rself->attributes.freeRequested == 1) {
         // We need to actually free the data-block
-        hal_unlock32(&(rself->lock));
+        hal_unlock(&(rself->lock));
         return regularDestruct(self);
     } else {
-        hal_unlock32(&(rself->lock));
+        hal_unlock(&(rself->lock));
     }
     // End critical section
 
@@ -130,7 +130,6 @@ u8 regularDestruct(ocrDataBlock_t *self) {
     ASSERT(rself->attributes.numUsers == 0);
     ASSERT(rself->attributes.internalUsers == 0);
     ASSERT(rself->attributes.freeRequested == 1);
-    ASSERT(rself->lock == 0);
 #endif
 
     DPRINTF(DEBUG_LVL_VERB, "Really freeing DB (GUID: "GUIDF")\n", GUIDA(self->guid));
@@ -181,23 +180,23 @@ u8 regularFree(ocrDataBlock_t *self, ocrFatGuid_t edt, u32 properties) {
     DPRINTF(DEBUG_LVL_VERB, "Requesting a free for DB @ 0x%"PRIx64" (GUID: "GUIDF")\n",
             (u64)self->ptr, GUIDA(rself->base.guid));
     // Begin critical section
-    hal_lock32(&(rself->lock));
+    hal_lock(&(rself->lock));
     if(rself->attributes.freeRequested) {
-        hal_unlock32(&(rself->lock));
+        hal_unlock(&(rself->lock));
         return OCR_EPERM;
     }
     rself->attributes.freeRequested = 1;
-    hal_unlock32(&(rself->lock));
+    hal_unlock(&(rself->lock));
     // End critical section
 
 
     // Critical section
-    hal_lock32(&(rself->lock));
+    hal_lock(&(rself->lock));
     if(rself->attributes.numUsers == 0 && rself->attributes.internalUsers == 0) {
-        hal_unlock32(&(rself->lock));
+        hal_unlock(&(rself->lock));
         return regularDestruct(self);
     } else {
-        hal_unlock32(&(rself->lock));
+        hal_unlock(&(rself->lock));
         // The datablock may not have been acquired by the current EDT hence
         // we do not need to account for a release.
         if (reqRelease) {
@@ -262,7 +261,7 @@ u8 newDataBlockRegular(ocrDataBlockFactory_t *factory, ocrFatGuid_t *guid, ocrFa
     // the DB as opposed to one-time usage creation flags
     result->base.flags = (flags & DB_PROP_SINGLE_ASSIGNMENT);
     result->base.fctId = factory->factoryId;
-    result->lock = 0;
+    result->lock = INIT_LOCK;
     result->attributes.flags = result->base.flags;
     result->attributes.numUsers = 0;
     result->attributes.internalUsers = 0;

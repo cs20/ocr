@@ -43,7 +43,7 @@ typedef union {
 
 typedef struct _ocrDataBlockRegular_t {
     ocrDataBlock_t base; /* Data for the data-block */
-    u32 lock; /**< Lock for this data-block */
+    lock_t lock; /**< Lock for this data-block */
     ocrDataBlockRegularAttr_t attributes; /**< Attributes for this data-block */
     ocrRuntimeHint_t hint;
 } ocrDataBlockRegular_t;

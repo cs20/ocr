@@ -10,6 +10,7 @@
 #include "ocr-config.h"
 #ifdef ENABLE_SCHEDULER_OBJECT_PDSPACE
 
+#include "ocr-hal.h"
 #include "ocr-scheduler-object.h"
 #include "ocr-types.h"
 #include "utils/ocr-utils.h"
@@ -26,7 +27,7 @@ typedef struct _ocrSchedulerObjectPdspace_t {
     ocrSchedulerObject_t base;
     ocrSchedulerObject_t *dbMap;    /* Hash table to map a DB guid to the scheduler object in this node */
     ocrSchedulerObject_t *wst;      /* Scheduler object for a workstealing place */
-    u32 lock;
+    lock_t lock;
 } ocrSchedulerObjectPdspace_t;
 
 /****************************************************/

@@ -23,6 +23,22 @@
 /* OCR LOW-LEVEL MACROS                             */
 /****************************************************/
 
+#ifdef OCR_TICKETLOCK
+typedef struct {
+    u32 ticket;
+    volatile u32 now;
+} lock_t;
+#define INIT_LOCK ((lock_t){0, 0})
+
+#ifndef OCR_TICKETLOCK_BACKOFF
+#define OCR_TICKETLOCK_BACKOFF 0
+#endif
+#else
+/* Default is a test test-and-set type of locking */
+typedef volatile u32 lock_t;
+#define INIT_LOCK 0
+#endif
+
 /**
  * @brief Perform a memory fence
  *
@@ -414,6 +430,45 @@
                            "r" (addValue));
 
 
+#ifdef OCR_TICKETLOCK
+#define hal_lock(__l)                                       \
+    do {                                                    \
+        volatile u32 _i;                                    \
+        u32 _t = hal_xadd32(&((__l)->ticket), 1);           \
+        while(true) {                                       \
+            u32 _spinTime = OCR_TICKETLOCK_BACKOFF*(_t - (__l)->now);            \
+            for(_i = 0; _i < _spinTime; ++_i)               \
+                ;                                           \
+            if(_t == (__l)->now) break;                     \
+        }                                                   \
+        __asm__ __volatile__ ("" : : : "memory");           \
+    } while(0);
+
+/* Ideally need a release barrier; using a full barrier
+ * and a flush to make sure everything prior is visible prior to the
+ * ticket increment */
+#define hal_unlock(__l)                                     \
+    do {                                                    \
+        __asm__ __volatile__ ("flush B,N" : : : "memory");  \
+        ++((__l)->now);                                     \
+    } while(0);
+
+#define hal_trylock(__l)                                    \
+    ({                                                      \
+        u8 _r = 0;                                          \
+        u32 _val = (__l)->ticket;                           \
+        if(_val == (__l)->now) {                            \
+            u32 _old = hal_cmpswap32(&((__l)->ticket), _val, _val+1);\
+            if(_old != _val) _r = 1;                        \
+            else __asm__ __volatile__ ("" : : : "memory");  \
+        } else {                                            \
+            _r = 1;                                         \
+        }                                                   \
+        _r;                                                 \
+    })
+
+#define hal_islocked(__l) ((__l)->ticket > (__l)->now)
+#else /* ! OCR_TICKETLOCK */
 /**
  * @brief Convenience function that basically implements a simple
  * lock
@@ -423,8 +478,14 @@
  *
  * @param lock      Pointer to a 32 bit value
  */
-#define hal_lock32(lock)                        \
-    while(hal_cmpswap32(lock, 0, 1))
+#define hal_lock(__l)                                   \
+    do {                                                \
+        while(hal_cmpswap32(__l, 0, 1))                 \
+            while(*(__l))                               \
+                ;                                       \
+        __asm__ __volatile__ ("" : : : "memory");       \
+    } while(0);
+
 
 /**
  * @brief Convenience function to implement a simple
@@ -432,8 +493,11 @@
  *
  * @param lock      Pointer to a 32 bit value
  */
-#define hal_unlock32(lock)                      \
-    *(u32 *)(lock) = 0
+#define hal_unlock(__l)                                         \
+    do {                                                        \
+        __asm__ __volatile__ ("flush B,N" : : : "memory");      \
+        *(u32 *)(__l) = 0;                                      \
+    } while(0);
 
 /**
  * @brief Convenience function to implement a simple
@@ -443,73 +507,15 @@
  * @return 0 if the lock has been acquired and a non-zero
  * value if it cannot be acquired
  */
-#define hal_trylock32(lock)                     \
-    hal_cmpswap32(lock, 0, 1)
+#define hal_trylock(__l)                                      \
+    ({                                                        \
+        u32 _r = hal_cmpswap32(__l, 0, 1);                    \
+        if(_r == 0) __asm__ __volatile__("" : : : "memory");  \
+        _r;                                                   \
+    })
 
-/**
- * @brief Convenience function that basically implements a simple
- * lock
- *
- * This will usually be a wrapper around cmpswap16. This function
- * will block until the lock can be acquired
- *
- * @param lock      Pointer to a 16 bit value
- */
-#define hal_lock16(lock)                        \
-    while(hal_cmpswap16(lock, 0, 1))
-
-/**
- * @brief Convenience function to implement a simple
- * unlock
- *
- * @param lock      Pointer to a 16 bit value
- */
-#define hal_unlock16(lock)                      \
-    *(u16 *)(lock) = 0
-
-/**
- * @brief Convenience function to implement a simple
- * trylock
- *
- * @param lock      Pointer to a 16 bit value
- * @return 0 if the lock has been acquired and a non-zero
- * value if it cannot be acquired
- */
-#define hal_trylock16(lock)                     \
-    hal_cmpswap16(lock, 0, 1)
-
-/**
- * @brief Convenience function that basically implements a simple
- * lock
- *
- * This will usually be a wrapper around cmpswap8. This function
- * will block until the lock can be acquired
- *
- * @param lock      Pointer to a 8 bit value
- */
-#define hal_lock8(lock)                        \
-    while(hal_cmpswap8(lock, 0, 1))
-
-/**
- * @brief Convenience function to implement a simple
- * unlock
- *
- * @param lock      Pointer to a 8 bit value
- */
-#define hal_unlock8(lock)                      \
-    *(u8 *)(lock) = 0
-
-/**
- * @brief Convenience function to implement a simple
- * trylock
- *
- * @param lock      Pointer to a 8 bit value
- * @return 0 if the lock has been acquired and a non-zero
- * value if it cannot be acquired
- */
-#define hal_trylock8(lock)                     \
-    hal_cmpswap8(lock, 0, 1)
-
+#define hal_islocked(__l) (*(__l) == 1)
+#endif
 
 /**
  * @brief Abort the runtime

@@ -11,6 +11,7 @@
 #ifdef ENABLE_ALLOCATOR_SIMPLE
 
 #include "ocr-allocator.h"
+#include "ocr-hal.h"
 #include "ocr-types.h"
 #include "utils/ocr-utils.h"
 
@@ -38,7 +39,7 @@ typedef struct _pool {
     u64 *pool_start;
     u64 *pool_end;
     u64 *freelist;
-    u32 lock;
+    lock_t lock;
     u32 inited;
 } pool_t;
 

@@ -124,15 +124,15 @@ static bool lockButSelf(ocrDataBlockLockable_t *rself) {
     ocrWorker_t * worker;
     getCurrentEnv(NULL, &worker, NULL, NULL);
     bool unlock = true;
-    if (rself->lock) {
+    if (hal_islocked(&(rself->lock))) {
         if (worker == rself->worker) {
             // fall-through
             unlock = false;
         } else {
-            hal_lock32(&rself->lock);
+            hal_lock(&rself->lock);
         }
     } else {
-        hal_lock32(&rself->lock);
+        hal_lock(&rself->lock);
         rself->worker = worker;
     }
     return unlock;
@@ -290,7 +290,7 @@ u8 lockableAcquire(ocrDataBlock_t *self, void** ptr, ocrFatGuid_t edt, u32 edtSl
     u8 res = lockableAcquireInternal(self, ptr, edt, edtSlot, mode, isInternal, properties);
     if (unlock) {
         rself->worker = NULL;
-        hal_unlock32(&rself->lock);
+      hal_unlock(&rself->lock);
     }
     return res;
 }
@@ -301,7 +301,7 @@ u8 lockableRelease(ocrDataBlock_t *self, ocrFatGuid_t edt, bool isInternal) {
     DPRINTF(DEBUG_LVL_VERB, "Releasing DB @ 0x%"PRIx64" (GUID "GUIDF") from EDT "GUIDF" (runtime release: %"PRId32")\n",
             (u64)self->ptr, GUIDA(rself->base.guid), GUIDA(edt.guid), (u32)isInternal);
     // Start critical section
-    hal_lock32(&(rself->lock));
+    hal_lock(&(rself->lock));
     ocrWorker_t * worker;
     getCurrentEnv(NULL, &worker, NULL, NULL);
     rself->worker = worker;
@@ -383,7 +383,7 @@ u8 lockableRelease(ocrDataBlock_t *self, ocrFatGuid_t edt, bool isInternal) {
                 }
             #endif /* OCR_ENABLE_STATISTICS */
             rself->worker = NULL;
-            hal_unlock32(&(rself->lock));
+            hal_unlock(&(rself->lock));
             return 0;
         } else if (rself->attributes.modeLock == DB_LOCKED_EW) {
             // EW: by design there should be a waiter otherwise we would have exit the modeLock
@@ -401,7 +401,7 @@ u8 lockableRelease(ocrDataBlock_t *self, ocrFatGuid_t edt, bool isInternal) {
                 }
             #endif /* OCR_ENABLE_STATISTICS */
             rself->worker = NULL;
-            hal_unlock32(&(rself->lock));
+            hal_unlock(&(rself->lock));
             pd->fcts.pdFree(pd, waiter);
             RESULT_ASSERT(pd->fcts.processMessage(pd, &msg, true), ==, 0);
             return 0;
@@ -429,7 +429,7 @@ u8 lockableRelease(ocrDataBlock_t *self, ocrFatGuid_t edt, bool isInternal) {
                     }
                 #endif /* OCR_ENABLE_STATISTICS */
                 rself->worker = NULL;
-                hal_unlock32(&(rself->lock));
+                hal_unlock(&(rself->lock));
                 return 0;
             }
         }
@@ -447,11 +447,11 @@ u8 lockableRelease(ocrDataBlock_t *self, ocrFatGuid_t edt, bool isInternal) {
         rself->attributes.internalUsers == 0 &&
         rself->attributes.freeRequested == 1) {
         rself->worker = NULL;
-        hal_unlock32(&(rself->lock));
+        hal_unlock(&(rself->lock));
         return lockableDestruct(self);
     }
     rself->worker = NULL;
-    hal_unlock32(&(rself->lock));
+    hal_unlock(&(rself->lock));
     return 0;
 }
 
@@ -475,7 +475,6 @@ u8 lockableDestruct(ocrDataBlock_t *self) {
     ASSERT(rself->roWaiterList == NULL);
     ASSERT(rself->ewWaiterList == NULL);
     ASSERT(rself->itwWaiterList == NULL);
-    ASSERT(rself->lock == 0);
 #endif
 
 #define PD_MSG (&msg)
@@ -520,19 +519,19 @@ u8 lockableFree(ocrDataBlock_t *self, ocrFatGuid_t edt, u32 properties) {
     DPRINTF(DEBUG_LVL_VERB, "Requesting a free for DB @ 0x%"PRIx64" (GUID: "GUIDF"); props: 0x%"PRIx32"\n",
             (u64)self->ptr, GUIDA(rself->base.guid), properties);
 
-    hal_lock32(&(rself->lock));
+    hal_lock(&(rself->lock));
     if(rself->attributes.freeRequested) {
-        hal_unlock32(&(rself->lock));
+        hal_unlock(&(rself->lock));
         return OCR_EPERM;
     }
 
     rself->attributes.freeRequested = 1;
     if(rself->attributes.numUsers == 0 && rself->attributes.internalUsers == 0) {
-        hal_unlock32(&(rself->lock));
+        hal_unlock(&(rself->lock));
         return lockableDestruct(self);
     }
     else {
-        hal_unlock32(&(rself->lock));
+        hal_unlock(&(rself->lock));
         // The datablock may not have been acquired by the current EDT hence
         // we do not need to account for a release.
         if (reqRelease) {
@@ -602,7 +601,7 @@ u8 newDataBlockLockable(ocrDataBlockFactory_t *factory, ocrFatGuid_t *guid, ocrF
     // Only keep flags that represent the nature of
     // the DB as opposed to one-time usage creation flags
     result->base.flags = (flags & (DB_PROP_SINGLE_ASSIGNMENT | DB_PROP_RT_PROXY));
-    result->lock = 0;
+    result->lock = INIT_LOCK;
     result->attributes.flags = result->base.flags;
     result->attributes.numUsers = 0;
     result->attributes.internalUsers = 0;

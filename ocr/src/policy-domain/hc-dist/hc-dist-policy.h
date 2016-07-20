@@ -10,6 +10,7 @@
 #include "ocr-config.h"
 #ifdef ENABLE_POLICY_DOMAIN_HC_DIST
 
+#include "ocr-hal.h"
 #include "ocr-policy-domain.h"
 #include "utils/ocr-utils.h"
 #include "utils/hashtable.h"
@@ -25,8 +26,8 @@ typedef struct {
                              u8 isBlocking);
     u8 (*baseSwitchRunlevel)(struct _ocrPolicyDomain_t *self, ocrRunlevel_t, u32);
     u64 shutdownAckCount;
-    u32 lockDbLookup;  /**< Lock for querying proxies for remote DB */
-    u32 lockTplLookup; /**< Lock for querying proxies for remote template */
+    lock_t lockDbLookup;  /**< Lock for querying proxies for remote DB */
+    lock_t lockTplLookup; /**< Lock for querying proxies for remote template */
     hashtable_t * proxyTplMap;
 } ocrPolicyDomainHcDist_t;
 

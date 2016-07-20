@@ -77,9 +77,9 @@ static void gasnetMessageIncoming(ocrCommPlatformGasnet_t *platform , ocrPolicyM
 
     DPRINTF(DEBUG_LVL_VERB,"[GASNET] Received a message type 0x%"PRIx32" with msgId 0x%"PRIu64" size: 0x%"PRIu64"\n",
                            msg->type, msg->msgId, size);
-    hal_lock32(&platform->queueLock);
+    hal_lock(&platform->queueLock);
     platform->incoming->pushFront(platform->incoming, msgCopy);
-    hal_unlock32(&platform->queueLock);
+    hal_unlock(&platform->queueLock);
 
     // Warning ! Do NOT touch msgCopy from now on
 
@@ -377,14 +377,14 @@ u8 GasnetCommPollMessage(ocrCommPlatform_t *self, ocrPolicyMsg_t **msg,
     // remove all incoming tasks in the check the queue
     GASNET_Safe(gasnet_AMPoll());
 
-    hal_lock32(&gasnetComm->queueLock);
+    hal_lock(&gasnetComm->queueLock);
     iterator_t * incomingIt = gasnetComm->incomingIt;
     incomingIt->reset(incomingIt);
 
     if (incomingIt->hasNext(incomingIt)) {
         *msg = (ocrPolicyMsg_t *) incomingIt->next(incomingIt);
         incomingIt->removeCurrent(incomingIt);
-        hal_unlock32(&gasnetComm->queueLock);
+        hal_unlock(&gasnetComm->queueLock);
 
         u64 baseSize = 0, marshalledSize = 0;
         ocrPolicyMsgGetMsgSize(*msg, &baseSize, &marshalledSize, MARSHALL_DBPTR | MARSHALL_NSADDR);
@@ -397,7 +397,7 @@ u8 GasnetCommPollMessage(ocrCommPlatform_t *self, ocrPolicyMsg_t **msg,
 
     pdLookingForWork(gasnetComm);
 
-    hal_unlock32(&gasnetComm->queueLock);
+    hal_unlock(&gasnetComm->queueLock);
 
     return POLL_NO_MESSAGE;
 }
@@ -529,7 +529,7 @@ void initializeCommPlatformGasnet(ocrCommPlatformFactory_t * factory, ocrCommPla
     gasnetComm->msgId = 1;
     gasnetComm->incoming = NULL;
     gasnetComm->incomingIt = NULL;
-    gasnetComm->queueLock = 0;
+    gasnetComm->queueLock = INIT_LOCK;
 }
 
 /*

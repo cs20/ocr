@@ -12,6 +12,7 @@
 #ifndef __OCR_PLACER_H__
 #define __OCR_PLACER_H__
 
+#include "ocr-hal.h"
 #include "ocr-types.h"
 #include "ocr-runtime-types.h"
 
@@ -22,7 +23,7 @@ typedef struct _ocrPlacer_t {
 
 typedef struct _ocrLocationPlacer_t {
     ocrPlacer_t base;
-    u32 lock; /**< Lock for updating edtLastPlacementIndex information */
+    lock_t lock; /**< Lock for updating edtLastPlacementIndex information */
     u64 edtLastPlacementIndex; /**< Index of the last guid returned for an edt */
 } ocrLocationPlacer_t;
 

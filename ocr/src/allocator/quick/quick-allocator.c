@@ -293,7 +293,7 @@ struct per_agent_cache {
     void *slabs[MAX_SLABS];
     s32 count_malloc[MAX_SLABS];
     s32 count_free[MAX_SLABS];
-    u32 lock;
+    lock_t lock;
 };
 
 PER_AGENT_KEYWORD
@@ -413,9 +413,9 @@ typedef struct {
     u32 slAvailOrNot;
     u32 freeList[SL_COUNT];
 #ifdef FINE_LOCKING
-    u32 listLock[SL_COUNT];
+    lock_t listLock[SL_COUNT];
     s32 listCount[SL_COUNT];
-    s32 bmapLockSL;
+    lock_t bmapLockSL;
     s32 count;          // count for FL
 #endif
 } secondLevel_t;
@@ -424,7 +424,7 @@ typedef struct {
     u64 guard;          // some known value as a guard
     u64 *glebeStart;    // inclusive
     u64 *glebeEnd;      // exclusive
-    u32 lock;           // used for init only, if FINE_LOCKING
+    lock_t lock;           // used for init only, if FINE_LOCKING
     u32 init_count;
     // counters
     u32 count_used;     // count bytes allocated.
@@ -434,7 +434,7 @@ typedef struct {
     u32 flCount;        // Number of first-level buckets.  This is invariant after constructor runs.
     u64 flAvailOrNot;   // bitmap that indicates the presence (1) or absence (0) of free blocks in blocks[i][*]
 #ifdef FINE_LOCKING
-    u32 bmapLockFL;
+    lock_t bmapLockFL;
 #endif
     secondLevel_t sl[0];// second level structure in the annex area
 } poolHdr_t;
@@ -485,7 +485,7 @@ static u64 quickInitAnnex(poolHdr_t * pPool, u64 size) {
             (u64)sizeRemainingAfterPoolHeader);
     pPool->flAvailOrNot = 0; // Initialize the bitmaps to 0
 #ifdef FINE_LOCKING
-    pPool->bmapLockFL = 0;
+    pPool->bmapLockFL = INIT_LOCK;
 #endif
 
     return poolHeaderSize;
@@ -497,7 +497,7 @@ static void quickFreeInternal(blkPayload_t *p);
 static void quickCleanCache(void)
 {
     s32 i, allreset=1;
-    hal_lock32(&CACHE_POOL(myid)->lock);
+    hal_lock(&CACHE_POOL(myid)->lock);
     for(i=0;i<MAX_SLABS;i++) {
         struct slab_header *head = CACHE_POOL(myid)->slabs[i];
         if (head == NULL)
@@ -510,7 +510,7 @@ static void quickCleanCache(void)
             allreset = 0;
         }
     }
-    hal_unlock32(&CACHE_POOL(myid)->lock);
+    hal_unlock(&CACHE_POOL(myid)->lock);
     if (allreset) {
         void *p = CACHE_POOL(myid);
         CACHE_POOL(myid) = NULL;
@@ -524,7 +524,7 @@ static void quickPrintCache(void)
 {
     s32 i;
     s32 head_printed = 0;
-    hal_lock32(&CACHE_POOL(myid)->lock);
+    hal_lock(&CACHE_POOL(myid)->lock);
     for(i=0;i<MAX_SLABS;i++) {
         s32 m = CACHE_POOL(myid)->count_malloc[i];
         s32 f = CACHE_POOL(myid)->count_free[i];
@@ -536,7 +536,7 @@ static void quickPrintCache(void)
             DPRINTF(DEBUG_LVL_INFO, "(%"PRId32"~%"PRId32"] : malloc %"PRId32" free %"PRId32"\n", SLAB_MAX_SIZE(i-1), SLAB_MAX_SIZE(i), m, f);
         }
     }
-    hal_unlock32(&CACHE_POOL(myid)->lock);
+    hal_unlock(&CACHE_POOL(myid)->lock);
     if (head_printed)
         DPRINTF(DEBUG_LVL_INFO, "====== END OF REPORT (cache %p) =======\n", CACHE_POOL(myid));
 }
@@ -564,12 +564,12 @@ static void quickCleanPool(poolHdr_t *pool)
                 if (head->bitmap == ((1UL << MAX_OBJ_PER_SLAB)-1UL) /* empty slab? */) {
                     // it must be only (and first) slab in the slab list
                     s32 slabsIndex = SIZE_TO_SLABS(head->size);
-                    hal_lock32(&head->per_agent->lock);
+                    hal_lock(&head->per_agent->lock);
                     struct slab_header *slabs = head->per_agent->slabs[slabsIndex];
                     if (slabs == head) {
                         head->per_agent->slabs[slabsIndex] = NULL;
                     }
-                    hal_unlock32(&head->per_agent->lock);
+                    hal_unlock(&head->per_agent->lock);
                     if (slabs != head) {
                         DPRINTF(DEBUG_LVL_WARN, "cleanup pool -- empty slab found but it was not the first slab in this slab list?\n");
                         continue;
@@ -826,13 +826,13 @@ bmap_fallback:
     for(i=bmap_op->count-1;i>=0;i--) {
         flIndex = bmap_op->fli[i];
         slIndex = bmap_op->sli[i];
-        hal_lock32(&(pool->sl[flIndex].bmapLockSL));
+        hal_lock(&(pool->sl[flIndex].bmapLockSL));
         u = pool->sl[flIndex].listCount[slIndex];
         v = (pool->sl[flIndex].listCount[slIndex] += bmap_op->delta[i]);
         ASSERT(bmap_op->delta[i] == 1 || bmap_op->delta[i] == -1);
 
         if (u && v) { // common cases. i.e. no bitmap change
-            hal_unlock32(&(pool->sl[flIndex].bmapLockSL));
+            hal_unlock(&(pool->sl[flIndex].bmapLockSL));
             continue;
         }
 
@@ -843,34 +843,34 @@ bmap_fallback:
         if (u == 0 && v == 1) {  // 0 -> 1
             ASSERT(!(oldBitmap & (1UL << slIndex)));
             pool->sl[flIndex].slAvailOrNot |= (1UL << slIndex);
-            hal_unlock32(&(pool->sl[flIndex].bmapLockSL));
+            hal_unlock(&(pool->sl[flIndex].bmapLockSL));
             if (!oldBitmap) {
-                hal_lock32(&(pool->bmapLockFL));
+                hal_lock(&(pool->bmapLockFL));
                 pool->sl[flIndex].count++;
                 if (pool->sl[flIndex].count == 1) {
                     ASSERT(!(pool->flAvailOrNot & (1UL << flIndex)));
                     pool->flAvailOrNot |= (1UL << flIndex);
                 }
-                hal_unlock32(&(pool->bmapLockFL));
+                hal_unlock(&(pool->bmapLockFL));
             }
             continue;
         }
         if (u == 1 && v == 0) {  // 1 -> 0
             ASSERT(oldBitmap & (1UL << slIndex));
             u32 newBitmap = (pool->sl[flIndex].slAvailOrNot &= ~(1UL << slIndex));
-            hal_unlock32(&(pool->sl[flIndex].bmapLockSL));
+            hal_unlock(&(pool->sl[flIndex].bmapLockSL));
             if (!newBitmap) {
-                hal_lock32(&(pool->bmapLockFL));
+                hal_lock(&(pool->bmapLockFL));
                 pool->sl[flIndex].count--;
                 if (pool->sl[flIndex].count == 0) {
                     ASSERT(pool->flAvailOrNot & (1UL << flIndex));
                     pool->flAvailOrNot &= ~(1UL << flIndex);
                 }
-                hal_unlock32(&(pool->bmapLockFL));
+                hal_unlock(&(pool->bmapLockFL));
             }
             continue;
         }
-        hal_unlock32(&(pool->sl[flIndex].bmapLockSL));
+        hal_unlock(&(pool->sl[flIndex].bmapLockSL));
     }
 //quickPrint(pool);
 }
@@ -913,8 +913,6 @@ static void quickFinish(poolHdr_t *pool, u64 size)
 
     DPRINTF(DEBUG_LVL_VERB, "quickFinish called. size 0x%"PRIx64" at %p\n", size, (u8 *)pool);
 
-    // spinlock value must be 0 or 1. If not, it means it's not properly zero'ed before, or corrupted.
-    ASSERT(pool->lock == 0 || pool->lock == 1);
 
 #ifdef PER_AGENT_CACHE
     if (CACHE_POOL(myid) != NULL) {
@@ -927,15 +925,15 @@ static void quickFinish(poolHdr_t *pool, u64 size)
 DPRINTF(DEBUG_LVL_WARN, "bmap_arr  : %"PRId32", %"PRId32"(was %"PRId32"), %"PRId32"\n", dobmap_arr[1], dobmap_arr[2]-dobmap_count_case2, dobmap_arr[2], dobmap_arr[3]);
 DPRINTF(DEBUG_LVL_WARN, "bmap_count: %"PRId32"\n", dobmap_count_case3);
 */
-    hal_lock32(&(pool->lock));
+    hal_lock(&(pool->lock));
     pool->init_count--;
     if (!(pool->init_count)) {
-        hal_unlock32(&(pool->lock));
+        hal_unlock(&(pool->lock));
         // no more user for this pool -- no need to lock
         quickCleanPool(pool);
         quickPrintCounters(pool);
     } else {
-        hal_unlock32(&(pool->lock));
+        hal_unlock(&(pool->lock));
         DPRINTF(DEBUG_LVL_INFO, "shutdown skip for pool %p\n", pool);
     }
 }
@@ -952,11 +950,9 @@ static void quickInit(poolHdr_t *pool, u64 size)
     ASSERT((sizeof(struct slab_header) & ALIGNMENT_MASK) == 0);
 #endif
 
-    // spinlock value must be 0 or 1. If not, it means it's not properly zero'ed before, or corrupted.
-    ASSERT(pool->lock == 0 || pool->lock == 1);
 
     // pool->lock and pool->init_count is already 0 at startup (on x86, it's done at mallocBegin())
-    hal_lock32(&(pool->lock));
+    hal_lock(&(pool->lock));
     if (!(pool->init_count)) {
 #if 0 // TODO: 4.1.0 - this test severely slows down FSim without any obvious benefit
         // See bug #875
@@ -981,8 +977,8 @@ static void quickInit(poolHdr_t *pool, u64 size)
         HEAD(q) = MARK | size | FLAG_FREE;
 
 #ifdef FINE_LOCKING
-        HEAD_LOCK(q) = 0;
-        TAIL_LOCK(q,size) = 0;
+        HEAD_LOCK(q) = INIT_LOCK;
+        TAIL_LOCK(q,size) = INIT_LOCK;
 #endif
         NEXT(q) = 0;
         PREV(q) = 0;
@@ -1008,7 +1004,7 @@ static void quickInit(poolHdr_t *pool, u64 size)
                 pool->sl[i].freeList[j] = -1;    // empty list
 #ifdef FINE_LOCKING
                 pool->sl[i].listCount[j] = 0;
-                pool->sl[i].bmapLockSL = 0;
+                pool->sl[i].bmapLockSL = INIT_LOCK;
                 pool->sl[i].count = 0;
 #endif
             }
@@ -1039,10 +1035,10 @@ static void quickInit(poolHdr_t *pool, u64 size)
     }
 #ifdef ENABLE_VALGRIND
     VALGRIND_MAKE_MEM_DEFINED(&(pool->lock), sizeof(pool->lock));
-    hal_unlock32(&(pool->lock));
+    hal_unlock(&(pool->lock));
     VALGRIND_MAKE_MEM_NOACCESS(&(pool->lock), sizeof(pool->lock));
 #else
-    hal_unlock32(&(pool->lock));
+    hal_unlock(&(pool->lock));
 #endif
     // TODO probably we need a barrier here to make sure init_count to reach its peak
 }
@@ -1056,7 +1052,7 @@ static void *quickInitCache(poolHdr_t *pool)
     for(i=0;i<MAX_SLABS;i++) {
         q->slabs[i] = NULL;
         q->count_malloc[i] = q->count_free[i] = 0;
-        q->lock = 0;
+        q->lock = INIT_LOCK;
     }
     return q;
 }
@@ -1070,7 +1066,7 @@ static void quickInsertFree(poolHdr_t *pool,u64 *p, u64 size, u32 flIndex, u32 s
     ASSERT(!((u64)p & CACHE_LINE_MASK));
 #endif
 #ifdef FINE_LOCKING
-    hal_lock32(&pool->sl[flIndex].listLock[slIndex]);
+    hal_lock(&pool->sl[flIndex].listLock[slIndex]);
 #endif
     if (pool->sl[flIndex].freeList[slIndex] != -1) {
         u64 *q = pool->glebeStart + pool->sl[flIndex].freeList[slIndex];
@@ -1090,7 +1086,7 @@ static void quickInsertFree(poolHdr_t *pool,u64 *p, u64 size, u32 flIndex, u32 s
         setFreeList(pool, size, p, flIndex, slIndex);
     }
 #ifdef FINE_LOCKING
-    hal_unlock32(&pool->sl[flIndex].listLock[slIndex]);
+    hal_unlock(&pool->sl[flIndex].listLock[slIndex]);
 #endif
     //quickPrint(pool);
     VALGRIND_POOL_CLOSE(pool);
@@ -1156,7 +1152,7 @@ static void quickDeleteFree2(poolHdr_t *pool,u64 *p, struct bmapOp *bmap_op)
     bmap_op->fli[i] = flIndex;
     bmap_op->sli[i] = slIndex;
     bmap_op->delta[i] = -1;
-    hal_lock32(&pool->sl[flIndex].listLock[slIndex]);
+    hal_lock(&pool->sl[flIndex].listLock[slIndex]);
 #endif
     ASSERT(GET_FLAG(HEAD(p)) == FLAG_MERGE);
     ASSERT(PREV(p) != -1 && NEXT(p) != -1);
@@ -1175,7 +1171,7 @@ static void quickDeleteFree2(poolHdr_t *pool,u64 *p, struct bmapOp *bmap_op)
         setFreeList(pool, size, NULL, flIndex, slIndex);
 #ifdef FINE_LOCKING
         PREV(p) = NEXT(p) = -1;
-        hal_unlock32(&pool->sl[flIndex].listLock[slIndex]);
+        hal_unlock(&pool->sl[flIndex].listLock[slIndex]);
 #endif
         VALGRIND_CHUNK_CLOSE(p);
         VALGRIND_POOL_CLOSE(pool);
@@ -1191,7 +1187,7 @@ static void quickDeleteFree2(poolHdr_t *pool,u64 *p, struct bmapOp *bmap_op)
     }
 #ifdef FINE_LOCKING
     PREV(p) = NEXT(p) = -1;
-    hal_unlock32(&pool->sl[flIndex].listLock[slIndex]);
+    hal_unlock(&pool->sl[flIndex].listLock[slIndex]);
 #endif
     VALGRIND_CHUNK_CLOSE(p);
     VALGRIND_CHUNK_CLOSE(next);
@@ -1228,7 +1224,7 @@ static blkPayload_t *quickMallocInternal(poolHdr_t *pool,u64 size, struct _ocrPo
 
     VALGRIND_POOL_OPEN(pool);
 #ifndef FINE_LOCKING
-    hal_lock32(&(pool->lock));
+    hal_lock(&(pool->lock));
 #endif
     checkGuard(pool);
 
@@ -1245,7 +1241,7 @@ retry:
         //DPRINTF(DEBUG_LVL_INFO, "OUT OF HEAP! malloc failed\n");
         VALGRIND_POOL_OPEN(pool);
 #ifndef FINE_LOCKING
-        hal_unlock32(&(pool->lock));
+        hal_unlock(&(pool->lock));
 #endif
         VALGRIND_POOL_CLOSE(pool);
         return NULL;
@@ -1257,10 +1253,10 @@ retry:
         hal_xadd32(&count_malloc_retry1, 1);
         goto retry;
     }
-    hal_lock32(&pool->sl[fli].listLock[sli]);
+    hal_lock(&pool->sl[fli].listLock[sli]);
     if (pool->sl[fli].freeList[sli] == -1) {
 //        printf("wrong bitmap.. malloc try again...\n");
-        hal_unlock32(&pool->sl[fli].listLock[sli]);
+        hal_unlock(&pool->sl[fli].listLock[sli]);
         hal_xadd32(&count_malloc_retry2, 1);
         goto retry;
     }
@@ -1279,12 +1275,12 @@ retry:
     {
     u32 ret;
     do {
-        ret = hal_trylock32(&HEAD_LOCK(p));
+        ret = hal_trylock(&HEAD_LOCK(p));
         if (ret) {
             if (GET_FLAG(HEAD(p)) == FLAG_MERGE) {
                 //printf("found FLAG_MERGE.. retry\n");
                 hal_xadd32(&count_merge_retry, 1);
-                hal_unlock32(&pool->sl[fli].listLock[sli]);
+                hal_unlock(&pool->sl[fli].listLock[sli]);
                 goto retry;
             }
         }
@@ -1300,7 +1296,7 @@ retry:
 
     quickDeleteFree1(pool, p, fli, sli);
 #ifdef FINE_LOCKING
-    hal_unlock32(&pool->sl[fli].listLock[sli]);
+    hal_unlock(&pool->sl[fli].listLock[sli]);
 #endif
 
     VALGRIND_CHUNK_OPEN_INIT(p, size);
@@ -1310,13 +1306,13 @@ retry:
     // make sure the remaining block is bigger than minimum size
     if (remain >= MINIMUM_SIZE) {  // we need split
 #ifdef FINE_LOCKING
-        hal_lock32(&TAIL_LOCK(p, GET_SIZE(HEAD(p))));
+        hal_lock(&TAIL_LOCK(p, GET_SIZE(HEAD(p))));
 #endif
         // we're already holding lock
         HEAD(p) = MARK | size | FLAG_INUSE;    // in-use mark
         TAIL(p, size) = MARK | size;
 #ifdef FINE_LOCKING
-        TAIL_LOCK(p, size) = 0;
+        TAIL_LOCK(p, size) = INIT_LOCK;
 #endif
         VALGRIND_CHUNK_CLOSE(p);
 
@@ -1329,18 +1325,19 @@ retry:
         HEAD(right) = MARK | remain | FLAG_FREE;
         PREV(right) = NEXT(right) = -1;
 #ifdef FINE_LOCKING
-        HEAD_LOCK(right) = 1;  // can this be 0 ?
+        HEAD_LOCK(right) = INIT_LOCK;
+        hal_lock(&HEAD_LOCK(right));
 #endif
         TAIL(right, remain) = MARK | remain;
 #ifdef FINE_LOCKING
-        hal_unlock32(&TAIL_LOCK(right, remain));
+        hal_unlock(&TAIL_LOCK(right, remain));
 #endif
         // do I need barrier?
 
         quickInsertFree(pool, right, remain, flIndex, slIndex);
         VALGRIND_CHUNK_CLOSE(right);
 #ifdef FINE_LOCKING
-        hal_unlock32(&HEAD_LOCK(right));
+        hal_unlock(&HEAD_LOCK(right));
         bmap_op.count = 2;
         bmap_op.fli[1] = flIndex;
         bmap_op.sli[1] = slIndex;
@@ -1351,7 +1348,7 @@ retry:
         VALGRIND_CHUNK_CLOSE(p);
     }
 #ifdef FINE_LOCKING
-    hal_unlock32(&HEAD_LOCK(p));
+    hal_unlock(&HEAD_LOCK(p));
     doBmapOp(pool, &bmap_op);
 #endif
 
@@ -1376,7 +1373,7 @@ retry:
     VALGRIND_CHUNK_CLOSE(p);
 #ifndef FINE_LOCKING
     VALGRIND_POOL_OPEN(pool);
-    hal_unlock32(&(pool->lock));
+    hal_unlock(&(pool->lock));
     VALGRIND_POOL_CLOSE(pool);
 #endif
 #ifdef ENABLE_VALGRIND
@@ -1408,7 +1405,7 @@ static void quickFreeInternal(blkPayload_t *p)
     u64 end   = (u64)pool->glebeEnd;
     struct bmapOp bmap_op;
 #ifndef FINE_LOCKING
-    hal_lock32(&(pool->lock));
+    hal_lock(&(pool->lock));
 #else
     bmap_op.count = 0;
 #endif
@@ -1467,8 +1464,8 @@ static void quickFreeInternal(blkPayload_t *p)
         VALGRIND_CHUNK_OPEN(peer_right);
 
 #ifdef FINE_LOCKING
-        hal_lock32(&HEAD_LOCK(peer_right));
-        hal_lock32(&HEAD_LOCK(q));
+        hal_lock(&HEAD_LOCK(peer_right));
+        hal_lock(&HEAD_LOCK(q));
 #endif
 
         ASSERT_BLOCK_BEGIN (  GET_MARK(q) == MARK )
@@ -1480,7 +1477,7 @@ static void quickFreeInternal(blkPayload_t *p)
             //printf("merge right..\n");
             u64 peer_size = GET_SIZE(HEAD(peer_right));
 #ifdef FINE_LOCKING
-            hal_lock32(&TAIL_LOCK(peer_right, peer_size));
+            hal_lock(&TAIL_LOCK(peer_right, peer_size));
 #endif
             HEAD(peer_right) = MARK | peer_size | FLAG_MERGE;
 
@@ -1496,15 +1493,15 @@ static void quickFreeInternal(blkPayload_t *p)
             // peer_right merged.
         } else {
 #ifdef FINE_LOCKING
-            hal_unlock32(&HEAD_LOCK(peer_right));
-            hal_lock32(&TAIL_LOCK(q, GET_SIZE(HEAD(q))));
+            hal_unlock(&HEAD_LOCK(peer_right));
+            hal_lock(&TAIL_LOCK(q, GET_SIZE(HEAD(q))));
 #endif
         }
         VALGRIND_CHUNK_CLOSE(peer_right);
     } else {
 #ifdef FINE_LOCKING
-        hal_lock32(&HEAD_LOCK(q));
-        hal_lock32(&TAIL_LOCK(q, GET_SIZE(HEAD(q))));
+        hal_lock(&HEAD_LOCK(q));
+        hal_lock(&TAIL_LOCK(q, GET_SIZE(HEAD(q))));
 #endif
         HEAD(q) = MARK | GET_SIZE(HEAD(q)) | FLAG_FREE;   // clears in-use bit
     }
@@ -1516,7 +1513,7 @@ static void quickFreeInternal(blkPayload_t *p)
         u64 *peer_left;
 #ifdef FINE_LOCKING
 left_merge_retry:
-        hal_lock32(&PEER_LEFT_TAIL_LOCK(q));
+        hal_lock(&PEER_LEFT_TAIL_LOCK(q));
 #endif
         peer_left = &PEER_LEFT(q);
         ASSERT(peer_left != q);
@@ -1529,14 +1526,14 @@ left_merge_retry:
         {
         u32 ret;
         do {
-            ret = hal_trylock32(&HEAD_LOCK(peer_left));
+            ret = hal_trylock(&HEAD_LOCK(peer_left));
             if (ret) {
-                hal_unlock32(&PEER_LEFT_TAIL_LOCK(q));
+                hal_unlock(&PEER_LEFT_TAIL_LOCK(q));
                 hal_xadd32(&count_left_retry, 1);
                 goto left_merge_retry;
             }
         } while(ret);
-        hal_unlock32(&PEER_LEFT_TAIL_LOCK(q));
+        hal_unlock(&PEER_LEFT_TAIL_LOCK(q));
         }
 #endif
         ASSERT_BLOCK_BEGIN ( GET_MARK(peer_left) == MARK )
@@ -1564,7 +1561,7 @@ left_merge_retry:
             HEAD(q) = MARK | size | FLAG_FREE;    // clear in-use bit
         } else {
 #ifdef FINE_LOCKING
-            hal_unlock32(&HEAD_LOCK(peer_left));
+            hal_unlock(&HEAD_LOCK(peer_left));
 #endif
         }
         VALGRIND_CHUNK_CLOSE(peer_left);
@@ -1572,7 +1569,7 @@ left_merge_retry:
         VALGRIND_CHUNK_CLOSE(q);
     }
 #ifdef FINE_LOCKING
-    hal_unlock32(&TAIL_LOCK(q, GET_SIZE(HEAD(q))));
+    hal_unlock(&TAIL_LOCK(q, GET_SIZE(HEAD(q))));
 #endif
 
     if (!skip_merges)  // if merged, recalculate due to size changes
@@ -1580,7 +1577,7 @@ left_merge_retry:
     quickInsertFree(pool, q, size, flIndex, slIndex);
 #ifdef FINE_LOCKING
     ASSERT(GET_FLAG(HEAD(q)) == FLAG_FREE);
-    hal_unlock32(&HEAD_LOCK(q));
+    hal_unlock(&HEAD_LOCK(q));
 #endif
 #ifdef FINE_LOCKING
     int i = bmap_op.count++;
@@ -1598,7 +1595,7 @@ left_merge_retry:
 //    quickPrintCounters(pool);
 #ifndef FINE_LOCKING
     VALGRIND_POOL_OPEN(pool);
-    hal_unlock32(&(pool->lock));
+    hal_unlock(&(pool->lock));
     VALGRIND_POOL_CLOSE(pool);
 #endif
 #ifdef ENABLE_VALGRIND
@@ -1657,12 +1654,12 @@ static blkPayload_t *quickMallocSlab(poolHdr_t *pool,u64 size, struct _ocrPolicy
 
     s32 slabsIndex = SIZE_TO_SLABS(size);
     s32 slabMaxSize = SLAB_MAX_SIZE(slabsIndex);
-    hal_lock32(&CACHE_POOL(myid)->lock);
+    hal_lock(&CACHE_POOL(myid)->lock);
     struct slab_header *slabs = CACHE_POOL(myid)->slabs[slabsIndex];
     if (slabs == NULL /* initial alloc? */ || slabs->bitmap == 0 /* full? */) {
         struct slab_header *slab = quickNewSlab(pool, slabMaxSize, pd, CACHE_POOL(myid));
         if (slab == NULL) {
-            hal_unlock32(&CACHE_POOL(myid)->lock);
+            hal_unlock(&CACHE_POOL(myid)->lock);
             DPRINTF(DEBUG_LVL_WARN, "slab alloc failed -- too small heap?\n");
             return NULL;
         }
@@ -1695,7 +1692,7 @@ static blkPayload_t *quickMallocSlab(poolHdr_t *pool,u64 size, struct _ocrPolicy
         CACHE_POOL(myid)->slabs[slabsIndex] = slabs->next;     // next slab
     }
     CACHE_POOL(myid)->count_malloc[slabsIndex]++;
-    hal_unlock32(&CACHE_POOL(myid)->lock);
+    hal_unlock(&CACHE_POOL(myid)->lock);
     return ret;
 }
 
@@ -1733,7 +1730,7 @@ static void quickFree(blkPayload_t *p)
 
     // local if (addrGlobalizeOnTG(CACHE_POOL(X)) == head->per_agent)
     s32 slabsIndex = SIZE_TO_SLABS(head->size);
-    hal_lock32(&head->per_agent->lock);
+    hal_lock(&head->per_agent->lock);
     struct slab_header *slabs = head->per_agent->slabs[slabsIndex];
 
     //    __sync_fetch_and_xor(&head->bitmap , 1UL << pos);
@@ -1744,14 +1741,14 @@ static void quickFree(blkPayload_t *p)
     (head->per_agent->count_free[slabsIndex])++;
 
     if (slabs == head ) {  // so we will have at least one slab always
-        hal_unlock32(&head->per_agent->lock);
+        hal_unlock(&head->per_agent->lock);
         return;
     }
 
     if (head->bitmap == ((1UL << MAX_OBJ_PER_SLAB)-1UL) /* empty slab? */) {
         head->next->prev = head->prev;
         head->prev->next = head->next;
-        hal_unlock32(&head->per_agent->lock);
+        hal_unlock(&head->per_agent->lock);
         quickFreeInternal(head);
         return;
     }
@@ -1768,7 +1765,7 @@ static void quickFree(blkPayload_t *p)
 
         head->per_agent->slabs[slabsIndex] = head;
     }
-    hal_unlock32(&head->per_agent->lock);
+    hal_unlock(&head->per_agent->lock);
 }
 #else
 static inline blkPayload_t *quickMalloc(poolHdr_t *pool,u64 size, struct _ocrPolicyDomain_t *pd)

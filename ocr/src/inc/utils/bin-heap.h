@@ -8,6 +8,7 @@
 #define BIN_HEAP_H_
 
 #include "ocr-config.h"
+#include "ocr-hal.h"
 #include "ocr-types.h"
 #include "ocr-policy-domain.h"
 
@@ -77,7 +78,7 @@ typedef struct _ocrBinHeap_t {
 // binHeap with lock
 typedef struct _ocrBinHeapLocked_t {
     binHeap_t base;
-    u32 lock;
+    lock_t lock;
 } binHeapLocked_t;
 
 /****************************************************/
