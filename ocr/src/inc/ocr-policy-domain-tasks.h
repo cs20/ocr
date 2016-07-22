@@ -517,6 +517,24 @@ u8 pdMarkWaitEvent(ocrPolicyDomain_t *pd, pdEvent_t *event);
  */
 pdAction_t* pdGetProcessMessageAction(u32 workType);
 
+/**
+ * @brief Creates an action that will satisfy the given event
+ *
+ * This action will switch the event from not being ready
+ * to being ready. If the event has actions waiting to
+ * execute, those will be available to be processed
+ *
+ * @note Making an event ready does not mean the event
+ * will resolve because actions may still need to be
+ * processed
+ *
+ * @param[in] event Pointer (either resolved or not) to
+ *                  the event to make ready
+ * @return A pdAction_t pointer encoding the action. This can be used in pdEnqueueAction()
+ *         to add this action to a strand. Note that the "pointer" returned may not
+ *         be a true pointer and should not be used directly
+ */
+pdAction_t* pdGetMarkReadyAction(pdEvent_t *event);
 /***************************************/
 /***** pdStrand_t related functions ****/
 /***************************************/

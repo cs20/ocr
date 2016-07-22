@@ -911,7 +911,21 @@ END_LABEL(markWaitEventEnd)
 
 /* Macros defining the special encoding of pdAction_t* */
 #define PDACTION_ENC_PROCESS_MESSAGE  0b001
+#define PDACTION_ENC_MAKEREADYST      0b010
 #define PDACTION_ENC_EXTEND           0b111
+
+#define PDACTION_ENCEXT_MAKEREADY     0x01
+
+// Convenience functions
+#define PDACTION_ENCEXT_2ARG(_arg1, _arg2, _type) ((_arg1)<<37 | (_arg2)<<11 | (_type) | PDACTION_ENC_EXTEND)
+
+#define PDACTION_DECEXT_2ARG(_arg1, _arg2, _type, _value) do {  \
+        u64 __v = (_value);                                     \
+        _type = (__v >> 3) & 0xFFULL;                           \
+        __v >>= 11;                                             \
+        _arg2 = __v & 0x3FFFFFFULL;                             \
+        _arg1 = (__v >> 26);                                    \
+    } while(0);
 
 pdAction_t* pdGetProcessMessageAction(u32 workType) {
 
@@ -919,6 +933,26 @@ pdAction_t* pdGetProcessMessageAction(u32 workType) {
     ASSERT(workType == NP_COMM || workType == NP_WORK);
     DPRINTF(DEBUG_LVL_INFO, "EXIT pdGetProcessMessageAction -> action:0x%"PRIx64"\n", (u64)(((u64)workType<<3) | PDACTION_ENC_PROCESS_MESSAGE));
     return (pdAction_t*)(((u64)workType<<3) | PDACTION_ENC_PROCESS_MESSAGE);
+}
+
+pdAction_t* pdGetMarkReadyAction(pdEvent_t *event) {
+
+    DPRINTF(DEBUG_LVL_INFO, "ENTER pdGetMarkReadyAction(%p)\n", event);
+    u64 evtValue = (u64)event;
+    u64 returnedAction = 0;
+    u8 stTableIdx = EVT_DECODE_ST_TBL(evtValue);
+    if(stTableIdx) {
+        u64 stIdx = EVT_DECODE_ST_IDX(evtValue);
+        DPRINTF(DEBUG_LVL_VERB, "Event = (table %"PRIu32", idx: %"PRIu64")\n",
+                stTableIdx, stIdx);
+        returnedAction = PDACTION_ENCEXT_2ARG(stIdx, stTableIdx, PDACTION_ENCEXT_MAKEREADY);
+    } else {
+        // We can get the strand directly so we just code that directly
+        ASSERT(((u64)(event->strand) & 0x7) == 0);
+        returnedAction = (u64)(event->strand) | PDACTION_ENC_MAKEREADYST;
+    }
+    DPRINTF(DEBUG_LVL_INFO, "EXIT pdGetMarkReadyAction -> action:0x%"PRIx64"\n", returnedAction);
+    return (pdAction_t*)returnedAction;
 }
 
 /***************************************/
@@ -2292,9 +2326,44 @@ static u8 _pdProcessAction(ocrPolicyDomain_t *pd, ocrWorker_t *worker, pdStrand_
             }
             break;
         }
-        case PDACTION_ENC_EXTEND:
-            ASSERT(0);
+        case PDACTION_ENC_MAKEREADYST:
+        {
+            pdStrand_t *strand = (pdStrand_t*)(actionPtr & ~0x7);
+            pdEvent_t *evt = strand->curEvent;
+            DPRINTF(DEBUG_LVL_VERB, "Action is make strand %p ready (evt %p)\n",
+                    strand, evt);
+            RESULT_ASSERT(pdMarkReadyEvent(pd, evt), ==, 0);
             break;
+        }
+        case PDACTION_ENC_EXTEND:
+        {
+            DPRINTF(DEBUG_LVL_VVERB, "Decoding extended action 0x%"PRIu32"\n",
+                    (u32)((actionPtr >> 3) & 0xFF));
+            switch((actionPtr >> 3) & 0xFF) {
+            case PDACTION_ENCEXT_MAKEREADY:
+            {
+                // We need to find the strand and the event to make
+                // it ready
+
+                u32 stTableIdx;
+                u64 stIdx;
+                u32 type;
+                PDACTION_DECEXT_2ARG(stIdx, stTableIdx, type, actionPtr);
+                ASSERT(type == PDACTION_ENCEXT_MAKEREADY);
+                DPRINTF(DEBUG_LVL_VVERB, "Action is make event (table %"PRIu32", idx: %"PRIu64") ready\n",
+                        stTableIdx, stIdx);
+                pdStrand_t *strand = NULL;
+                RESULT_ASSERT(pdGetStrandForIndex(pd, &strand, pd->strandTables[stTableIdx-1], stIdx), ==, 0);
+                DPRINTF(DEBUG_LVL_VVERB, "Found strand %p and event %p\n", strand, strand->curEvent);
+                RESULT_ASSERT(pdMarkReadyEvent(pd, strand->curEvent), ==, 0);
+                break;
+            }
+            default:
+                ASSERT(0);
+                break;
+            }
+            break;
+        }
         default:
             /* For now, empty function, we just print something */
             DPRINTF(DEBUG_LVL_INFO, "Pretending to execute action %p\n", action);
