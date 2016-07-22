@@ -591,9 +591,7 @@ u8 pdGetNewStrand(ocrPolicyDomain_t* pd, pdStrand_t **strand, pdStrandTable_t *t
  * This returns the strand in table at index "index". If the strand does not exist,
  * OCR_EINVAL will be returned
  *
- * @note This call will lock the strand returned. A call to pdUnlockStrand() is needed
- * to release the lock
- * @warning This call will block until the strand can be acquired.
+ * @note The strand is not locked by this call. This call is also non-blocking
  *
  * @param[in] pd        Policy domain to use. Can be NULL and getCurrentEnv will be used
  * @param[out] strand   Returned strand

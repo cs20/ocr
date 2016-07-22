@@ -598,8 +598,7 @@ u8 pdResolveEvent(ocrPolicyDomain_t *pd, u64 *evtValue, u8 clearFwdHold) {
                                                      EVT_DECODE_ST_IDX(*evtValue)),,);
 
         // Here, we managed to get the strand properly
-        // The pdGetStrandForIndex function will lock the strand, we can then
-        // observe the state freely
+        CHECK_RESULT(toReturn |= _pdLockStrand(myStrand, BLOCK), ,);
         DPRINTF(DEBUG_LVL_VVERB, "Event 0x%"PRIx64" -> strand %p (props: 0x%"PRIx32")\n",
                 *evtValue, myStrand, myStrand->properties);
         ASSERT(hal_islocked(&(myStrand->lock)));
@@ -1391,6 +1390,8 @@ u8 pdGetStrandForIndex(ocrPolicyDomain_t* pd, pdStrand_t **returnStrand, pdStran
     }
 
     // We will just go down the tree until we find the strand we need
+    // The lock is required here to make sure we read a consistent
+    // head and level.
     hal_lock(&(table->lock));
     u32 maxLevel = table->levelCount;
     pdStrandTableNode_t *curNode = table->head;
