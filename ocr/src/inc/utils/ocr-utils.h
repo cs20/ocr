@@ -130,6 +130,15 @@ u32 ctz32(u32 val);
 u32 ctz64(u64 val);
 
 /**
+ * @brief Counts the number of 1s in a
+ * 64 bit value
+ *
+ * @param val Value to look at
+ * @return Number of bits set
+ */
+u32 popcnt64(u64 val);
+
+/**
  * @brief Convenient structure to keep track
  * of GUIDs in a way that is indexable.
  *

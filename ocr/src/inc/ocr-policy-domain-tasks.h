@@ -9,7 +9,6 @@
 
 #include "debug.h"
 #include "ocr-config.h"
-#include "ocr-hal.h"
 #include "ocr-policy-domain.h"
 #include "ocr-worker.h"
 #include "utils/arrayDeque.h"
@@ -37,6 +36,28 @@
 #ifndef PDST_ACTION_COUNT
 #define PDST_ACTION_COUNT 4 /**< Number of actions per arrayDeque chunk */
 #endif
+
+/* Optimization flags (these will go away once we figure out what to use */
+
+/* Define this if you want the insertions
+ * to be spread out */
+#define MT_OPTI_SPREAD
+
+/* Define this if you want the consumers
+ * to look in a spread out manner */
+#define MT_OPTI_SPREAD2
+
+/* Define this if you want the initial table
+ * to be created as 2 levels initially */
+#define MT_OPTI_2LEVEL
+
+/* Define this if you want to elide the table
+ * lock in some cases */
+#define MT_OPTI_LOCKTABLE
+
+/* Define this if you want to limit contention
+ * among consumers */
+#define MT_OPTI_CONTENTIONLIMIT
 
 /**< Each strand can determine who should process it next (for example, workers or
  * communication workers). This can be managed using different strand tables EXCEPT if
@@ -267,6 +288,7 @@ typedef struct _pdTask_t {
 #define PDST_EVENT_ENCODE(strand, table) ((((strand)->index)<<3) | (table))
 
 struct _pdStrandTableNode_t;
+struct _pdStrandTable_t;
 
 #define PDST_TYPE_BASIC 0x1
 /**
@@ -281,6 +303,9 @@ typedef struct _pdStrand_t {
                              * implementation is a variable size array */
     struct _pdStrandTableNode_t *parent; /**< Parent of this strand. Note that the slot
                                           number is index & ((1ULL<<6)-1) */
+#ifdef MT_OPTI_CONTENTIONLIMIT
+    struct _pdStrandTable_t *containingTable; /**< Table this strand is in */
+#endif
     u64 index;              /**< Index into the table */
     ocrWorker_t* processingWorker;  /**< Worker that is processing this strand
                                          This has implications on locking among other things */
@@ -299,9 +324,11 @@ typedef struct _pdStrandComm_t {
 } pdStrandComm_t;
 
 typedef struct _pdStrandTableNode_t {
+    lock_t lock;            /**< Lock on the status bits */
     u64 nodeFree;           /**< Bit will be 1 if slot/node contains a free slot */
-    u64 nodeNeedsProcess[NP_COUNT];   /**< Bit will be 1 if slot/node needs to be processed */
-    u64 nodeReady;          /**< Bit will be 1 if slot/node has ready slot */
+    u64 nodeNeedsProcess[NP_COUNT];   /**< Bit will be 1 if slot/node needs to be processed (event ready and actions pending) */
+    u64 nodeReady;          /**< Bit will be 1 if slot/node has ready slot (event ready, no actions to process
+                                 [TODO: currently not used for search -- remove?] */
     u64 lmIndex;            /**< Bit 0: 1 if leaf node; 0 otherwise. Other bits:
                                index of the left-most strand in this subtree */
     union {
@@ -310,7 +337,6 @@ typedef struct _pdStrandTableNode_t {
     } data;
     struct _pdStrandTableNode_t *parent; /**< Parent of this node */
     u32 parentSlot;         /**< Slot position in our parent */
-    lock_t lock;            /**< Lock on the status bits */
 } pdStrandTableNode_t;
 
 /* The following constants are used as the last 3 bits of an event "pointer".
@@ -326,9 +352,17 @@ typedef struct _pdStrandTableNode_t {
 typedef struct _pdStrandTable_t {
     // This data-structure is a tree with an arity of PDST_NODE_SIZE
     // The tree is not always full though
-    u32 levelCount;             /**< Number of levels; 0 means empty */
     pdStrandTableNode_t *head;    /**< Root of the tree */
+    u32 levelCount;             /**< Number of levels; 0 means empty */
     lock_t lock;
+#ifdef MT_OPTI_CONTENTIONLIMIT
+    s32 consumerCount[NP_COUNT]; /**< Counter determining if a consumer should enter
+                                      This counter is initially 0 and incremented when
+                                      new work needs to be processed. It is decremented when
+                                      a consuming thread enters. This limits contention on
+                                      internal data-structure where there is little work
+                                      to be found */
+#endif
 } pdStrandTable_t;
 
 
@@ -677,7 +711,7 @@ u8 pdProcessStrands(ocrPolicyDomain_t *pd, u32 processType, u32 properties);
  *      - OCR_EINVAL: Invalid value for processType or properties
  *      - OCR_EAGAIN: Temporary failure, retry later
  */
-u8 pdProcessStrandsCount(ocrPolicyDomain_t *pd, u32 processType, u32 *count, u32 properties);
+u8 pdProcessNStrands(ocrPolicyDomain_t *pd, u32 processType, u32 *count, u32 properties);
 
 /**
  * @brief Process tasks until the events required are resolved

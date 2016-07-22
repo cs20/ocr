@@ -59,7 +59,7 @@ static void workerLoopHcCommMTInternal(ocrWorker_t * worker, ocrPolicyDomain_t *
     u32 count = 0;
     do {
         count = 1;
-        RESULT_ASSERT(pdProcessStrandsCount(pd, NP_COMM, &count, 0), ==, 0);
+        RESULT_ASSERT(pdProcessNStrands(pd, NP_COMM, &count, 0), ==, 0);
     } while (flushOutgoingComm && count > 0);
 
     u8 ret = 0;
