@@ -56,6 +56,7 @@ static void workerLoopHcCommMTInternal(ocrWorker_t * worker, ocrPolicyDomain_t *
     // - Check if there is work to be done (to send outgoing messages
     //   from the workers)
     // - Poll for any incoming communication (either a response or an unsolicited message)
+    //TODO-MT-COMM: I don't think this is guaranteeing all the sends are completed
     u32 count = 0;
     do {
         count = 1;
@@ -448,7 +449,6 @@ void destructWorkerFactoryHcCommMT(ocrWorkerFactory_t * factory) {
 ocrWorkerFactory_t * newOcrWorkerFactoryHcCommMT(ocrParamList_t * perType) {
     ocrWorkerFactory_t * baseFactory = newOcrWorkerFactoryHc(perType);
     ocrWorkerFcts_t baseFcts = baseFactory->workerFcts;
-
     ocrWorkerFactoryHcCommMT_t* derived = (ocrWorkerFactoryHcCommMT_t*)runtimeChunkAlloc(sizeof(ocrWorkerFactoryHcCommMT_t), NONPERSISTENT_CHUNK);
     ocrWorkerFactory_t * base = (ocrWorkerFactory_t *) derived;
     base->instantiate = FUNC_ADDR(ocrWorker_t* (*)(ocrWorkerFactory_t*, ocrParamList_t*), newWorkerHcCommMT);

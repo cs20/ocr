@@ -24,6 +24,8 @@ parser.add_argument('--binding', dest='binding', default='none', choices=['none'
                    help='perform thread binding (default: no binding)')
 parser.add_argument('--sysworker', dest='sysworker', action='store_true',
                    help='use 1 worker exclusively for system activities (e.g., tracing) (default: no)')
+parser.add_argument('--mtworker', dest='mtworker', action='store_true',
+                   help='Temporary flag to activate MT-based communication worker(default: no)')
 parser.add_argument('--alloc', dest='alloc', default='32',
                    help='size (in MB) of memory available for app use (default: 32)')
 parser.add_argument('--alloctype', dest='alloctype', default='mallocproxy', choices=['quick', 'mallocproxy', 'tlsf', 'simple'],
@@ -56,6 +58,8 @@ dequetype = args.dequetype
 outputfilename = args.output
 rmdest = args.rmdest
 sysworker = args.sysworker
+mtworker = args.mtworker
+
 if sysworker == True and platform != 'X86':
     print 'Sysworker currently supported only with platform x86'
     sys.exit(0)
@@ -208,7 +212,10 @@ def GenerateComp(output, pdtype, threads, binding, sysworker, schedtype):
     output.write("\ttype\t=\t%s\n" % ("PASSTHROUGH"))
     output.write("\tcompplatform\t=\t0-%d\n" % (threads-1))
     output.write("\n#======================================================\n")
-    masterWorkerType = "HC_COMM" if (pdtype == 'HCDist') else "HC"
+    if mtworker == True:
+        masterWorkerType = "HC_COMM_MT" if (pdtype == 'HCDist') else "HC"
+    else:
+        masterWorkerType = "HC_COMM" if (pdtype == 'HCDist') else "HC"
     output.write("[WorkerType0]\n\tname\t=\t%s\n" % (masterWorkerType))
     output.write("[WorkerInst0]\n")
     output.write("\tid\t=\t0\n")

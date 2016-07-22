@@ -1873,15 +1873,18 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
 #undef PD_MSG
 #undef PD_TYPE
             }
-            // one-way request, several options:
-            // - make a copy in sendMessage (current strategy)
-            // - submit the message to be sent and wait for delivery
             u8 res = 0;
 #ifdef UTASK_COMM2
+            // one-way request:
             // We don't care as much about sendProp as computed above; what we
             // do care about is whether or not we need to copy the message
             // since it will be encapsulated in a micro-task. This should also
-            // go away when everyting is MT friendly.
+            // go away when everything is MT friendly.
+
+            //TODO-MT-COMM: Here we may actually have a notion of whether or not the message
+            //is persistent. For instance, in deferred the message lives somewhere on the heap
+            //hence it may not be necessary to make a new copy if the marshalled version fits there.
+            //Addl note: the deferred mode could pre-allocate larger buffers to avoid a re-alloc here too.
 
             // This behavior is taken from the delegate comm-api:
             //   - always make a DUPLICATE copy
@@ -1891,6 +1894,7 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
             if(((msg->type & PD_MSG_TYPE_ONLY) == PD_MSG_WORK_CREATE) && !(msg->type & PD_MSG_REQ_RESPONSE)) {
                 marshallMode = MARSHALL_FULL_COPY;
             }
+
             u64 baseSize = 0, marshalledSize = 0;
             ocrPolicyMsgGetMsgSize(msg, &baseSize, &marshalledSize, marshallMode);
             u64 fullSize = baseSize + marshalledSize;
@@ -1919,6 +1923,9 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
             RESULT_ASSERT(pdEnqueueActions(self, msgStrand, 1, &processAction, true/*clear hold*/), ==, 0);
             RESULT_ASSERT(pdUnlockStrand(msgStrand), ==, 0);
 #else
+            // one-way request, several options:
+            // - make a copy in sendMessage (current strategy)
+            // - submit the message to be sent and wait for delivery
             res = self->fcts.sendMessage(self, msg->destLocation, msg, NULL, sendProp);
 #endif
             // msg has been copied so we can update its returnDetail regardless
@@ -2075,13 +2082,14 @@ u8 hcDistProcessEvent(ocrPolicyDomain_t* self, pdEvent_t **evt, u32 idx) {
     //   - if we need to send a message (the worker is now the COMM worker) and we therefore
     //     need to directly send the message (we skip the comm-API as that will probably go away)
     if(msg->destLocation != self->myLocation) {
-        DPRINTF(DEBUG_LVL_VERB, "Found a message to be sent to 0x%"PRIx64"\n", msg->destLocation);
+        DPRINTF(DEBUG_LVL_VERB, "Found a message to be sent to 0x%"PRIx64" type=0x%"PRIx32"\n", msg->destLocation, msg->type);
         ocrWorker_t *worker;
         getCurrentEnv(NULL, &worker, NULL, NULL);
         u32 id = worker->id;
         RESULT_ASSERT(self->commApis[id]->commPlatform[0].fcts.sendMessageMT(
             &(self->commApis[id]->commPlatform[0]), evt, /*status evt*/NULL, 0), ==, 0);
     } else if (msg->srcLocation != self->myLocation) {
+        DPRINTF(DEBUG_LVL_VERB, "Process message from 0x%"PRIx64" type=0x%"PRIx32"\n", msg->srcLocation, msg->type);
         processCommEvent(self, evt, idx);
         *evt = NULL;
     } else {

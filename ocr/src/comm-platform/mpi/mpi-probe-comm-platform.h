@@ -17,8 +17,6 @@
 #include "utils/list.h"
 #include "ocr-comm-platform.h"
 
-#include <mpi.h>
-
 typedef struct {
     ocrCommPlatformFactory_t base;
 } ocrCommPlatformFactoryMPIProbe_t;
