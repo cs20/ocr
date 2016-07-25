@@ -778,6 +778,13 @@ s32 populate_inst(ocrParamList_t **inst_param, int inst_param_size, void **insta
                 } else {
                     ((paramListCompPlatformPthread_t *)inst_param[j])->binding = -1;
                 }
+#ifdef OCR_RUNTIME_PROFILER
+                bool doProfile = false;
+                snprintf(key, MAX_KEY_SZ, "%s:%s", secname, "profilethread");
+                // Use low-level function because we don't want a warning if key does not exit
+                doProfile = iniparser_getboolean(dict, key, 1);
+                ((paramListCompPlatformPthread_t *)(inst_param[j]))->doProfile = doProfile;
+#endif
             }
             break;
 #endif
@@ -902,11 +909,11 @@ s32 populate_inst(ocrParamList_t **inst_param, int inst_param_size, void **insta
 #endif
                     {
                     char *workerstr;
-                    char workertypekey[MAX_KEY_SZ];
+                    char key[MAX_KEY_SZ];
                     ocrWorkerType_t workertype = MAX_WORKERTYPE;
 
-                    snprintf(workertypekey, MAX_KEY_SZ, "%s:%s", secname, "workertype");
-                    INI_GET_STR (workertypekey, workerstr, "");
+                    snprintf(key, MAX_KEY_SZ, "%s:%s", secname, "workertype");
+                    INI_GET_STR (key, workerstr, "");
                     TO_ENUM (workertype, workerstr, ocrWorkerType_t, ocrWorkerType_types, MAX_WORKERTYPE-1);
                     workertype += 1;  // because workertype is 1-indexed, not 0-indexed
                     if (workertype == MAX_WORKERTYPE) workertype = SLAVE_WORKERTYPE; // reasonable default

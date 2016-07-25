@@ -324,37 +324,41 @@ void _profilerDataInit(_profilerData *self) {
 void _profilerDataDestroy(void* _self) {
     _profilerData *self = (_profilerData*)_self;
 
-    // This will dump the profile and delete everything. This can be called
-    // when the thread is exiting (and the TLS is destroyed)
-    u32 i;
-    for(i=0; i<(u32)MAX_EVENTS; ++i) {
-        fprintf(self->output, "DEF %s %"PRIu32"\n", _profilerEventNames[i], i);
-    }
+    if(self) {
+        // This will dump the profile and delete everything. This can be called
+        // when the thread is exiting (and the TLS is destroyed)
+        u32 i;
+        for(i=0; i<(u32)MAX_EVENTS; ++i) {
+            fprintf(self->output, "DEF %s %"PRIu32"\n", _profilerEventNames[i], i);
+        }
 
-    // Print out the entries
-    for(i=0; i<(u32)MAX_EVENTS; ++i) {
-        u32 j;
-        for(j=0; j<(u32)MAX_EVENTS; ++j) {
-            if(j == i) {
-                _profilerSelfEntry *entry = &(self->selfEvents[i]);
-                if(entry->count == 0) continue; // Skip entries with no content
-                fprintf(self->output, "ENTRY %"PRIu32":%"PRIu32" = count(%"PRIu64"), sum(%"PRIu64".%06"PRIu32"), sumSq(%"PRIu64".%012"PRIu64")\n",
-                        i, j, entry->count, entry->sumMs, entry->sumNs, entry->sumSqMs, entry->sumSqNs);
-            } else {
-                // Child entry
-                _profilerChildEntry *entry = &(self->childrenEvents[i][j<i?j:(j-1)]);
-                if(entry->count == 0) continue;
-                fprintf(self->output,
-                        "ENTRY %"PRIu32":%"PRIu32" = count(%"PRIu64"), sum(%"PRIu64".%06"PRIu32"), sumSq(%"PRIu64".%012"PRIu64"), sumChild(%"PRIu64".%06"PRIu32"), sumSqChild(%"PRIu64".%012"PRIu64"), sumRecurse(%"PRIu64".%06"PRIu32"), sumSqRecurse(%"PRIu64".%012"PRIu64")\n",
-                        i, j, entry->count, entry->sumMs, entry->sumNs, entry->sumSqMs,
-                        entry->sumSqNs, entry->sumInChildrenMs, entry->sumInChildrenNs,
-                        entry->sumSqInChildrenMs, entry->sumSqInChildrenNs,
-                        entry->sumRecurseMs, entry->sumRecurseNs, entry->sumSqRecurseMs,
-                        entry->sumSqRecurseNs);
+        // Print out the entries
+        for(i=0; i<(u32)MAX_EVENTS; ++i) {
+            u32 j;
+            for(j=0; j<(u32)MAX_EVENTS; ++j) {
+                if(j == i) {
+                    _profilerSelfEntry *entry = &(self->selfEvents[i]);
+                    if(entry->count == 0) continue; // Skip entries with no content
+                    fprintf(self->output, "ENTRY %"PRIu32":%"PRIu32" = count(%"PRIu64"), sum(%"PRIu64".%06"PRIu32"), sumSq(%"PRIu64".%012"PRIu64")\n",
+                            i, j, entry->count, entry->sumMs, entry->sumNs, entry->sumSqMs, entry->sumSqNs);
+                } else {
+                    // Child entry
+                    _profilerChildEntry *entry = &(self->childrenEvents[i][j<i?j:(j-1)]);
+                    if(entry->count == 0) continue;
+                    fprintf(self->output,
+                            "ENTRY %"PRIu32":%"PRIu32" = count(%"PRIu64"), sum(%"PRIu64".%06"PRIu32"), sumSq(%"PRIu64".%012"PRIu64"), sumChild(%"PRIu64".%06"PRIu32"), sumSqChild(%"PRIu64".%012"PRIu64"), sumRecurse(%"PRIu64".%06"PRIu32"), sumSqRecurse(%"PRIu64".%012"PRIu64")\n",
+                            i, j, entry->count, entry->sumMs, entry->sumNs, entry->sumSqMs,
+                            entry->sumSqNs, entry->sumInChildrenMs, entry->sumInChildrenNs,
+                            entry->sumSqInChildrenMs, entry->sumSqInChildrenNs,
+                            entry->sumRecurseMs, entry->sumRecurseNs, entry->sumSqRecurseMs,
+                            entry->sumSqRecurseNs);
+                }
             }
         }
+        fclose(self->output);
     }
-    fclose(self->output);
 }
 
 #endif /* OCR_RUNTIME_PROFILER */
+
+
