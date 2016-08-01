@@ -542,6 +542,14 @@ static u8 MPICommSendMessageMT(ocrCommPlatform_t * self,
             // (which is where we will be "listening")
             message->msgId = SEND_ANY_ID;
         }
+    } else { // a response
+        // TODO-MT-COMM: This is only needed to accommodate the TWO_WAY/ASYNC paradigm
+        //               Can get rid of it when we go full on with MT
+        if((msgEvent->properties & COMM_ONE_WAY) &&
+           (((message->type & PD_MSG_TYPE_ONLY) == PD_MSG_DB_ACQUIRE) ||
+            ((message->type & PD_MSG_TYPE_ONLY) == PD_MSG_GUID_METADATA_CLONE))) {
+            message->msgId = SEND_ANY_ID;
+        }
     }
 
     // Check if we need to allocate a new message buffer:
