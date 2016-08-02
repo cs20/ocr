@@ -1659,6 +1659,17 @@ u8 resolveRemoteMetaData(ocrPolicyDomain_t * pd, ocrFatGuid_t * fatGuid,
 }
 #endif
 
+void mdLocalDeguidify(ocrPolicyDomain_t *self, ocrFatGuid_t *guid) {
+    START_PROFILE(pd_hc_mdLocalDeguidify);
+    ASSERT(self->guidProviderCount == 1);
+    if((guid->metaDataPtr == NULL) && !(ocrGuidIsNull(guid->guid)) && !(ocrGuidIsUninitialized(guid->guid))) {
+        //getVal - resolve
+        self->guidProviders[0]->fcts.getVal(self->guidProviders[0], guid->guid,
+                                            (u64*)(&(guid->metaDataPtr)), NULL, MD_LOCAL, NULL);
+    }
+    RETURN_PROFILE();
+}
+
 #ifdef ENABLE_OCR_API_DEFERRABLE
 void tagDeferredMsg(ocrPolicyMsg_t * msg, ocrTask_t * task) {
     if (task) {

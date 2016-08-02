@@ -2148,23 +2148,27 @@ u8 deserializeTaskFactoryHc(ocrObjectFactory_t * pfactory, ocrGuid_t edtGuid, oc
     return 0;
 }
 
-//TODO-MD-EDT: This is just to see if it impl works but it my make sense
-//to add a move operation since it's contorted now
-u8 cloneTaskFactoryHc(ocrObjectFactory_t * factory, ocrGuid_t guid, ocrObject_t ** mdPtr) {
-    ocrLocation_t destLocation = *((ocrLocation_t *) mdPtr);
-    ocrTask_t * self = (ocrTask_t *) factory;
-    // Create a policy-domain message
+extern void mdLocalDeguidify(ocrPolicyDomain_t *self, ocrFatGuid_t *guid);
+
+u8 cloneTaskFactoryHc(ocrObjectFactory_t * factory, ocrGuid_t guid, ocrObject_t ** mdPtr, ocrLocation_t destLocation, u32 type) {
+    // Only support move operation so far
+    ASSERT(HAS_MD_MOVE(type));
     ocrPolicyMsg_t * msg;
     PD_MSG_STACK(msgStack);
     ocrPolicyDomain_t *pd = NULL;
     getCurrentEnv(&pd, NULL, NULL, NULL);
     ASSERT(destLocation != pd->myLocation);
-
-    // Query the serialized size
-    u64 mdMode = 0; //TODO-MD-EDT: Should this be MD_MOVE ? What are the modes ?
+    // Retrieve the metadata pointer that must be present locally
+    ocrFatGuid_t fatGuid;
+    fatGuid.guid = guid;
+    fatGuid.metaDataPtr = NULL;
+    mdLocalDeguidify(pd, &fatGuid);
+    ocrTask_t * self = (ocrTask_t *) fatGuid.metaDataPtr;
+    ASSERT(self != NULL);
+    // Query the serialized size for the move operation
+    u64 mdMode = 0; //TODO-MD-EDT: For now should be an impl specific flag
     u64 mdSize = 0;
-    mdSizeTaskFactoryHc((ocrObject_t *) self, 0, &mdSize);
-
+    mdSizeTaskFactoryHc((ocrObject_t *) self, mdMode, &mdSize);
     u64 msgSize = MSG_MDCOMM_SZ + mdSize;
     u32 msgProp = 0;
     if (msgSize > sizeof(ocrPolicyMsg_t)) {
@@ -2177,7 +2181,6 @@ u8 cloneTaskFactoryHc(ocrObjectFactory_t * factory, ocrGuid_t guid, ocrObject_t 
         msg = &msgStack;
         getCurrentEnv(NULL, NULL, NULL, &msgStack);
     }
-
     // Fill in this call specific arguments
     msg->destLocation = destLocation;
 #define PD_MSG (msg)
@@ -2193,8 +2196,7 @@ u8 cloneTaskFactoryHc(ocrObjectFactory_t * factory, ocrGuid_t guid, ocrObject_t 
     DPRINTF(DEBUG_LVL_VVERB, "edt-md: push "GUIDF" in mode=%"PRIu64"\n", GUIDA(guid), mdMode);
     PD_MSG_FIELD_I(sizePayload) = mdSize;
     char * ptr = &(PD_MSG_FIELD_I(payload));
-    ocrObjectFactory_t * ffactory = pd->factories[self->fctId];
-    serializeTaskFactoryHc(ffactory, guid, (ocrObject_t *) self, &mdMode, destLocation, (void **) &ptr, &mdSize);
+    serializeTaskFactoryHc(factory, guid, (ocrObject_t *) self, &mdMode, destLocation, (void **) &ptr, &mdSize);
 #undef PD_MSG
 #undef PD_TYPE
     ((ocrTaskHc_t*)self)->mdState = MD_STATE_EDT_GHOST; // Update current MD to ghost state
@@ -2404,7 +2406,7 @@ void destructTaskFactoryHc(ocrTaskFactory_t* factory) {
 ocrTaskFactory_t * newTaskFactoryHc(ocrParamList_t* perInstance, u32 factoryId) {
     ocrObjectFactory_t * bbase = (ocrObjectFactory_t *)
                                   runtimeChunkAlloc(sizeof(ocrTaskFactoryHc_t), PERSISTENT_CHUNK);
-    bbase->clone = FUNC_ADDR(u8 (*)(ocrObjectFactory_t * factory, ocrGuid_t guid, ocrObject_t**), cloneTaskFactoryHc);
+    bbase->clone = FUNC_ADDR(u8 (*)(ocrObjectFactory_t * factory, ocrGuid_t guid, ocrObject_t**, ocrLocation_t, u32), cloneTaskFactoryHc);
     bbase->mdSize = FUNC_ADDR(u8 (*)(ocrObject_t * dest, u64, u64*), mdSizeTaskFactoryHc);
     bbase->serialize = FUNC_ADDR(u8 (*)(ocrObjectFactory_t * factory, ocrGuid_t guid, ocrObject_t*, u64*, ocrLocation_t, void**, u64*), serializeTaskFactoryHc);
     bbase->deserialize = FUNC_ADDR(u8 (*)(ocrObjectFactory_t * factory, ocrGuid_t guid, ocrObject_t**, u64, void*, u64), deserializeTaskFactoryHc);

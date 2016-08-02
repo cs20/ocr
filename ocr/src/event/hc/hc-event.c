@@ -1571,7 +1571,7 @@ static u8 newEventHcDist(ocrFatGuid_t * fguid, ocrGuid_t data, ocrEventFactory_t
     return returnValue;
 }
 
-u8 cloneEventFactoryHc(ocrObjectFactory_t * pfactory, ocrGuid_t guid, ocrObject_t ** mdPtr) {
+ u8 cloneEventFactoryHc(ocrObjectFactory_t * pfactory, ocrGuid_t guid, ocrObject_t ** mdPtr, ocrLocation_t dest, u32 type) {
     ocrEventFactory_t * factory = (ocrEventFactory_t *) pfactory;
     if (ENABLE_EVENT_MDC_FORGE) { // Allow forging
         ocrPolicyDomain_t * pd;
@@ -2220,7 +2220,7 @@ u8 resetEventHc(ocrEvent_t *base) {
 ocrEventFactory_t * newEventFactoryHc(ocrParamList_t *perType, u32 factoryId) {
     ocrObjectFactory_t * bbase = (ocrObjectFactory_t *)
                                   runtimeChunkAlloc(sizeof(ocrEventFactoryHc_t), PERSISTENT_CHUNK);
-    bbase->clone = FUNC_ADDR(u8 (*)(ocrObjectFactory_t * factory, ocrGuid_t guid, ocrObject_t**), cloneEventFactoryHc);
+    bbase->clone = FUNC_ADDR(u8 (*)(ocrObjectFactory_t * factory, ocrGuid_t guid, ocrObject_t**, ocrLocation_t, u32), cloneEventFactoryHc);
     bbase->mdSize = FUNC_ADDR(u8 (*)(ocrObject_t * dest, u64, u64*), mdSizeEventFactoryHc);
     bbase->serialize = FUNC_ADDR(u8 (*)(ocrObjectFactory_t * factory, ocrGuid_t guid, ocrObject_t*, u64*, ocrLocation_t, void**, u64*),
         serializeEventFactoryHc);

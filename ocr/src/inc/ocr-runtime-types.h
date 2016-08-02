@@ -158,7 +158,7 @@ typedef struct _ocrObjectFactory_t {
      */
     void (*destruct)(struct _ocrObjectFactory_t *factory);
     //TODO-MD-FACT: We should get a PD pointer here since the factory is going to do malloc repeatedly
-    u8 (*clone)(struct _ocrObjectFactory_t * factory, ocrGuid_t, ocrObject_t ** mdPtr);
+    u8 (*clone)(struct _ocrObjectFactory_t * factory, ocrGuid_t, ocrObject_t ** mdPtr, ocrLocation_t dest, u32 type);
     u8 (*serialize)(struct _ocrObjectFactory_t * factory, ocrGuid_t guid, ocrObject_t * src, u64 * mode, ocrLocation_t destLocation, void ** destBuffer, u64 * destSize);
     u8 (*deserialize)(struct _ocrObjectFactory_t * factory, ocrGuid_t evtGuid, ocrObject_t ** dest, u64 mode, void * srcBuffer, u64 srcSize);
     // The size of the metadata if it was to be serialized at the time of the call
@@ -177,10 +177,21 @@ typedef struct _ocrObjectFactory_t {
 #define MD_DIR_PUSH 2
 
 // Values set to indicate the type of requested metadata-cloning operation
+#define MD_MASK_TYPE     0x1
 // Request a clone operation
-#define MD_CLONE 1
+#define MD_CLONE         0x0
 // Request a move operation
-#define MD_MOVE  2
+#define MD_MOVE          0x1
+
+#define MD_MASK_COHERENT 0x2
+#define MD_COHERENT      0x0
+#define MD_NON_COHERENT  0x2
+
+#define HAS_MD_TYPE(prop, name, mask)     ((prop & mask) == name)
+#define HAS_MD_MOVE(prop)           (HAS_MD_TYPE(prop, MD_MOVE, MD_MASK_TYPE))
+#define HAS_MD_CLONE(prop)          (HAS_MD_TYPE(prop, MD_CLONE, MD_MASK_TYPE))
+#define HAS_MD_NON_COHERENT(prop)   (HAS_MD_TYPE(prop, MD_NON_COHERENT, MD_MASK_COHERENT))
+#define HAS_MD_COHERENT(prop)       (HAS_MD_TYPE(prop, MD_COHERENT, MD_MASK_COHERENT))
 
 /**
  * @brief Memory region "tags"

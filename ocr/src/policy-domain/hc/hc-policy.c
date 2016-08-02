@@ -2575,7 +2575,7 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         ocrFatGuid_t fatGuid = PD_MSG_FIELD_IO(guid);
         ocrGuidKind kind = OCR_GUID_NONE;
         guidKind(self, fatGuid, &kind);
-        if (PD_MSG_FIELD_I(type) == MD_CLONE) {
+        if (HAS_MD_CLONE(PD_MSG_FIELD_I(type))) {
             ASSERT(msg->type & PD_MSG_REQ_RESPONSE);
             switch(kind) {
                 case OCR_GUID_EDT_TEMPLATE:
@@ -2607,7 +2607,7 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
             msg->type &= ~PD_MSG_REQUEST;
             msg->type |= PD_MSG_RESPONSE;
         } else {
-            ASSERT(PD_MSG_FIELD_I(type) == MD_MOVE);
+            ASSERT(HAS_MD_MOVE(PD_MSG_FIELD_I(type)));
             ASSERT(!(msg->type & PD_MSG_REQ_RESPONSE));
             //TODO-MD The EDT is destroyed by the caller:
             // Should it be done here instead, as part of the move ?
@@ -2624,8 +2624,8 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
             ocrLocation_t dstLoc = PD_MSG_FIELD_I(dstLocation);
             ASSERT(self->myLocation != dstLoc);
             // Trigger the movement
-            //TODO-MD: this is grossly cheating and is fixed in subsequent patch
-            factory->clone((ocrObjectFactory_t *) task, fatGuid.guid, (ocrObject_t **) &dstLoc);
+            // The 'type' field encodes the move semantic
+            factory->clone(factory, fatGuid.guid, NULL, dstLoc, PD_MSG_FIELD_I(type));
         }
 #undef PD_MSG
 #undef PD_TYPE

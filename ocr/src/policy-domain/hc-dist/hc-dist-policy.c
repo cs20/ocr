@@ -610,7 +610,7 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
 #define PD_MSG (msg)
 #define PD_TYPE PD_MSG_GUID_METADATA_CLONE
         if (msg->type & PD_MSG_REQUEST) {
-            if (PD_MSG_FIELD_I(type) == MD_CLONE) {
+            if (HAS_MD_CLONE(PD_MSG_FIELD_I(type))) {
                 // Do not call the macro because it relies on GUID_INFO
                 // and we go into a deadlock when cloning GUID maps
                 // RETRIEVE_LOCATION_FROM_GUID_MSG(self, msg->destLocation, IO);
@@ -637,7 +637,7 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
                         ocrObjectFactory_t * factory = resolveObjectFactory(self, guidKind);
                         DPRINTF(DEBUG_LVL_VVERB, "Requesting clone operation on local factory for remote GUID "GUIDF"\n",  GUIDA(PD_MSG_FIELD_IO(guid.guid)));
                         ocrObject_t * mdPtr;
-                        factory->clone(factory, PD_MSG_FIELD_IO(guid.guid), &mdPtr);
+                        factory->clone(factory, PD_MSG_FIELD_IO(guid.guid), &mdPtr, self->myLocation, PD_MSG_FIELD_I(type));
                         //TODO: because the underlying messages in clone are asynchronous one-way, the call here
                         //is almost certain not to return a valid mdPtr. In the current implementation this is ok
                         //because the return code for METADATA_CLONE would be EPEND. That raises questions on the

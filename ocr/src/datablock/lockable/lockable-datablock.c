@@ -2175,7 +2175,7 @@ static u8 lockableProcess(ocrObjectFactory_t * factory, ocrGuid_t guid, ocrObjec
     return retCode;
 }
 
-u8 lockableClone(ocrObjectFactory_t * pfactory, ocrGuid_t guid, ocrObject_t ** mdPtr) {
+u8 lockableClone(ocrObjectFactory_t * pfactory, ocrGuid_t guid, ocrObject_t ** mdPtr, ocrLocation_t dest, u32 type) {
     // This implementation only pulls in clone mode
     ocrPolicyDomain_t *pd = NULL;
     PD_MSG_STACK(msg);
@@ -2346,10 +2346,9 @@ void destructLockableFactory(ocrObjectFactory_t *factory) {
 ocrDataBlockFactory_t *newDataBlockFactoryLockable(ocrParamList_t *perType, u32 factoryId) {
     ocrObjectFactory_t * bbase = (ocrObjectFactory_t *)
                                   runtimeChunkAlloc(sizeof(ocrDataBlockFactoryLockable_t), PERSISTENT_CHUNK);
-                                  runtimeChunkAlloc(sizeof(ocrDataBlockFactoryLockable_t), PERSISTENT_CHUNK);
     // Initialize the base's base
     bbase->fcts.processEvent = NULL;
-    bbase->clone = FUNC_ADDR(u8 (*)(ocrObjectFactory_t * factory, ocrGuid_t guid, ocrObject_t**), lockableClone);
+    bbase->clone = FUNC_ADDR(u8 (*)(ocrObjectFactory_t * factory, ocrGuid_t guid, ocrObject_t**, ocrLocation_t, u32), lockableClone);
     bbase->mdSize = FUNC_ADDR(u8 (*)(ocrObject_t * dest, u64, u64*), lockableMdSize);
     bbase->process = FUNC_ADDR(u8 (*)(ocrObjectFactory_t * factory, ocrGuid_t guid, ocrObject_t*, /*MD-COMM*/ocrPolicyMsg_t * msg), lockableProcess);
     bbase->serialize = FUNC_ADDR(u8 (*)(ocrObjectFactory_t * factory, ocrGuid_t guid, ocrObject_t*, u64*, ocrLocation_t, void**, u64*), lockableSerialize);
