@@ -40,6 +40,8 @@ do {                                                                \
 /* OCR RUNTIME HINTS                                */
 /****************************************************/
 
+#define NULL_RT_HINT ((ocrRuntimeHint_t *)0x0)
+
 typedef struct {
     u64 hintMask;   /**< Refer below for mask format details */
     u64 *hintVal;   /**< The array to hold supported hint values */

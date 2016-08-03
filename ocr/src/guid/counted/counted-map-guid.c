@@ -338,10 +338,9 @@ u8 countedMapCreateGuid(ocrGuidProvider_t* self, ocrFatGuid_t *fguid, u64 size, 
 #error Unknown type of GUID
 #endif
             void * toPut = ptr;
-            // Inject proxy for foreign guids. Stems from pushing OCR objects to other PDs
+            // Inject proxy for foreign guids. Stems from pushing OCR objects to other PDs.
+            // For instance, when doing load-balancing
             if (!isLocalGuidCheck(self, fguid->guid)) {
-                // Impl assumes there's a single creation per GUID so there's no code to
-                // handle races here. We just setup the proxy and insert it in the map
                 ocrPolicyDomain_t * pd = self->pd;
                 MdProxy_t * mdProxy = (MdProxy_t *) pd->fcts.pdMalloc(pd, sizeof(MdProxy_t));
 #ifdef ENABLE_RESILIENCY

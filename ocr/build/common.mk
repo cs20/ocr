@@ -128,6 +128,13 @@ CFLAGS += -DGUID_PROVIDER_LOCID_SIZE=10
 # multiple slots
 # CFLAGS += -DOCR_MAX_MULTI_SLOT=1
 
+# **** Datablocks (DBs) parameters ****
+
+# Enables runtime code that checks for the eager datablock hint
+# else it is systematically ignored.
+#
+CFLAGS += -DALLOW_EAGER_DB
+
 # **** Debugging parameters ****
 
 # Maximum number of characters handled by a single PRINTF

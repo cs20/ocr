@@ -22,6 +22,7 @@
 #include "utils/ocr-utils.h"
 #include "extensions/ocr-hints.h"
 #include "experimental/ocr-platform-model.h"
+#include "hc/hc.h" // For the regNode_t data-structure
 
 
 #if defined (ENABLE_RESILIENCY) && defined (ENABLE_CHECKPOINT_VERIFICATION)
@@ -41,6 +42,8 @@
 // is bound to a PD. Either the current PD or the one declared through
 // the affinity hint. Other PDs must require a clone of the DB metadata
 // and go through the acquire/release process to gain access to data.
+// Even in EW there can be multiple users since it's always valid to
+// acquire the DB in RO.
 
 // Macros that can be defined:
 // - LOCKABLE_RELEASE_ASYNC: Experimental for asynchronous release
@@ -64,7 +67,11 @@
 #define STATE_SHARED  1
 #define STATE_IDLE    0
 
+
 // Type for metadata actions
+#define MD_TYPE_MASTER
+#define MD_TYPE_SLAVE
+
 #define mdAction_t u64
 
 // Actions carried out on the DB metadata
@@ -73,6 +80,7 @@
 #define M_RELEASE         0x4
 #define M_DATA            0x8
 #define M_DEL             0x10
+#define M_SATISFY         0x20
 
 // 'IN' size of PD_MSG_METADATA_COMM
 #define MSG_MDCOMM_SZ       (_PD_MSG_SIZE_IN(PD_MSG_METADATA_COMM))
@@ -82,7 +90,24 @@
 #define DBG_LVL_DB_MD DEBUG_LVL_VERB
 #endif
 
-// Even in EW there can be multiple users since it's always valid to acquire the DB in RO
+// DB State:
+// - isPrime: true if the MD is the current authority (R/W modes)
+// - isActive: true if the MD is not prime but has a1250 pointer to live DB ptr (R mode)
+
+typedef struct _storage_t {
+    u64 directory;
+    u64 offset; // offsets * nb of bits set in directory
+} storage_t;
+
+#define STORAGE_ID_HINT (0x1)
+#define STORAGE_ID_DATA (0x2)
+
+#define HAS_STORED(ptr, name) (ptr->directory & STORAGE_ID_##name)
+
+//TODO this hasn't been finalized and we're cheating for now because only use this for hints
+//Would need to get the mask for everything from id to 0 to know where to look in the offset array
+// popcnt64(ptr->directory & ((STORAGE_ID_##name)-1))
+#define GET_STORAGE_PTR(ptr, name) ((char *)((ptr->directory == (STORAGE_ID_##name)) ? (((storage_t*)ptr)+1) : NULL))
 
 /***********************************************************/
 /* OCR-Lockable Datablock Hint Properties                  */
@@ -91,11 +116,12 @@
 
 u64 ocrHintPropDbLockable[] = {
 #ifdef ENABLE_HINTS
-    OCR_HINT_DB_AFFINITY
+    OCR_HINT_DB_AFFINITY,
+    OCR_HINT_DB_EAGER
 #endif
 };
 
-//Make sure OCR_HINT_COUNT_DB_LOCKABLE in regular-datablock.h is equal to the length of array ocrHintPropDbLockable
+//Make sure OCR_HINT_COUNT_DB_LOCKABLE in lockable-datablock.h is equal to the length of array ocrHintPropDbLockable
 ocrStaticAssert((sizeof(ocrHintPropDbLockable)/sizeof(u64)) == OCR_HINT_COUNT_DB_LOCKABLE);
 ocrStaticAssert(OCR_HINT_COUNT_DB_LOCKABLE < OCR_RUNTIME_HINT_PROP_BITS);
 
@@ -118,13 +144,20 @@ typedef struct _md_push_clone_t {
     u64 srcLocation;
     u64 size;
     u32 flags;
-    //TODO-MD-HINTS
+    bool isEager;
+    storage_t storage;
 } md_push_clone_t;
 
 typedef struct _md_push_data_t {
     char * dbPtr;
 } md_push_data_t;
 
+typedef struct _md_push_satisfy_t {
+    u32 waitersCount;
+    char * regNodesPtr;
+} md_push_satisfy_t;
+
+//TODO-MD-RESOLVE
 static u8 lockableSerialize(ocrObjectFactory_t * factory, ocrGuid_t guid,
                      ocrObject_t * src, u64 * mode, ocrLocation_t destLocation,
                      void ** destBuffer, u64 * destSize);
@@ -218,7 +251,7 @@ static void lowLevelRelease(ocrDataBlock_t *self, ocrDataBlockLockableAttr_t * a
     }
 #endif
     attr->numUsers -= 1;
-    ocrDataBlockLockable_t *rself = (ocrDataBlockLockable_t*) self;
+    ocrDataBlockLockable_t *rself  __attribute__((unused)) = (ocrDataBlockLockable_t*) self;
     DPRINTF(DEBUG_LVL_VERB, "Release DB @ 0x%"PRIx64" (GUID: "GUIDF") (numUsers: %"PRId32") (dbMode: %"PRId32")\n",
             (u64)self->ptr, GUIDA(rself->base.guid),
             rself->attributes.numUsers, rself->attributes.dbMode);
@@ -250,7 +283,7 @@ static void issueReleaseRequest(ocrDataBlock_t * self) {
         ASSERT(mode & M_ACQUIRE); //Don't really like this. We piggy-back on
         //the message that brought the DB in. Ut was an acquire and now we release.
         mode = M_RELEASE;
-        u64 sizePayload;
+        u64 sizePayload; // accounts for whether or not data is written-back
         lockableMdSize((ocrObject_t *) self, mode, &sizePayload);
         PD_MSG_FIELD_I(sizePayload) = sizePayload;
         md_push_release_t * payload = (md_push_release_t *) &PD_MSG_FIELD_I(payload);
@@ -332,7 +365,7 @@ static void issueFetchRequest(ocrDataBlock_t * self, u8 othMode) {
     PD_MSG_FIELD_I(sizePayload) = sizeof(md_pull_acquire_t);
     PD_MSG_FIELD_I(response) = NULL;
     PD_MSG_FIELD_I(mdPtr) = NULL;
-    DPRINTF(DBG_LVL_DB_MD, "db-md: pull acquire "GUIDF" in mode=%d\n", GUIDA(self->guid), othMode);
+    DPRINTF(DBG_LVL_DB_MD, "db-md: pull acquire "GUIDF" in mode=%d isEager=%d\n", GUIDA(self->guid), othMode, rself->attributes.isEager);
     // Create a M_ACQUIRE PULL payload
     md_pull_acquire_t * payload = (md_pull_acquire_t *) &PD_MSG_FIELD_I(payload);
     payload->dbMode = othMode;
@@ -347,33 +380,31 @@ static void issueFetchRequest(ocrDataBlock_t * self, u8 othMode) {
 }
 
 static void answerFetchRequest(ocrDataBlock_t * self, ocrLocation_t destLocation, u8 othMode) {
-    // Create a policy-domain message
-    ocrPolicyMsg_t * msg;
-    PD_MSG_STACK(msgStack);
     ocrPolicyDomain_t *pd = NULL;
     getCurrentEnv(&pd, NULL, NULL, NULL);
-
     u64 mdMode = M_ACQUIRE;
     u64 mdSize;
     lockableMdSize((ocrObject_t *) self, mdMode, &mdSize);
     u64 msgSize = MSG_MDCOMM_SZ + mdSize;
-    bool stackAlloc = false;
-    if (msgSize > sizeof(ocrPolicyMsg_t)) { // Almost certainly always true
+    ocrPolicyMsg_t * msg;
+    PD_MSG_STACK(msgStack);
+    u32 msgProp = 0;
+    if (msgSize > sizeof(ocrPolicyMsg_t)) {
         //TODO-MD-SLAB
-        msg = (ocrPolicyMsg_t *) pd->fcts.pdMalloc(pd, msgSize);
+        msg = (ocrPolicyMsg_t *) allocPolicyMsg(pd, &msgSize);
         initializePolicyMessage(msg, msgSize);
         getCurrentEnv(NULL, NULL, NULL, msg);
+        msgProp = PERSIST_MSG_PROP;
     } else {
         msg = &msgStack;
         getCurrentEnv(NULL, NULL, NULL, &msgStack);
-        stackAlloc = true;
     }
 
     // Fill in this call specific arguments
-    msg->destLocation = destLocation;
 #define PD_MSG (msg)
 #define PD_TYPE PD_MSG_METADATA_COMM
     msg->type = PD_MSG_METADATA_COMM | PD_MSG_REQUEST;
+    msg->destLocation = destLocation;
     PD_MSG_FIELD_I(guid) = self->guid;
     PD_MSG_FIELD_I(direction) = MD_DIR_PUSH;
     PD_MSG_FIELD_I(op) = 0; /*ocrObjectOperation_t*/
@@ -390,8 +421,8 @@ static void answerFetchRequest(ocrDataBlock_t * self, ocrLocation_t destLocation
     // Technically, a SA DB should not be acquired in write mode, just depends on how much slack the runtime allows.
     payload->writeBack = !!(othMode & WR_MASK) && !(((ocrDataBlockLockable_t *)self)->attributes.flags & DB_PROP_SINGLE_ASSIGNMENT);
     DPRINTF (DBG_LVL_DB_MD, "db-md: push acquire "GUIDF" wb=%d dbMode=%d msgSize=%"PRIu64" dbSize=%"PRIu64"\n", GUIDA(self->guid), payload->writeBack, othMode, msgSize, self->size);
-#ifdef LOCKABLE_DB_STATS
-    ((ocrDataBlockLockable_t *)self)->counters[CNT_REMOTE_ACQUIRE]++;
+#ifdef DB_STATS_LOCKABLE
+    ((ocrDataBlockLockable_t *)self)->stats.counters[CNT_REMOTE_ACQUIRE]++;
 #endif
     void *dataPtr;
     ocrFatGuid_t fguid = {.guid = NULL_GUID, .metaDataPtr = NULL};
@@ -401,7 +432,7 @@ static void answerFetchRequest(ocrDataBlock_t * self, ocrLocation_t destLocation
     lockableSerialize(factory, self->guid, (ocrObject_t *) self, &mdMode, destLocation, (void **) &payload, &mdSize);
 
     // Send the request
-    pd->fcts.sendMessage(pd, msg->destLocation, msg, NULL, (stackAlloc ? 0 : (PERSIST_MSG_PROP)));
+    pd->fcts.sendMessage(pd, msg->destLocation, msg, NULL, msgProp);
 #undef PD_MSG
 #undef PD_TYPE
 }
@@ -409,38 +440,45 @@ static void answerFetchRequest(ocrDataBlock_t * self, ocrLocation_t destLocation
 // Sends a message containing basic information regarding the DB
 // Note that clone request and first acquire are decoupled. Should try to factorize
 static void answerCloneRequest(ocrDataBlock_t * self, ocrLocation_t srcLocation) {
-    // Create a policy-domain message
     ocrPolicyDomain_t *pd = NULL;
-    PD_MSG_STACK(msg);
-    getCurrentEnv(&pd, NULL, NULL, &msg);
-    // Fill in this call specific arguments
-    msg.destLocation = srcLocation;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+    // Get the serialized size
     u64 mdMode = M_CLONE;
     u64 mdSize;
     lockableMdSize((ocrObject_t *) self, mdMode, &mdSize);
-#define PD_MSG (&msg)
+    u64 msgSize = MSG_MDCOMM_SZ + mdSize;
+    // Check if we use stack or heap allocated message
+    ocrPolicyMsg_t * msg;
+    PD_MSG_STACK(msgStack);
+    u32 msgProp = 0;
+    if (msgSize > sizeof(ocrPolicyMsg_t)) {
+        //TODO-MD-SLAB
+        msg = (ocrPolicyMsg_t *) allocPolicyMsg(pd, &msgSize);
+        initializePolicyMessage(msg, msgSize);
+        getCurrentEnv(NULL, NULL, NULL, msg);
+        msgProp = PERSIST_MSG_PROP;
+    } else {
+        msg = &msgStack;
+        getCurrentEnv(NULL, NULL, NULL, &msgStack);
+    }
+    DPRINTF(DBG_LVL_DB_MD,"answerCloneRequest "GUIDF" to PD=0x%d\n", GUIDA(self->guid), (int)srcLocation);
+#define PD_MSG (msg)
 #define PD_TYPE PD_MSG_METADATA_COMM
-    msg.type = PD_MSG_METADATA_COMM | PD_MSG_REQUEST;
+    msg->type = PD_MSG_METADATA_COMM | PD_MSG_REQUEST;
+    msg->destLocation = srcLocation;
     PD_MSG_FIELD_I(guid) = self->guid;
     PD_MSG_FIELD_I(direction) = MD_DIR_PUSH;
     PD_MSG_FIELD_I(op) = 0; /*ocrObjectOperation_t*/
     PD_MSG_FIELD_I(mode) = mdMode;
     PD_MSG_FIELD_I(factoryId) = self->fctId;
-    PD_MSG_FIELD_I(sizePayload) = sizeof(md_push_clone_t);
+    PD_MSG_FIELD_I(sizePayload) = mdSize;
     PD_MSG_FIELD_I(response) = NULL;
     PD_MSG_FIELD_I(mdPtr) = NULL;
     // Create a M_CLONE PUSH payload
     md_push_clone_t * payload = (md_push_clone_t *) &PD_MSG_FIELD_I(payload);
-    // Fill in calling context-specific arguments
-    payload->srcLocation = msg.srcLocation;
     ocrObjectFactory_t * factory = pd->factories[self->fctId];
-    //TODO-MD-SERIALIZE this sounds overkill to fill two fields
     lockableSerialize(factory, self->guid, (ocrObject_t *) self, &mdMode, srcLocation, (void **) &payload, &mdSize);
-    //TODO-MD-SLAB: we try and use the stack-allocated message because we kind of know it's large enough.
-    ASSERT((ocrPolicyMsgGetMsgBaseSize(&msg, true) + sizeof(md_push_clone_t)) < sizeof(ocrPolicyMsg_t));
-    // Send the request
-    //TODO-MD-SENDCPY
-    pd->fcts.processMessage(pd, &msg, true);
+    pd->fcts.sendMessage(pd, srcLocation, msg, NULL, msgProp);
 #undef PD_MSG
 #undef PD_TYPE
 }
@@ -637,6 +675,8 @@ static void remoteRelease(ocrDataBlock_t * self, ocrDataBlockLockableAttr_t * at
 
 // Returns if granted or not
 static bool localAcquirePrime(ocrDataBlock_t * self, ocrDataBlockLockableAttr_t * attr, u8 othMode) {
+    ASSERT((!attr->isEager || !(othMode & WR_MASK)) && "Limitation db-eager only support read modes");
+
     if (attr->dbMode == DB_RO) {
         // Transition to anything asked
         attr->dbMode = othMode;
@@ -650,6 +690,7 @@ static bool localAcquirePrime(ocrDataBlock_t * self, ocrDataBlockLockableAttr_t 
     if ((attr->dbMode == DB_RW) && (othMode == DB_RW)) {
         return true;
     }
+    ASSERT(!attr->isEager);
 
     // All others must be deferred
     return false;
@@ -678,7 +719,7 @@ static void localReleasePrime(ocrDataBlock_t * self, ocrDataBlockLockableAttr_t 
         if (attr->hasPeers) { // slave
             // Try to schedule local eligible acquire
             attr->dbMode = DB_RO;
-            if (!schedulePendingAcquire(self, attr)) {
+            if (!(attr->isEager) && !schedulePendingAcquire(self, attr)) {
                 // else report to MD peer the DB is released
                 attr->state = STATE_IDLE;
                 issueReleaseRequest(self);
@@ -719,7 +760,7 @@ static void localReleaseShared(ocrDataBlock_t * self, ocrDataBlockLockableAttr_t
         if (attr->hasPeers) { // slaves
             // Transition to idle state
             // Keep the current mode for schedule to poke at.
-            if (!schedulePendingAcquire(self, attr)) {
+            if (!(attr->isEager) && !schedulePendingAcquire(self, attr)) {
                 // Couldn't schedule any pending work, release back to master
                 attr->state = STATE_IDLE;
                 attr->dbMode = DB_RO;
@@ -872,7 +913,7 @@ static bool lockButSelf(ocrDataBlockLockable_t *rself) {
     ocrWorker_t * worker;
     getCurrentEnv(NULL, &worker, NULL, NULL);
     bool unlock = true;
-    if (rself->lock) {
+    if (hal_islocked(&(rself->lock))) {
         if (worker == rself->worker) {
             // fall-through
             unlock = false;
@@ -902,8 +943,8 @@ u8 lockableAcquire(ocrDataBlock_t *self, void** ptr, ocrFatGuid_t edt, ocrLocati
     if (granted) { // Enqueue acquire request
         // Do not touch the state here. For local MD the state doesn't change and in
         // remote the state is set before executing callbacks
-#ifdef LOCKABLE_DB_STATS
-        rself->counters[CNT_LOCAL_ACQUIRE]++;
+#ifdef DB_STATS_LOCKABLE
+        rself->stats.counters[CNT_LOCAL_ACQUIRE]++;
 #endif
         // Registers first intent to acquire a SA block in writable mode
         if (othMode & WR_MASK) {
@@ -966,8 +1007,8 @@ u8 lockableRelease(ocrDataBlock_t *self, ocrFatGuid_t edt, ocrLocation_t srcLoc,
     ocrWorker_t * worker;
     getCurrentEnv(NULL, &worker, NULL, NULL);
     rself->worker = worker;
-#ifdef LOCKABLE_DB_STATS
-    rself->counters[CNT_LOCAL_RELEASE]++;
+#ifdef DB_STATS_LOCKABLE
+    rself->stats.counters[CNT_LOCAL_RELEASE]++;
 #endif
 #ifdef ENABLE_RESILIENCY
     // u8 curMode = rself->attributes.dbMode;
@@ -1161,25 +1202,24 @@ u8 lockableDestruct(ocrDataBlock_t *self) {
         if (rself->remoteWaitQueues[i] != NULL) {
 #ifdef OCR_ASSERT
             while (!queueIsEmpty(rself->remoteWaitQueues[i])) {
-                ocrPolicyMsg_t * msg = queueRemoveLast(rself->remoteWaitQueues[i]);
+                ocrPolicyMsg_t * msg __attribute__((unused)) = queueRemoveLast(rself->remoteWaitQueues[i]);
                 DPRINTF(DEBUG_LVL_WARN, "["GUIDF"] error: remote DB operation pending while DB is "
                                         "being destroyed msg src=%"PRIu64" dst=%"PRIu64" type=0x%"PRIx32"\n",
                                         GUIDA(self->guid), msg->srcLocation, msg->destLocation, msg->type);
-                ASSERT(false);
             }
 #endif
             ASSERT(queueIsEmpty(rself->remoteWaitQueues[i]));
             queueDestroy(rself->remoteWaitQueues[i]);
             rself->remoteWaitQueues[i] = NULL;
         }
-        if (rself->remoteWaitQueues[i] != NULL) {
-        }
     }
-#ifdef LOCKABLE_DB_STATS
-    DPRINTF(DEBUG_LVL_WARN, "Racq=%"PRIu64"\n", rself->counters[CNT_REMOTE_ACQUIRE]);
-    DPRINTF(DEBUG_LVL_WARN, "Rrel=%"PRIu64"\n", rself->counters[CNT_REMOTE_RELEASE]);
-    DPRINTF(DEBUG_LVL_WARN, "LAcq=%"PRIu64"\n", rself->counters[CNT_LOCAL_ACQUIRE]);
-    DPRINTF(DEBUG_LVL_WARN, "LRel=%"PRIu64"\n", rself->counters[CNT_LOCAL_RELEASE]);
+#ifdef DB_STATS_LOCKABLE
+    DPRINTF(DEBUG_LVL_WARN, "["GUIDF"] Remote Acquire = %"PRIu64"\n", GUIDA(self->guid), rself->stats.counters[CNT_REMOTE_ACQUIRE]);
+    DPRINTF(DEBUG_LVL_WARN, "["GUIDF"] Remote Release = %"PRIu64"\n", GUIDA(self->guid), rself->stats.counters[CNT_REMOTE_RELEASE]);
+    DPRINTF(DEBUG_LVL_WARN, "["GUIDF"] Local Acquire  = %"PRIu64"\n", GUIDA(self->guid), rself->stats.counters[CNT_LOCAL_ACQUIRE]);
+    DPRINTF(DEBUG_LVL_WARN, "["GUIDF"] Local Release  = %"PRIu64"\n", GUIDA(self->guid), rself->stats.counters[CNT_LOCAL_RELEASE]);
+    DPRINTF(DEBUG_LVL_WARN, "["GUIDF"] Eager Clone    = %"PRIu64"\n", GUIDA(self->guid), rself->stats.counters[CNT_EAGER_CLONE]);
+    DPRINTF(DEBUG_LVL_WARN, "["GUIDF"] Eager Push     = %"PRIu64"\n", GUIDA(self->guid), rself->stats.counters[CNT_EAGER_PULL]);
 #endif
     ASSERT(rself->lock == 0);
 
@@ -1301,8 +1341,8 @@ u8 lockableUnregisterWaiter(ocrDataBlock_t *self, ocrFatGuid_t waiter, u32 slot,
 //     - b) as a consequence of MD cloning steming from acquiring a remote DB
 // - Local creation as a 'writeback' for use case 'a'
 static u8 newDataBlockLockableInternal(ocrDataBlockFactory_t *factory, ocrFatGuid_t *guid, ocrFatGuid_t allocator,
-                        ocrFatGuid_t allocPD, u64 size, void** ptr, ocrHint_t *hint, u32 flags,
-                        ocrParamList_t *perInstance, bool isClone, bool firstCreate, ocrLocation_t loc) {
+                        ocrFatGuid_t allocPD, u64 size, void** ptr, ocrHint_t * hint, u32 flags,
+                        ocrParamList_t *perInstance, bool isEager, bool isClone, bool firstCreate, ocrLocation_t loc) {
     ocrPolicyDomain_t *pd = NULL;
     u8 returnValue = 0;
     ocrGuid_t resultGuid = NULL_GUID;
@@ -1345,6 +1385,7 @@ static u8 newDataBlockLockableInternal(ocrDataBlockFactory_t *factory, ocrFatGui
         return returnValue;
     }
     ASSERT(result);
+
     // Initialize the base's base
     result->base.base.fctId = factory->factoryId;
 #ifdef ENABLE_RESILIENCY
@@ -1369,6 +1410,8 @@ static u8 newDataBlockLockableInternal(ocrDataBlockFactory_t *factory, ocrFatGui
 #endif
     result->attributes.isFetching = false;
     result->attributes.isReleasing = false;
+    result->attributes.isEager = isEager;
+    result->backingPtrMsg = NULL;
     u8 i;
     for(i=0; i < DB_MODE_COUNT; i++) {
         result->localWaitQueues[i] = NULL;
@@ -1379,13 +1422,13 @@ static u8 newDataBlockLockableInternal(ocrDataBlockFactory_t *factory, ocrFatGui
     result->worker = NULL;
     result->attributes.dbMode = DB_RO;
     result->mdPeers = loc;
-    if (isClone) {
+    if (isClone && !isEager) {
         // Two scenario for a clone creation:
         // 1) Acquiring a remote DB the current PD do not know about yet
         // 2) Remote creation of a DB, which is staged by a local creation
         //    and a lazy remote creation on release.
         // So when we do a local on behalf of a remote create,
-        // we need to allocate enough space so that we can use the backingPtr$
+        // we need to allocate enough space so that we can use the backingPtr
         // as a message to be sent out on release !
         result->attributes.state = (firstCreate) ? STATE_PRIME : STATE_IDLE;
         result->attributes.hasPeers = 1;
@@ -1397,22 +1440,25 @@ static u8 newDataBlockLockableInternal(ocrDataBlockFactory_t *factory, ocrFatGui
         result->attributes.state = STATE_PRIME;
         result->attributes.hasPeers = 0;
     }
-
     if (hintc == 0) {
         result->hint.hintMask = 0;
         result->hint.hintVal = NULL;
     } else {
         OCR_RUNTIME_HINT_MASK_INIT(result->hint.hintMask, OCR_HINT_DB_T, factory->factoryId);
         result->hint.hintVal = (u64*)((u64)result + sizeof(ocrDataBlockLockable_t));
+        if (hint != NULL_HINT) {
+            factory->fcts.setHint(((ocrDataBlock_t *) result), hint);
+        }
     }
     for(i = 0; i < DB_MAX_LOC_ARRAY; ++i) {
         result->mdLocTracker[i] = 0ULL;
     }
-#ifdef LOCKABLE_DB_STATS
+#ifdef DB_STATS_LOCKABLE
     for(i = 0; i < CNT_MAX; ++i) {
-        result->counters[i] = 0;
+        result->stats.counters[i] = 0;
     }
 #endif
+    result->nonCoherentLoc = INVALID_LOCATION;
 
 #ifdef OCR_ENABLE_STATISTICS
     ocrTask_t *task = NULL;
@@ -1422,16 +1468,10 @@ static u8 newDataBlockLockableInternal(ocrDataBlockFactory_t *factory, ocrFatGui
                    &(result->base));
 #endif /* OCR_ENABLE_STATISTICS */
 
-    if (isClone) {
-        DPRINTF(DEBUG_LVL_VERB, "Creating a clone datablock of size %"PRIu64" (GUID: "GUIDF")\n",
-                size, GUIDA(result->base.guid));
-    } else {
-        DPRINTF(DEBUG_LVL_VERB, "Creating a datablock of size %"PRIu64", @ 0x%"PRIx64" (GUID: "GUIDF")\n",
-                size, (u64)result->base.ptr, GUIDA(result->base.guid));
-    }
+    DPRINTF(DEBUG_LVL_VVERB, "Creating a datablock of size %"PRIu64", @ 0x%"PRIx64" (GUID: "GUIDF") isEager=%d isClone=%d firstCreate=%d\n",
+            size, (u64)result->base.ptr, GUIDA(result->base.guid), isEager, isClone, firstCreate);
 
-    OCR_TOOL_TRACE(false, OCR_TRACE_TYPE_DATABLOCK, OCR_ACTION_CREATE, size);
-
+    OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_DATABLOCK, OCR_ACTION_CREATE, traceDataCreate, result->base.guid, size);
     // If the caller wants a pointer back, we are setting up a local DB.
     // In some cases, the DB has a hint to a remote location and we create
     // a local version of it before pushing it back on release.
@@ -1449,7 +1489,6 @@ static u8 newDataBlockLockableInternal(ocrDataBlockFactory_t *factory, ocrFatGui
             void * allocPtr = (void *)PD_MSG_FIELD_O(ptr);
     #undef PD_MSG
     #undef PD_TYPE
-            result->backingPtrMsg = NULL;
             result->base.ptr = allocPtr;
         } else {
             // This is setting up the message that's issued when the DB is released
@@ -1500,7 +1539,7 @@ static u8 newDataBlockLockableInternal(ocrDataBlockFactory_t *factory, ocrFatGui
     // Do this at the very end; it indicates that the object is actually valid
     hal_fence();
     result->base.guid = resultGuid;
-    if (isClone && firstCreate) {
+    if (isEager || (isClone && firstCreate)) {
         // When we are creating a local clone on behalf of a remote we need
         // to setup the proxy and register the guid, ptr into the GP
         MdProxy_t * mdProxy; u64 val;
@@ -1571,7 +1610,7 @@ u8 newDataBlockLockable(ocrDataBlockFactory_t *factory, ocrFatGuid_t *guid, ocrF
     flags |= GUID_PROP_TORECORD;
     // Do a local creation. If we are doing a create on behalf of a remote node, additional
     // book-keeping is required to do a deferred creation when the DB is released.
-    return newDataBlockLockableInternal(factory, guid, allocator, allocPD, size, dbPtr, hint, flags, perInstance, /*isClone=*/!isLocal, /*firstCreate=*/true, othLoc);
+    return newDataBlockLockableInternal(factory, guid, allocator, allocPD, size, dbPtr, hint, flags, perInstance, /*isEager*/false, /*isClone=*/!isLocal, /*firstCreate=*/true, othLoc);
     //TODO: to simplify we could do the registration here. Since this is an actual local creation stemming from user code
     //it's obvious we need to register the metadata. I think that would allow to eliminate the firstCreate parameter
 }
@@ -1895,7 +1934,10 @@ u8 resetDataBlockLockable(ocrDataBlock_t *self) {
 static u8 lockableMdSize(ocrObject_t * dest, mdAction_t mode, u64 * size) {
     *size = 0;
     if (mode & M_CLONE) {
-        *size += sizeof(md_push_clone_t);
+        ocrDataBlockLockable_t * dself = (ocrDataBlockLockable_t *) dest;
+        // For hints only account for hints values and the mask(+1)
+        u64 hintSize = OCR_RUNTIME_HINT_GET_SIZE(dself->hint.hintMask);
+        *size += sizeof(md_push_clone_t) + ((hintSize > 0) ? ((OCR_HINT_COUNT_DB_LOCKABLE+1)*sizeof(u64)) : 0);
     }
     if (mode & M_ACQUIRE) {
         // The char * in md_push_acquire_t is part of the payload
@@ -1930,7 +1972,6 @@ static void sendMdCommResponseAck(ocrPolicyDomain_t *pd, u64 msgId, ocrLocation_
     pd->fcts.sendMessage(pd, dest, &msgr, NULL, 0);
 #undef PD_MSG
 #undef PD_TYPE
-
 }
 
 static u8 lockableProcess(ocrObjectFactory_t * factory, ocrGuid_t guid, ocrObject_t * mdPtr, ocrPolicyMsg_t * msg) __attribute__((unused));
@@ -1992,17 +2033,16 @@ static u8 lockableProcess(ocrObjectFactory_t * factory, ocrGuid_t guid, ocrObjec
         } else {
         ASSERT(false && "Unsupported datablock mdMode to broker");
         }
-    } else { // Incoming Request pushing to this MD. This is the answer to a pull request.
+    } else {
+#ifdef OCR_ASSERT
+        u64 checkMdMode = mdMode;
+#endif
+        // Incoming Request pushing to this MD. Can be the answer to a pull request or an eager push.
         ASSERT(direction == MD_DIR_PUSH);
         if (mdMode & M_CLONE) {
-#ifdef OCR_ASSERT
-            ocrPolicyDomain_t * pd;
-            getCurrentEnv(&pd, NULL, NULL, NULL);
-            u64 val = 0;
-            DPRINTF(DBG_LVL_DB_MD, "Received M_CLONE for "GUIDF"\n", GUIDA(guid));
-            ASSERT(pd->guidProviders[0]->fcts.getVal(pd->guidProviders[0], guid, &val, NULL, MD_LOCAL, NULL) == OCR_EPEND);
-            ASSERT(val == 0);
-#endif
+            DPRINTF(DEBUG_LVL_VVERB, "Received M_CLONE for "GUIDF"\n", GUIDA(guid));
+            // When we eagerly pushing, the GUID provider may or may not know the GUID
+            // When doing the regular push/pull, the proxy is known and getVal returns OCR_EPEND
 #define PD_MSG (msg)
 #define PD_TYPE PD_MSG_METADATA_COMM
             // It is the responsibility of the Guid-Provider to make sure this code is thread-safe.
@@ -2010,12 +2050,36 @@ static u8 lockableProcess(ocrObjectFactory_t * factory, ocrGuid_t guid, ocrObjec
             // allowed there, others being enqueued on the callback of this call.
             ocrObject_t * dest = NULL;
             // We have nothing to deserialize too so the deserialize code has to allocate memory to deserialize the payload to.
-            factory->deserialize(factory, guid, &dest, PD_MSG_FIELD_I(mode), (void *) &PD_MSG_FIELD_I(payload), (u64) PD_MSG_FIELD_I(sizePayload));
+            retCode = factory->deserialize(factory, guid, &dest, PD_MSG_FIELD_I(mode), (void *) &PD_MSG_FIELD_I(payload), (u64) PD_MSG_FIELD_I(sizePayload));
             // NOTE: Implementation ensures there's a single message generated for the initial clone
             // so that this registration is not concurrent with others for the same GUID
 #undef PD_MSG
 #undef PD_TYPE
-        } else if (mdMode & M_ACQUIRE) {
+            // In eager those would be set but we actually process them as part of deserialize
+            if ((mdMode & M_DATA) || (mdMode & M_SATISFY)) {
+                mdMode &= ~M_DATA;
+                mdMode &= ~M_SATISFY;
+#ifdef OCR_ASSERT
+                checkMdMode = mdMode;
+#endif
+            }
+#ifdef OCR_ASSERT
+            checkMdMode &= ~M_CLONE;
+#endif
+        }
+        if ((mdMode & M_DATA) || (mdMode & M_SATISFY)) {
+#define PD_MSG (msg)
+#define PD_TYPE PD_MSG_METADATA_COMM
+            ASSERT(mdPtr != NULL);
+            retCode = factory->deserialize(factory, guid, &mdPtr, mdMode, (void *) &PD_MSG_FIELD_I(payload), (u64) PD_MSG_FIELD_I(sizePayload));
+#undef PD_MSG
+#undef PD_TYPE
+#ifdef OCR_ASSERT
+            checkMdMode &= ~M_SATISFY;
+            checkMdMode &= ~M_DATA;
+#endif
+        }
+        if (mdMode & M_ACQUIRE) {
             ASSERT(mdPtr != NULL);
             ocrDataBlock_t * self = (ocrDataBlock_t *) mdPtr;
             ocrDataBlockLockable_t * rself = (ocrDataBlockLockable_t *) mdPtr;
@@ -2058,10 +2122,13 @@ static u8 lockableProcess(ocrObjectFactory_t * factory, ocrGuid_t guid, ocrObjec
             hal_unlock(&rself->lock);
             //TODO-MD-MSGBACK: return OCR_EPEND so that caller doesn't deallocate the message being processed
             retCode = OCR_EPEND;
-        } else if (mdMode & M_RELEASE) {
-            // Master metadata receiving a push release from a slave
+#ifdef OCR_ASSERT
+            checkMdMode &= ~M_ACQUIRE;
+#endif
+        }
+        if (mdMode & M_RELEASE) {
+            //Receiving a M_RELEASE push message. May or may not include data write back.
             ASSERT(mdPtr != NULL);
-            //This is the path where we release
             ocrDataBlock_t * self = (ocrDataBlock_t *) mdPtr;
             ocrDataBlockLockable_t * rself = (ocrDataBlockLockable_t *) mdPtr;
             hal_lock(&rself->lock);
@@ -2106,13 +2173,13 @@ static u8 lockableProcess(ocrObjectFactory_t * factory, ocrGuid_t guid, ocrObjec
             }
             // then try and transition
             remoteRelease(self, &((ocrDataBlockLockable_t *)self)->attributes);
-#ifdef LOCKABLE_DB_STATS
-            ((ocrDataBlockLockable_t *)self)->counters[CNT_REMOTE_RELEASE]++;
+#ifdef DB_STATS_LOCKABLE
+            ((ocrDataBlockLockable_t *)self)->stats.counters[CNT_REMOTE_RELEASE]++;
 #endif
-            // We might had received a destroy before but couldn't
-            // enact on it because there were still releases happening
-            if((rself->attributes.numUsers == 0) &&
-                (rself->attributes.freeRequested == 1)) {
+            // Check if we need to perform a delayed
+            // destruction that was gated by this release
+            if(rself->attributes.numUsers == 0 &&
+                rself->attributes.freeRequested == 1) {
                 // Master shouldn't be doing any remote release.
                 ASSERT(!rself->attributes.isReleasing);
                 rself->worker = NULL;
@@ -2147,7 +2214,11 @@ static u8 lockableProcess(ocrObjectFactory_t * factory, ocrGuid_t guid, ocrObjec
             getCurrentEnv(&pd, NULL, NULL, NULL);
             sendMdCommResponseAck(pd, msg->msgId, msg->srcLocation);
 #endif
-        } else if (mdMode & M_DEL) {
+#ifdef OCR_ASSERT
+            checkMdMode &= ~M_RELEASE;
+#endif
+        }
+        if (mdMode & M_DEL) {
             ocrDataBlock_t * self = (ocrDataBlock_t *) mdPtr;
             ocrDataBlockLockable_t * rself = (ocrDataBlockLockable_t *) mdPtr;
             hal_lock(&rself->lock);
@@ -2167,70 +2238,233 @@ static u8 lockableProcess(ocrObjectFactory_t * factory, ocrGuid_t guid, ocrObjec
                 return lockableDestruct(self);
             } // else destruction will happen on the last release
             hal_unlock(&(rself->lock));
-        } else {
+#ifdef OCR_ASSERT
+            checkMdMode &= ~M_DEL;
+#endif
+        }
+#ifdef OCR_ASSERT
+        if (checkMdMode != 0) {
+            DPRINTF(DEBUG_LVL_WARN, "0x%"PRIx64"\n", checkMdMode);
             ASSERT(false && "Unsupported datablock mode to broker");
         }
+#endif
     }
     DPRINTF(DBG_LVL_DB_MD, "DB (GUID: "GUIDF") exit process\n", GUIDA(guid));
     return retCode;
 }
 
-u8 lockableClone(ocrObjectFactory_t * pfactory, ocrGuid_t guid, ocrObject_t ** mdPtr, ocrLocation_t dest, u32 type) {
-    // This implementation only pulls in clone mode
+//If yes, then we just want to send the M_DATA part
+static bool isKnownNonCoherentLocation(ocrDataBlockLockable_t * dself, ocrLocation_t destLocation) {
+    //TODO-MD-EAGER: Limitation: don't support multiple locations so far
+    return (dself->nonCoherentLoc != INVALID_LOCATION);
+}
+
+//Record the location is non-coherent
+static void registerKnownNonCoherentLocation(ocrDataBlockLockable_t * dself, ocrLocation_t destLocation) {
+    //TODO-MD-EAGER: Limitation: don't support multiple locations so far
+    ASSERT(dself->nonCoherentLoc == INVALID_LOCATION);
+    dself->nonCoherentLoc = destLocation;
+}
+
+extern void mdLocalDeguidify(ocrPolicyDomain_t *self, ocrFatGuid_t *guid);
+
+static u8 lockableCloneInternal(ocrObjectFactory_t * pfactory, ocrGuid_t guid, ocrObject_t ** mdPtr, ocrLocation_t destLocation, u32 type, u32 waitersCount, void * waitersPtr) {
     ocrPolicyDomain_t *pd = NULL;
     PD_MSG_STACK(msg);
     getCurrentEnv(&pd, NULL, NULL, &msg);
-    // Since we just pull to clone the destination of this message is
-    // always the location that owns the GUID.
-    ocrLocation_t destLocation;
-    RESULT_ASSERT(pd->guidProviders[0]->fcts.getLocation(pd->guidProviders[0], guid, &destLocation), ==, 0);
-    msg.destLocation = destLocation;
-#define PD_MSG (&msg)
+    if (destLocation != pd->myLocation) {
+        // This is invoked when an EAGER DB needs to be pushed to another PD
+        ASSERT(HAS_MD_NON_COHERENT(type));
+        // Retrieve the metadata pointer that must be present locally
+        ocrFatGuid_t fatGuid;
+        fatGuid.guid = guid;
+        fatGuid.metaDataPtr = NULL;
+        mdLocalDeguidify(pd, &fatGuid);
+        ocrDataBlock_t * self = (ocrDataBlock_t *) fatGuid.metaDataPtr;
+        ocrDataBlockLockable_t * dself = (ocrDataBlockLockable_t *) self;
+        ASSERT(self != NULL);
+        // Going to push data and it requires satifying an event at destination
+        u64 mdMode = M_DATA | M_SATISFY;
+        ASSERT(waitersCount != 0); // Probably too tight of a restriction. Leave it for debugging purpose.
+        if (!isKnownNonCoherentLocation(dself, destLocation)) {
+            registerKnownNonCoherentLocation(dself, destLocation);
+            DPRINTF(DEBUG_LVL_VVERB, "db-md: registerKnownNonCoherentLocation M_CLONE "GUIDF"\n", GUIDA(guid));
+            // First time an EAGER DB is pushed, set the clone flag to install it at destinatiokn
+            mdMode |= M_CLONE;
+#ifdef DB_STATS_LOCKABLE
+            ((ocrDataBlockLockable_t *)self)->stats.counters[CNT_EAGER_CLONE]++;
+#endif
+        } else {
+#ifdef DB_STATS_LOCKABLE
+            ((ocrDataBlockLockable_t *)self)->stats.counters[CNT_EAGER_PULL]++;
+#endif
+        }
+        // and only support this use case so far:
+        ASSERT(HAS_MD_CLONE(type) && HAS_MD_NON_COHERENT(type));
+        ocrPolicyMsg_t * msg;
+        PD_MSG_STACK(msgStack);
+        ocrPolicyDomain_t *pd = NULL;
+        getCurrentEnv(&pd, NULL, NULL, NULL);
+        // Query the serialized size for the move operation
+        u64 baseMdSize = 0;
+        lockableMdSize((ocrObject_t *) self, mdMode, &baseMdSize);
+        // Add satisfy message size
+        u64 waitersSz = (((u64)&(((md_push_satisfy_t*)0)->regNodesPtr)) + (sizeof(regNode_t) * waitersCount));
+        u64 mdSize = baseMdSize + waitersSz;
+        u64 msgSize = MSG_MDCOMM_SZ + mdSize;
+        u32 msgProp = 0;
+        if (msgSize > sizeof(ocrPolicyMsg_t)) {
+            //TODO-MD-SLAB
+            msg = allocPolicyMsg(pd, &msgSize);
+            initializePolicyMessage(msg, msgSize);
+            getCurrentEnv(NULL, NULL, NULL, msg);
+            msgProp = PERSIST_MSG_PROP;
+        } else {
+            msg = &msgStack;
+            getCurrentEnv(NULL, NULL, NULL, &msgStack);
+        }
+        // Fill in this call specific arguments
+        msg->destLocation = destLocation;
+#define PD_MSG (msg)
 #define PD_TYPE PD_MSG_METADATA_COMM
-    msg.type = PD_MSG_METADATA_COMM | PD_MSG_REQUEST;
-    PD_MSG_FIELD_I(guid) = guid;
-    PD_MSG_FIELD_I(direction) = MD_DIR_PULL;
-    PD_MSG_FIELD_I(op) = 0; /*ocrObjectOperation_t*/
-    PD_MSG_FIELD_I(mode) = M_CLONE;
-    PD_MSG_FIELD_I(factoryId) = ((ocrDataBlockFactory_t *)pfactory)->factoryId;
-    PD_MSG_FIELD_I(response) = NULL;
-    PD_MSG_FIELD_I(mdPtr) = NULL;
-    DPRINTF (DBG_LVL_DB_MD, "db-md: pull "GUIDF" in mode=M_CLONE\n", GUIDA(guid));
-    PD_MSG_FIELD_I(sizePayload) = 0;
-    // Don't add any specific payload since the src is encoded in the message
-    pd->fcts.processMessage(pd, &msg, true);
+        msg->type = PD_MSG_METADATA_COMM | PD_MSG_REQUEST;
+        PD_MSG_FIELD_I(guid) = self->guid;
+        PD_MSG_FIELD_I(direction) = MD_DIR_PUSH;
+        PD_MSG_FIELD_I(op) = 0; /*ocrObjectOperation_t*/ //TODO-MD-OP not clearly defined yet
+        PD_MSG_FIELD_I(mode) = mdMode;
+        PD_MSG_FIELD_I(factoryId) = self->fctId;
+        PD_MSG_FIELD_I(response) = NULL;
+        PD_MSG_FIELD_I(mdPtr) = NULL;
+        DPRINTF(DEBUG_LVL_VVERB, "db-md: push "GUIDF" in mode=%"PRIx64" isEager(%"PRIu64")\n", GUIDA(guid), mdMode, (mdMode & M_CLONE));
+        PD_MSG_FIELD_I(sizePayload) = mdSize;
+        char * ptr = &(PD_MSG_FIELD_I(payload));
+        lockableSerialize(pfactory, guid, (ocrObject_t *) self, &mdMode, destLocation, (void **) &ptr, &mdSize);
+        if (mdMode & M_CLONE) {
+            //TODO-MD-EAGER: see comment in serialize
+            ((md_push_clone_t *)ptr)->isEager = true;
+        }
+        ptr += baseMdSize;
+        md_push_satisfy_t * satPtr = (md_push_satisfy_t *) ptr;
+        ASSERT(waitersCount == 1);
+        satPtr->waitersCount = waitersCount;
+        // serializing the data into the destBuffer
+        hal_memCopy(&(satPtr->regNodesPtr), waitersPtr, (sizeof(regNode_t) * waitersCount), false);
 #undef PD_MSG
 #undef PD_TYPE
-    *mdPtr = NULL;
-    return 0;
+        pd->fcts.sendMessage(pd, destLocation, msg, NULL, msgProp);
+    } else {
+        // This implementation only pulls in clone mode
+        ASSERT(HAS_MD_CLONE(type));
+        // Since we just pull to clone, the destination of this
+        // message is the location that owns the GUID.
+        ocrLocation_t ownerLocation;
+        RESULT_ASSERT(pd->guidProviders[0]->fcts.getLocation(pd->guidProviders[0], guid, &ownerLocation), ==, 0);
+        msg.destLocation = ownerLocation;
+#define PD_MSG (&msg)
+#define PD_TYPE PD_MSG_METADATA_COMM
+        msg.type = PD_MSG_METADATA_COMM | PD_MSG_REQUEST;
+        PD_MSG_FIELD_I(guid) = guid;
+        PD_MSG_FIELD_I(direction) = MD_DIR_PULL;
+        PD_MSG_FIELD_I(op) = 0; /*ocrObjectOperation_t*/
+        PD_MSG_FIELD_I(mode) = M_CLONE;
+        PD_MSG_FIELD_I(factoryId) = ((ocrDataBlockFactory_t *)pfactory)->factoryId;
+        PD_MSG_FIELD_I(response) = NULL;
+        PD_MSG_FIELD_I(mdPtr) = NULL;
+        DPRINTF (DBG_LVL_DB_MD, "db-md: pull "GUIDF" in mode=M_CLONE\n", GUIDA(guid));
+        PD_MSG_FIELD_I(sizePayload) = 0;
+        // Don't add any specific payload since the src is encoded in the message
+        pd->fcts.processMessage(pd, &msg, true);
+#undef PD_MSG
+#undef PD_TYPE
+    }
+    if (NULL != mdPtr) {
+        *mdPtr = NULL;
+    }
+    return OCR_EPEND; // This is a remote operation that's pending
+}
+
+#define SER_WRITE(dest, src, sz) {hal_memCopy(dest, src, sz, false); char * _tmp__ = ((char *) dest) + (sz); dest=_tmp__;}
+
+// Pre-declare with unused attribute otherwise TG assumes it is not used although the name is referenced when setting up function pointers
+static u8 lockableCloneSatisfy(ocrObjectFactory_t * pfactory, ocrGuid_t guid, ocrObject_t ** mdPtr, ocrLocation_t destLocation, u32 type, u32 waitersCount, void * waitersPtr) __attribute__((unused));
+static u8 lockableCloneSatisfy(ocrObjectFactory_t * pfactory, ocrGuid_t guid, ocrObject_t ** mdPtr, ocrLocation_t destLocation, u32 type, u32 waitersCount, void * waitersPtr) {
+    return lockableCloneInternal(pfactory, guid, mdPtr, destLocation, type, waitersCount, waitersPtr);
+}
+
+// Pre-declare with unused attribute otherwise TG assumes it is not used although the name is referenced when setting up function pointers
+static u8 lockableClone(ocrObjectFactory_t * pfactory, ocrGuid_t guid, ocrObject_t ** mdPtr, ocrLocation_t destLocation, u32 type) __attribute__((unused));
+static u8 lockableClone(ocrObjectFactory_t * pfactory, ocrGuid_t guid, ocrObject_t ** mdPtr, ocrLocation_t destLocation, u32 type) {
+    return lockableCloneInternal(pfactory, guid, mdPtr, destLocation, type, 0, NULL);
 }
 
 static u8 lockableSerialize(ocrObjectFactory_t * factory, ocrGuid_t guid,
                      ocrObject_t * src, u64 * mode, ocrLocation_t destLocation,
                      void ** destBuffer, u64 * destSize) {
+    //TODO this should become a loop over modes based on bit fiddling
+    // => Well actually it's sucky because we'd have to do the bits in order anyway
     ASSERT((destBuffer != NULL) && (*destBuffer != NULL));
-    void * writePtr = *destBuffer;
+    char * writePtr = *destBuffer;
     ocrDataBlock_t * self = (ocrDataBlock_t *) src;
+    ocrDataBlockLockable_t * dself = (ocrDataBlockLockable_t *) self;
 #ifdef OCR_ASSERT
     u64 checkMode = *mode;
 #endif
     if (*mode & M_CLONE) {
         ASSERT(destBuffer != NULL);
+        ocrPolicyDomain_t * pd;
+        getCurrentEnv(&pd, NULL, NULL, NULL);
         md_push_clone_t * mdBuffer = (md_push_clone_t *) writePtr;
+        mdBuffer->srcLocation = pd->myLocation;
         mdBuffer->size = self->size;
-        mdBuffer->flags = ((ocrDataBlockLockable_t*)self)->attributes.flags;
-        writePtr = mdBuffer+1;
+        mdBuffer->flags = dself->attributes.flags;
+        //TODO-MD-EAGER: The issue here is that we want to create a message that contains both state
+        //and context-dependent information. Hence, serialize can only put default values while the
+        //calling context patches it up.
+        mdBuffer->isEager = false;
+        writePtr = writePtr + sizeof(md_push_clone_t);
+        u64 hintSize = OCR_RUNTIME_HINT_GET_SIZE(dself->hint.hintMask);
+        if (hintSize > 0) {
+            mdBuffer->storage.directory = STORAGE_ID_HINT; // TODO-STORAGE-API
+            mdBuffer->storage.offset = 0;
+            u64 * storagePtr = (u64 *) GET_STORAGE_PTR((&mdBuffer->storage), HINT);
+            ASSERT(storagePtr != NULL);
+            storagePtr[0] = dself->hint.hintMask;
+            writePtr += (sizeof(u64));
+            // DB_PROP_NO_HINT is not retained in the datablock flags so I'm not sure what to do here
+            // ASSERT(!hasProperty(self->flags, DB_PROP_NO_HINT));
+            u32 hintc = OCR_HINT_COUNT_DB_LOCKABLE;
+            SER_WRITE(writePtr, dself->hint.hintVal, sizeof(u64)*hintc);
+        } else {
+            mdBuffer->storage.directory = 0;
+            mdBuffer->storage.offset = 0;
+        }
 #ifdef OCR_ASSERT
         checkMode &= ~M_CLONE;
 #endif
     }
+    if (*mode & M_DATA) {
+        ASSERT(destBuffer != NULL);
+        md_push_data_t * mdBuffer = (md_push_data_t *) writePtr;
+        ASSERT(mdBuffer != NULL);
+        // serializing the data into the destBuffer
+        SER_WRITE(writePtr, self->ptr, self->size);
+#ifdef OCR_ASSERT
+        checkMode &= ~M_DATA;
+#endif
+    }
+    if (*mode & M_SATISFY) {
+#ifdef OCR_ASSERT
+        checkMode &= ~M_SATISFY;
+#endif
+    }
+    //TODO-MD-EAGER: Need to revisit acquire as a compound operation with | M_DATA
     if (*mode & M_ACQUIRE) {
         ASSERT(destBuffer != NULL);
         md_push_acquire_t * mdBuffer = (md_push_acquire_t *) writePtr;
         ASSERT(mdBuffer != NULL);
         // serializing the data into the destBuffer, read of size 1
         hal_memCopy(&(mdBuffer->dbPtr), self->ptr, self->size, false);
-        writePtr = ((char*)mdBuffer)+(sizeof(md_push_acquire_t)+self->size);
+        writePtr = writePtr+(sizeof(md_push_acquire_t)+self->size-1);
 #ifdef OCR_ASSERT
         checkMode &= ~M_ACQUIRE;
 #endif
@@ -2243,10 +2477,12 @@ static u8 lockableSerialize(ocrObjectFactory_t * factory, ocrGuid_t guid,
     return 0;
 }
 
+// Pre-declare with unused attribute otherwise TG assumes it is not used although the name is referenced when setting up function pointers
 static u8 lockableDeserialize(ocrObjectFactory_t * pfactory, ocrGuid_t dbGuid, ocrObject_t ** dest, u64 mode, void * srcBuffer, u64 srcSize) __attribute__((unused));
 static u8 lockableDeserialize(ocrObjectFactory_t * pfactory, ocrGuid_t dbGuid, ocrObject_t ** dest, u64 mode, void * srcBuffer, u64 srcSize) {
-    void * curPtr = srcBuffer;
+    char * curPtr = srcBuffer;
     bool isCloneRelease = false;
+    bool isEager = false;
     u8 retCode = 0;
     if (mode & M_CLONE) {
         md_push_clone_t * mdMsg = srcBuffer;
@@ -2267,12 +2503,14 @@ static u8 lockableDeserialize(ocrObjectFactory_t * pfactory, ocrGuid_t dbGuid, o
         ocrLocation_t srcLoc = mdMsg->srcLocation;
         ocrFatGuid_t allocator = pd->allocators[0]->fguid;
         ocrFatGuid_t allocPD = pd->fguid;
-        // In this context we know this is a DB being pushed to the current PD
-        // 1) Current PD requested a clone
-        // 2) Receiving a DB instance that belong to current PD but has been created by another
-        mdMsg->flags |= (GUID_PROP_ISVALID);
-        //TODO will have to adapt that for eager so that we don't mix up the two
-        isCloneRelease = (mode & M_DATA);
+        // Detect lazy writeback
+        isCloneRelease = (dbLoc == curLoc) && (mode & M_DATA);
+        // Detect eager push
+        isEager = mdMsg->isEager;
+        DPRINTF(DEBUG_LVL_VVERB, "db-md: Deserialize M_CLONE "GUIDF" isEager=%d\n", GUIDA(dbGuid), isEager);
+        // Can't have both mode true at the same time
+        ASSERT(!(isEager && isCloneRelease));
+        ASSERT(isEager ? isClone : true);
         if (isCloneRelease) {
             // This is a clone-release, meaning the deserialization incurs
             // both a MD creation and a data writeback. Happens when a DB
@@ -2281,24 +2519,51 @@ static u8 lockableDeserialize(ocrObjectFactory_t * pfactory, ocrGuid_t dbGuid, o
             srcLoc = INVALID_LOCATION;
             isClone = false;
             retCode = OCR_EPEND;
+            // Postpone GUID record until after data is copied in M_DATA
         } else {
             mdMsg->flags |= GUID_PROP_TORECORD;
         }
-        RESULT_ASSERT(newDataBlockLockableInternal(factory, &fguid, allocator, allocPD, mdMsg->size, /*ptr=*/NULL, /*hint=*/NULL, mdMsg->flags,
-                                                   NULL, /*isClone=*/isClone, false, srcLoc), ==, 0);
+        bool hasHint = HAS_STORED((&mdMsg->storage), HINT);
+        ocrHint_t dbHint;
+        ocrHintInit(&dbHint, OCR_HINT_DB_T);
+        ocrRuntimeHint_t rtHint;
+        u64 hintSize = 0;
+        if (hasHint) {
+            u64 * ptr = (u64 *) GET_STORAGE_PTR((&mdMsg->storage), HINT);
+            u64 hintMask = ptr[0];
+            // hintSize = OCR_RUNTIME_HINT_GET_SIZE(hintMask);
+            hintSize = OCR_HINT_COUNT_DB_LOCKABLE;
+            // My hints here are runtime hints that are serialized as hintMask val0 val1 etc...
+            rtHint.hintMask = hintMask;
+            rtHint.hintVal  = &ptr[1];
+            OCR_RUNTIME_HINT_GET(&dbHint, &rtHint, OCR_HINT_COUNT_DB_LOCKABLE, ocrHintPropDbLockable, OCR_HINT_DB_PROP_START);
+        }
+
+        // In this context we know this is a DB being pushed to the current PD
+        // 1) Current PD requested a clone
+        // 2) Receiving a DB instance that belong to current PD but has been created by another
+        mdMsg->flags |= (GUID_PROP_ISVALID);
+        DPRINTF(DBG_LVL_DB_MD, "newDataBlockLockableInternal on "GUIDF" msg=%p\n", GUIDA(dbGuid), mdMsg);
+        RESULT_ASSERT(newDataBlockLockableInternal(factory, &fguid, allocator, allocPD, mdMsg->size, /*ptr=*/NULL,
+                                                   ((hasHint) ? &dbHint : NULL_HINT), mdMsg->flags,
+                                                   NULL, isEager, /*isClone=*/isClone, false, srcLoc), ==, 0);
         ASSERT(fguid.metaDataPtr != NULL);
         *dest = fguid.metaDataPtr;
-        curPtr = mdMsg+1; //skip over md_push_clone_t
+        curPtr = (curPtr + (sizeof(md_push_clone_t) + (hasHint ? sizeof(u64)*(hintSize+1) : 0)));
     }
 
     if (mode & M_DATA) {
-        if (isCloneRelease) {
+        // So here we've registered the GUID however we haven't set the pointer yet which is kind of sucky
+        ocrDataBlock_t * self = (ocrDataBlock_t *) *dest;
+        ocrDataBlockLockable_t * rself = (ocrDataBlockLockable_t *) self;
+        bool isEager = rself->attributes.isEager;
+        if (isCloneRelease || isEager) {
+            DPRINTF(DEBUG_LVL_VVERB, "db-md: Deserialize M_DATA "GUIDF" isEager=%d\n", GUIDA(self->guid), isEager);
             ASSERT(*dest != NULL);
-            ocrDataBlock_t * self = (ocrDataBlock_t *) *dest;
-            ocrDataBlockLockable_t * rself = (ocrDataBlockLockable_t *) self;
             // For the write back part
-            ASSERT(self->ptr == NULL);
-            ASSERT(rself->backingPtrMsg == NULL);
+            ASSERT(isCloneRelease != isEager);
+            ASSERT(isCloneRelease ? (self->ptr == NULL) : isEager);
+            ASSERT(isCloneRelease ? (rself->backingPtrMsg == NULL) : isEager);
             md_push_data_t * mdRel = (md_push_data_t *) curPtr;
             ocrPolicyMsg_t * msg = NULL;
 #define PD_MSG (msg)
@@ -2307,29 +2572,87 @@ static u8 lockableDeserialize(ocrObjectFactory_t * pfactory, ocrGuid_t dbGuid, o
             msg = (ocrPolicyMsg_t *) (((char *) srcBuffer) - spread);
 #undef PD_MSG
 #undef PD_TYPE
-            //TODO this was a clone+data: We may have to setup the backingPtrMsg
-            //properly. Hmm, probably not because we're not using this for a release
-            setTrackID(rself->mdLocTracker, msg->srcLocation);
-            rself->backingPtrMsg = msg;
+            if (isEager) {
+                // If properly ordered we should not have any users
+                //TODO: Would want to have some safety mecanism in here
+                ASSERT_BLOCK_BEGIN((rself->attributes.numUsers == 0))
+                DPRINTF(DEBUG_LVL_WARN, "error: eager DB "GUIDF" is being overwritten by incoming new version\n", GUIDA(self->guid));
+                ASSERT_BLOCK_END
+                // Discard the previous copy if any
+                if (rself->backingPtrMsg != NULL) {
+                    ocrPolicyDomain_t * pd;
+                    getCurrentEnv(&pd, NULL, NULL, NULL);
+                    pd->fcts.pdFree(pd, rself->backingPtrMsg);
+                }
+                rself->backingPtrMsg = msg;
+            } else {
+                // Record the source that initiated the lazy release
+                // since it has a copy of the metadata too.
+                setTrackID(rself->mdLocTracker, msg->srcLocation);
+                rself->backingPtrMsg = msg;
+            }
             self->ptr = &(mdRel->dbPtr);
-            DPRINTF(DEBUG_LVL_VVERB, "dbPtr=%p sz=%"PRIu64"\n", self->ptr, ((md_push_clone_t *)srcBuffer)->size);
+            if (isCloneRelease) {
+                ocrPolicyDomain_t * pd;
+                getCurrentEnv(&pd, NULL, NULL, NULL);
+                // Registers the MD only now. Addresses the race where the DB would
+                // have been registered in M_CLONE but its data ptr is not yet set.
+                RESULT_ASSERT(pd->guidProviders[0]->fcts.registerGuid(pd->guidProviders[0], self->guid, (u64) self), ==, 0);
 #ifndef LOCKABLE_RELEASE_ASYNC
-            ocrPolicyDomain_t * pd;
-            getCurrentEnv(&pd, NULL, NULL, NULL);
-            sendMdCommResponseAck(pd, msg->msgId, msg->srcLocation);
+                sendMdCommResponseAck(pd, msg->msgId, msg->srcLocation);
 #endif
-            // Registers the MD if clone was set.
-            // Addresses the race where the DB would have been registered
-            // in M_CLONE but its data not yet set.
-            RESULT_ASSERT(pd->guidProviders[0]->fcts.registerGuid(pd->guidProviders[0], self->guid, (u64) self), ==, 0);
+            }
+            retCode = OCR_EPEND;
+            curPtr = (curPtr + self->size);
         } else {
-            ASSERT(false);
+            ASSERT(false && "M_DATA only used for eager and cloneRelease");
+        }
+    }
+
+    if (mode & M_SATISFY) {
+        ocrPolicyDomain_t * pd;
+        getCurrentEnv(&pd, NULL, NULL, NULL);
+        md_push_satisfy_t * pPtr = (md_push_satisfy_t *)  curPtr;
+        u32 waitersCount = pPtr->waitersCount;
+        curPtr = (char*) &(pPtr->regNodesPtr);
+        regNode_t * waiters = (regNode_t *) curPtr;
+        u32 i = 0;
+        PD_MSG_STACK(msg);
+        DPRINTF(DEBUG_LVL_VERB, "Processing M_SATISFY waitersCount=%"PRIu32"\n", waitersCount);
+        ASSERT(waitersCount == 1);
+        while (i < waitersCount) {
+#define PD_MSG (&msg)
+#define PD_TYPE PD_MSG_DEP_SATISFY
+            // DPRINTF(DEBUG_LVL_WARN, "Satisfy eager push dependence on GUID="GUIDF" on slot %"PRIu32"\n", GUIDA(waiters[i].guid), waiters[i].slot);
+            // ASSERT(waiters[i].slot == 0);
+            getCurrentEnv(NULL, NULL, NULL, &msg);
+            msg.type = PD_MSG_DEP_SATISFY | PD_MSG_REQUEST;
+            // Need to refill because out may overwrite some of the in fields
+            PD_MSG_FIELD_I(satisfierGuid.guid) = NULL_GUID; //TODO didn't keep that around, not sure if that's an issue
+            // Passing NULL since base may become invalid
+            PD_MSG_FIELD_I(satisfierGuid.metaDataPtr) = NULL;
+            PD_MSG_FIELD_I(guid.guid) = waiters[i].guid;
+            PD_MSG_FIELD_I(guid.metaDataPtr) = NULL;
+            PD_MSG_FIELD_I(payload.guid) = dbGuid;
+            PD_MSG_FIELD_I(payload.metaDataPtr) = NULL;
+            PD_MSG_FIELD_I(currentEdt.guid) = NULL_GUID; //TODO didn't keep that around, not sure if that's an issue
+            PD_MSG_FIELD_I(currentEdt.metaDataPtr) = NULL; //TODO didn't keep that around, not sure if that's an issue
+            PD_MSG_FIELD_I(slot) = waiters[i].slot;
+#ifdef REG_ASYNC_SGL
+            PD_MSG_FIELD_I(mode) = waiters[i].mode;
+#endif
+            PD_MSG_FIELD_I(properties) = 0;
+            RESULT_PROPAGATE(pd->fcts.processMessage(pd, &msg, false));
+#undef PD_MSG
+#undef PD_TYPE
+            i++;
         }
     }
 
     if (mode & M_RELEASE) {
-           ASSERT(false && "M_RELEASE should be handled in process");
+        ASSERT(false && "M_RELEASE should be handled in process");
     }
+
     return retCode;
 }
 
@@ -2357,8 +2680,9 @@ ocrDataBlockFactory_t *newDataBlockFactoryLockable(ocrParamList_t *perType, u32 
     base->instantiate = FUNC_ADDR(u8 (*)
                                   (ocrDataBlockFactory_t*, ocrFatGuid_t*, ocrFatGuid_t, ocrFatGuid_t,
                                    u64, void**, ocrHint_t*, u32, ocrParamList_t*), newDataBlockLockable);
-    bbase->destruct = FUNC_ADDR(void (*)(ocrObjectFactory_t*), destructLockableFactory);
     // Instance functions
+    bbase->destruct = FUNC_ADDR(void (*)(ocrObjectFactory_t*), destructLockableFactory);
+    base->fcts.cloneAndSatisfy = FUNC_ADDR(u8 (*)(ocrObjectFactory_t * factory, ocrGuid_t guid, ocrObject_t**, ocrLocation_t, u32, u32, void *), lockableCloneSatisfy);
     base->fcts.destruct = FUNC_ADDR(u8 (*)(ocrDataBlock_t*), lockableDestruct);
     base->fcts.acquire = FUNC_ADDR(u8 (*)(ocrDataBlock_t*, void**, ocrFatGuid_t, ocrLocation_t, u32, ocrDbAccessMode_t, bool, u32), lockableAcquire);
     base->fcts.release = FUNC_ADDR(u8 (*)(ocrDataBlock_t*, ocrFatGuid_t, ocrLocation_t, bool), lockableRelease);
@@ -2385,3 +2709,4 @@ ocrDataBlockFactory_t *newDataBlockFactoryLockable(ocrParamList_t *perType, u32 
     return base;
 }
 #endif /* ENABLE_DATABLOCK_LOCKABLE */
+

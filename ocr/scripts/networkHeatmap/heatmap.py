@@ -38,6 +38,7 @@ ocrMessageTypes = [
 ["PD_MSG_DB_ACQUIRE",                   "0x23001"],
 ["PD_MSG_DB_RELEASE",                   "0x54001"],
 ["PD_MSG_DB_FREE",                      "0x85001"],
+["PD_MSG_METADATA_COMM",                "0x7020"],
 # ["PD_MSG_MEM_OP",                       "0x2"],
 ["PD_MSG_MEM_ALLOC",                    "0x401002"],
 ["PD_MSG_MEM_UNALLOC",                  "0x82002"],

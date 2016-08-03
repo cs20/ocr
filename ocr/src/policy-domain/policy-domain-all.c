@@ -147,6 +147,8 @@ u64 ocrPolicyMsgGetMsgBaseSize(ocrPolicyMsg_t *msg, bool isIn) {
     // Note that are few cases where we issue responses too, so discriminate on message's type
     if (((msg->type & PD_MSG_TYPE_ONLY) == PD_MSG_METADATA_COMM) && (msg->type & PD_MSG_REQUEST)) {
 #define PD_TYPE PD_MSG_METADATA_COMM
+        // for MD comms the payload is append at the end of the
+        // message and we consider it part of the base size.
         baseSize += (PD_MSG_FIELD_I(sizePayload));
 #undef PD_TYPE
     }
@@ -397,13 +399,13 @@ u8 ocrPolicyMsgMarshallMsg(ocrPolicyMsg_t* msg, u64 baseSize, u8* buffer, u32 mo
         ocrPolicyMsg_t * bufferMsg = (ocrPolicyMsg_t*) buffer;
         u32 bufBSize = bufferMsg->bufferSize;
         u32 bufUSize = bufferMsg->usefulSize;
+        ASSERT(((ocrPolicyMsg_t*)buffer)->bufferSize >= baseSize);
         // Copy msg into the buffer for the common part
         hal_memCopy(buffer, msg, baseSize, false);
         bufferMsg->bufferSize = bufBSize;
         bufferMsg->usefulSize = bufUSize;
         startPtr = buffer;
         curPtr = buffer + baseSize;
-        ASSERT(((ocrPolicyMsg_t*)buffer)->bufferSize >= baseSize);
         outputMsg = (ocrPolicyMsg_t*)buffer;
         break;
     }
@@ -1246,7 +1248,6 @@ u8 ocrPolicyMsgUnMarshallMsg(u8* mainBuffer, u8* addlBuffer,
             ocrGuidKind kind;
             ocrPolicyDomain_t * pd;
             getCurrentEnv(&pd, NULL, NULL, NULL);
-            //TODO this should be kind not getVal
             pd->guidProviders[0]->fcts.getKind(pd->guidProviders[0], PD_MSG_FIELD_IO(guid.guid), &kind);
             if (kind == OCR_GUID_EDT_TEMPLATE) {
                 // Handle unmarshalling formatted as: ocrTaskTemplateHc_t + hints

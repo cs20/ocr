@@ -379,6 +379,7 @@ ocrDataBlockFactory_t *newDataBlockFactoryRegular(ocrParamList_t *perType, u32 f
                                    u64, void**, ocrHint_t*, u32, ocrParamList_t*), newDataBlockRegular);
     bbase->destruct = FUNC_ADDR(void (*)(ocrObjectFactory_t*), destructRegularFactory);
     // Instance functions
+    base->fcts.cloneAndSatisfy = NULL;
     base->fcts.destruct = FUNC_ADDR(u8 (*)(ocrDataBlock_t*), regularDestruct);
     base->fcts.acquire = FUNC_ADDR(u8 (*)(ocrDataBlock_t*, void**, ocrFatGuid_t, ocrLocation_t, u32, ocrDbAccessMode_t, bool, u32), regularAcquire);
     base->fcts.release = FUNC_ADDR(u8 (*)(ocrDataBlock_t*, ocrFatGuid_t, ocrLocation_t, bool), regularRelease);

@@ -46,6 +46,12 @@ typedef struct _paramListDataBlockInst_t {
 struct _ocrDataBlock_t;
 
 typedef struct _ocrDataBlockFcts_t {
+
+    //TODO: This is a hacked specialized version of clone from the base factory.
+    //It addresses a short-coming in the framework where when the clone
+    //is done an event must subsequently be satisfied (stored in the last u32/void*)
+    u8 (*cloneAndSatisfy)(ocrObjectFactory_t * factory, ocrGuid_t guid, ocrObject_t**, ocrLocation_t, u32, u32, void *);
+
     /**
      * @brief Destroys a data-block
      *

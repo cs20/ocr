@@ -18,6 +18,7 @@
 #include "experimental/ocr-platform-model.h"
 #include "utils/hashtable.h"
 #include "utils/queue.h"
+#include "extensions/ocr-hints.h"
 
 #ifdef ENABLE_EXTENSION_LABELING
 #include "experimental/ocr-labeling-runtime.h"
@@ -337,6 +338,7 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
             getTemplateParamcDepc(self, &PD_MSG_FIELD_I(templateGuid), &PD_MSG_FIELD_IO(paramc), &PD_MSG_FIELD_IO(depc));
         }
         ASSERT(PD_MSG_FIELD_IO(paramc) != EDT_PARAM_UNK && PD_MSG_FIELD_IO(depc) != EDT_PARAM_UNK);
+        ASSERT(PD_MSG_FIELD_IO(paramc) != EDT_PARAM_DEF && PD_MSG_FIELD_IO(depc) != EDT_PARAM_DEF);
         if((PD_MSG_FIELD_I(paramv) == NULL) && (PD_MSG_FIELD_IO(paramc) != 0)) {
             // User error, paramc non zero but no parameters
             DPRINTF(DEBUG_LVL_WARN, "error: paramc is non-zero but paramv is NULL\n");
@@ -510,14 +512,81 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
             // Check if it's a channel event that needs a blocking satisfy
             RESULT_ASSERT(self->guidProviders[0]->fcts.getKind(
                               self->guidProviders[0], PD_MSG_FIELD_I(guid.guid), &kind), ==, 0);
-            // Turn the call into a blocking call
+#ifdef ALLOW_EAGER_DB
+            // If dest is remote and the target is a channel event, we check if the DB is EAGER
+            ocrFatGuid_t dbFat = PD_MSG_FIELD_I(payload);
+            bool isNullGuid = ocrGuidIsNull(dbFat.guid);
+            if ((kind == OCR_GUID_EVENT_CHANNEL) && (!isNullGuid)) {
+                ocrLocation_t dbLoc;
+                RESULT_ASSERT(guidLocationShort(self, dbFat, &dbLoc), ==, 0);
+                if (dbLoc == curLoc) {
+                    self->guidProviders[0]->fcts.getVal(self->guidProviders[0], dbFat.guid,
+                                    (u64*)&(dbFat.metaDataPtr), NULL, MD_LOCAL, NULL);
+                    ASSERT(dbFat.metaDataPtr != NULL);
+                    // Check for eager
+                    ocrHint_t hint;
+                    RESULT_ASSERT(ocrHintInit(&hint, OCR_HINT_DB_T), ==, 0);
+                    ocrDataBlock_t * dbSelf = (ocrDataBlock_t *) dbFat.metaDataPtr;
+                    RESULT_ASSERT(((ocrDataBlockFactory_t *)self->factories[dbSelf->fctId])->fcts.getHint(dbSelf, &hint), ==, 0);
+                    u64 hintValue = 0ULL;
+                    if ((ocrGetHintValue(&hint, OCR_HINT_DB_EAGER, &hintValue) == 0) && (hintValue != 0)) {
+                        DPRINTF(DEBUG_LVL_VVERB,"Eager: DETECTED Eager hint on DB "GUIDF" for remote channel\n", GUIDA(dbSelf->guid));
+                        ocrPolicyMsg_t * msgClone;
+                        regNode_t node;
+                        node.guid = PD_MSG_FIELD_I(guid.guid);
+                        node.slot = 0;
+                        node.mode = DB_MODE_RO;
+                        PD_MSG_STACK(msgStack);
+                        u64 msgSize = (_PD_MSG_SIZE_IN(PD_MSG_GUID_METADATA_CLONE)) + sizeof(u32) + sizeof(regNode_t) - sizeof(char*);
+                        if (msgSize > sizeof(ocrPolicyMsg_t)) {
+                            //TODO-MD-SLAB
+                            msgClone = (ocrPolicyMsg_t *) self->fcts.pdMalloc(self, msgSize);
+                            initializePolicyMessage(msgClone, msgSize);
+                        } else {
+                            msgClone = &msgStack;
+                        }
+                        getCurrentEnv(NULL, NULL, NULL, msgClone);
+#undef PD_MSG
+#undef PD_TYPE
+#define PD_MSG (msgClone)
+#define PD_TYPE PD_MSG_GUID_METADATA_CLONE
+                        msgClone->type = PD_MSG_GUID_METADATA_CLONE | PD_MSG_REQUEST;
+                        PD_MSG_FIELD_IO(guid) = dbFat;
+                        PD_MSG_FIELD_I(type) = MD_CLONE | MD_NON_COHERENT;
+                        PD_MSG_FIELD_I(dstLocation) = msg->destLocation;
+                        //TODO-EAGER Need to support multiple dependences to be satisfied
+                        char *  writePtr = (char *) &PD_MSG_FIELD_I(addPayload);
+                        ((u32*)writePtr)[0] = ((u32)1);
+                        writePtr+=sizeof(u32);
+                        ((regNode_t *)writePtr)[0] = node;
+                        DPRINTF(DEBUG_LVL_VVERB,"Eager: PUSH DB Eager for DB "GUIDF" on remote channel\n", GUIDA(dbSelf->guid));
+                        RESULT_PROPAGATE(self->fcts.processMessage(self, msgClone, false));
+#undef PD_MSG
+#undef PD_TYPE
+#define PD_MSG (msg)
+#define PD_TYPE PD_MSG_DEP_SATISFY
+                        if (msg->type & PD_MSG_REQ_RESPONSE) {
+                            msg->type |= PD_MSG_RESPONSE;
+                            msg->type &= ~PD_MSG_REQ_RESPONSE;
+                            PD_MSG_FIELD_O(returnDetail) = 0;
+                        }
+                        msg->type &= ~PD_MSG_REQUEST;
+                        PROCESS_MESSAGE_RETURN_NOW(self, 0);
+                    } // has Hint
+                } // db is remote
+            } //channel and db is not nullGuid
+#endif /* ALLOW_EAGER_DB */
+
+#ifndef COMMWRK_PROCESS_SATISFY_CHANNEL_ONLY
+            // Turn the call into a blocking call, if we're not ordering them on the receiving end
             if (kind == OCR_GUID_EVENT_CHANNEL) {
                 msg->type |= PD_MSG_REQ_RESPONSE;
                 isBlocking = true;
             }
+#endif /*!COMMWRK_PROCESS_SATISFY_CHANNEL_ONLY*/
         }
-#endif
-#endif
+#endif /*!XP_CHANNEL_EVT_NONFIFO*/
+#endif /*ENABLE_EXTENSION_CHANNEL_EVT*/
 #undef PD_MSG
 #undef PD_TYPE
         break;
@@ -855,7 +924,7 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
         }
 #undef PD_MSG
 #undef PD_TYPE
-        #endif
+        #endif/*OCR_ASSERT*/
         break;
     }
     case PD_MSG_DEP_REGSIGNALER:

@@ -366,6 +366,7 @@ typedef enum {
     OCR_HINT_DB_INTER,                      /* [u64] : Prefer intermediate memory if possible */
     OCR_HINT_DB_FAR,                        /* [u64] : Prefer far memory if possible */
     OCR_HINT_DB_HIGHBW,                     /* [u64] : Prefer high bandwidth memory if possible */
+    OCR_HINT_DB_EAGER,                      /* [u64] : Whether this DB can be eagerly pushed on satisfy */
     OCR_HINT_DB_PROP_END,                   /* This is NOT a hint. Its use is reserved for the runtime */
 
     //EVT Hint Properties                   (OCR_HINT_EVT_T)

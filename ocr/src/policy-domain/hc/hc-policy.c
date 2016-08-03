@@ -48,6 +48,8 @@
 
 #define DBG_LVL_MDEVT   DEBUG_LVL_VERB
 
+extern ocrObjectFactory_t * resolveObjectFactory(ocrPolicyDomain_t *pd, ocrGuidKind kind);
+
 // Utility function to enqueue a waiter when the metadata is being fetch
 // Impl will most likely move to runtime events
 static u64 enqueueMdProxyWaiter(ocrPolicyDomain_t * pd, MdProxy_t * mdProxy, ocrPolicyMsg_t * msg) {
@@ -1919,8 +1921,9 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
                     ASSERT(PD_MSG_FIELD_O(returnDetail) == 0);
                     DPRINTF(DEBUG_LVL_INFO, "DB guid "GUIDF" of size %"PRIu64" acquired by EDT "GUIDF"\n",
                             GUIDA(db->guid), db->size, GUIDA(PD_MSG_FIELD_IO(edt.guid)));
-                    OCR_TOOL_TRACE(false, OCR_TRACE_TYPE_EDT, OCR_ACTION_DATA_ACQUIRE, PD_MSG_FIELD_IO(edt.guid),
-                                    db->guid, db->size);
+
+                    OCR_TOOL_TRACE(false, OCR_TRACE_TYPE_EDT, OCR_ACTION_DATA_ACQUIRE, traceTaskDataAcquire, PD_MSG_FIELD_IO(edt.guid),
+                                db->guid, db->size);
                     msg->type &= ~PD_MSG_REQUEST;
                     msg->type |= PD_MSG_RESPONSE;
                 }
@@ -2212,11 +2215,10 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
                     self->guidProviders[0]->fcts.getKind(self->guidProviders[0], guid, &guidKind);
                     ASSERT(guidKind & OCR_GUID_EVENT);
     #endif
-                    DPRINTF(DBG_LVL_MDEVT, "event-md: receive MD_DIR_PUSH mode=%"PRIu64" for "GUIDF"\n", PD_MSG_FIELD_I(mode), GUIDA(PD_MSG_FIELD_I(guid)));
+                    DPRINTF(DBG_LVL_MDEVT, "md: receive MD_DIR_PUSH mode=%"PRIu64" for "GUIDF"\n", PD_MSG_FIELD_I(mode), GUIDA(PD_MSG_FIELD_I(guid)));
                     MdProxy_t * proxy = NULL;
                     u64 val = 0;
-                    //getVal - resolve
-                    // Would work because this PD is the target of the message
+                    // Get the metadata pointer
                     u8 retCode = self->guidProviders[0]->fcts.getVal(self->guidProviders[0], guid, &val, NULL, MD_LOCAL, &proxy);
                     ASSERT(proxy != NULL);
                     // ASSERT(retCode == 0); => This can be EPEND if the push message we're receiving is the metadata to be stored as 'val'
@@ -2575,7 +2577,17 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         ocrFatGuid_t fatGuid = PD_MSG_FIELD_IO(guid);
         ocrGuidKind kind = OCR_GUID_NONE;
         guidKind(self, fatGuid, &kind);
-        if (HAS_MD_CLONE(PD_MSG_FIELD_I(type))) {
+        //TODO-MD-EAGER: Here we need to handle the use case that we want
+        // to push a MD to a remote destination/clone/non-coherent
+        // so we would call the factory clone with the right arguments and
+        // it will trigger the push operation
+        //TODO-MD-EAGER: Who's piloting the CLONE|NON_COHERENT ?
+        // 1) We get a request to do it this way
+        // 2) The MD figures it out. For instance given the operation that requests the clone,
+        //    I should do coherent or non-coherent ? => Actually doesn't work because why would
+        //    we call clone if there was no intent.
+        if (HAS_MD_CLONE(PD_MSG_FIELD_I(type)) && HAS_MD_COHERENT(PD_MSG_FIELD_I(type))) {
+            //TODO-MD These should go to their respective factories
             ASSERT(msg->type & PD_MSG_REQ_RESPONSE);
             switch(kind) {
                 case OCR_GUID_EDT_TEMPLATE:
@@ -2607,25 +2619,40 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
             msg->type &= ~PD_MSG_REQUEST;
             msg->type |= PD_MSG_RESPONSE;
         } else {
-            ASSERT(HAS_MD_MOVE(PD_MSG_FIELD_I(type)));
+#ifdef OCR_ASSERT
+            // Check for currently supported scenarios
+            if (HAS_MD_MOVE(PD_MSG_FIELD_I(type))) {
+                //TODO-MD The EDT is destroyed by the caller:
+                // Should it be done here instead, as part of the move ?
+                ASSERT((kind == OCR_GUID_EDT) && "Only support metadata move of EDTs");
+            } else {
+                ASSERT(HAS_MD_CLONE(PD_MSG_FIELD_I(type)) && HAS_MD_NON_COHERENT(PD_MSG_FIELD_I(type)));
+                ASSERT((kind == OCR_GUID_DB) && "Only support metadata push of DBs");
+            }
             ASSERT(!(msg->type & PD_MSG_REQ_RESPONSE));
-            //TODO-MD The EDT is destroyed by the caller:
-            // Should it be done here instead, as part of the move ?
-            ASSERT((kind == OCR_GUID_EDT) && "Only support metadata move of EDTs");
+#endif
             // In clone mode: I invoke the factory because I don't have any other handle to
             // this particular instance. It may be completely remote and unknown about.
             // In move, I have both the factory and an instance that I can call.
             // Move is about transferring the metadata from this PD to another PD.
             // It involves creating a LL MD message of a certain size, serialize the MD,
             // and send the message to the destination.
-            localDeguidify(self, &fatGuid);
-            ocrTask_t * task = (ocrTask_t *) fatGuid.metaDataPtr;
-            ocrObjectFactory_t * factory = self->factories[task->fctId];
+            ocrObjectFactory_t * factory = resolveObjectFactory(self, kind);
             ocrLocation_t dstLoc = PD_MSG_FIELD_I(dstLocation);
             ASSERT(self->myLocation != dstLoc);
-            // Trigger the movement
-            // The 'type' field encodes the move semantic
-            factory->clone(factory, fatGuid.guid, NULL, dstLoc, PD_MSG_FIELD_I(type));
+            // Trigger the movement, the 'type' field encodes the move semantic
+            if (kind == OCR_GUID_DB) {
+                char * readPtr = (char *) &PD_MSG_FIELD_I(addPayload);
+                u32 waitersCount = ((u32*)readPtr)[0];
+                ASSERT(waitersCount == 1);
+                readPtr+=sizeof(u32);
+                void * waitersPtr = (void *) readPtr;
+                RESULT_ASSERT(((ocrDataBlockFactory_t *)factory)->fcts.cloneAndSatisfy(factory, fatGuid.guid, NULL, dstLoc,
+                                                                        PD_MSG_FIELD_I(type), waitersCount, waitersPtr), ==, OCR_EPEND);
+            } else {
+                RESULT_ASSERT(factory->clone(factory, fatGuid.guid, NULL, dstLoc, PD_MSG_FIELD_I(type)), ==, 0);
+
+            }
         }
 #undef PD_MSG
 #undef PD_TYPE
@@ -2824,14 +2851,14 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         ocrDbAccessMode_t mode = (PD_MSG_FIELD_IO(properties) & DB_ACCESS_MODE_MASK); //lower bits is the mode //BUG 550: not pretty
         u32 slot = PD_MSG_FIELD_I(slot);
 #ifdef ENABLE_EXTENSION_CHANNEL_EVT
-#ifdef XP_CHANNEL_EVT_NONFIFO
-            bool sync = false;
+#if defined(XP_CHANNEL_EVT_NONFIFO) || defined(COMMWRK_PROCESS_SATISFY_CHANNEL_ONLY)
+        bool sync = false;
 #else
-            // Channel needs to be synchronous to ensure ordering of multiple satisfy issued in a row
-            bool sync = (srcKind == OCR_GUID_EVENT_CHANNEL);
+        // Channel needs to be synchronous to ensure ordering of multiple satisfy issued in a row
+        bool sync = (srcKind == OCR_GUID_EVENT_CHANNEL);
 #endif
 #else
-            bool sync = false;
+        bool sync = false;
 #endif
         if (srcKind == OCR_GUID_NONE) {
             //NOTE: Handle 'NULL_GUID' case here to be safe although
@@ -3178,24 +3205,6 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         START_PROFILE(pd_hc_Satisfy);
 #define PD_MSG msg
 #define PD_TYPE PD_MSG_DEP_SATISFY
-#ifdef ENABLE_EXTENSION_CHANNEL_EVT
-#ifdef OCR_ASSERT
-        // In theory we should always make satisfy synchronous for channel-event
-        // but because it's only relevant to distributed for now we only set the
-        // flags in the distributed policy domain. Hence, discriminate on the
-        // location to see whether or not we should do the check.
-        if (msg->srcLocation != msg->destLocation) {
-            ocrGuidKind kind;
-            u8 ret = self->guidProviders[0]->fcts.getKind(
-                self->guidProviders[0], PD_MSG_FIELD_I(guid.guid), &kind);
-            ASSERT(ret == 0);
-            ASSERT((kind == OCR_GUID_EVENT_CHANNEL) ? (msg->type & PD_MSG_REQ_RESPONSE) : !(msg->type & PD_MSG_REQ_RESPONSE));
-        }
-#endif
-#else
-        // make sure this is one-way
-        ASSERT(!(msg->type & PD_MSG_REQ_RESPONSE));
-#endif
         ocrGuidKind dstKind;
 #ifdef ENABLE_EXTENSION_PAUSE
         ocrPolicyDomainHc_t *rself = (ocrPolicyDomainHc_t *)self;

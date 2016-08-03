@@ -274,7 +274,6 @@ static void workerLoopHcCommInternal(ocrWorker_t * worker, ocrPolicyDomain_t *pd
         ret = takeFromSchedulerAndSend(worker, pd);
         EXIT_PROFILE;
     } while (flushOutgoingComm && (ret == POLL_MORE_MESSAGE));
-
     do {
         START_PROFILE(wo_hccomm_poll);
         ocrMsgHandle_t * handle = NULL;
@@ -363,28 +362,58 @@ static void workerLoopHcCommInternal(ocrWorker_t * worker, ocrPolicyDomain_t *pd
                         handle->destruct(handle);
                     }
                 } else {
+                    bool isSyncProcess = false;
+                    // Should activate either #ifdef COMMWRK_PROCESS_MDCOMM / COMMWRK_PROCESS_SATISFY
+#ifdef COMMWRK_PROCESS_MDCOMM
+                    //TODO: Temporary until we sort out ordering issues
+                    if ((message->type & PD_MSG_TYPE_ONLY) == PD_MSG_METADATA_COMM) {
+#define PD_MSG message
+#define PD_TYPE PD_MSG_METADATA_COMM
+                        ocrGuid_t guid = PD_MSG_FIELD_I(guid);
+                        ocrGuidKind guidKind;
+                        pd->guidProviders[0]->fcts.getKind(pd->guidProviders[0], guid, &guidKind);
+                        isSyncProcess = ((guidKind == OCR_GUID_DB) && (PD_MSG_FIELD_I(direction) == MD_DIR_PUSH) && (PD_MSG_FIELD_I(mode) & 0x8));
+                    }
+#undef PD_MSG
+#undef PD_TYPE
+#endif
+
 #ifdef COMMWRK_PROCESS_SATISFY // This is for benchmarking purpose to measure overhead of delegating processing
-                    if ((message->type & PD_MSG_TYPE_ONLY) == PD_MSG_DEP_SATISFY) {
-                        DPRINTF(DEBUG_LVL_VVERB,"hc-comm-worker: Process PD_MSG_DEP_SATISFY message, type=0x%"PRIx32" msgId: %"PRIu64"\n",  message->type, message->msgId);
+                    // Warning: this code can deadlock when executing satisfy leads to acquiring a DB lock
+                    isSyncProcess = ((message->type & PD_MSG_TYPE_ONLY) == PD_MSG_DEP_SATISFY);
+#endif
+#ifdef ENABLE_EXTENSION_CHANNEL_EVT
+#ifdef COMMWRK_PROCESS_SATISFY_CHANNEL_ONLY
+                    if (isSyncProcess) { // Relies on the previous check
+                    //TODO: Temporary until we sort out ordering issues. Only applicable in very specific use-cases
+#define PD_MSG (message)
+#define PD_TYPE PD_MSG_DEP_SATISFY
+                    ocrGuid_t evtGuid = PD_MSG_FIELD_I(guid.guid);
+                    ocrGuidKind guidKind;
+                    RESULT_ASSERT(pd->guidProviders[0]->fcts.getKind(pd->guidProviders[0], evtGuid, &guidKind), ==, 0);
+                    isSyncProcess = (guidKind == OCR_GUID_EVENT_CHANNEL);
+#undef PD_MSG
+#undef PD_TYPE
+                    }
+#endif
+#endif
+                    if (isSyncProcess) {
                         processIncomingMsg(pd, message);
                     } else {
-#endif
                         #ifdef UTASK_COMM
                         createUTask(pd, message);
                         #else
                         u64 msgParamv = (u64) message;
                         createProcessRequestEdt(pd, processRequestTemplate, &msgParamv);
                         #endif
-#ifdef COMMWRK_PROCESS_SATISFY
                     }
-#endif
-                    // We do not need the handle anymore
-                    handle->destruct(handle);
                 }
-            #endif
+                // We do not need the handle anymore
+                handle->destruct(handle);
                 //BUG #587: depending on comm-worker implementation, the received message could
                 //then be 'wrapped' in an EDT and pushed to the deque for load-balancing purpose.
             }
+            #endif /*!HYBRID_COMM_COMP_WORKER*/
         }
         EXIT_PROFILE;
     } while (flushOutgoingComm && !((ret & retmask) == retmask));

@@ -737,7 +737,8 @@ typedef struct _ocrPolicyMsg_t {
             union {
                 struct {
                     u8 type;                   /**< In: MD_CLONE or MD_MOVE */
-                    ocrLocation_t dstLocation; /**< In: The location to MOVE to */
+                    ocrLocation_t dstLocation; /**< In: The location to CLONE or MOVE to */
+                    char * addPayload;
                 } in;
                 struct {
                     u64 size;          /**< Out: Size of the metadata that was cloned */

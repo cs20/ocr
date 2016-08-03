@@ -19,6 +19,7 @@
 #include "utils/ocr-utils.h"
 #include "ocr-worker.h"
 #include "ocr-errors.h"
+#include "extensions/ocr-hints.h"
 
 #if defined (ENABLE_RESILIENCY) && defined (ENABLE_CHECKPOINT_VERIFICATION)
 #include "policy-domain/hc/hc-policy.h"
@@ -350,6 +351,62 @@ static u8 commonSatisfyRegNode(ocrPolicyDomain_t * pd, ocrPolicyMsg_t * msg,
 
     return 0;
 }
+
+#ifdef ALLOW_EAGER_DB
+static u8 commonSatisfyRegNodeEager(ocrPolicyDomain_t * pd, ocrPolicyMsg_t * msg,
+                         ocrGuid_t evtGuid,
+                         ocrFatGuid_t db, ocrFatGuid_t currentEdt,
+                         regNode_t * node) {
+    if (!ocrGuidIsNull(db.guid)) {
+        u64 val = 0;
+        RESULT_ASSERT(pd->guidProviders[0]->fcts.getVal(pd->guidProviders[0], db.guid, &val, NULL, MD_LOCAL, NULL), ==, 0);
+        if (val != 0) { // Only check if local
+            ocrLocation_t dstLocation;
+            pd->guidProviders[0]->fcts.getLocation(pd->guidProviders[0], node->guid, &dstLocation);
+            if (dstLocation != pd->myLocation) {
+                // Check if the db is eager
+                ocrDataBlock_t * dbSelf = (ocrDataBlock_t *) val;
+                ocrHint_t hint;
+                RESULT_ASSERT(ocrHintInit(&hint, OCR_HINT_DB_T), ==, 0);
+                RESULT_ASSERT(((ocrDataBlockFactory_t *)pd->factories[dbSelf->fctId])->fcts.getHint(dbSelf, &hint), ==, 0);
+                u64 hintValue = 0ULL;
+                if ((ocrGetHintValue(&hint, OCR_HINT_DB_EAGER, &hintValue) == 0) && (hintValue != 0)) {
+                    DPRINTF(DEBUG_LVL_VVERB, "Eager: DETECTED Eager hint "GUIDF"\n", GUIDA(db.guid));
+                    //TODO-DB-EAGER: this is just handling a single node
+                    ocrPolicyMsg_t * msgClone;
+                    PD_MSG_STACK(msgStack);
+                    u64 msgSize = (_PD_MSG_SIZE_IN(PD_MSG_GUID_METADATA_CLONE)) + sizeof(u32) + sizeof(regNode_t) - sizeof(char*);
+                    ASSERT(dstLocation != pd->myLocation); // Per the getVal above
+                    if (msgSize > sizeof(ocrPolicyMsg_t)) {
+                        //TODO-MD-SLAB
+                        msgClone = (ocrPolicyMsg_t *) pd->fcts.pdMalloc(pd, msgSize);
+                        initializePolicyMessage(msgClone, msgSize);
+                    } else {
+                        msgClone = &msgStack;
+                    }
+                    getCurrentEnv(NULL, NULL, NULL, msgClone);
+    #define PD_MSG (msgClone)
+    #define PD_TYPE PD_MSG_GUID_METADATA_CLONE
+                    msgClone->type = PD_MSG_GUID_METADATA_CLONE | PD_MSG_REQUEST;
+                    PD_MSG_FIELD_IO(guid) = db;
+                    PD_MSG_FIELD_I(type) = MD_CLONE | MD_NON_COHERENT;
+                    PD_MSG_FIELD_I(dstLocation) = dstLocation;
+                    //TODO-EAGER Need to support multiple dependences to be satisfied
+                    char *  writePtr = (char *) &PD_MSG_FIELD_I(addPayload);
+                    ((u32*)writePtr)[0] = ((u32)1);
+                    writePtr+=sizeof(u32);
+                    ((regNode_t *)writePtr)[0] = *node;
+                    RESULT_PROPAGATE(pd->fcts.processMessage(pd, msgClone, false));
+    #undef PD_MSG
+    #undef PD_TYPE
+                    return 0;
+                }
+            }
+        }
+    }
+    return commonSatisfyRegNode(pd, msg, evtGuid, db, currentEdt, node);
+}
+#endif
 
 static u8 commonSatisfyWaiters(ocrPolicyDomain_t *pd, ocrEvent_t *base, ocrFatGuid_t db, u32 waitersCount,
                                 ocrFatGuid_t currentEdt, ocrPolicyMsg_t * msg,
@@ -1406,10 +1463,10 @@ static u8 initNewEventHc(ocrEventHc_t * event, ocrEventTypes_t eventType, ocrGui
         devt->nbSat = params->EVENT_CHANNEL.nbSat;
         devt->satBufSz = maxGen * devt->nbSat;
         devt->nbDeps = params->EVENT_CHANNEL.nbDeps;
-	devt->waitBufSz = maxGen * devt->nbDeps;
+        devt->waitBufSz = maxGen * devt->nbDeps;
         if (devt->maxGen == EVENT_CHANNEL_UNBOUNDED) {
             ocrPolicyDomain_t * pd;
-	    getCurrentEnv(&pd, NULL, NULL, NULL);
+            getCurrentEnv(&pd, NULL, NULL, NULL);
             // Setup backing data-structure pointers
             devt->satBuffer = (ocrGuid_t *) pd->fcts.pdMalloc(pd, sizeof(ocrGuid_t) * devt->satBufSz);
             devt->waiters = (regNode_t *) pd->fcts.pdMalloc(pd, sizeof(regNode_t) * devt->waitBufSz);
@@ -1871,7 +1928,11 @@ u8 registerWaiterEventHcChannel(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot,
         db.metaDataPtr = NULL;
         DPRINTF(DEBUG_LVL_CHANNEL, "registerWaiterEventHcChannel satisfy edt with DB="GUIDF"\n",
                 GUIDA(data));
+#ifdef ALLOW_EAGER_DB
+        return commonSatisfyRegNodeEager(pd, &msg, base->guid, db, currentEdt, &regnode);
+#else
         return commonSatisfyRegNode(pd, &msg, base->guid, db, currentEdt, &regnode);
+#endif
     } else {
         DPRINTF(DEBUG_LVL_CHANNEL, "registerWaiterEventHcChannel "GUIDF" push dependence curSize=%"PRIu32"\n",
                 GUIDA(base->guid), channelWaiterCount(devt));
@@ -1904,7 +1965,11 @@ u8 satisfyEventHcChannel(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
         currentEdt.metaDataPtr = curTask;
         DPRINTF(DEBUG_LVL_CHANNEL, "satisfyEventHcChannel satisfy edt with DB="GUIDF"\n",
                 GUIDA(db.guid));
+#ifdef ALLOW_EAGER_DB
+        return commonSatisfyRegNodeEager(pd, &msg, base->guid, db, currentEdt, &regnode);
+#else
         return commonSatisfyRegNode(pd, &msg, base->guid, db, currentEdt, &regnode);
+#endif
     } else {
         DPRINTF(DEBUG_LVL_CHANNEL, "satisfyEventHcChannel "GUIDF" satisfy enqueued curSize=%"PRIu32"\n",
                 GUIDA(base->guid), channelSatisfyCount(devt));
