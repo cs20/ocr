@@ -308,6 +308,7 @@ struct slab_header {
     struct slab_header *next, *prev;
     struct per_agent_cache *per_agent;
     u64 bitmap;
+    u64 bitmap_initial;
     u32 mark;
     u32 objsize;
     u32 index;
@@ -509,7 +510,7 @@ static void quickCleanCache(void)
         struct slab_header *head = CACHE_POOL(myid)->slabs[i];
         if (head == NULL)
             continue;
-        if (head->bitmap == ((1UL << MAX_OBJ_PER_SLAB)-1UL) /* empty slab? */) {
+        if (head->bitmap == head->bitmap_initial /* empty slab? */) {
             CACHE_POOL(myid)->slabs[i] = NULL;
             quickFreeInternal(head);
         } else {
@@ -573,7 +574,7 @@ static void quickCleanPool(poolHdr_t *pool)
             } else if (flag == FLAG_INUSE_SLAB) {
                 struct slab_header *head = (struct slab_header *)HEAD_TO_USER(p);
                 ASSERT(head->mark == SLAB_MARK);
-                if (head->bitmap == ((1UL << MAX_OBJ_PER_SLAB)-1UL) /* empty slab? */) {
+                if (head->bitmap == head->bitmap_initial /* empty slab? */) {
                     // it must be only (and first) slab in the slab list
                     s32 slabsIndex = head->index;
                     hal_lock(&head->per_agent->lock);
@@ -1627,12 +1628,12 @@ static void quickSetUserbits(blkPayload_t *p, u64 user)
 }
 
 #ifdef PER_AGENT_CACHE
-static struct slab_header *quickNewSlab(poolHdr_t *pool,s32 slabMaxSize, s32 slabsIndex, struct _ocrPolicyDomain_t *pd, struct per_agent_cache *per_agent)
+static struct slab_header *quickNewSlab(poolHdr_t *pool,s32 objsize, s32 objcount, s32 slabsIndex, struct _ocrPolicyDomain_t *pd, struct per_agent_cache *per_agent)
 {
         // goes to the central heap to allocate slab
-        void *slab = quickMallocInternal(pool, sizeof(struct slab_header)+(SLAB_OVERHEAD+slabMaxSize)*MAX_OBJ_PER_SLAB, pd );
+        void *slab = quickMallocInternal(pool, sizeof(struct slab_header)+(SLAB_OVERHEAD+objsize)*objcount, pd );
         if (slab == NULL) {
-            DPRINTF(DEBUG_LVL_VERB, "Slab alloc failed (slabMaxSize %"PRId32"), falling back to central heap\n", slabMaxSize);
+            DPRINTF(DEBUG_LVL_VERB, "Slab alloc failed (objsize %"PRId32"), falling back to central heap\n", objsize);
             return NULL;
         }
 
@@ -1644,9 +1645,11 @@ static struct slab_header *quickNewSlab(poolHdr_t *pool,s32 slabMaxSize, s32 sla
         struct slab_header *head = slab;
         head->per_agent = addrGlobalizeOnTG((void *)per_agent, pd);
         head->next = head->prev = head;
-        head->bitmap = (1UL << MAX_OBJ_PER_SLAB)-1UL;
+        ASSERT(objcount <= MAX_OBJ_PER_SLAB);
+        head->bitmap = (1UL << objcount)-1UL;
+        head->bitmap_initial = head->bitmap;    // save the initial state, i.e. all objs are available
         head->mark = SLAB_MARK;
-        head->objsize = slabMaxSize;
+        head->objsize = objsize;
         head->index = slabsIndex;
         return head;
 }
@@ -1660,35 +1663,41 @@ static blkPayload_t *quickMallocSlab(poolHdr_t *pool, s32 slabsIndex, struct _oc
         DPRINTF(DEBUG_LVL_VERB, "cache %p created, handles up to size %"PRId64"\n", CACHE_POOL(myid), (s64)MAX_SIZE_FOR_SLABS);
     }
 
-    s32 slabMaxSize;
+    s32 objcount = MAX_OBJ_PER_SLAB;
+    s32 objsize;
     if (slabsIndex < MAX_SLABS_UNNAMED) {
-        slabMaxSize = SLAB_MAX_SIZE(slabsIndex);
+        objsize = SLAB_MAX_SIZE(slabsIndex);
     } else {
-        slabMaxSize = slabSizeTable.size[slabsIndex-MAX_SLABS_UNNAMED];
+        objsize = slabSizeTable.size[slabsIndex-MAX_SLABS_UNNAMED];
+        objcount = slabSizeTable.next_objcount[slabsIndex-MAX_SLABS_UNNAMED];
     }
-    ASSERT(slabMaxSize > 0);
+    ASSERT(objsize > 0);
 
     hal_lock(&CACHE_POOL(myid)->lock);
     struct slab_header *slabs = CACHE_POOL(myid)->slabs[slabsIndex];
     if (slabs == NULL /* initial alloc? */ || slabs->bitmap == 0 /* full? */) {
-        struct slab_header *slab = quickNewSlab(pool, slabMaxSize, slabsIndex, pd, CACHE_POOL(myid));
+        struct slab_header *slab = quickNewSlab(pool, objsize, objcount, slabsIndex, pd, CACHE_POOL(myid));
         if (slab == NULL) {
             hal_unlock(&CACHE_POOL(myid)->lock);
             DPRINTF(DEBUG_LVL_WARN, "slab alloc failed -- too small heap?\n");
             return NULL;
         }
-        if (slabs) {  // list manupulation
+        if (slabs) {  // list manipulation
             slab->next = slabs;
             slab->prev = slabs->prev;
             slabs->prev->next = slab;
             slabs->prev = slab;
         }
         CACHE_POOL(myid)->slabs[slabsIndex] = slabs = slab;
+        if (slabsIndex >= MAX_SLABS_UNNAMED) {  // if named slabs...
+            objcount += 10;
+            slabSizeTable.next_objcount[slabsIndex-MAX_SLABS_UNNAMED] = (MAX_OBJ_PER_SLAB < objcount) ? MAX_OBJ_PER_SLAB : objcount; // set next objcount
+        }
     }
     ASSERT(slabs->bitmap);
     s32 pos = myffs(slabs->bitmap);
     ASSERT(pos >= 0 && pos < MAX_OBJ_PER_SLAB);
-    u64 *p = (u64 *)((u64)slabs + sizeof(struct slab_header)+(SLAB_OVERHEAD+slabMaxSize)*pos);
+    u64 *p = (u64 *)((u64)slabs + sizeof(struct slab_header)+(SLAB_OVERHEAD+objsize)*pos);
     HEAD(p) = ((s64)slabs - (s64)p)&(~MASK_USER);   // for cached objects, put negative offset in header, and clear user bits.
 
     // for only TG
@@ -1760,7 +1769,7 @@ static void quickFree(blkPayload_t *p)
         return;
     }
 
-    if (head->bitmap == ((1UL << MAX_OBJ_PER_SLAB)-1UL) /* empty slab? */) {
+    if (head->bitmap == head->bitmap_initial /* empty slab? */) {
         head->next->prev = head->prev;
         head->prev->next = head->next;
         hal_unlock(&head->per_agent->lock);

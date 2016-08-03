@@ -141,5 +141,13 @@ void slabInit(u64 type, s32 size)
     hal_lock(&slabSizeTable.lock);
     ASSERT(slabSizeTable.size[type_id] == 0);  // is empty?
     slabSizeTable.size[type_id] = size;      // fill the slot
+    // set initial objcount value depending on the objsize
+    if (size > 8*1024) {
+        slabSizeTable.next_objcount[type_id] = 10;
+    } else if (size > 4*1024) {
+        slabSizeTable.next_objcount[type_id] = 20;
+    } else if (size > 2*1024) {
+        slabSizeTable.next_objcount[type_id] = 40;
+    }
     hal_unlock(&slabSizeTable.lock);
 }

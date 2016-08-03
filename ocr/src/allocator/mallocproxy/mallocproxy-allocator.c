@@ -158,7 +158,11 @@ void* mallocProxyAllocate(
     s32 type_id = (s32)size;
     if (type_id < 0) {         // negative size is interpreted as type_id for slab allocation request
         type_id = -type_id;
-        ASSERT(type_id > 0 && type_id < MAX_SLABS_NAMED );
+        if (!(type_id > 0 && type_id < MAX_SLABS_NAMED )) {
+            // Too large size requested.
+            DPRINTF(DEBUG_LVL_WARN, "mallocProxyAllocate failure. Too large size %"PRId64"/0x%"PRIx64"\n", (u64) size, (u64) size);
+            return NULL;
+        }
         size = slabSizeTable.size[type_id]; // get the original size. now size is fixed.
     }
 
