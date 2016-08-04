@@ -630,7 +630,7 @@ function print_test_status () {
     local RUN=0
     local FAIL=0
     local ERR=0
-    local COLOR=30
+    local COLOR=39
 
     if [[ $STATUS -eq $RUN_STATUS ]]; then
         # No pbs
