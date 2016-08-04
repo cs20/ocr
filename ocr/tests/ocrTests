@@ -238,6 +238,12 @@ function usage () {
     echo "       -perftest     : Run performance tests as non-regression tests"
     echo "       -showoutput   : Show test output on console"
     echo "       -v            : Prints additionnal information"
+    echo "       -ext_rtapi       : Enable extension runtime API"
+    echo "       -ext_legacy      : Enable extension legacy support"
+    echo "       -ext_labeling    : Enable extension labelled GUIDs"
+    echo "       -ext_params_evt  : Enable extension parameterize events"
+    echo "       -ext_counted_evt : Enable extension counted events"
+    echo "       -ext_channel_evt : Enable extension channel events"
     echo "  (-h) --help        : Prints this message"
 }
 
