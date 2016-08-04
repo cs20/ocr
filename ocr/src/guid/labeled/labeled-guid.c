@@ -439,10 +439,11 @@ u8 labeledGuidCreateGuid(ocrGuidProvider_t* self, ocrFatGuid_t *fguid, u64 size,
                 // there's an interleaved destroy call on the GUID.
                 if ((properties & GUID_PROP_BLOCK) != GUID_PROP_BLOCK) {
                 // See BUG #928 on GUID issues
+                void * adjustedPtr = (((ocrObject_t *)(value))+1);
 #if GUID_BIT_COUNT == 64
-                    while((*(volatile u64*)value) != fguid->guid.guid);
+                    while((*(volatile u64*)adjustedPtr) != fguid->guid.guid);
 #elif GUID_BIT_COUNT == 128
-                    while((*(volatile u64*)value) != fguid->guid.lower);
+                    while((*(volatile u64*)adjustedPtr) != fguid->guid.lower);
 #endif
                 }
                 hal_fence(); // May be overkill but there is a race that I don't get
@@ -512,12 +513,12 @@ u8 labeledGuidGetVal(ocrGuidProvider_t* self, ocrGuid_t guid, u64* val, ocrGuidK
         // by looking at the first field of ptr and waiting for it to be the GUID value (meaning the
         // object has been initialized
         if(IS_RESERVED_GUID(guid)) {
-
+            void * adjustedPtr = (((ocrObject_t *)(*val))+1);
             // See BUG #928 on GUID issues
 #if GUID_BIT_COUNT == 64
-            while((*(volatile u64*)(*val)) != guid.guid);
+            while((*(volatile u64*)(adjustedPtr)) != guid.guid);
 #elif GUID_BIT_COUNT == 128
-            while((*(volatile u64*)(*val)) != guid.lower);
+            while((*(volatile u64*)(adjustedPtr)) != guid.lower);
 #endif
             hal_fence(); // May be overkill but there is a race that I don't get
         }

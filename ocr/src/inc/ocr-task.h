@@ -104,7 +104,6 @@ typedef struct ocrTaskTemplateFcts_t {
  */
 typedef struct _ocrTaskTemplate_t {
     ocrObject_t base;
-    ocrGuid_t guid;         /**< GUID for this task template */
 #ifdef OCR_ENABLE_STATISTICS
     ocrStatsProcess_t *statProcess;
 #endif

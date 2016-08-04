@@ -67,23 +67,64 @@ typedef enum _ocrRLPhaseComponents_t {
                                  This implies that the switchRunlevel PD call should return and not wait
                                  for the transition*/
 
+struct _ocrObject_t;
+struct _pdEvent_t;
+
+/**
+ * @brief Functions common to all objects
+ */
+typedef struct _ocrObjectFcts_t {
+    /**
+     * @brief Implement all potentially asynchronous processing on
+     * objects
+     *
+     * With micro-tasks, user-defined processing functions are
+     * always in the form (object, in/out event, continuation index).
+     * This function is therefore defined for all objects when they may
+     * need to do something that is potentially blocking (for example, acquiring
+     * a data-block may involve fetching the data).
+     *
+     * @param[in] self          Pointer to this object
+     * @param[in/out] event     Event to process (on input). On output, contains
+     *                          the "response" of this function. Both event and *event
+     *                          should be non-NULL.
+     * @param[in] idx           Position in the code to resume (for continuations). Set
+     *                          to 0 to start at the beginning of the function.
+     * @return 0 on success and an error code otherwise
+     *
+     * @note If prior to the call *event has value ptr, the event pointed to by ptr should
+     * not be considered valid anymore. If you need to keep both the event passed in and
+     * the event returned, make a copy of the event passed-in first. This is to keep
+     * in line with the fact that if this call was an individual action, the
+     * source event would be destroyed if another one was returned
+     */
+    u8 (*processEvent)(struct _ocrObject_t* self, struct _pdEvent_t** event, u32 idx);
+} ocrObjectFcts_t;
+
 /**
  * @brief Base type for OCR Object factories.
  *
- * Only used for type checking
+ * This will contain basic information for all
+ * object factories (that create templates, EDTs,
+ * events, data-blocks, etc.)
  */
 typedef struct _ocrObjectFactory_t {
+    ocrObjectFcts_t fcts;   /**< Functions for this object factory */
 } ocrObjectFactory_t;
 
 /**
  * @brief Base type for OCR Objects.
  *
- * Only used for type checking
  */
 typedef struct _ocrObject_t {
-    // Considering adding guid, fctId
+    ocrGuid_t guid;
+    u32 fctId;              /**< Factory ID for this object */
+    // Considering adding guid
 } ocrObject_t;
 
+#define getObjectField(self, name) (((ocrObject_t *)(self))->name)
+
+#define setObjectField(self, name, value) (((ocrObject_t *)(self))->name = value)
 
 /**
  * @brief Memory region "tags"

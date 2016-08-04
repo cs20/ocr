@@ -1216,11 +1216,9 @@ static u8 ceCreateEdt(ocrPolicyDomain_t *self, ocrFatGuid_t *guid,
 
 static u8 ceCreateEdtTemplate(ocrPolicyDomain_t *self, ocrFatGuid_t *guid,
                               ocrEdt_t func, u32 paramc, u32 depc, const char* funcName) {
-
-
     ocrTaskTemplate_t *base = self->taskTemplateFactories[0]->instantiate(
         self->taskTemplateFactories[0], func, paramc, depc, funcName, NULL);
-    (*guid).guid = base->guid;
+    (*guid).guid = getObjectField(base, guid);
     (*guid).metaDataPtr = base;
     return 0;
 }

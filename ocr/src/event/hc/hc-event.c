@@ -1156,6 +1156,8 @@ u8 newEventHc(ocrEventFactory_t * factory, ocrFatGuid_t *guid,
     ocrEvent_t *base = (ocrEvent_t*)event;
     ASSERT(event);
 
+    // Set up the base's base
+    base->base.fctId = factory->factoryId;
     // Set-up base structures
     resultGuid = PD_MSG_FIELD_IO(guid.guid);
     base->kind = eventType;
@@ -1476,6 +1478,11 @@ ocrEventFactory_t * newEventFactoryHc(ocrParamList_t *perType, u32 factoryId) {
     base->instantiate = FUNC_ADDR(u8 (*)(ocrEventFactory_t*, ocrFatGuid_t*,
                                   ocrEventTypes_t, u32, ocrParamList_t*), newEventHc);
     base->destruct =  FUNC_ADDR(void (*)(ocrEventFactory_t*), destructEventFactoryHc);
+
+    // Initialize the base's base
+    // For now, we keep it NULL. This is just a placeholder
+    base->base.fcts.processEvent = NULL;
+
     // Initialize the function pointers
 
     // Setup common functions

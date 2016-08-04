@@ -593,6 +593,8 @@ u8 newDataBlockLockable(ocrDataBlockFactory_t *factory, ocrFatGuid_t *guid, ocrF
         return returnValue;
     }
     ASSERT(result);
+    // Initialize the base's base
+    result->base.base.fctId = factory->factoryId;
     result->base.allocator = allocator.guid;
     result->base.allocatingPD = allocPD.guid;
     result->base.size = size;
@@ -672,6 +674,9 @@ void destructLockableFactory(ocrDataBlockFactory_t *factory) {
 ocrDataBlockFactory_t *newDataBlockFactoryLockable(ocrParamList_t *perType, u32 factoryId) {
     ocrDataBlockFactory_t *base = (ocrDataBlockFactory_t*)
                                   runtimeChunkAlloc(sizeof(ocrDataBlockFactoryLockable_t), PERSISTENT_CHUNK);
+
+    // Initialize the base's base
+    base->base.fcts.processEvent = NULL;
 
     base->instantiate = FUNC_ADDR(u8 (*)
                                   (ocrDataBlockFactory_t*, ocrFatGuid_t*, ocrFatGuid_t, ocrFatGuid_t,

@@ -253,6 +253,7 @@ u8 newDataBlockRegular(ocrDataBlockFactory_t *factory, ocrFatGuid_t *guid, ocrFa
     }
 
     ASSERT(result);
+    result->base.fctId = factory->factoryId;
     result->base.allocator = allocator.guid;
     result->base.allocatingPD = allocPD.guid;
     result->base.size = size;
@@ -323,6 +324,9 @@ void destructRegularFactory(ocrDataBlockFactory_t *factory) {
 ocrDataBlockFactory_t *newDataBlockFactoryRegular(ocrParamList_t *perType, u32 factoryId) {
     ocrDataBlockFactory_t *base = (ocrDataBlockFactory_t*)
                                   runtimeChunkAlloc(sizeof(ocrDataBlockFactoryRegular_t), PERSISTENT_CHUNK);
+
+    // Initialize base's base
+    base->base.fcts.processEvent = NULL;
 
     base->instantiate = FUNC_ADDR(u8 (*)
                                   (ocrDataBlockFactory_t*, ocrFatGuid_t *, ocrFatGuid_t, ocrFatGuid_t,

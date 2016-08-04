@@ -81,7 +81,7 @@ u8 destructTaskTemplateHc(ocrTaskTemplate_t *self) {
 #define PD_MSG (&msg)
 #define PD_TYPE PD_MSG_GUID_DESTROY
     msg.type = PD_MSG_GUID_DESTROY | PD_MSG_REQUEST;
-    PD_MSG_FIELD_I(guid.guid) = self->guid;
+    PD_MSG_FIELD_I(guid.guid) = getObjectField(self, guid);
     PD_MSG_FIELD_I(guid.metaDataPtr) = self;
     PD_MSG_FIELD_I(properties) = 1;
     RESULT_PROPAGATE(pd->fcts.processMessage(pd, &msg, false));
@@ -112,7 +112,8 @@ ocrTaskTemplate_t * newTaskTemplateHc(ocrTaskTemplateFactory_t* factory, ocrEdt_
 
     ocrTaskTemplate_t *base = (ocrTaskTemplate_t*)PD_MSG_FIELD_IO(guid.metaDataPtr);
     ASSERT(base);
-    base->guid = PD_MSG_FIELD_IO(guid.guid);
+    setObjectField(base, guid, PD_MSG_FIELD_IO(guid.guid));
+    // base->guid = PD_MSG_FIELD_IO(guid.guid);
 #undef PD_MSG
 #undef PD_TYPE
 
@@ -131,6 +132,7 @@ ocrTaskTemplate_t * newTaskTemplateHc(ocrTaskTemplateFactory_t* factory, ocrEdt_
         *(char*)(base->name+t) = '\0';
     }
 #endif
+    base->base.fctId = factory->factoryId;
     base->fctId = factory->factoryId;
 
     ocrTaskTemplateHc_t *derived = (ocrTaskTemplateHc_t*)base;
@@ -180,6 +182,8 @@ void destructTaskTemplateFactoryHc(ocrTaskTemplateFactory_t* factory) {
 ocrTaskTemplateFactory_t * newTaskTemplateFactoryHc(ocrParamList_t* perType, u32 factoryId) {
     ocrTaskTemplateFactory_t* base = (ocrTaskTemplateFactory_t*)runtimeChunkAlloc(sizeof(ocrTaskTemplateFactoryHc_t), PERSISTENT_CHUNK);
 
+    // Initialize the base's base
+    base->base.fcts.processEvent = NULL;
     base->instantiate = FUNC_ADDR(ocrTaskTemplate_t* (*)(ocrTaskTemplateFactory_t*, ocrEdt_t, u32, u32, const char*, ocrParamList_t*), newTaskTemplateHc);
     base->destruct =  FUNC_ADDR(void (*)(ocrTaskTemplateFactory_t*), destructTaskTemplateFactoryHc);
     base->factoryId = factoryId;
@@ -715,6 +719,8 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
     ocrTask_t *base = (ocrTask_t*)edt;
     ASSERT(edt);
 
+    // Set up the base's base
+    base->base.fctId = factory->factoryId;
     // Set-up base structures
     base->guid = PD_MSG_FIELD_IO(guid.guid);
     base->templateGuid = edtTemplate.guid;
@@ -1501,7 +1507,11 @@ void destructTaskFactoryHc(ocrTaskFactory_t* factory) {
 ocrTaskFactory_t * newTaskFactoryHc(ocrParamList_t* perInstance, u32 factoryId) {
     ocrTaskFactory_t* base = (ocrTaskFactory_t*)runtimeChunkAlloc(sizeof(ocrTaskFactoryHc_t), PERSISTENT_CHUNK);
 
-    base->instantiate = FUNC_ADDR(u8 (*) (ocrTaskFactory_t*, ocrFatGuid_t*, ocrFatGuid_t, u32, u64*, u32, u32, ocrHint_t*, ocrFatGuid_t*, ocrTask_t *, ocrFatGuid_t, ocrParamList_t*), newTaskHc);
+    // Initialize the base's base
+    base->base.fcts.processEvent = NULL;
+
+    base->instantiate = FUNC_ADDR(u8 (*) (ocrTaskFactory_t*, ocrFatGuid_t*, ocrFatGuid_t, u32, u64*, u32, u32, ocrHint_t*,
+        ocrFatGuid_t*, ocrTask_t *, ocrFatGuid_t, ocrParamList_t*), newTaskHc);
     base->destruct =  FUNC_ADDR(void (*) (ocrTaskFactory_t*), destructTaskFactoryHc);
     base->factoryId = factoryId;
 
