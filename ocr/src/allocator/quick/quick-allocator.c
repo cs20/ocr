@@ -1649,7 +1649,7 @@ static blkPayload_t *quickMallocSlab(poolHdr_t *pool,u64 size, struct _ocrPolicy
     // ASSERT(myid >=0 && myid < MAX_THREAD);
     if (CACHE_POOL(myid) == NULL) {
         CACHE_POOL(myid) = quickInitCache(pool);
-        DPRINTF(DEBUG_LVL_VERB, "cache %p created, handles up to size %"PRId64"\n", CACHE_POOL(myid), (long)MAX_SIZE_FOR_SLABS);
+        DPRINTF(DEBUG_LVL_VERB, "cache %p created, handles up to size %"PRId64"\n", CACHE_POOL(myid), (s64)MAX_SIZE_FOR_SLABS);
     }
 
     s32 slabsIndex = SIZE_TO_SLABS(size);
