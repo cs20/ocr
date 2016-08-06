@@ -131,6 +131,7 @@ u8 suggestLocationPlacement(ocrPolicyDomain_t *pd, ocrLocation_t curLoc, ocrPlat
                     msg, msgType, (u32)placementIndex);
         }
     }
+
     return 0;
 }
 
