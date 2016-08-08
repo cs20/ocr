@@ -155,6 +155,7 @@ as input:
 
 An EDT function also returns a GUID which, if non-NULL, can refer to
 another OCR object which will be used to satisfy the EDT's post-slot.
+The GUID returned by an EDT must be either a data block GUID or the NULL GUID.
 
 When the OCR API is used to create an EDT (using the \code{ocrEdtCreate()} function)
 one or two GUIDs are returned. The first (always returned) is the GUID
