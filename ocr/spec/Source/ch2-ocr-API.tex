@@ -679,7 +679,7 @@ The following macros and enums are used with OCR data blocks.
   \hyperlink{type_u8}{u8} \hyperlink{func_ocrDbCreate}
             {\code{ocrDbCreate}}(\hyperlink{type_ocrGuid_t}{ocr\-Guid\-\_\-t} $\ast$db,
     void $\ast$$\ast$addr, \hyperlink{type_u64}{u64} len, \hyperlink{type_u16}{u16} flags,
-    \hyperlink{type_ocrHint_t}{ocr\-Hint\-\_\-t} $\ast$hint,
+    const \hyperlink{type_ocrHint_t}{ocr\-Hint\-\_\-t} $\ast$hint,
     \hyperlink{type_ocrInDbAllocator_t}{ocr\-In\-Db\-Allocator\-\_\-t} allocator)
     \begin{DoxyCompactList}
       \small\item \emph{Request the creation of a data block.}
@@ -709,7 +709,7 @@ The following macros and enums are used with OCR data blocks.
 \item[{void $\ast$$\ast$}]{addr, }
 \item[{{\bf u64}}]{len, }
 \item[{{\bf u16}}]{flags, }
-\item[{{\bf ocr\-Hint\-\_\-t} $\ast$}]{hint, }
+\item[{{\bf const ocr\-Hint\-\_\-t} $\ast$}]{hint, }
 \item[{{\bf ocr\-In\-Db\-Allocator\-\_\-t}}]{allocator}
 \end{DoxyParamCaption}
 )}}
@@ -1225,9 +1225,9 @@ The prototype of an EDT function is given by
   \hyperlink{type_u8}{u8} \hyperlink{func_ocrEdtCreate}
             {\code{ocrEdtCreate}}(\hyperlink{type_ocrGuid_t}{ocr\-Guid\-\_\-t} $\ast$guid,
     \hyperlink{type_ocrGuid_t}{ocr\-Guid\-\_\-t} template\-Guid,
-    \hyperlink{type_u32}{u32} paramc, \hyperlink{type_u64}{u64} $\ast$paramv,
-    \hyperlink{type_u32}{u32} depc, \hyperlink{type_ocrGuid_t}{ocr\-Guid\-\_\-t} $\ast$depv,
-    \hyperlink{type_u16}{u16} flags, \hyperlink{type_ocrHint_t}{ocr\-Hint\-\_\-t} $\ast$hint,
+    \hyperlink{type_u32}{u32} paramc, const \hyperlink{type_u64}{u64} $\ast$paramv,
+    \hyperlink{type_u32}{u32} depc, const \hyperlink{type_ocrGuid_t}{ocr\-Guid\-\_\-t} $\ast$depv,
+    \hyperlink{type_u16}{u16} flags, const \hyperlink{type_ocrHint_t}{ocr\-Hint\-\_\-t} $\ast$hint,
     \hyperlink{type_ocrGuid_t}{ocr\-Guid\-\_\-t} $\ast$output\-Event)
     \begin{DoxyCompactList}
       \small\item \emph{Request the creation of an EDT instance using
@@ -1338,11 +1338,11 @@ however, be used to create new EDTs once it has been destroyed.
 \item[{{\bf ocr\-Guid\-\_\-t} $\ast$}]{guid, }
 \item[{{\bf ocr\-Guid\-\_\-t}}]{template\-Guid, }
 \item[{{\bf u32}}]{paramc, }
-\item[{{\bf u64} $\ast$}]{paramv, }
+\item[{{\bf const u64} $\ast$}]{paramv, }
 \item[{{\bf u32}}]{depc, }
-\item[{{\bf ocr\-Guid\-\_\-t} $\ast$}]{depv, }
+\item[{{\bf const ocr\-Guid\-\_\-t} $\ast$}]{depv, }
 \item[{{\bf u16}}]{flags, }
-\item[{{\bf ocr\-Hint\-\_\-t} $\ast$}]{hint, }
+\item[{{\bf const ocr\-Hint\-\_\-t} $\ast$}]{hint, }
 \item[{{\bf ocr\-Guid\-\_\-t} $\ast$}]{output\-Event}
 \end{DoxyParamCaption}
 )}}

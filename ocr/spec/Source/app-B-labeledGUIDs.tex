@@ -89,9 +89,10 @@ with an index.
   \hyperlink{type_u32}{u32} numParams,
   \hyperlink{type_ocrGuid_t}{ocr\-Guid\-\_\-t}
   ($\ast$mapFunc)(\hyperlink{type_ocrGuid_t}{ocr\-Guid\-\_\-t}
-  startGuid, \hyperlink{type_u64}{u64} skipGuid,
-  \hyperlink{type_s64}{s64} $\ast$params, \hyperlink{type_s64}{s64}
-  $\ast$tuple), \hyperlink{type_s64}{s64} $\ast$params,
+      startGuid, \hyperlink{type_u64}{u64} skipGuid,
+      const \hyperlink{type_s64}{s64} $\ast$params,
+      const \hyperlink{type_s64}{s64} $\ast$tuple),
+  const \hyperlink{type_s64}{s64} $\ast$params,
   \hyperlink{type_u64}{u64} numberGuid,
   \hyperlink{type_ocrGuidUserKind}{ocrGuidUserKind} kind)
   \begin{DoxyCompactList}
@@ -127,7 +128,7 @@ with an index.
   \hyperlink{func_ocrGuidFromLabel}{\code{ocrGuidFromLabel}}(
   \hyperlink{type_ocrGuid_t}{ocr\-Guid\-\_\-t} $\ast$outGuid,
   \hyperlink{type_ocrGuid_t}{ocr\-Guid\-\_\-t} mapGuid,
-  \hyperlink{type_s64}{s64} $\ast$tuple)
+  const \hyperlink{type_s64}{s64} $\ast$tuple)
   \begin{DoxyCompactList}
     \small \item \emph{Converts a tuple into a GUID. This function is
       used with maps created using
@@ -164,8 +165,8 @@ with an index.
 \item[{{\bf ocr\-Guid\-\_\-t} $\ast$}]{mapGuid, }
 \item[{{\bf u32}}]{numParams, }
 \item[{{\bf ocr\-Guid\-\_\-t (*)(ocr\-Guid\-\_\-t, u64,
-      s64*)}}]{mapFunc, }
-\item[{{\bf s64} $\ast$}]{params, }
+      const u64*, const s64*)}}]{mapFunc, }
+\item[{{\bf const s64} $\ast$}]{params, }
 \item[{{\bf u64}}]{numberGuid, }
 \item[{{\bf ocrGuidUserKind}}]{kind}
 \end{DoxyParamCaption}
@@ -297,7 +298,7 @@ reserved but not used.
 \begin{DoxyParamCaption}
 \item[{{\bf ocr\-Guid\-\_\-t} $\ast$}]{outGuid, }
 \item[{{\bf ocr\-Guid\-\_\-t}}]{mapGuid, }
-\item[{{\bf s64} $\ast$}]{tuple}
+\item[{{\bf const s64} $\ast$}]{tuple}
 \end{DoxyParamCaption}
 )}}
 \label{func_ocrGuidFromLabel}
