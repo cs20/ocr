@@ -689,7 +689,7 @@ static void localDeguidify(ocrPolicyDomain_t *self, ocrFatGuid_t *guid) {
     if(!(ocrGuidIsNull(guid->guid)) && !(ocrGuidIsUninitialized(guid->guid))) {
         if(guid->metaDataPtr == NULL) {
             self->guidProviders[0]->fcts.getVal(self->guidProviders[0], guid->guid,
-                                                (u64*)(&(guid->metaDataPtr)), NULL);
+                                                (u64*)(&(guid->metaDataPtr)), NULL, MD_LOCAL, NULL);
         }
     }
     RETURN_PROFILE();
@@ -1709,11 +1709,11 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         } else {
             self->guidProviders[0]->fcts.getVal(
                 self->guidProviders[0], PD_MSG_FIELD_I(source.guid),
-                (u64*)(&(PD_MSG_FIELD_I(source.metaDataPtr))), &srcKind);
+                (u64*)(&(PD_MSG_FIELD_I(source.metaDataPtr))), &srcKind, MD_LOCAL, NULL);
         }
         self->guidProviders[0]->fcts.getVal(
             self->guidProviders[0], PD_MSG_FIELD_I(dest.guid),
-            (u64*)(&(PD_MSG_FIELD_I(dest.metaDataPtr))), &dstKind);
+            (u64*)(&(PD_MSG_FIELD_I(dest.metaDataPtr))), &dstKind, MD_LOCAL, NULL);
 
         ocrFatGuid_t src = PD_MSG_FIELD_I(source);
         ocrFatGuid_t dest = PD_MSG_FIELD_I(dest);
@@ -1972,10 +1972,10 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         //(but fragile) because the HC event/task does not try to use it
         self->guidProviders[0]->fcts.getVal(
             self->guidProviders[0], PD_MSG_FIELD_I(signaler.guid),
-            (u64*)(&(PD_MSG_FIELD_I(signaler.metaDataPtr))), &signalerKind);
+            (u64*)(&(PD_MSG_FIELD_I(signaler.metaDataPtr))), &signalerKind, MD_LOCAL, NULL);
         self->guidProviders[0]->fcts.getVal(
             self->guidProviders[0], PD_MSG_FIELD_I(dest.guid),
-            (u64*)(&(PD_MSG_FIELD_I(dest.metaDataPtr))), &dstKind);
+            (u64*)(&(PD_MSG_FIELD_I(dest.metaDataPtr))), &dstKind, MD_LOCAL, NULL);
 
         ocrFatGuid_t signaler = PD_MSG_FIELD_I(signaler);
         ocrFatGuid_t dest = PD_MSG_FIELD_I(dest);
@@ -2022,7 +2022,7 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         ocrGuidKind dstKind;
         self->guidProviders[0]->fcts.getVal(
             self->guidProviders[0], PD_MSG_FIELD_I(dest.guid),
-            (u64*)(&(PD_MSG_FIELD_I(dest.metaDataPtr))), &dstKind);
+            (u64*)(&(PD_MSG_FIELD_I(dest.metaDataPtr))), &dstKind, MD_LOCAL, NULL);
         ocrFatGuid_t waiter = PD_MSG_FIELD_I(waiter);
         ocrFatGuid_t dest = PD_MSG_FIELD_I(dest);
         bool isAddDep = PD_MSG_FIELD_I(properties);
@@ -2092,7 +2092,7 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
 #endif
         self->guidProviders[0]->fcts.getVal(
             self->guidProviders[0], PD_MSG_FIELD_I(guid.guid),
-            (u64*)(&(PD_MSG_FIELD_I(guid.metaDataPtr))), &dstKind);
+            (u64*)(&(PD_MSG_FIELD_I(guid.metaDataPtr))), &dstKind, MD_LOCAL, NULL);
 
         ocrFatGuid_t dst = PD_MSG_FIELD_I(guid);
         if(dstKind & OCR_GUID_EVENT) {

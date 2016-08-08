@@ -31,7 +31,7 @@ for c in `echo "8"`; do
 done
 
 # Jenkins config
-ARGS="--guid COUNTED_MAP --target ${PLATFORM} --scheduler PLACEMENT_AFFINITY --threads 8 --remove-destination"
+ARGS="--guid LABELED --target ${PLATFORM} --scheduler PLACEMENT_AFFINITY --threads 8 --remove-destination"
 $CFG_SCRIPT ${ARGS} --output jenkins-x86-${PLATFORM}.cfg
 
 # Jenkins ST config

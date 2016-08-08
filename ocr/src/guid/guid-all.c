@@ -97,3 +97,19 @@ char * ocrGuidKindToChar(ocrGuidKind kind) {
         return "unknown kind";
     }
 }
+
+
+// Temporary for compatibility with user provided implementations of
+// ocrGuidMapCreate's 'mapFunc' where some arithmetic on GUIDs is required.
+// The map feature is likely to be deprecated soon.
+ocrGuid_t addValueToGuid(ocrGuid_t input, u64 value) {
+    ocrGuid_t resGuid;
+#if GUID_BIT_COUNT == 64
+    resGuid.guid = value + input.guid;
+#elif GUID_BIT_COUNT == 128
+    resGuid.upper = 0ULL;
+    resGuid.lower = value + input.lower;
+#endif
+    return resGuid;
+}
+

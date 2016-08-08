@@ -340,7 +340,7 @@ static u8 ceSchedulerHeuristicNotifyEdtReadyInvoke(ocrSchedulerHeuristic_t *self
         ocrEdtDep_t *depv = hcTask->resolvedDeps;
         ocrGuid_t dbGuid = depv[affinitySlot].guid;
         ocrDataBlock_t *db = NULL;
-        pd->guidProviders[0]->fcts.getVal(pd->guidProviders[0], dbGuid, (u64*)(&(db)), NULL);
+        pd->guidProviders[0]->fcts.getVal(pd->guidProviders[0], dbGuid, (u64*)(&(db)), NULL, MD_LOCAL, NULL);
         ASSERT(db);
         u64 dbMemAffinity = ((u64)-1);
         ocrHint_t dbHint;

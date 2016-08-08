@@ -16,14 +16,14 @@
 #define NB_EDT 100
 
 ocrGuid_t mapFunc(ocrGuid_t startGuid, u64 stride, s64* params, s64* tuple) {
-    return (ocrGuid_t)(tuple[0]*stride + startGuid);
+    return addValueToGuid(startGuid, tuple[0]*stride);
 }
 
 ocrGuid_t shutEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     ocrGuid_t db = NULL_GUID;
     int i = 0;
     while (i < NB_EDT) {
-        if (depv[i].guid != NULL_GUID) {
+        if (!ocrGuidIsNull(depv[i].guid)) {
             ASSERT(ocrGuidIsNull(db));
             db = depv[i].guid;
         }
@@ -34,7 +34,7 @@ ocrGuid_t shutEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
 }
 
 ocrGuid_t createEvtEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
-    ocrGuid_t mapGuid = (ocrGuid_t) paramv[0];
+    ocrGuid_t mapGuid = ((ocrGuid_t *) paramv)[0];
     s64 val = 0;
     ocrGuid_t evtGuid;
     ocrGuidFromLabel(&evtGuid, mapGuid, &val);
@@ -64,13 +64,14 @@ ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     ocrEdtCreate(&shutGuid, templGuid, 0, NULL, NB_EDT, NULL, EDT_PROP_NONE, NULL_HINT, NULL);
 
     ocrGuid_t crtEvtTmplGuid;
-    ocrEdtTemplateCreate(&crtEvtTmplGuid, createEvtEdt, 1, 1);
-    u64 nparamv = (u64) mapGuid;
+    u64 nparamc = sizeof(ocrGuid_t)/sizeof(u64);
+    ocrEdtTemplateCreate(&crtEvtTmplGuid, createEvtEdt, nparamc, 1);
+    ocrGuid_t nparamv = mapGuid;
     u32 i = 0;
     while (i < NB_EDT) {
         ocrGuid_t outputEvtGuid;
         ocrGuid_t edtGuid;
-        ocrEdtCreate(&edtGuid, crtEvtTmplGuid, 1, &nparamv, 1, &startGuid, EDT_PROP_NONE, NULL_HINT, &outputEvtGuid);
+        ocrEdtCreate(&edtGuid, crtEvtTmplGuid, nparamc, (u64 *) &nparamv, 1, &startGuid, EDT_PROP_NONE, NULL_HINT, &outputEvtGuid);
         ocrAddDependence(outputEvtGuid, shutGuid, i, DB_MODE_RO);
         i++;
     }

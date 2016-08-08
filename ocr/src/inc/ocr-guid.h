@@ -44,6 +44,34 @@ typedef struct _paramListGuidProviderInst_t {
 struct _ocrGuidProvider_t;
 struct _ocrPolicyDomain_t;
 
+#define MD_FETCH 1
+#define MD_LOCAL 0
+
+//
+// TODO: this is to be replaced by some form of runtime event
+//
+
+#define REG_OPEN 0x1
+#define REG_CLOSED 0x0
+
+struct _ocrPolicyMsg_t;
+
+typedef struct _MdProxyNode_t {
+    //TODO This should be a rt event to allow 'anything' to be a continuation of the md fetch
+    struct _ocrPolicyMsg_t * msg;
+    struct _MdProxyNode_t * next;
+} MdProxyNode_t;
+
+typedef struct {
+    MdProxyNode_t * queueHead;
+    volatile u64 ptr;
+} MdProxy_t;
+
+//
+// END TODO
+//
+
+
 /**
  * @brief GUID provider function pointers
  *
@@ -162,7 +190,7 @@ typedef struct _ocrGuidProviderFcts_t {
      *
      * @return 0 on success or an error code
      */
-    u8 (*getVal)(struct _ocrGuidProvider_t* self, ocrGuid_t guid, u64* val, ocrGuidKind* kind);
+    u8 (*getVal)(struct _ocrGuidProvider_t* self, ocrGuid_t guid, u64* val, ocrGuidKind* kind, u32 mode, MdProxy_t ** proxy);
 
     /**
      * @brief Resolve the kind of a GUID

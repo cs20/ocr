@@ -31,6 +31,8 @@
 #define PHASE_COMM_QUIESCE ((u8) 1)
 #define PHASE_DONE ((u8) 0)
 
+//TODO-MD-MT These should become micro-tasks
+extern ocrGuid_t processRequestEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]);
 
 /******************************************************/
 /* OCR-HC COMMUNICATION WORKER                        */
@@ -102,18 +104,6 @@ static u8 createProcessRequestEdt(ocrPolicyDomain_t * pd, ocrGuid_t templateGuid
 }
 
 #endif /* UTASK_COMM */
-
-extern u8 processIncomingMsg(ocrPolicyDomain_t * pd, ocrPolicyMsg_t * msg);
-
-ocrGuid_t processRequestEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
-    ocrPolicyMsg_t * msg = (ocrPolicyMsg_t *) paramv[0];
-    DPRINTF(DEBUG_LVL_VERB, "Going to process async callback with msg %p of type 0x%"PRIx32" and msgId %"PRIu64"\n",
-        msg, msg->type, msg->msgId);
-    ocrPolicyDomain_t * pd;
-    getCurrentEnv(&pd, NULL, NULL, NULL);
-    processIncomingMsg(pd, msg);
-    return NULL_GUID;
-}
 
 static u8 takeFromSchedulerAndSend(ocrWorker_t * worker, ocrPolicyDomain_t * pd) {
     // When the communication-worker is not stopping only a single iteration is

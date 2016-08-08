@@ -1874,7 +1874,7 @@ u8 cePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         // We need to resolve the GUID
         DPRINTF(DEBUG_LVL_VERB, "Processing GUID_INFO request for GUID "GUIDF"\n", GUIDA(PD_MSG_FIELD_IO(guid.guid)));
         if(self->guidProviders[0]->fcts.getVal(self->guidProviders[0], PD_MSG_FIELD_IO(guid.guid),
-                                               (u64*)(&(PD_MSG_FIELD_IO(guid.metaDataPtr))), NULL)) {
+                                               (u64*)(&(PD_MSG_FIELD_IO(guid.metaDataPtr))), NULL, MD_LOCAL, NULL)) {
             // If we get here, it means our GUID provider has no clue about
             // this GUID so we probably have to go fetch it from somewhere else
             ocrLocation_t guidLocation;
@@ -1896,7 +1896,7 @@ u8 cePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
 #endif
             ASSERT(otherPd->myLocation == guidLocation);
             RESULT_ASSERT(otherPd->guidProviders[0]->fcts.getVal(otherPd->guidProviders[0], PD_MSG_FIELD_IO(guid.guid),
-                                                                 (u64*)(&(PD_MSG_FIELD_IO(guid.metaDataPtr))), NULL), ==, 0);
+                                                                 (u64*)(&(PD_MSG_FIELD_IO(guid.metaDataPtr))), NULL, MD_LOCAL, NULL), ==, 0);
 
             if(PD_MSG_FIELD_I(properties) & KIND_GUIDPROP) {
                 PD_MSG_FIELD_O(returnDetail) = otherPd->guidProviders[0]->fcts.getKind(
@@ -2286,7 +2286,6 @@ u8 cePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         ocrGuidKind srcKind, dstKind;
         localDeguidify(self, &(PD_MSG_FIELD_I(source)), &srcKind);
         localDeguidify(self, &(PD_MSG_FIELD_I(dest)), &dstKind);
-
         ocrFatGuid_t src = PD_MSG_FIELD_I(source);
         ocrFatGuid_t dest = PD_MSG_FIELD_I(dest);
         ocrDbAccessMode_t mode = (PD_MSG_FIELD_IO(properties) & DB_ACCESS_MODE_MASK);

@@ -212,7 +212,6 @@ u8 ocrGuidFromIndex(ocrGuid_t *outGuid, ocrGuid_t rangeGuid, u64 idx) {
     if(ocrGuidIsNull(rangeGuid)){
         RETURN_PROFILE(OCR_EINVAL);
     }
-
     ocrPolicyDomain_t *pd = NULL;
     ocrGuidMap_t *myMap = NULL;
     PD_MSG_STACK(msg);

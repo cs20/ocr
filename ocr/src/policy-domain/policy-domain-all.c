@@ -6,6 +6,7 @@
 
 #include "policy-domain/policy-domain-all.h"
 #include "debug.h"
+#include "ocr-errors.h"
 
 #ifdef ENABLE_EXTENSION_LABELING
 #include "experimental/ocr-labeling-runtime.h"
@@ -1217,7 +1218,8 @@ u8 ocrPolicyMsgUnMarshallMsg(u8* mainBuffer, u8* addlBuffer,
             ocrGuidKind kind;
             ocrPolicyDomain_t * pd;
             getCurrentEnv(&pd, NULL, NULL, NULL);
-            pd->guidProviders[0]->fcts.getVal(pd->guidProviders[0], PD_MSG_FIELD_IO(guid.guid), &val, &kind);
+            //TODO this should be kind not getVal
+            pd->guidProviders[0]->fcts.getVal(pd->guidProviders[0], PD_MSG_FIELD_IO(guid.guid), &val, &kind, MD_LOCAL, NULL);
             if (kind == OCR_GUID_EDT_TEMPLATE) {
                 // Handle unmarshalling formatted as: ocrTaskTemplateHc_t + hints
                 void * base = PD_MSG_FIELD_IO(guid.metaDataPtr);
@@ -1325,7 +1327,7 @@ u8 ocrPolicyMsgUnMarshallMsg(u8* mainBuffer, u8* addlBuffer,
                     // For now rely on the provider not knowing the GUID. Note there's a potential race
                     // here with code in hc-dist-policy that may be setting
                     u64 val;
-                    pd->guidProviders[0]->fcts.getVal(pd->guidProviders[0], guids->guid, &val, NULL);
+                    pd->guidProviders[0]->fcts.getVal(pd->guidProviders[0], guids->guid, &val, NULL, MD_LOCAL, NULL);
                     if (val == 0) {
                         guids->metaDataPtr = NULL;
                     } else {
@@ -1382,7 +1384,7 @@ u8 ocrPolicyMsgUnMarshallMsg(u8* mainBuffer, u8* addlBuffer,
                     // For now rely on the provider not knowing the GUID. Note there's a potential race
                     // here with code in hc-dist-policy that may be setting
                     u64 val;
-                    pd->guidProviders[0]->fcts.getVal(pd->guidProviders[0], guids->guid, &val, NULL);
+                    pd->guidProviders[0]->fcts.getVal(pd->guidProviders[0], guids->guid, &val, NULL, MD_LOCAL, NULL);
                     if (val == 0) {
                         guids->metaDataPtr = NULL;
                     } else {
@@ -1416,4 +1418,115 @@ u8 ocrPolicyMsgUnMarshallMsg(u8* mainBuffer, u8* addlBuffer,
 
     return 0;
 }
+
+
+// Process incoming message from other policy-domains
+// There are two impl to asynchronously process incoming message based on MT or EDTs
+// The later will be stripped out.
+u8 processIncomingMsg(ocrPolicyDomain_t * pd, ocrPolicyMsg_t * msg) {
+    // This is meant to execute incoming request and asynchronously processed responses (two-way asynchronous)
+    // Regular responses are routed back to requesters by the scheduler and are processed by them.
+
+    ASSERT((msg->type & PD_MSG_REQUEST) || ((msg->type & PD_MSG_RESPONSE) &&
+                (((msg->type & PD_MSG_TYPE_ONLY) == PD_MSG_DB_ACQUIRE) ||
+                ((msg->type & PD_MSG_TYPE_ONLY) == PD_MSG_GUID_METADATA_CLONE))));
+    // Important to read this before calling processMessage. If the message requires
+    // a response, the runtime reuses the request's message to post the response.
+    // Hence there's a race between this code and the code posting the response.
+    bool processResponse __attribute__((unused)) = !!(msg->type & PD_MSG_RESPONSE); // mainly for debug
+    bool syncProcess = !((msg->type & PD_MSG_TYPE_ONLY) == PD_MSG_DB_ACQUIRE);
+    // Here we need to read because on EPEND, by the time we get to check 'res'
+    // the callback my have completed and deallocated the message.
+    u32 msgTypeOnly = (msg->type & PD_MSG_TYPE_ONLY);
+
+#ifdef ENABLE_EXTENSION_BLOCKING_SUPPORT
+    bool checkLabeled = false;
+    if (((msg->type & PD_MSG_TYPE_ONLY) == PD_MSG_EVT_CREATE) && (msg->type & PD_MSG_REQUEST)) {
+#define PD_MSG (msg)
+#define PD_TYPE PD_MSG_EVT_CREATE
+        u32 properties = PD_MSG_FIELD_I(properties);
+        ASSERT((properties & GUID_PROP_IS_LABELED)); // Only labeled guid can be remotely created
+        checkLabeled = ((properties & GUID_PROP_BLOCK) == GUID_PROP_BLOCK);
+        if (checkLabeled) { // Make the check asynchronous
+            PD_MSG_FIELD_I(properties) |= GUID_PROP_CHECK;
+        }
+        syncProcess = !checkLabeled;
+#undef PD_MSG
+#undef PD_TYPE
+    }
+#endif
+
+    // All one-way request can be freed after processing
+    bool toBeFreed = !(msg->type & PD_MSG_REQ_RESPONSE);
+    DPRINTF(DEBUG_LVL_VVERB,"Process incoming EDT request @ %p of type 0x%"PRIx32"\n", msg, msg->type);
+    u8 res = pd->fcts.processMessage(pd, msg, syncProcess);
+    DPRINTF(DEBUG_LVL_VVERB,"[done] Process incoming EDT @ %p request of type 0x%"PRIx32"\n", msg, msg->type);
+    //BUG #587 probably want a return code that tells if the message can be discarded or not
+
+    if (res == OCR_EPEND) {
+        if (msgTypeOnly == PD_MSG_DB_ACQUIRE) {
+            // Acquire requests are consumed and can be discarded.
+            pd->fcts.pdFree(pd, msg);
+        }
+#ifdef ENABLE_EXTENSION_BLOCKING_SUPPORT
+        else if (checkLabeled) {
+            ocrTask_t *task = NULL;
+            getCurrentEnv(NULL, NULL, &task, NULL);
+            task->state = RESCHED_EDTSTATE;
+        }
+#endif
+        else {
+            ASSERT(msgTypeOnly == PD_MSG_WORK_CREATE);
+            // Do not deallocate: Message has been enqueued for further processing.
+            // Actually, message may have been deallocated in the meanwhile because
+            // the callback has been invoked.
+        }
+    } else {
+        if (toBeFreed) {
+            // Makes sure the runtime doesn't try to reuse this message
+            // even though it was not supposed to issue a response.
+            // If that's the case, this check is racy
+            // Cannot just test (|| !(msg->type & PD_MSG_RESPONSE)) because the way things
+            // are currently setup, the various policy-domain implementations are always setting
+            // the response flag although req_response is not set but the destLocation is still local.
+            // Hence there are no race between freeing the message and sending the hypotetical response.
+            ASSERT(processResponse || (msg->destLocation == pd->myLocation));
+            DPRINTF(DEBUG_LVL_VVERB,"Deleted incoming EDT request @ %p of type 0x%"PRIx32"\n", msg, msg->type);
+            // if request was an incoming one-way we can delete the message now.
+            pd->fcts.pdFree(pd, msg);
+        }
+    }
+    return res;
+}
+
+ocrGuid_t processRequestEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
+    ocrPolicyMsg_t * msg = (ocrPolicyMsg_t *) paramv[0];
+    DPRINTF(DEBUG_LVL_VERB, "Going to process async callback with msg %p of type 0x%"PRIx32" and msgId %"PRIu64"\n",
+        msg, msg->type, msg->msgId);
+    ocrPolicyDomain_t * pd;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+    processIncomingMsg(pd, msg);
+    return NULL_GUID;
+}
+
+#ifndef ENABLE_POLICY_DOMAIN_HC_DIST
+
+// //Note: These are moved to common modules in subsequent patches
+
+u8 createProcessRequestEdtDistPolicy(ocrPolicyDomain_t * pd, ocrGuid_t templateGuid, u64 * paramv) {
+    ASSERT(false);
+    return 0;
+}
+
+u8 resolveRemoteMetaData(ocrPolicyDomain_t * pd, ocrFatGuid_t * fatGuid,
+                                ocrPolicyMsg_t * msg, bool isBlocking) {
+    MdProxy_t * mdProxy = NULL;
+    u64 val;
+    pd->guidProviders[0]->fcts.getVal(pd->guidProviders[0], fatGuid->guid, &val, NULL, MD_FETCH, &mdProxy);
+    ASSERT(val != 0);
+    fatGuid->metaDataPtr = (void *) val;
+    return 0;
+}
+
+#endif
 

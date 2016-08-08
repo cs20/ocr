@@ -101,6 +101,7 @@
 // Build pause/resume support
 //#define ENABLE_EXTENSION_PAUSE
 
+// Affinity support
+#define ENABLE_EXTENSION_AFFINITY
+
 #endif /* __OCR_CONFIG_H__ */
-
-

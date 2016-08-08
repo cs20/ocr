@@ -263,6 +263,10 @@ static u64 locationToLocId(ocrLocation_t location) {
     return locId;
 }
 
+static bool isLocalGuid(ocrGuidProvider_t* self, ocrGuid_t guid) {
+    return self->pd->myLocation == locIdtoLocation(extractLocIdFromGuid(guid));
+}
+
 /**
  * @brief Utility function to generate a new GUID.
  */
@@ -356,7 +360,6 @@ u8 labeledGuidGetGuid(ocrGuidProvider_t* self, ocrGuid_t* guid, u64 val, ocrGuid
 }
 
 u8 labeledGuidCreateGuid(ocrGuidProvider_t* self, ocrFatGuid_t *fguid, u64 size, ocrGuidKind kind, u32 properties) {
-
     if(properties & GUID_PROP_IS_LABELED) {
         // We need to use the GUID provided; make sure it is non null and reserved
         ASSERT((!(ocrGuidIsNull(fguid->guid))) && (IS_RESERVED_GUID(fguid->guid)));
@@ -492,28 +495,36 @@ u8 labeledGuidCreateGuid(ocrGuidProvider_t* self, ocrFatGuid_t *fguid, u64 size,
 /**
  * @brief Returns the value associated with a guid and its kind if requested.
  */
-u8 labeledGuidGetVal(ocrGuidProvider_t* self, ocrGuid_t guid, u64* val, ocrGuidKind* kind) {
+u8 labeledGuidGetVal(ocrGuidProvider_t* self, ocrGuid_t guid, u64* val, ocrGuidKind* kind, u32 mode, MdProxy_t ** proxy) {
+    ocrGuidProviderLabeled_t * dself = (ocrGuidProviderLabeled_t *) self;
+    if (IS_RESERVED_GUID(guid)) {
+        // Current limitations for labeled GUID
+        // Only affinity and templates for now
+        ASSERT(mode != MD_FETCH);
+    }
     // See BUG #928 on GUID issues
-#if GUID_BIT_COUNT == 64
-    *val = (u64) GP_HASHTABLE_GET(((ocrGuidProviderLabeled_t *) self)->guidImplTable, (void *) guid.guid);
-#elif GUID_BIT_COUNT == 128
-    *val = (u64) GP_HASHTABLE_GET(((ocrGuidProviderLabeled_t *) self)->guidImplTable, (void *) guid.lower);
-#else
-#error Unknown GUID type
-#endif
-    DPRINTF(DEBUG_LVL_VERB, "LabeledGUID: got val for GUID "GUIDF": 0x%"PRIx64"\n", GUIDA(guid), *val);
-    if(*val == (u64)NULL) {
-        // Does not exist in the hashtable
-        if(kind) {
-            *kind = getKindFromGuid(guid);
-        }
-        return OCR_EPERM;
-    } else {
-        // Bug #627: We do not return until the GUID is valid. We test this
-        // by looking at the first field of ptr and waiting for it to be the GUID value (meaning the
-        // object has been initialized
-        if(IS_RESERVED_GUID(guid)) {
-            void * adjustedPtr = (((ocrObject_t *)(*val))+1);
+    #if GUID_BIT_COUNT == 64
+        void * rguid = (void *) guid.guid;
+    #elif GUID_BIT_COUNT == 128
+        void * rguid = (void *) guid.lower;
+    #else
+    #error Unknown type of GUID
+    #endif
+    if (isLocalGuid(self, guid)) {
+        *val = (u64) GP_HASHTABLE_GET(dself->guidImplTable, rguid);
+        DPRINTF(DEBUG_LVL_VERB, "LabeledGUID: got val for GUID "GUIDF": 0x%"PRIx64"\n", GUIDA(guid), *val);
+        if ((*val != (u64)NULL) && IS_RESERVED_GUID(guid)) {
+            // Bug #627: We do not return until the GUID is valid. We test this
+            // by looking at the first field of ptr and waiting for it to be the GUID value (meaning the
+            // object has been initialized
+            volatile u64 * spinVal;
+            if (isLocalGuid(self, guid)) {
+                spinVal = val;
+            } else {
+                MdProxy_t * sproxy = (MdProxy_t *) val;
+                spinVal = (volatile u64*) &sproxy->ptr;
+            }
+            void * adjustedPtr = (((ocrObject_t *)(*spinVal))+1);
             // See BUG #928 on GUID issues
 #if GUID_BIT_COUNT == 64
             while((*(volatile u64*)(adjustedPtr)) != guid.guid);
@@ -521,13 +532,94 @@ u8 labeledGuidGetVal(ocrGuidProvider_t* self, ocrGuid_t guid, u64* val, ocrGuidK
             while((*(volatile u64*)(adjustedPtr)) != guid.lower);
 #endif
             hal_fence(); // May be overkill but there is a race that I don't get
+        } // else val is not set and fall-through
+    } else {
+        // The GUID is remote, check if we have a local representent or need to fetch
+        *val = 0; // Important for return code to be set properly
+        MdProxy_t * mdProxy = (MdProxy_t *) GP_HASHTABLE_GET(dself->guidImplTable, rguid);
+        if (mdProxy == NULL) {
+            if (mode == MD_LOCAL) {
+                if (kind) {
+                    *kind = getKindFromGuid(guid);
+                }
+                return 0;
+            }
+            // Implementation limitation. For now DB relies on the proxy mecanism in hc-dist-policy
+            ASSERT(getKindFromGuid(guid) != OCR_GUID_DB);
+
+            // Use 'proxy' being set or not to determine if the caller wanted
+            // to do the fetch if absent or is just querying for presence.
+            if (proxy == NULL) { // MD_LOCAL is just to check and not fetch
+                ASSERT(kind == NULL); // Shouldn't happen in current impl
+                return 0;
+            }
+            //For labeled, currently delegating directly to the remote location that owns the reserved GUID
+            ASSERT(!IS_RESERVED_GUID(guid) && "Labeled Limitation");
+            ocrPolicyDomain_t * pd = self->pd;
+            mdProxy = (MdProxy_t *) pd->fcts.pdMalloc(pd, sizeof(MdProxy_t));
+            mdProxy->queueHead = (void *) REG_OPEN; // sentinel value
+            mdProxy->ptr = 0;
+            hal_fence(); // I think the lock in try put should make the writes visible
+            MdProxy_t * oldMdProxy = (MdProxy_t *) hashtableConcBucketLockedTryPut(dself->guidImplTable, rguid, mdProxy);
+            if (oldMdProxy == mdProxy) { // won
+                // TODO two options:
+                // 1- Issue the MD cloning here and link that operation's
+                //    completion to the mdProxy
+                PD_MSG_STACK(msgClone);
+                getCurrentEnv(NULL, NULL, NULL, &msgClone);
+#define PD_MSG (&msgClone)
+#define PD_TYPE PD_MSG_GUID_METADATA_CLONE
+                msgClone.type = PD_MSG_GUID_METADATA_CLONE | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
+                PD_MSG_FIELD_IO(guid.guid) = guid;
+                PD_MSG_FIELD_IO(guid.metaDataPtr) = NULL;
+                u8 returnCode = pd->fcts.processMessage(pd, &msgClone, false);
+                ASSERT(returnCode == OCR_EPEND);
+                // Warning: after this call we're potentially concurrent with the MD being registered on the GP
+#undef PD_MSG
+#undef PD_TYPE
+                // 2- Return an error code along with the oldMdProxy event
+                //    The caller will be responsible for calling MD cloning
+                //    and setup the link. Note there's a race here when the
+                //    md is resolve concurrently. It sounds it would be better
+                //    to go through functions.
+            } else {
+                // lost competition, 2 cases:
+                // 1) The MD is available (it's concurrent to this work thread)
+                // 2) The MD is still being fetch
+                pd->fcts.pdFree(pd, mdProxy); // we failed, free our proxy.
+                // Read the content of the proxy anyhow
+                // TODO: Open a feature bug for that.
+                // It is safe to read the ptr because there cannot be a racing remove
+                // operation on that entry. For now we made the choice that we do not
+                // eagerly reclaim entries to evict ununsed GUID. The only time a GUID
+                // is removed from the map is when the OCR object it represent is being
+                // destroyed (hence there should be no concurrent read at that time).
+                *val = (u64) oldMdProxy->ptr;
+                if (*val == 0) {
+                    // MD is still being fetch, multiple options:
+                    // - Opt 1: Continuation
+                    //          WAIT_FOR(oldMdProxy);
+                    //          When resumed, the metadata is available locally
+                    // - Opt 2: Return a 'proxy' runtime event for caller to register on
+                    // For now return OCR_EPEND and let the caller deal with it
+                }
+                mdProxy = oldMdProxy;
+            }
+        } else {
+            //For labeled, currently delegating directly to the remote location that owns the reserved GUID
+            ASSERT(!IS_RESERVED_GUID(guid) && "Labeled Limitation");
+            *val = ((getKindFromGuid(guid) == OCR_GUID_DB) ? ((u64) mdProxy) : ((u64) mdProxy->ptr));
         }
-        if(kind) {
-            *kind = getKindFromGuid(guid);
+        if (mode == MD_FETCH) {
+            ASSERT(proxy != NULL);
+            *proxy = mdProxy;
         }
     }
+    if (kind) {
+        *kind = getKindFromGuid(guid);
+    }
 
-    return 0;
+    return (*val) ? 0 : OCR_EPEND;
 }
 
 /**
@@ -547,6 +639,10 @@ u8 labeledGuidGetLocation(ocrGuidProvider_t* self, ocrGuid_t guid, ocrLocation_t
     return 0;
 }
 
+//TODO-MD-MT These should become micro-tasks
+extern ocrGuid_t processRequestEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]);
+extern u8 createProcessRequestEdtDistPolicy(ocrPolicyDomain_t * pd, ocrGuid_t templateGuid, u64 * paramv);
+
 /**
  * @brief Associate an already existing GUID to a value.
  * This is useful in the context of distributed-OCR to register
@@ -554,14 +650,53 @@ u8 labeledGuidGetLocation(ocrGuidProvider_t* self, ocrGuid_t guid, ocrLocation_t
  */
 u8 labeledGuidRegisterGuid(ocrGuidProvider_t* self, ocrGuid_t guid, u64 val) {
     DPRINTF(DEBUG_LVL_VERB, "LabeledGUID: register GUID "GUIDF" -> 0x%"PRIx64"\n", GUIDA(guid), val);
-    // See BUG #928 on GUID issues
+    ocrGuidProviderLabeled_t * dself = (ocrGuidProviderLabeled_t *) self;
 #if GUID_BIT_COUNT == 64
-    GP_HASHTABLE_PUT(((ocrGuidProviderLabeled_t *) self)->guidImplTable, (void *) guid.guid, (void *) val);
+    void * rguid = (void *) guid.guid;
 #elif GUID_BIT_COUNT == 128
-    GP_HASHTABLE_PUT(((ocrGuidProviderLabeled_t *) self)->guidImplTable, (void *) guid.lower, (void *) val);
+    void * rguid = (void *) guid.lower;
 #else
-#error Unknown GUID type
+#error Unknown type of GUID
 #endif
+    if (isLocalGuid(self, guid)) {
+        // See BUG #928 on GUID issues
+        GP_HASHTABLE_PUT(((ocrGuidProviderLabeled_t *) self)->guidImplTable, (void *) rguid, (void *) val);
+    } else {
+        // Datablocks not yet supported as part of MdProxy_t - handled at the dist-PD level
+        if (getKindFromGuid(guid) == OCR_GUID_DB) {
+            // See BUG #928 on GUID issues
+            GP_HASHTABLE_PUT(((ocrGuidProviderLabeled_t *) self)->guidImplTable, (void *) rguid, (void *) val);
+            return 0;
+        }
+        MdProxy_t * mdProxy = (MdProxy_t *) hashtableConcBucketLockedGet(dself->guidImplTable, (void *) rguid);
+        // Must have setup a mdProxy before being able to register.
+        ASSERT(mdProxy != NULL);
+        mdProxy->ptr = val;
+        hal_fence(); // This may be redundant with the CAS
+        u64 newValue = (u64) REG_CLOSED;
+        u64 curValue = 0;
+        u64 oldValue = 0;
+        do {
+            MdProxyNode_t * head = mdProxy->queueHead;
+            ASSERT(head != REG_CLOSED);
+            curValue = (u64) head;
+            oldValue = hal_cmpswap64((u64*) &(mdProxy->queueHead), curValue, newValue);
+        } while(oldValue != curValue);
+        ocrGuid_t processRequestTemplateGuid;
+        ocrEdtTemplateCreate(&processRequestTemplateGuid, &processRequestEdt, 1, 0);
+        MdProxyNode_t * queueHead = (MdProxyNode_t *) oldValue;
+        DPRINTF(DEBUG_LVL_VVERB,"About to process stored clone requests for GUID "GUIDF" queueHead=%p)\n", GUIDA(guid), queueHead);
+        while (queueHead != ((void*) REG_OPEN)) { // sentinel value
+            DPRINTF(DEBUG_LVL_VVERB,"Processing stored clone requests for GUID "GUIDF"\n", GUIDA(guid));
+            u64 paramv = (u64) queueHead->msg;
+            ocrPolicyDomain_t * pd = self->pd;
+            createProcessRequestEdtDistPolicy(pd, processRequestTemplateGuid, &paramv);
+            MdProxyNode_t * currNode = queueHead;
+            queueHead = queueHead->next;
+            pd->fcts.pdFree(pd, currNode);
+        }
+        ocrEdtTemplateDestroy(processRequestTemplateGuid);
+    }
     return 0;
 }
 
@@ -656,7 +791,7 @@ ocrGuidProviderFactory_t *newGuidProviderFactoryLabeled(ocrParamList_t *typeArg,
     base->providerFcts.guidUnreserve = FUNC_ADDR(u8 (*)(ocrGuidProvider_t*, ocrGuid_t, u64, u64), labeledGuidUnreserve);
     base->providerFcts.getGuid = FUNC_ADDR(u8 (*)(ocrGuidProvider_t*, ocrGuid_t*, u64, ocrGuidKind), labeledGuidGetGuid);
     base->providerFcts.createGuid = FUNC_ADDR(u8 (*)(ocrGuidProvider_t*, ocrFatGuid_t*, u64, ocrGuidKind, u32), labeledGuidCreateGuid);
-    base->providerFcts.getVal = FUNC_ADDR(u8 (*)(ocrGuidProvider_t*, ocrGuid_t, u64*, ocrGuidKind*), labeledGuidGetVal);
+    base->providerFcts.getVal = FUNC_ADDR(u8 (*)(ocrGuidProvider_t*, ocrGuid_t, u64*, ocrGuidKind*, u32, MdProxy_t**), labeledGuidGetVal);
     base->providerFcts.getKind = FUNC_ADDR(u8 (*)(ocrGuidProvider_t*, ocrGuid_t, ocrGuidKind*), labeledGuidGetKind);
     base->providerFcts.getLocation = FUNC_ADDR(u8 (*)(ocrGuidProvider_t*, ocrGuid_t, ocrLocation_t*), labeledGuidGetLocation);
     base->providerFcts.registerGuid = FUNC_ADDR(u8 (*)(ocrGuidProvider_t*, ocrGuid_t, u64), labeledGuidRegisterGuid);

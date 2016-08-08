@@ -414,7 +414,7 @@ static u8 pcSchedulerHeuristicAnalyzePhaseRequestInvoke(ocrSchedulerHeuristic_t 
     ocrSchedulerObjectFactory_t *tablFact = self->scheduler->pd->schedulerObjectFactories[domainObj->dbMap->fctId];
     for (i = 0; i < depc; i++) {
         ASSERT(depv[i].ptr == NULL);
-        if (depv[i].guid != NULL_GUID) {
+        if (!ocrGuidIsNull(depv[i].guid)) {
             it->ITERATOR_ARG_FIELD(OCR_SCHEDULER_OBJECT_MAP).key = (void*)depv[i].guid;
             it->ITERATOR_ARG_FIELD(OCR_SCHEDULER_OBJECT_MAP).value = NULL;
             RESULT_ASSERT(tablFact->fcts.iterate(tablFact, domainObj->dbMap, it, SCHEDULER_OBJECT_ITERATE_MAP_GET_NON_CONC), ==, 0);
@@ -437,7 +437,7 @@ static u8 pcSchedulerHeuristicAnalyzePhaseRequestInvoke(ocrSchedulerHeuristic_t 
         u64 maxSize = dbNode->dbSize;
         ocrSchedulerObjectDbNode_t *maxDbNode = dbNode;
         for (; i < depc; i++) {
-            if (depv[i].guid != NULL_GUID) {
+            if (!ocrGuidIsNull(depv[i].guid)) {
                 ocrSchedulerObjectDbNode_t *dbNode = (ocrSchedulerObjectDbNode_t*)depv[i].ptr;
                 if (runningLoc != dbNode->currentLoc)
                     break;
@@ -480,7 +480,7 @@ static u8 pcSchedulerHeuristicAnalyzePhaseResponseInvoke(ocrSchedulerHeuristic_t
     ocrSchedulerObjectFactory_t *tablFact = self->scheduler->pd->schedulerObjectFactories[domainObj->dbMap->fctId];
     for (i = 0; i < depc; i++) {
         ASSERT(depv[i].ptr == NULL);
-        if (depv[i].guid != NULL_GUID) {
+        if (!ocrGuidIsNull(depv[i].guid)) {
             it->ITERATOR_ARG_FIELD(OCR_SCHEDULER_OBJECT_MAP).key = (void*)depv[i].guid;
             it->ITERATOR_ARG_FIELD(OCR_SCHEDULER_OBJECT_MAP).value = NULL;
             RESULT_ASSERT(tablFact->fcts.iterate(tablFact, domainObj->dbMap, it, SCHEDULER_OBJECT_ITERATE_MAP_GET_NON_CONC), ==, 0);

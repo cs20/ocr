@@ -14,7 +14,7 @@
  */
 
 ocrGuid_t mapFunc(ocrGuid_t startGuid, u64 stride, s64* params, s64* tuple) {
-    return (ocrGuid_t)(tuple[0]*stride + startGuid);
+    return addValueToGuid(startGuid, tuple[0]*stride);
 }
 
 ocrGuid_t shutEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {

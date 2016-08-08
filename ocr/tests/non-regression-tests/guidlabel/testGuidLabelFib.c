@@ -14,7 +14,7 @@
 #include "stdlib.h"
 
 ocrGuid_t mapFunc(ocrGuid_t startGuid, u64 stride, s64* params, s64* tuple) {
-    return (ocrGuid_t)(tuple[0]*stride + startGuid);
+    return addValueToGuid(startGuid, tuple[0]*stride);
 }
 
 // paramv[0]: mapGuid
@@ -22,8 +22,7 @@ ocrGuid_t mapFunc(ocrGuid_t startGuid, u64 stride, s64* params, s64* tuple) {
 // depv[1]: fib(X-2)
 // depv[2]: X on input fib(X) on output
 ocrGuid_t complete(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
-
-    ocrGuid_t mapGuid = (ocrGuid_t)(paramv[0]);
+    ocrGuid_t mapGuid = ((ocrGuid_t *) paramv)[0];
     u32 in1, in2;
     u32 out;
 
@@ -73,9 +72,9 @@ ocrGuid_t fibEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     ocrGuid_t comp;
     s64 t;
 
-    mapGuid = (ocrGuid_t)paramv[0];
-    fibTemplateGuid = (ocrGuid_t)paramv[1];
-    compTemplateGuid = (ocrGuid_t)paramv[2];
+    mapGuid = ((ocrGuid_t *) paramv)[0];
+    fibTemplateGuid = ((ocrGuid_t *) paramv)[1];
+    compTemplateGuid = ((ocrGuid_t *) paramv)[2];
 
     u32 n = *(u32*)(depv[0].ptr);
     PRINTF("Starting fibEdt(%"PRIu32")\n", n);
@@ -221,18 +220,19 @@ ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
 
     {
         // At some point, we need to move away from this ocrGuid_t is 64 bits...
-        u64 paramv[3];
-        paramv[0] = (u64)mapGuid;
+        u64 guidCount = (sizeof(ocrGuid_t)/sizeof(u64));
+        ocrGuid_t nparamv[3];
+        nparamv[0] = mapGuid;
         ocrGuid_t depv = fibArg;
 
         ocrGuid_t templateGuid;
-        ocrEdtTemplateCreate(&templateGuid, complete, 1, 3);
-        paramv[2] = (u64)templateGuid;
+        ocrEdtTemplateCreate(&templateGuid, complete, guidCount, 3);
+        nparamv[2] = templateGuid;
 
-        ocrEdtTemplateCreate(&templateGuid, fibEdt, 3, 1);
-        paramv[1] = (u64)templateGuid;
+        ocrEdtTemplateCreate(&templateGuid, fibEdt, guidCount*3, 1);
+        nparamv[1] = templateGuid;
 
-        ocrEdtCreate(&fibC, templateGuid, 3, paramv, 1, &depv, EDT_PROP_NONE,
+        ocrEdtCreate(&fibC, templateGuid, guidCount*3, (u64 *) nparamv, 1, &depv, EDT_PROP_NONE,
                      NULL_HINT, NULL);
     }
 

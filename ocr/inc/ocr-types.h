@@ -52,6 +52,9 @@ typedef struct {
 
 #endif
 
+// See impl notes
+ocrGuid_t addValueToGuid(ocrGuid_t input, u64 value);
+
 /* Defined vals for 64-bit GUIDs */
 #if GUID_BIT_COUNT == 64
 

@@ -146,6 +146,9 @@ if [ -z "${OCR_CONFIG}" ]; then
     export CFGARG_THREADS=${CFGARG_THREADS-8}
     export CFGARG_ALLOCTYPE=${CFGARG_ALLOCTYPE-mallocproxy}
     export CFGARG_DBTYPE=${CFGARG_DBTYPE-Lockable}
+    if [ -n "${TEST_EXT_LABELING}" ]; then
+        export CFGARG_GUID=${CFGARG_GUID-LABELED}
+    fi
     if [ "${OCR_TYPE}" = "x86-mpi" ]; then
         export CFGARG_GUID=${CFGARG_GUID-COUNTED_MAP}
         export CFGARG_TARGET=${CFGARG_TARGET-mpi}
