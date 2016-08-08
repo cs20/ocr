@@ -33,11 +33,12 @@ The following parameters are available for latch events:
 \subsection*{Functions}
 \begin{DoxyCompactItemize}
 \item
-\hyperlink{type_u8}{u8} \hyperlink{func_ocrGuidMapCreate}
+\hyperlink{type_u8}{u8} \hyperlink{func_ocrEventCreateParams}
 {\code{ocrEventCreateParams}}(\hyperlink{type_ocrGuid_t}{ocr\-Guid\-\_\-t}
 $\ast$ guid,
 \hyperlink{type_ocrEventTypes_t}{ocrEventTypes\_t} eventType,
 \hyperlink{type_u16}{u16} properties,
+const \hyperlink{type_ocrHint_t}{ocr\-Hint\-\_\-t} $\ast$hint,
 const \hyperlink{type_ocrEventParams_t}{ocrEventParams\_t} $\ast$params)
 \begin{DoxyCompactList}
   \small \item \emph{DOC TODO}
@@ -54,6 +55,7 @@ const \hyperlink{type_ocrEventParams_t}{ocrEventParams\_t} $\ast$params)
 \item[{{\bf ocr\-Guid\-\_\-t} $\ast$}]{guid, }
 \item[{{\bf ocr\-Event\-Types\-\_\-t}}]{event\-Type, }
 \item[{\bf u16}]{flags, }
+\item[{{\bf const ocr\-Hint\_t} $\ast$}]{hint, }
 \item[{{\bf const ocr\-Event\-Params\-\_\-t} $\ast$}]{params}
 \end{DoxyParamCaption}
 )}}
@@ -69,9 +71,9 @@ immediately usable.
 event. If the call fails, the returned value is undefined.\\
 \hline
 \mbox{\tt in}  & \code{eventType} & The type of event to create.
-See \hyperlink{type_ocrEventTypes_t}.\\
+See \hyperlink{type_ocrEventTypes_t}{enum ocrEventTypes\_t}.\\
 \hline
-\mbox{\tt in}  & {\em flags} & Flags impacting the creation of the event. Currently,
+\mbox{\tt in}  & \code{flags} & Flags impacting the creation of the event. Currently,
 the following flags are supported:
 \begin{DoxyItemize}
 \item EVT\_PROP\_NONE: Default behavior
@@ -79,7 +81,10 @@ the following flags are supported:
   carry a data block on satisfaction.
 \end{DoxyItemize}\\
 \hline
-\mbox{\tt in}  & \code{params$\ast$} & Parameters to initialized the event with.\\
+\mbox{\tt in}  & \code{hint} & Reserved for future use. This parameter
+should be NULL\_HINT. \\
+\hline
+\mbox{\tt in}  & \code{params} & Parameters to initialized the event with.\\
 \hline
 
 \end{DoxyParams}
@@ -123,7 +128,7 @@ count of expected dependences is reached.
 \subsection{API}
 
 Counted events extend the
-\hypertarget{type_ocrEventTypes_t}{\code{enum ocrEventTypes\_t}} type
+\hyperlink{type_ocrEventTypes_t}{\code{enum ocrEventTypes\_t}} type
 with a OCR\_EVENT\_COUNTED\_T declaration. Counted events rely on the
 parameterized event creation extension (see
 Section~\ref{sec:paramEvents} to allow the programmer to
@@ -187,7 +192,7 @@ satisfy the neighbors' upcoming EDT iteration instances.
 \subsection{API}
 
 Channel events extend the
-\hypertarget{type_ocrEventTypes_t}{\code{enum ocrEventTypes\_t}} type
+\hyperlink{type_ocrEventTypes_t}{\code{enum ocrEventTypes\_t}} type
 with an OCR\_EVENT\_CHANNEL\_T declaration. Channel events also rely
 on the parameterized event creation extension to allow the programmer
 to customize the type of channel event. A channel event's parameters are
