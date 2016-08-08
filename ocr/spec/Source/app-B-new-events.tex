@@ -26,7 +26,7 @@ The following parameters are available for latch events:
 \begin{itemize}
 \item \code{EVENT\_LATCH}:
 \begin{itemize}
-\item \code{counter}: Initial value of the latch counter.
+\item \code{{\bf u64} counter}: Initial value of the latch counter.
 \end{itemize}
 \end{itemize}
 
@@ -135,7 +135,7 @@ The following parameters are available for counted events:
 \begin{itemize}
 \item \code{EVENT\_COUNTED}:
 \begin{itemize}
-\item \code{nbDeps}: Expected number of dependences to be added to the event.
+\item \code{{\bf u64} nbDeps}: Expected number of dependences to be added to the event.
 \end{itemize}
 \end{itemize}
 
@@ -199,10 +199,10 @@ The following parameters are available for channel events:
 \begin{itemize}
 \item \code{EVENT\_CHANNEL}:
 \begin{itemize}
-\item \code{maxGen}: The maximum number of generations the event can buffer.
-\item \code{nbSat}: The number of satisfy required to trigger. This
-  must currently be set to 1.
-\item \code{nbDeps}: The number of dependences required to
-  trigger. This must currently be set to 1.
+\item \code{{\bf u32} maxGen}: The maximum number of generations the event can buffer.
+\item \code{{\bf u32} nbSat}: The number of satisfy required to trigger.
+  Currently must be set to 1.
+\item \code{{\bf u32} nbDeps}: The number of dependences required to
+  trigger. Currently must be set to 1.
 \end{itemize}
 \end{itemize}
