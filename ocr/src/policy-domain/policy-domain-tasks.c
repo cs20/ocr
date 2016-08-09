@@ -5,6 +5,7 @@
  */
 #include "ocr-errors.h"
 #include "ocr-policy-domain.h"
+#include "ocr-task.h"
 #include "utils/ocr-utils.h"
 #include "ocr-policy-domain-tasks.h"
 
@@ -1058,7 +1059,8 @@ u8 pdGetNewStrand(ocrPolicyDomain_t *pd, pdStrand_t **returnStrand, pdStrandTabl
     u8 toReturn = 0;
     *returnStrand = NULL;
     ocrWorker_t *worker = NULL;
-    getCurrentEnv(&pd, &worker, NULL, NULL);
+    ocrTask_t *task;
+    getCurrentEnv(&pd, &worker, &task, NULL);
 
     // We check if the properties are sane
     // This makes sure that no other bits than those allowed are set
@@ -1687,6 +1689,7 @@ u32 _pdProcessNStrands(ocrPolicyDomain_t *pd, u32 processType, u32 count, u32 pr
     u32 curLevel = 1;
     ocrWorker_t *worker = NULL;
     getCurrentEnv(NULL, &worker, NULL, NULL);
+    ocrTask_t *savedTask = worker->curTask;
 
     // We iterate over tables but still look for work of type 'processType'
     // This is because once a strand is created, it cannot move from table to table
@@ -1814,7 +1817,10 @@ u32 _pdProcessNStrands(ocrPolicyDomain_t *pd, u32 processType, u32 count, u32 pr
                 // We mark the strand as being processed
                 toProcess->processingWorker = worker;
 
+                // We save and set the context of this thread as well so we can
+                // use getCurrentEnv as if we were executing the EDT from which we originate
                 // First some sanity checks: if the node needed processing, it should be in this state
+                worker->curTask = toProcess->contextTask;
                 ASSERT((toProcess->properties & PDST_WAIT) == PDST_WAIT_ACT);
                 // We loop while the event is ready and there is stuff to do
                 // Note that the actions may make the event not ready thus the importance
@@ -1838,7 +1844,8 @@ u32 _pdProcessNStrands(ocrPolicyDomain_t *pd, u32 processType, u32 count, u32 pr
                     }
                 }
 
-                // We are no longer processing the strand so we update things
+                worker->curTask = savedTask;
+
                 toProcess->processingWorker = NULL;
                 toProcess->properties &= ~PDST_MODIFIED;
 
@@ -1991,6 +1998,8 @@ u8 pdProcessResolveEvents(ocrPolicyDomain_t *pd, u32 processType, u32 count, pdE
     ocrWorker_t *worker = NULL;
 
     getCurrentEnv(&pd, &worker, NULL, NULL);
+    ocrTask_t *savedTask = worker->curTask;
+
 
     bool doClearHold = properties & PDSTT_CLEARHOLD;
     // HACK: For now limit ourselves to 64 so we can track what we resolved easily
@@ -2090,6 +2099,8 @@ u8 pdProcessResolveEvents(ocrPolicyDomain_t *pd, u32 processType, u32 count, pdE
                         RESULT_ASSERT(_pdLockStrand(toProcess, BLOCK), ==, 0);
 
                         toProcess->processingWorker = worker;
+                        worker->curTask = toProcess->contextTask;
+
                         // It should be in this state if we are ready to process it.
                         ASSERT((toProcess->properties & PDST_WAIT) == PDST_WAIT_ACT);
                         // We loop while the event is ready and there is stuff to do
@@ -2116,6 +2127,7 @@ u8 pdProcessResolveEvents(ocrPolicyDomain_t *pd, u32 processType, u32 count, pdE
                             }
                         }
                         // Done processing the strand; reset values
+                        worker->curTask = savedTask;
                         toProcess->processingWorker = NULL;
                         toProcess->properties &= ~PDST_MODIFIED;
 
@@ -2556,6 +2568,7 @@ static u8 _pdInitializeStrandTableNode(ocrPolicyDomain_t *pd, pdStrandTable_t *t
             slab->lock = INIT_LOCK;
             slab->index = LEAF_LEFTMOST_IDX(node->lmIndex) + (u64)i;
             slab->processingWorker = NULL;
+            slab->contextTask =  NULL;
             node->data.slots[i] = slab;
             DPRINTF(DEBUG_LVL_VVERB, "Created strand %"PRIu64" @ %p\n",
                     slab->index, slab);

@@ -73,7 +73,6 @@
 // We use a 64-bit bitvector to keep track of status so this needs to be properly sized
 COMPILE_ASSERT(PDST_NODE_SIZE <= 64);
 
-
 struct _pdTask_t;
 
 /***************************************/
@@ -309,6 +308,8 @@ typedef struct _pdStrand_t {
     u64 index;              /**< Index into the table */
     ocrWorker_t* processingWorker;  /**< Worker that is processing this strand
                                          This has implications on locking among other things */
+    ocrTask_t* contextTask; /**< EDT that was active/live when the strand was created.
+                                 This is restored when the actions on the strand are processed */
     u32 properties;/**< Properties and status of this slot. */
     lock_t lock;
 } pdStrand_t;
