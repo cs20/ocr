@@ -910,8 +910,12 @@ END_LABEL(markWaitEventEnd)
 /***************************************/
 
 /* Macros defining the special encoding of pdAction_t* */
+// TODO: PROCESS_MESSAGE and PROCESS_EVENT will be merged when
+// policy domains also become ocrObject_t (this will come
+// in a subsequent patch)
 #define PDACTION_ENC_PROCESS_MESSAGE  0b001
-#define PDACTION_ENC_MAKEREADYST      0b010
+#define PDACTION_ENC_PROCESS_EVENT    0b010
+#define PDACTION_ENC_MAKEREADYST      0b011
 #define PDACTION_ENC_EXTEND           0b111
 
 #define PDACTION_ENCEXT_MAKEREADY     0x01
@@ -933,6 +937,13 @@ pdAction_t* pdGetProcessMessageAction(u32 workType) {
     ASSERT(workType == NP_COMM || workType == NP_WORK);
     DPRINTF(DEBUG_LVL_INFO, "EXIT pdGetProcessMessageAction -> action:0x%"PRIx64"\n", (u64)(((u64)workType<<3) | PDACTION_ENC_PROCESS_MESSAGE));
     return (pdAction_t*)(((u64)workType<<3) | PDACTION_ENC_PROCESS_MESSAGE);
+}
+
+pdAction_t* pdGetProcessEventAction(ocrObject_t* object) {
+    DPRINTF(DEBUG_LVL_INFO, "ENTER pdGetProcessEventAction(%p)\n", object);
+    ASSERT(((u64)object & 0x7) == 0);
+    DPRINTF(DEBUG_LVL_INFO, "EXIT pdGetProcessEventAction -> action:0x%"PRIx64"\n", (u64)(((u64)object) | PDACTION_ENC_PROCESS_EVENT));
+    return (pdAction_t*)(((u64)object) | PDACTION_ENC_PROCESS_EVENT);
 }
 
 pdAction_t* pdGetMarkReadyAction(pdEvent_t *event) {
@@ -2297,6 +2308,44 @@ static u8 _pdProcessAction(ocrPolicyDomain_t *pd, ocrWorker_t *worker, pdStrand_
             DPRINTF(DEBUG_LVL_VERB, "Action is a callback to processEvent (%p)\n", callback);
             pdEvent_t *curEvent = strand->curEvent;
             toReturn = callback(pd, &curEvent, 0);
+            CHECK_RESULT(toReturn,
+                {
+                    DPRINTF(DEBUG_LVL_WARN, "Callback to processEvent returned error code %"PRIu32"\n", toReturn);
+                },);
+            DPRINTF(DEBUG_LVL_VVERB, "Callback returned 0\n");
+            // Check what was returned and update strand->curEvent if needed
+            // TODO: For now, we don't allow an event from another strand to be
+            // returned. I have to think if we need to do this
+            if(((u64)curEvent) & 0x7) {
+                // This is a fake event, it better point to us
+                // We only check the index and not the table ID because I don't have it
+                // For now this is just for asserting so we ignore but if we need
+                // to take this feature further, we'll need to rethink this
+                ASSERT(EVT_DECODE_ST_IDX((u64)curEvent) == strand->index);
+                curEvent = strand->curEvent; // No change
+            }
+
+            if(strand->curEvent != curEvent) {
+                DPRINTF(DEBUG_LVL_INFO, "Event changed from %p to %p -- freeing old event\n",
+                    strand->curEvent, curEvent);
+                // Make sure we don't grab lock on this strand
+                strand->curEvent->strand = NULL;
+                RESULT_ASSERT(pdDestroyEvent(pd, strand->curEvent), ==, 0);
+                strand->curEvent = curEvent;
+            } else {
+                // Event did not change, nothing to do
+            }
+            break;
+        }
+
+        case PDACTION_ENC_PROCESS_EVENT:
+        {
+            // Get the object we have to call processEvent on
+            ocrObject_t *object = (ocrObject_t*)((u64)actionPtr & ~0x7);
+            u8 (*callback)(ocrObject_t*, pdEvent_t**, u32) = pd->factories[object->fctId]->fcts.processEvent;
+            DPRINTF(DEBUG_LVL_VERB, "Action is a callback on object %p (%p)", object, callback);
+            pdEvent_t *curEvent = strand->curEvent;
+            toReturn = callback(object, &curEvent, 0);
             CHECK_RESULT(toReturn,
                 {
                     DPRINTF(DEBUG_LVL_WARN, "Callback to processEvent returned error code %"PRIu32"\n", toReturn);
