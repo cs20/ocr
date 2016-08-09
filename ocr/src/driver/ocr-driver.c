@@ -277,7 +277,7 @@ static dep_t typeDeps[] = {
 extern char* populate_type(ocrParamList_t **type_param, type_enum index, dictionary *dict, char *secname);
 int populate_inst(ocrParamList_t **inst_param, int inst_param_size, void **instance, int *type_counts, char ***factory_names, void ***all_factories, void ***all_instances, type_enum index, dictionary *dict, char *secname);
 extern int build_deps (dictionary *dict, int A, int B, char *refstr, void ***all_instances, ocrParamList_t ***inst_params);
-extern int build_deps_types (int A, int B, char *refstr, void **pdinst, int pdcount, int type_counts, void ***all_factories, ocrParamList_t ***type_params);
+extern int build_deps_types (int A, int B, char *refstr, void **pdinst, int pdcount, int *type_counts, void ***all_factories, ocrParamList_t ***type_params);
 extern void *create_factory (type_enum index, char *factory_name, ocrParamList_t *paramlist);
 extern int read_range(dictionary *dict, char *sec, char *field, int *low, int *high);
 extern void free_instance(void *instance, type_enum inst_type);
@@ -471,7 +471,7 @@ void bringUpRuntime(ocrConfig_t *ocrConfig) {
     const char *inifile = ocrConfig->iniFile;
     ASSERT(inifile != NULL);
 
-    int i, j, count=0, nsec;
+    int i, j, nsec;
     dictionary *dict = iniparser_load(inifile);
 
 #ifdef ENABLE_BUILDER_ONLY
@@ -498,36 +498,100 @@ void bringUpRuntime(ocrConfig_t *ocrConfig) {
     DPRINTF(DEBUG_LVL_INFO, "========= Create factories ==========\n");
 
     nsec = iniparser_getnsec(dict);
-    for (j = 0; j < total_types; j++) {
-        type_counts[j] =  type_max[j];
-    }
-
+    // Initialize type_counts by counting the number of things we find in the config file
     for (i = 0; i < nsec; i++) {
         char * secname = iniparser_getsecname(dict, i);
         for (j = 0; j < total_types; j++) {
             if (strncasecmp(type_str[j], secname, strlen(type_str[j]))==0) {
-                if(type_counts[j] && type_params[j]==NULL) {
-                    type_params[j] = (ocrParamList_t **)runtimeChunkAlloc(type_counts[j] * sizeof(ocrParamList_t *), NONPERSISTENT_CHUNK);
-                    factory_names[j] = (char **)runtimeChunkAlloc(type_counts[j] * sizeof(char *), NONPERSISTENT_CHUNK);
-                    // Persistent only for the 'higher' type factories
-                    if(j<taskfactory_type) {
-                        all_factories[j] = (void **)runtimeChunkAlloc(type_counts[j] * sizeof(void *), NONPERSISTENT_CHUNK);
-                    } else {
-                        all_factories[j] = (void **)runtimeChunkAlloc(type_counts[j] * sizeof(void *), PERSISTENT_CHUNK);
-                    }
-                }
+                type_counts[j] += 1;
+            }
+        }
+    }
+#ifdef OCR_ASSERT
+    for (j = 0; j < total_types; j++) {
+        ASSERT(type_counts[j] <=  type_max[j]);
+    }
+#endif
 
-                // Find next empty spot
-                for(count = 0; count < type_counts[j]; count++) if(all_factories[j][count] == NULL) break;
-                // And fill it
-                factory_names[j][count] = populate_type(&type_params[j][count], j, dict, secname);
-                all_factories[j][count] = create_factory(j, factory_names[j][count], type_params[j][count]);
+    // We change the way we allocate all_factories to create everything first and then
+    // pointers into the array later. This allows us to deal with factories as one big chunk
+    // and we can index them all sequentially.
 
-                if (all_factories[j][count] == NULL) {
-                    runtimeChunkFree((u64)factory_names[j][count], NONPERSISTENT_CHUNK);
-                    factory_names[j][count] = NULL;
+    u32 countNP = 0; // Number of non-persistent factories
+    u32 countP  = 0; // Number of persistent factories
+    for(j=0;j<taskfactory_type; ++j) {
+        countNP += type_counts[j];
+    }
+    for(; j<total_types; ++j) {
+        countP += type_counts[j];
+    }
+
+    // Allocate the parameters, names and factories
+    type_params[0] = (ocrParamList_t**)runtimeChunkAlloc((countNP+countP)*sizeof(ocrParamList_t*), NONPERSISTENT_CHUNK);
+    factory_names[0] = (char**)runtimeChunkAlloc((countNP+countP)*sizeof(char*), NONPERSISTENT_CHUNK);
+    all_factories[0] = (void**)runtimeChunkAlloc(countNP*sizeof(void*), NONPERSISTENT_CHUNK);
+    all_factories[taskfactory_type] = (void**)runtimeChunkAlloc(countP*sizeof(void*), PERSISTENT_CHUNK);
+
+    // Set up sub-pointers properly
+    u32 runningCount = type_counts[0];
+    for(j=1; j<taskfactory_type; ++j) {
+        type_params[j] = &(type_params[0][runningCount]);
+        factory_names[j] = &(factory_names[0][runningCount]);
+        all_factories[j] = &(all_factories[0][runningCount]);
+        runningCount += type_counts[j];
+    }
+    u32 NPrunningCount = runningCount;
+    for(; j<total_types; ++j) {
+        type_params[j] = &(type_params[0][runningCount]);
+        factory_names[j] = &(factory_names[0][runningCount]);
+        all_factories[j] = &(all_factories[taskfactory_type][runningCount-NPrunningCount]);
+        runningCount += type_counts[j];
+    }
+    // Reset type_counts to properly index into the arrays
+    for(j=0; j<total_types; ++j) {
+        type_counts[j] = 0;
+    }
+    u32 totalCount = 0;
+    // Now populate the types.
+    // We populate in all_factories first the types that we care to give
+    // an index to (the persistent factories) and then all the rest. This is
+    // to ensure that the IDs that are passed (totalCount) do actually match
+    // the factories array that will be created in the PD
+    for(j = taskfactory_type; j < total_types; j++) {
+        for(i = 0; i < nsec; i++) {
+            char *secname = iniparser_getsecname(dict, i);
+            if (strncasecmp(type_str[j], secname, strlen(type_str[j]))==0) {
+                factory_names[j][type_counts[j]] = populate_type(&type_params[j][type_counts[j]], j, dict, secname);
+                // Set the factory ID for this factory
+                type_params[j][type_counts[j]]->id = totalCount;
+                all_factories[j][type_counts[j]] = create_factory(j, factory_names[j][type_counts[j]], type_params[j][type_counts[j]]);
+
+                if (all_factories[j][type_counts[j]] == NULL) {
+                    runtimeChunkFree((u64)factory_names[j][type_counts[j]], NONPERSISTENT_CHUNK);
+                    factory_names[j][type_counts[j]] = NULL;
                 }
-                count++;
+                ++type_counts[j];
+                ++totalCount;
+            }
+        }
+    }
+
+    // Same thing for all the other ones
+    for(j = 0; j < taskfactory_type; j++) {
+        for(i = 0; i < nsec; i++) {
+            char *secname = iniparser_getsecname(dict, i);
+            if (strncasecmp(type_str[j], secname, strlen(type_str[j]))==0) {
+                factory_names[j][type_counts[j]] = populate_type(&type_params[j][type_counts[j]], j, dict, secname);
+                // Set the factory ID for this factory
+                type_params[j][type_counts[j]]->id = totalCount;
+                all_factories[j][type_counts[j]] = create_factory(j, factory_names[j][type_counts[j]], type_params[j][type_counts[j]]);
+
+                if (all_factories[j][type_counts[j]] == NULL) {
+                    runtimeChunkFree((u64)factory_names[j][type_counts[j]], NONPERSISTENT_CHUNK);
+                    factory_names[j][type_counts[j]] = NULL;
+                }
+                ++type_counts[j];
+                ++totalCount;
             }
         }
     }
@@ -555,7 +619,6 @@ void bringUpRuntime(ocrConfig_t *ocrConfig) {
                     inst_params[j] = (ocrParamList_t **)runtimeChunkAlloc(inst_counts[j] * sizeof(ocrParamList_t *), NONPERSISTENT_CHUNK);
                     all_instances[j] = (void **)runtimeChunkAlloc((inst_counts[j]+1) * sizeof(void *), NONPERSISTENT_CHUNK); // We create an "end of instances" marker
                     all_instances[j][inst_counts[j]] = NULL;
-                    count = 0;
                 }
                 populate_inst(inst_params[j], inst_counts[j], all_instances[j], type_counts, factory_names, all_factories, all_instances, j, dict, secname);
             }
@@ -574,7 +637,7 @@ void bringUpRuntime(ocrConfig_t *ocrConfig) {
     for (i = 0; i < OCR_CONFIG_DEP_COUNT(typeDeps); i++) {
         build_deps_types(typeDeps[i].from, typeDeps[i].to, typeDeps[i].refstr,
                          all_instances[typeDeps[i].from], inst_counts[typeDeps[i].from],
-                         type_counts[typeDeps[i].to], all_factories, type_params);
+                         type_counts, all_factories, type_params);
     }
 
 #ifdef ENABLE_BUILDER_ONLY
@@ -833,11 +896,12 @@ void freeUpRuntime (bool doTeardown, u8 *returnCode) {
             if(factory_names[i][j])
                 runtimeChunkFree((u64)factory_names[i][j], NONPERSISTENT_CHUNK);
         }
-        runtimeChunkFree((u64)all_factories[i], NONPERSISTENT_CHUNK);
-        runtimeChunkFree((u64)type_params[i], NONPERSISTENT_CHUNK);
-        runtimeChunkFree((u64)factory_names[i], NONPERSISTENT_CHUNK);
     }
 
+    runtimeChunkFree((u64)all_factories[0], NONPERSISTENT_CHUNK);
+    runtimeChunkFree((u64)type_params[0], NONPERSISTENT_CHUNK);
+    runtimeChunkFree((u64)factory_names[0], NONPERSISTENT_CHUNK);
+    runtimeChunkFree((u64)all_factories[taskfactory_type], PERSISTENT_CHUNK);
     for (i = 0; i < total_types; i++) {
         for (j = 0; j < inst_counts[i]; j++) {
             if(inst_params[i][j])

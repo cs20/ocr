@@ -1466,8 +1466,8 @@ u8 unregisterWaiterEventHcChannel(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slo
 
 #endif
 
-void destructEventFactoryHc(ocrEventFactory_t * factory) {
-    runtimeChunkFree((u64)factory->hintPropMap, PERSISTENT_CHUNK);
+void destructEventFactoryHc(ocrObjectFactory_t * factory) {
+    runtimeChunkFree((u64)((ocrEventFactory_t*)factory)->hintPropMap, PERSISTENT_CHUNK);
     runtimeChunkFree((u64)factory, PERSISTENT_CHUNK);
 }
 
@@ -1477,7 +1477,7 @@ ocrEventFactory_t * newEventFactoryHc(ocrParamList_t *perType, u32 factoryId) {
 
     base->instantiate = FUNC_ADDR(u8 (*)(ocrEventFactory_t*, ocrFatGuid_t*,
                                   ocrEventTypes_t, u32, ocrParamList_t*), newEventHc);
-    base->destruct =  FUNC_ADDR(void (*)(ocrEventFactory_t*), destructEventFactoryHc);
+    base->base.destruct =  FUNC_ADDR(void (*)(ocrObjectFactory_t*), destructEventFactoryHc);
 
     // Initialize the base's base
     // For now, we keep it NULL. This is just a placeholder

@@ -242,7 +242,7 @@ static u8 staticSchedulerHeuristicNotifyEdtReadyInvoke(ocrSchedulerHeuristic_t *
     u64 contextId = (u64)(-1);
     ocrHint_t edtHint;
     ocrHintInit(&edtHint, OCR_HINT_EDT_T);
-    RESULT_ASSERT(pd->taskFactories[0]->fcts.getHint(task, &edtHint), ==, 0);
+    RESULT_ASSERT(((ocrTaskFactory_t*)(pd->factories[pd->taskFactoryIdx]))->fcts.getHint(task, &edtHint), ==, 0);
     if (ocrGetHintValue(&edtHint, OCR_HINT_EDT_SPACE, &contextId) == 0) {
         ASSERT(contextId < self->contextCount);
         ocrSchedulerHeuristicContextStatic_t *staticContext = (ocrSchedulerHeuristicContextStatic_t*)self->contexts[contextId];

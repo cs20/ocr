@@ -197,7 +197,7 @@ static u8 pcSchedulerHeuristicWorkEdtUserInvoke(ocrSchedulerHeuristic_t *self, o
         ocrHint_t edtHint;
         ocrHintInit(&edtHint, OCR_HINT_EDT_T);
         RESULT_ASSERT(ocrSetHintValue(&edtHint, OCR_HINT_EDT_PHASE, 0), ==, 0);
-        fact->pd->taskFactories[0]->fcts.setHint(currentEdt, &edtHint);
+        (ocrTaskFactory_t*)(fact->pd->factories[pd->taskFactoryIdx])->fcts.setHint(currentEdt, &edtHint);
         taskArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).edt = edtObj.guid;
     }
 
@@ -306,7 +306,7 @@ static u8 pcSchedulerHeuristicNotifyDbCreateInvoke(ocrSchedulerHeuristic_t *self
     if (currentEdt) {
         ocrHint_t edtHint;
         ocrHintInit(&edtHint, OCR_HINT_EDT_T);
-        pd->taskFactories[0]->fcts.getHint(currentEdt, &edtHint);
+        (ocrTaskFactory_t*)(pd->factories[pd->taskFactoryIdx])->fcts.getHint(currentEdt, &edtHint);
         RESULT_ASSERT(ocrGetHintValue(&edtHint, OCR_HINT_EDT_PHASE, &currentPhase), ==, 0);
     } else {
         //ASSERT(0); //TODO: We should assert if ocrDbCreate is called outside an EDT. We need identify user vs runtime calls.

@@ -666,8 +666,8 @@ ocrRuntimeHint_t* getRuntimeHintDbLockable(ocrDataBlock_t* self) {
 /* OCR DATABLOCK LOCKABLE FACTORY                      */
 /******************************************************/
 
-void destructLockableFactory(ocrDataBlockFactory_t *factory) {
-    runtimeChunkFree((u64)factory->hintPropMap, PERSISTENT_CHUNK);
+void destructLockableFactory(ocrObjectFactory_t *factory) {
+    runtimeChunkFree((u64)((ocrDataBlockFactory_t*)factory)->hintPropMap, PERSISTENT_CHUNK);
     runtimeChunkFree((u64)factory, PERSISTENT_CHUNK);
 }
 
@@ -681,7 +681,9 @@ ocrDataBlockFactory_t *newDataBlockFactoryLockable(ocrParamList_t *perType, u32 
     base->instantiate = FUNC_ADDR(u8 (*)
                                   (ocrDataBlockFactory_t*, ocrFatGuid_t*, ocrFatGuid_t, ocrFatGuid_t,
                                    u64, void*, ocrHint_t*, u32, ocrParamList_t*), newDataBlockLockable);
-    base->destruct = FUNC_ADDR(void (*)(ocrDataBlockFactory_t*), destructLockableFactory);
+    base->base.destruct = FUNC_ADDR(void (*)(ocrObjectFactory_t*), destructLockableFactory);
+
+    // Instance functions
     base->fcts.destruct = FUNC_ADDR(u8 (*)(ocrDataBlock_t*), lockableDestruct);
     base->fcts.acquire = FUNC_ADDR(u8 (*)(ocrDataBlock_t*, void**, ocrFatGuid_t, u32, ocrDbAccessMode_t, bool, u32), lockableAcquire);
     base->fcts.release = FUNC_ADDR(u8 (*)(ocrDataBlock_t*, ocrFatGuid_t, bool), lockableRelease);

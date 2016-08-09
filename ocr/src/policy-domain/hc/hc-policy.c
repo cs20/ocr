@@ -655,29 +655,10 @@ void hcPolicyDomainDestruct(ocrPolicyDomain_t * policy) {
     // Destruct factories
     // Not all factories might have been used in the config file,
     // so only destroy them if they were instantiated.
-
-    maxCount = policy->taskFactoryCount;
+    maxCount = policy->factoryCount;
     for(i = 0; i < maxCount; ++i) {
-        if(policy->taskFactories[i])
-            policy->taskFactories[i]->destruct(policy->taskFactories[i]);
-    }
-
-    maxCount = policy->eventFactoryCount;
-    for(i = 0; i < maxCount; ++i) {
-        if(policy->eventFactories[i])
-            policy->eventFactories[i]->destruct(policy->eventFactories[i]);
-    }
-
-    maxCount = policy->taskTemplateFactoryCount;
-    for(i = 0; i < maxCount; ++i) {
-        if(policy->taskTemplateFactories[i])
-            policy->taskTemplateFactories[i]->destruct(policy->taskTemplateFactories[i]);
-    }
-
-    maxCount = policy->dbFactoryCount;
-    for(i = 0; i < maxCount; ++i) {
-        if(policy->dbFactories[i])
-            policy->dbFactories[i]->destruct(policy->dbFactories[i]);
+        if(policy->factories[i])
+            policy->factories[i]->destruct(policy->factories[i]);
     }
 
     // Destroy these last in case some of the other destructs make use of them
@@ -696,10 +677,7 @@ void hcPolicyDomainDestruct(ocrPolicyDomain_t * policy) {
     runtimeChunkFree((u64)policy->commApis, PERSISTENT_CHUNK);
     runtimeChunkFree((u64)policy->schedulers, PERSISTENT_CHUNK);
     runtimeChunkFree((u64)policy->allocators, PERSISTENT_CHUNK);
-    runtimeChunkFree((u64)policy->taskFactories, PERSISTENT_CHUNK);
-    runtimeChunkFree((u64)policy->taskTemplateFactories, PERSISTENT_CHUNK);
-    runtimeChunkFree((u64)policy->dbFactories, PERSISTENT_CHUNK);
-    runtimeChunkFree((u64)policy->eventFactories, PERSISTENT_CHUNK);
+    runtimeChunkFree((u64)policy->factories, PERSISTENT_CHUNK);
     runtimeChunkFree((u64)policy->guidProviders, PERSISTENT_CHUNK);
     runtimeChunkFree((u64)policy->schedulerObjectFactories, PERSISTENT_CHUNK);
     runtimeChunkFree((u64)policy, PERSISTENT_CHUNK);
@@ -763,8 +741,9 @@ static u8 hcAllocateDb(ocrPolicyDomain_t *self, ocrFatGuid_t *guid, void** ptr, 
     void *result = allocateDatablock (self, size, prescription, &idx);
     if (result) {
         u8 returnValue = 0;
-        returnValue = self->dbFactories[0]->instantiate(
-            self->dbFactories[0], guid, self->allocators[idx]->fguid, self->fguid,
+        returnValue = ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->instantiate(
+            (ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]), guid,
+            self->allocators[idx]->fguid, self->fguid,
             size, result, hint, properties, NULL);
         if(returnValue == 0) {
             *ptr = result;
@@ -883,8 +862,9 @@ static u8 createEdtHelper(ocrPolicyDomain_t *self, ocrFatGuid_t *guid,
     paramListTask_t taskparams;
     taskparams.workType = workType;
 
-    u8 returnCode = self->taskFactories[0]->instantiate(
-                           self->taskFactories[0], guid, edtTemplate, *paramc, paramv,
+    u8 returnCode = ((ocrTaskFactory_t*)(self->factories[self->taskFactoryIdx]))->instantiate(
+                           (ocrTaskFactory_t*)(self->factories[self->taskFactoryIdx]), guid,
+                           edtTemplate, *paramc, paramv,
                            *depc, properties, hint, outputEvent, currentEdt,
                            parentLatch, (ocrParamList_t*)(&taskparams));
     if(returnCode) {
@@ -897,9 +877,8 @@ static u8 createEdtHelper(ocrPolicyDomain_t *self, ocrFatGuid_t *guid,
 
 static u8 createEdtTemplateHelper(ocrPolicyDomain_t *self, ocrFatGuid_t *guid,
                               ocrEdt_t func, u32 paramc, u32 depc, const char* funcName) {
-
-    ocrTaskTemplate_t *base = self->taskTemplateFactories[0]->instantiate(
-                                  self->taskTemplateFactories[0], func, paramc, depc, funcName, NULL);
+    ocrTaskTemplate_t *base = ((ocrTaskTemplateFactory_t*)(self->factories[self->taskTemplateFactoryIdx]))->instantiate(
+                                  (ocrTaskTemplateFactory_t*)(self->factories[self->taskTemplateFactoryIdx]), func, paramc, depc, funcName, NULL);
     (*guid).guid = getObjectField(base, guid);
     (*guid).metaDataPtr = base;
     return 0;
@@ -907,8 +886,8 @@ static u8 createEdtTemplateHelper(ocrPolicyDomain_t *self, ocrFatGuid_t *guid,
 
 static u8 createEventHelper(ocrPolicyDomain_t *self, ocrFatGuid_t *guid,
                         ocrEventTypes_t type, u32 properties, ocrParamList_t * paramList) {
-    return self->eventFactories[0]->instantiate(
-        self->eventFactories[0], guid, type, properties, paramList);
+    return ((ocrEventFactory_t*)(self->factories[self->eventFactoryIdx]))->instantiate(
+        (ocrEventFactory_t*)(self->factories[self->eventFactoryIdx]), guid, type, properties, paramList);
 }
 
 
@@ -1038,8 +1017,8 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
                 DPRINTF(DEBUG_LVL_INFO, "Not acquiring DB since disabled by property flags\n");
                 PD_MSG_FIELD_O(ptr) = NULL;
             } else {
-                ASSERT(db->fctId == self->dbFactories[0]->factoryId);
-                PD_MSG_FIELD_O(returnDetail) = self->dbFactories[0]->fcts.acquire(
+                ASSERT(db->fctId == ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->factoryId);
+                PD_MSG_FIELD_O(returnDetail) = ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->fcts.acquire(
                     db, &(PD_MSG_FIELD_O(ptr)), tEdt, EDT_SLOT_NONE, DB_MODE_RW, !!(PD_MSG_FIELD_IO(properties) & DB_PROP_RT_ACQUIRE),
                     (u32) DB_MODE_RW);
                 // Set the default mode in the response message for the caller
@@ -1081,8 +1060,8 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
             //BUG #273 rely on the call to set the fatguid ptr to NULL and not crash if edt acquiring is not local
             localDeguidify(self, &(PD_MSG_FIELD_IO(edt)));
             ocrDataBlock_t *db = (ocrDataBlock_t*)(PD_MSG_FIELD_IO(guid.metaDataPtr));
-            ASSERT(db->fctId == self->dbFactories[0]->factoryId);
-            PD_MSG_FIELD_O(returnDetail) = self->dbFactories[0]->fcts.acquire(
+            ASSERT(db->fctId == ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->factoryId);
+            PD_MSG_FIELD_O(returnDetail) = ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->fcts.acquire(
                 db, &(PD_MSG_FIELD_O(ptr)), PD_MSG_FIELD_IO(edt), PD_MSG_FIELD_IO(edtSlot),
                 (ocrDbAccessMode_t) (PD_MSG_FIELD_IO(properties) & (u32)DB_ACCESS_MODE_MASK),
                 !!(PD_MSG_FIELD_IO(properties) & DB_PROP_RT_ACQUIRE), PD_MSG_FIELD_IO(properties));
@@ -1122,7 +1101,7 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
             localDeguidify(self, &edtFGuid);
             // At this point the edt MUST be local as well as the acquire's message DB ptr
             ocrTask_t* task = (ocrTask_t*) edtFGuid.metaDataPtr;
-            PD_MSG_FIELD_O(returnDetail) = self->taskFactories[0]->fcts.dependenceResolved(task, dbFGuid.guid, PD_MSG_FIELD_O(ptr), edtSlot);
+            PD_MSG_FIELD_O(returnDetail) = ((ocrTaskFactory_t*)(self->factories[self->taskFactoryIdx]))->fcts.dependenceResolved(task, dbFGuid.guid, PD_MSG_FIELD_O(ptr), edtSlot);
         #undef PD_MSG
         #undef PD_TYPE
         }
@@ -1138,9 +1117,9 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         localDeguidify(self, &(PD_MSG_FIELD_IO(guid)));
         localDeguidify(self, &(PD_MSG_FIELD_I(edt)));
         ocrDataBlock_t *db = (ocrDataBlock_t*)(PD_MSG_FIELD_IO(guid.metaDataPtr));
-        ASSERT(db->fctId == self->dbFactories[0]->factoryId);
+        ASSERT(db->fctId == ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->factoryId);
         ocrGuid_t edtGuid __attribute__((unused)) =  PD_MSG_FIELD_I(edt.guid);
-        PD_MSG_FIELD_O(returnDetail) = self->dbFactories[0]->fcts.release(
+        PD_MSG_FIELD_O(returnDetail) = ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->fcts.release(
             db, PD_MSG_FIELD_I(edt), !!(PD_MSG_FIELD_I(properties) & DB_PROP_RT_ACQUIRE));
         DPRINTF(DEBUG_LVL_INFO, "DB guid "GUIDF" of size %"PRIu64" released by EDT "GUIDF"\n",
                 GUIDA(db->guid), db->size, GUIDA(edtGuid));
@@ -1162,11 +1141,11 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         localDeguidify(self, &(PD_MSG_FIELD_I(guid)));
         localDeguidify(self, &(PD_MSG_FIELD_I(edt)));
         ocrDataBlock_t *db = (ocrDataBlock_t*)(PD_MSG_FIELD_I(guid.metaDataPtr));
-        ASSERT(db->fctId == self->dbFactories[0]->factoryId);
+        ASSERT(db->fctId == ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->factoryId);
         ASSERT(!(msg->type & PD_MSG_REQ_RESPONSE));
         //Save a copy of the DB guid for DPRINTF() and tracing before the free call
         ocrGuid_t dbGuid = PD_MSG_FIELD_I(guid).guid;
-        PD_MSG_FIELD_O(returnDetail) = self->dbFactories[0]->fcts.free(
+        PD_MSG_FIELD_O(returnDetail) = ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->fcts.free(
             db, PD_MSG_FIELD_I(edt), PD_MSG_FIELD_I(properties));
         if(PD_MSG_FIELD_O(returnDetail)!=0)
             DPRINTF(DEBUG_LVL_WARN, "DB Free failed for guid "GUIDF"\n", GUIDA(dbGuid));
@@ -1358,8 +1337,8 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         if(task == NULL)
             DPRINTF(DEBUG_LVL_WARN, "Invalid task, guid "GUIDF"\n", GUIDA(PD_MSG_FIELD_I(guid.guid)));
         ASSERT(task);
-        ASSERT(task->fctId == self->taskFactories[0]->factoryId);
-        PD_MSG_FIELD_O(returnDetail) = self->taskFactories[0]->fcts.destruct(task);
+        ASSERT(task->fctId == ((ocrTaskFactory_t*)(self->factories[self->taskFactoryIdx]))->factoryId);
+        PD_MSG_FIELD_O(returnDetail) = ((ocrTaskFactory_t*)(self->factories[self->taskFactoryIdx]))->fcts.destruct(task);
 #undef PD_MSG
 #undef PD_TYPE
         msg->type &= ~PD_MSG_REQUEST;
@@ -1396,8 +1375,8 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
 #define PD_TYPE PD_MSG_EDTTEMP_DESTROY
         localDeguidify(self, &(PD_MSG_FIELD_I(guid)));
         ocrTaskTemplate_t *tTemplate = (ocrTaskTemplate_t*)(PD_MSG_FIELD_I(guid.metaDataPtr));
-        ASSERT(tTemplate->fctId == self->taskTemplateFactories[0]->factoryId);
-        PD_MSG_FIELD_O(returnDetail) = self->taskTemplateFactories[0]->fcts.destruct(tTemplate);
+        ASSERT(tTemplate->fctId == ((ocrTaskTemplateFactory_t*)(self->factories[self->taskTemplateFactoryIdx]))->factoryId);
+        PD_MSG_FIELD_O(returnDetail) = ((ocrTaskTemplateFactory_t*)(self->factories[self->taskTemplateFactoryIdx]))->fcts.destruct(tTemplate);
 #undef PD_MSG
 #undef PD_TYPE
         msg->type &= (~PD_MSG_REQUEST);
@@ -1451,8 +1430,8 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
 #define PD_TYPE PD_MSG_EVT_DESTROY
         localDeguidify(self, &(PD_MSG_FIELD_I(guid)));
         ocrEvent_t *evt = (ocrEvent_t*)PD_MSG_FIELD_I(guid.metaDataPtr);
-        ASSERT(evt->fctId == self->eventFactories[0]->factoryId);
-        PD_MSG_FIELD_O(returnDetail) = self->eventFactories[0]->fcts[evt->kind].destruct(evt);
+        ASSERT(evt->fctId == ((ocrEventFactory_t*)(self->factories[self->eventFactoryIdx]))->factoryId);
+        PD_MSG_FIELD_O(returnDetail) = ((ocrEventFactory_t*)(self->factories[self->eventFactoryIdx]))->fcts[evt->kind].destruct(evt);
 #undef PD_MSG
 #undef PD_TYPE
         msg->type &= (~PD_MSG_REQUEST);
@@ -1473,8 +1452,8 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         localDeguidify(self, &(PD_MSG_FIELD_I(guid)));
         if (PD_MSG_FIELD_I(guid.metaDataPtr) != NULL) {
             ocrEvent_t * evt = (ocrEvent_t*)PD_MSG_FIELD_I(guid.metaDataPtr);
-            ASSERT(evt->fctId == self->eventFactories[0]->factoryId);
-            PD_MSG_FIELD_O(data) = self->eventFactories[0]->fcts[evt->kind].get(evt);
+            ASSERT(evt->fctId == ((ocrEventFactory_t*)(self->factories[self->eventFactoryIdx]))->factoryId);
+            PD_MSG_FIELD_O(data) = ((ocrEventFactory_t*)(self->factories[self->eventFactoryIdx]))->fcts[evt->kind].get(evt);
             // There's no way to check if this call has been
             // successful without changing the 'get' signature
             PD_MSG_FIELD_O(returnDetail) = 0;
@@ -2005,13 +1984,13 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         if (dstKind & OCR_GUID_EVENT) {
             ASSERT(false && "We never register signaler on an event");
             ocrEvent_t *evt = (ocrEvent_t*)(dest.metaDataPtr);
-            ASSERT(evt->fctId == self->eventFactories[0]->factoryId);
-            PD_MSG_FIELD_O(returnDetail) = self->eventFactories[0]->fcts[evt->kind].registerSignaler(
+            ASSERT(evt->fctId == ((ocrEventFactory_t*)(self->factories[self->eventFactoryIdx]))->factoryId);
+            PD_MSG_FIELD_O(returnDetail) = ((ocrEventFactory_t*)(self->factories[self->eventFactoryIdx]))->fcts[evt->kind].registerSignaler(
                 evt, signaler, PD_MSG_FIELD_I(slot), PD_MSG_FIELD_I(mode), isAddDep);
         } else if (dstKind == OCR_GUID_EDT) {
             ocrTask_t *edt = (ocrTask_t*)(dest.metaDataPtr);
-            ASSERT(edt->fctId == self->taskFactories[0]->factoryId);
-            PD_MSG_FIELD_O(returnDetail) = self->taskFactories[0]->fcts.registerSignaler(
+            ASSERT(edt->fctId == ((ocrTaskFactory_t*)(self->factories[self->taskFactoryIdx]))->factoryId);
+            PD_MSG_FIELD_O(returnDetail) = ((ocrTaskFactory_t*)(self->factories[self->taskFactoryIdx]))->fcts.registerSignaler(
                 edt, signaler, PD_MSG_FIELD_I(slot), PD_MSG_FIELD_I(mode), isAddDep);
         } else {
             DPRINTF(DEBUG_LVL_WARN, "Attempt to register signaler on %"PRIx32" which is not of type EDT or Event\n", dstKind);
@@ -2049,13 +2028,13 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         bool isAddDep = PD_MSG_FIELD_I(properties);
         if (dstKind & OCR_GUID_EVENT) {
             ocrEvent_t *evt = (ocrEvent_t*)(dest.metaDataPtr);
-            ASSERT(evt->fctId == self->eventFactories[0]->factoryId);
+            ASSERT(evt->fctId == ((ocrEventFactory_t*)(self->factories[self->eventFactoryIdx]))->factoryId);
             // Warning: A counted-event can be destroyed by this call
 #ifdef REG_ASYNC_SGL
-            PD_MSG_FIELD_O(returnDetail) = self->eventFactories[0]->fcts[evt->kind].registerWaiter(
+            PD_MSG_FIELD_O(returnDetail) = ((ocrEventFactory_t*)(self->factories[self->eventFactoryIdx]))->fcts[evt->kind].registerWaiter(
                 evt, waiter, PD_MSG_FIELD_I(slot), isAddDep, PD_MSG_FIELD_I(mode));
 #else
-            PD_MSG_FIELD_O(returnDetail) = self->eventFactories[0]->fcts[evt->kind].registerWaiter(
+            PD_MSG_FIELD_O(returnDetail) = ((ocrEventFactory_t*)(self->factories[self->eventFactoryIdx]))->fcts[evt->kind].registerWaiter(
                 evt, waiter, PD_MSG_FIELD_I(slot), isAddDep);
 #endif
         } else {
@@ -2064,9 +2043,9 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
             ASSERT(dstKind == OCR_GUID_DB);
             // When an EDT want to register to a DB, for instance to get EW access.
             ocrDataBlock_t *db = (ocrDataBlock_t*)(dest.metaDataPtr);
-            ASSERT(db->fctId == self->dbFactories[0]->factoryId);
+            ASSERT(db->fctId == ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->factoryId);
             // Warning: A counted-event can be destroyed by this call
-            PD_MSG_FIELD_O(returnDetail) = self->dbFactories[0]->fcts.registerWaiter(
+            PD_MSG_FIELD_O(returnDetail) = ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->fcts.registerWaiter(
                 db, waiter, PD_MSG_FIELD_I(slot), isAddDep);
         }
 #ifdef OCR_ENABLE_STATISTICS
@@ -2118,8 +2097,8 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         ocrFatGuid_t dst = PD_MSG_FIELD_I(guid);
         if(dstKind & OCR_GUID_EVENT) {
             ocrEvent_t *evt = (ocrEvent_t*)(dst.metaDataPtr);
-            ASSERT(evt->fctId == self->eventFactories[0]->factoryId);
-            PD_MSG_FIELD_O(returnDetail) = self->eventFactories[0]->fcts[evt->kind].satisfy(
+            ASSERT(evt->fctId == ((ocrEventFactory_t*)(self->factories[self->eventFactoryIdx]))->factoryId);
+            PD_MSG_FIELD_O(returnDetail) = ((ocrEventFactory_t*)(self->factories[self->eventFactoryIdx]))->fcts[evt->kind].satisfy(
                 evt, PD_MSG_FIELD_I(payload), PD_MSG_FIELD_I(slot));
 #ifdef ENABLE_EXTENSION_PAUSE
             rself->pqrFlags.prevDb = PD_MSG_FIELD_I(payload).guid;
@@ -2127,12 +2106,12 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         } else {
             if(dstKind == OCR_GUID_EDT) {
                 ocrTask_t *edt = (ocrTask_t*)(dst.metaDataPtr);
-                ASSERT(edt->fctId == self->taskFactories[0]->factoryId);
+                ASSERT(edt->fctId == ((ocrTaskFactory_t*)(self->factories[self->taskFactoryIdx]))->factoryId);
 #ifdef REG_ASYNC_SGL
-                PD_MSG_FIELD_O(returnDetail) = self->taskFactories[0]->fcts.satisfyWithMode(
+                PD_MSG_FIELD_O(returnDetail) = ((ocrTaskFactory_t*)(self->factories[self->taskFactoryIdx]))->fcts.satisfyWithMode(
                     edt, PD_MSG_FIELD_I(payload), PD_MSG_FIELD_I(slot), PD_MSG_FIELD_I(mode));
 #else
-                PD_MSG_FIELD_O(returnDetail) = self->taskFactories[0]->fcts.satisfy(
+                PD_MSG_FIELD_O(returnDetail) = ((ocrTaskFactory_t*)(self->factories[self->taskFactoryIdx]))->fcts.satisfy(
                     edt, PD_MSG_FIELD_I(payload), PD_MSG_FIELD_I(slot));
 #endif
 #ifdef ENABLE_EXTENSION_PAUSE
@@ -2183,8 +2162,8 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         ASSERT(curTask &&
                (ocrGuidIsEq(curTask->guid, PD_MSG_FIELD_I(edt.guid))));
 
-        ASSERT(curTask->fctId == self->taskFactories[0]->factoryId);
-        PD_MSG_FIELD_O(returnDetail) = self->taskFactories[0]->fcts.notifyDbAcquire(curTask, PD_MSG_FIELD_I(db));
+        ASSERT(curTask->fctId == ((ocrTaskFactory_t*)(self->factories[self->taskFactoryIdx]))->factoryId);
+        PD_MSG_FIELD_O(returnDetail) = ((ocrTaskFactory_t*)(self->factories[self->taskFactoryIdx]))->fcts.notifyDbAcquire(curTask, PD_MSG_FIELD_I(db));
 #undef PD_MSG
 #undef PD_TYPE
         msg->type &= ~PD_MSG_REQUEST;
@@ -2204,8 +2183,8 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         if ((curTask==NULL) || (!(ocrGuidIsEq(curTask->guid, PD_MSG_FIELD_I(edt.guid)))))
             DPRINTF(DEBUG_LVL_WARN, "Attempting to notify a missing/different EDT, GUID="GUIDF"\n", GUIDA(PD_MSG_FIELD_I(edt.guid)));
         ASSERT(curTask && (ocrGuidIsEq(curTask->guid, PD_MSG_FIELD_I(edt.guid))));
-        ASSERT(curTask->fctId == self->taskFactories[0]->factoryId);
-        PD_MSG_FIELD_O(returnDetail) = self->taskFactories[0]->fcts.notifyDbRelease(curTask, PD_MSG_FIELD_I(db));
+        ASSERT(curTask->fctId == ((ocrTaskFactory_t*)(self->factories[self->taskFactoryIdx]))->factoryId);
+        PD_MSG_FIELD_O(returnDetail) = ((ocrTaskFactory_t*)(self->factories[self->taskFactoryIdx]))->fcts.notifyDbRelease(curTask, PD_MSG_FIELD_I(db));
 #undef PD_MSG
 #undef PD_TYPE
         msg->type &= ~PD_MSG_REQUEST;
@@ -2297,11 +2276,11 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
             {
                 if (kind == OCR_GUID_EDT_TEMPLATE) {
                     ocrTaskTemplate_t* taskTemplate = (ocrTaskTemplate_t*)(PD_MSG_FIELD_I(guid.metaDataPtr));
-                    PD_MSG_FIELD_O(returnDetail) = self->taskTemplateFactories[0]->fcts.setHint(taskTemplate, PD_MSG_FIELD_I(hint));
+                    PD_MSG_FIELD_O(returnDetail) = ((ocrTaskTemplateFactory_t*)(self->factories[self->taskTemplateFactoryIdx]))->fcts.setHint(taskTemplate, PD_MSG_FIELD_I(hint));
                 } else {
                     ASSERT(kind == OCR_GUID_EDT);
                     ocrTask_t *task = (ocrTask_t*)(PD_MSG_FIELD_I(guid.metaDataPtr));
-                    PD_MSG_FIELD_O(returnDetail) = self->taskFactories[0]->fcts.setHint(task, PD_MSG_FIELD_I(hint));
+                    PD_MSG_FIELD_O(returnDetail) = ((ocrTaskFactory_t*)(self->factories[self->taskFactoryIdx]))->fcts.setHint(task, PD_MSG_FIELD_I(hint));
                 }
             }
             break;
@@ -2309,14 +2288,14 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
             {
                 ASSERT(kind == OCR_GUID_DB);
                 ocrDataBlock_t *db = (ocrDataBlock_t*)(PD_MSG_FIELD_I(guid.metaDataPtr));
-                PD_MSG_FIELD_O(returnDetail) = self->dbFactories[0]->fcts.setHint(db, PD_MSG_FIELD_I(hint));
+                PD_MSG_FIELD_O(returnDetail) = ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->fcts.setHint(db, PD_MSG_FIELD_I(hint));
             }
             break;
         case OCR_HINT_EVT_T:
             {
                 ASSERT(kind & OCR_GUID_EVENT);
                 ocrEvent_t *evt = (ocrEvent_t*)(PD_MSG_FIELD_I(guid.metaDataPtr));
-                PD_MSG_FIELD_O(returnDetail) = self->eventFactories[0]->commonFcts.setHint(evt, PD_MSG_FIELD_I(hint));
+                PD_MSG_FIELD_O(returnDetail) = ((ocrEventFactory_t*)(self->factories[self->eventFactoryIdx]))->commonFcts.setHint(evt, PD_MSG_FIELD_I(hint));
             }
             break;
         case OCR_HINT_GROUP_T:
@@ -2346,11 +2325,11 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
             {
                 if (kind == OCR_GUID_EDT_TEMPLATE) {
                     ocrTaskTemplate_t* taskTemplate = (ocrTaskTemplate_t*)(PD_MSG_FIELD_I(guid.metaDataPtr));
-                    PD_MSG_FIELD_O(returnDetail) = self->taskTemplateFactories[0]->fcts.getHint(taskTemplate, PD_MSG_FIELD_IO(hint));
+                    PD_MSG_FIELD_O(returnDetail) = ((ocrTaskTemplateFactory_t*)(self->factories[self->taskTemplateFactoryIdx]))->fcts.getHint(taskTemplate, PD_MSG_FIELD_IO(hint));
                 } else {
                     ASSERT(kind == OCR_GUID_EDT);
                     ocrTask_t *task = (ocrTask_t*)(PD_MSG_FIELD_I(guid.metaDataPtr));
-                    PD_MSG_FIELD_O(returnDetail) = self->taskFactories[0]->fcts.getHint(task, PD_MSG_FIELD_IO(hint));
+                    PD_MSG_FIELD_O(returnDetail) = ((ocrTaskFactory_t*)(self->factories[self->taskFactoryIdx]))->fcts.getHint(task, PD_MSG_FIELD_IO(hint));
                 }
             }
             break;
@@ -2358,14 +2337,14 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
             {
                 ASSERT(kind == OCR_GUID_DB);
                 ocrDataBlock_t *db = (ocrDataBlock_t*)(PD_MSG_FIELD_I(guid.metaDataPtr));
-                PD_MSG_FIELD_O(returnDetail) = self->dbFactories[0]->fcts.getHint(db, PD_MSG_FIELD_IO(hint));
+                PD_MSG_FIELD_O(returnDetail) = ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->fcts.getHint(db, PD_MSG_FIELD_IO(hint));
             }
             break;
         case OCR_HINT_EVT_T:
             {
                 ASSERT(kind & OCR_GUID_EVENT);
                 ocrEvent_t *evt = (ocrEvent_t*)(PD_MSG_FIELD_I(guid.metaDataPtr));
-                PD_MSG_FIELD_O(returnDetail) = self->eventFactories[0]->commonFcts.getHint(evt, PD_MSG_FIELD_IO(hint));
+                PD_MSG_FIELD_O(returnDetail) = ((ocrEventFactory_t*)(self->factories[self->eventFactoryIdx]))->commonFcts.getHint(evt, PD_MSG_FIELD_IO(hint));
             }
             break;
         case OCR_HINT_GROUP_T:

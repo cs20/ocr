@@ -1371,13 +1371,13 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
                         // Update message to be consistent, but no calling context should need to read it.
                         PD_MSG_FIELD_O(ptr) = proxyDb->ptr;
                         if (proxyDb->db != NULL && !ocrGuidIsEq(proxyDb->db->guid, dbGuid)) {
-                            self->dbFactories[0]->fcts.destruct(proxyDb->db);
+                            ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->fcts.destruct(proxyDb->db);
                             proxyDb->db = NULL;
                         }
                         if (proxyDb->db == NULL) {
                             ocrFatGuid_t tGuid;
-                            RESULT_ASSERT(self->dbFactories[0]->instantiate(
-                                              self->dbFactories[0], &tGuid, self->allocators[0]->fguid, self->fguid,
+                            RESULT_ASSERT(((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->instantiate(
+                                              ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx])), &tGuid, self->allocators[0]->fguid, self->fguid,
                                               proxyDb->size, proxyDb->ptr, NULL_HINT, DB_PROP_RT_PROXY, NULL), ==, 0);
                             proxyDb->db = (ocrDataBlock_t*)tGuid.metaDataPtr;
                             proxyDb->db->guid = dbGuid;
@@ -1835,8 +1835,8 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
                 PD_MSG_FIELD_O(ptr) = proxyDb->ptr;
                 ASSERT(proxyDb->db == NULL);
                 ocrFatGuid_t tGuid;
-                RESULT_ASSERT(self->dbFactories[0]->instantiate(
-                                  self->dbFactories[0], &tGuid, self->allocators[0]->fguid, self->fguid,
+                RESULT_ASSERT(((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->instantiate(
+                                  ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx])), &tGuid, self->allocators[0]->fguid, self->fguid,
                                   proxyDb->size, proxyDb->ptr, NULL_HINT, DB_PROP_RT_PROXY, NULL), ==, 0);
                 proxyDb->db = (ocrDataBlock_t*)tGuid.metaDataPtr;
                 proxyDb->db->guid = dbGuid;
@@ -1873,7 +1873,7 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
                             // NOTE: we do not unlock proxyDb->lock not call relProxyDb
                             // since we're destroying the whole proxy and we're the last user.
                             ASSERT(proxyDb->db != NULL);
-                            self->dbFactories[0]->fcts.destruct(proxyDb->db);
+                            ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->fcts.destruct(proxyDb->db);
                             self->fcts.pdFree(self, proxyDb->ptr);
                             if (proxyDb->acquireQueue != NULL) {
                                 self->fcts.pdFree(self, proxyDb->acquireQueue);

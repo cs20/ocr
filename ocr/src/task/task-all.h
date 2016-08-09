@@ -54,7 +54,7 @@ inline ocrTaskFactory_t *newTaskFactory(taskType_t type, ocrParamList_t *typeArg
     switch(type) {
 #ifdef ENABLE_TASK_HC
     case taskHc_id:
-        return newTaskFactoryHc(typeArg, (u32)type);
+        return newTaskFactoryHc(typeArg, typeArg->id);
 #endif
     default:
         ASSERT(0);
@@ -66,7 +66,7 @@ inline ocrTaskTemplateFactory_t *newTaskTemplateFactory(taskTemplateType_t type,
     switch(type) {
 #ifdef ENABLE_TASKTEMPLATE_HC
     case taskTemplateHc_id:
-        return newTaskTemplateFactoryHc(typeArg, (u32)type);
+        return newTaskTemplateFactoryHc(typeArg, typeArg->id);
 #endif
     default:
         ASSERT(0);

@@ -110,6 +110,15 @@ typedef struct _ocrObjectFcts_t {
  */
 typedef struct _ocrObjectFactory_t {
     ocrObjectFcts_t fcts;   /**< Functions for this object factory */
+
+    /**
+     * @brief Destructor for this factory
+     * @details Destroys this factory. This function is pure virtual and is implemented by the derived class
+     *
+     * @param factory[in] Factory to destroy
+     * @return Void
+     */
+    void (*destruct)(struct _ocrObjectFactory_t *factory);
 } ocrObjectFactory_t;
 
 /**

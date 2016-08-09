@@ -32,6 +32,7 @@ struct _ocrPolicyDomain_t;
 typedef struct _ocrParamList_t {
     u64 size;                   /**< Size of this parameter list (in bytes) */
     struct _ocrPolicyDomain_t *policy;  /**< Policy domain for this factory/instance */
+    u32 id;                     /**< For factories, the factory ID; for other things, a unique ID (if needed) */
     char* misc;                 /**< Miscellaneous arguments (NULL terminated string) */
 } ocrParamList_t;
 

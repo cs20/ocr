@@ -66,7 +66,7 @@ static void workerLoop(ocrWorker_t * worker) {
                 ASSERT(taskGuid.metaDataPtr != NULL);
                 worker->curTask = (ocrTask_t*)taskGuid.metaDataPtr;
                 u32 factoryId = PD_MSG_FIELD_O(factoryId);
-                pd->taskFactories[factoryId]->fcts.execute(worker->curTask);
+                ((ocrTaskFactory_t*)(pd->factories[factoryId]))->fcts.execute(worker->curTask);
 #undef PD_TYPE
 #define PD_TYPE PD_MSG_SCHED_NOTIFY
                 getCurrentEnv(NULL, NULL, NULL, &msg);

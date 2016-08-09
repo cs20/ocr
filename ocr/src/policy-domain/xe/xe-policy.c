@@ -662,10 +662,7 @@ void xePolicyDomainDestruct(ocrPolicyDomain_t * policy) {
     runtimeChunkFree((u64)policy->workers, NULL);
     runtimeChunkFree((u64)policy->schedulers, NULL);
     runtimeChunkFree((u64)policy->allocators, NULL);
-    runtimeChunkFree((u64)policy->taskFactories, NULL);
-    runtimeChunkFree((u64)policy->taskTemplateFactories, NULL);
-    runtimeChunkFree((u64)policy->dbFactories, NULL);
-    runtimeChunkFree((u64)policy->eventFactories, NULL);
+    runtimeChunkFree((u64)policy->factories, NULL);
     runtimeChunkFree((u64)policy->guidProviders, NULL);
     runtimeChunkFree((u64)policy, NULL);
 }
@@ -723,8 +720,8 @@ static u8 xeAllocateDb(ocrPolicyDomain_t *self, ocrFatGuid_t *guid, void** ptr, 
 
     if (*ptr) {
         u8 returnValue = 0;
-        returnValue = self->dbFactories[0]->instantiate(
-            self->dbFactories[0], guid, self->allocators[idx]->fguid, self->fguid,
+        returnValue = ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->instantiate(
+            (ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]), guid, self->allocators[idx]->fguid, self->fguid,
             size, *ptr, hint, properties, NULL);
         if(returnValue != 0) {
             allocatorFreeFunction(*ptr);
@@ -839,8 +836,8 @@ u8 xePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
                     DPRINTF(DEBUG_LVL_INFO, "Not acquiring DB since disabled by property flags\n");
                     PD_MSG_FIELD_O(ptr) = NULL;
                 } else {
-                    ASSERT(db->fctId == self->dbFactories[0]->factoryId);
-                    PD_MSG_FIELD_O(returnDetail) = self->dbFactories[0]->fcts.acquire(
+                    ASSERT(db->fctId == ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->factoryId);
+                    PD_MSG_FIELD_O(returnDetail) = ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->fcts.acquire(
                         db, &(PD_MSG_FIELD_O(ptr)), edtFatGuid, EDT_SLOT_NONE,
                         DB_MODE_RW, !!(PD_MSG_FIELD_IO(properties) & DB_PROP_RT_ACQUIRE), (u32)DB_MODE_RW);
                 }
@@ -927,7 +924,7 @@ u8 xePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
                 DPRINTF(DEBUG_LVL_VVERB, "Received EDT ("GUIDF"; %p\n",
                         GUIDA((PD_MSG_FIELD_IO(guids))->guid), (PD_MSG_FIELD_IO(guids))->metaDataPtr);
                 // For now, we return the execute function for EDTs
-                PD_MSG_FIELD_IO(extra) = (u64)(self->taskFactories[0]->fcts.execute);
+                PD_MSG_FIELD_IO(extra) = (u64)(((ocrTaskFactory_t*)(self->factories[self->taskFactoryIdx]))->fcts.execute);
             }
 #undef PD_MSG
 #undef PD_TYPE
@@ -981,8 +978,8 @@ u8 xePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
 
         DPRINTF(DEBUG_LVL_VVERB, "DEP_DYNADD req/resp for GUID "GUIDF"\n",
                 GUIDA(PD_MSG_FIELD_I(db.guid)));
-        ASSERT(curTask->fctId == self->taskFactories[0]->factoryId);
-        PD_MSG_FIELD_O(returnDetail) = self->taskFactories[0]->fcts.notifyDbAcquire(curTask, PD_MSG_FIELD_I(db));
+        ASSERT(curTask->fctId == ((ocrTaskFactory_t*)(self->factories[self->taskFactoryIdx]))->factoryId);
+        PD_MSG_FIELD_O(returnDetail) = ((ocrTaskFactory_t*)(self->factories[self->taskFactoryIdx]))->fcts.notifyDbAcquire(curTask, PD_MSG_FIELD_I(db));
 #undef PD_MSG
 #undef PD_TYPE
         EXIT_PROFILE;
@@ -1002,8 +999,8 @@ u8 xePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
                ocrGuidIsEq(curTask->guid, PD_MSG_FIELD_I(edt.guid)));
         DPRINTF(DEBUG_LVL_VVERB, "DEP_DYNREMOVE req/resp for GUID "GUIDF"\n",
                 GUIDA(PD_MSG_FIELD_I(db.guid)));
-        ASSERT(curTask->fctId == self->taskFactories[0]->factoryId);
-        PD_MSG_FIELD_O(returnDetail) = self->taskFactories[0]->fcts.notifyDbRelease(curTask, PD_MSG_FIELD_I(db));
+        ASSERT(curTask->fctId == ((ocrTaskFactory_t*)(self->factories[self->taskFactoryIdx]))->factoryId);
+        PD_MSG_FIELD_O(returnDetail) = ((ocrTaskFactory_t*)(self->factories[self->taskFactoryIdx]))->fcts.notifyDbRelease(curTask, PD_MSG_FIELD_I(db));
 #undef PD_MSG
 #undef PD_TYPE
         break;

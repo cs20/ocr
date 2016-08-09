@@ -39,7 +39,7 @@ inline ocrEventFactory_t *newEventFactory(eventType_t type, ocrParamList_t *type
     switch(type) {
 #ifdef ENABLE_EVENT_HC
     case eventHc_id:
-        return newEventFactoryHc(typeArg, (u32)type);
+        return newEventFactoryHc(typeArg, typeArg->id);
 #endif
     default:
         ASSERT(0);

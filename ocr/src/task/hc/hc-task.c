@@ -174,8 +174,8 @@ ocrRuntimeHint_t* getRuntimeHintTaskTemplateHc(ocrTaskTemplate_t* self) {
     return &(derived->hint);
 }
 
-void destructTaskTemplateFactoryHc(ocrTaskTemplateFactory_t* factory) {
-    runtimeChunkFree((u64)factory->hintPropMap, PERSISTENT_CHUNK);
+void destructTaskTemplateFactoryHc(ocrObjectFactory_t* factory) {
+    runtimeChunkFree((u64)((ocrTaskTemplateFactory_t*)factory)->hintPropMap, PERSISTENT_CHUNK);
     runtimeChunkFree((u64)factory, PERSISTENT_CHUNK);
 }
 
@@ -185,7 +185,7 @@ ocrTaskTemplateFactory_t * newTaskTemplateFactoryHc(ocrParamList_t* perType, u32
     // Initialize the base's base
     base->base.fcts.processEvent = NULL;
     base->instantiate = FUNC_ADDR(ocrTaskTemplate_t* (*)(ocrTaskTemplateFactory_t*, ocrEdt_t, u32, u32, const char*, ocrParamList_t*), newTaskTemplateHc);
-    base->destruct =  FUNC_ADDR(void (*)(ocrTaskTemplateFactory_t*), destructTaskTemplateFactoryHc);
+    base->base.destruct =  FUNC_ADDR(void (*)(ocrObjectFactory_t*), destructTaskTemplateFactoryHc);
     base->factoryId = factoryId;
     base->fcts.destruct = FUNC_ADDR(u8 (*)(ocrTaskTemplate_t*), destructTaskTemplateHc);
     base->fcts.setHint = FUNC_ADDR(u8 (*)(ocrTaskTemplate_t*, ocrHint_t*), setHintTaskTemplateHc);
@@ -1499,8 +1499,8 @@ ocrRuntimeHint_t* getRuntimeHintTaskHc(ocrTask_t* self) {
     return &(derived->hint);
 }
 
-void destructTaskFactoryHc(ocrTaskFactory_t* factory) {
-    runtimeChunkFree((u64)factory->hintPropMap, PERSISTENT_CHUNK);
+void destructTaskFactoryHc(ocrObjectFactory_t* factory) {
+    runtimeChunkFree((u64)((ocrTaskFactory_t*)factory)->hintPropMap, PERSISTENT_CHUNK);
     runtimeChunkFree((u64)factory, PERSISTENT_CHUNK);
 }
 
@@ -1512,7 +1512,7 @@ ocrTaskFactory_t * newTaskFactoryHc(ocrParamList_t* perInstance, u32 factoryId) 
 
     base->instantiate = FUNC_ADDR(u8 (*) (ocrTaskFactory_t*, ocrFatGuid_t*, ocrFatGuid_t, u32, u64*, u32, u32, ocrHint_t*,
         ocrFatGuid_t*, ocrTask_t *, ocrFatGuid_t, ocrParamList_t*), newTaskHc);
-    base->destruct =  FUNC_ADDR(void (*) (ocrTaskFactory_t*), destructTaskFactoryHc);
+    base->base.destruct =  FUNC_ADDR(void (*) (ocrObjectFactory_t*), destructTaskFactoryHc);
     base->factoryId = factoryId;
 
     base->fcts.destruct = FUNC_ADDR(u8 (*)(ocrTask_t*), destructTaskHc);

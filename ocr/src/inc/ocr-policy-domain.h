@@ -1415,10 +1415,15 @@ typedef struct _ocrPolicyDomain_t {
     u64 workerCount;                            /**< Number of workers */
 
     /* Factories */
-    u64 taskFactoryCount;                       /**< Number of task factories */
-    u64 taskTemplateFactoryCount;               /**< Number of task-template factories */
-    u64 dbFactoryCount;                         /**< Number of data-block factories */
-    u64 eventFactoryCount;                      /**< Number of event factories */
+    u64 factoryCount;                           /**< Number of factories (all types) */
+    ocrObjectFactory_t **factories;             /**< Factories (all types) */
+    // WARNING: Index order must match that in ocr-machine.h in type_enum
+    u32 taskFactoryIdx;                         /**< First index of task factories */
+    u32 taskTemplateFactoryIdx;                 /**< First index of task template factories */
+    u32 datablockFactoryIdx;                    /**< First index of datablock factories */
+    u32 eventFactoryIdx;                        /**< First index of event factories */
+
+
     u64 schedulerObjectFactoryCount;            /**< Number of schedulerObject factories */
 
     /* Objects based on counts above */
@@ -1429,13 +1434,6 @@ typedef struct _ocrPolicyDomain_t {
 
     ocrWorker_t     ** workers;                 /**< All the workers */
 
-    ocrTaskFactory_t  **taskFactories;          /**< Factory to produce tasks
-                                                 * (EDTs) */
-    ocrTaskTemplateFactory_t  ** taskTemplateFactories; /**< Factories to produce
-                                                         * task templates */
-    ocrDataBlockFactory_t ** dbFactories;       /**< Factories to produce
-                                                 * data-blocks */
-    ocrEventFactory_t ** eventFactories;        /**< Factories to produce events*/
     ocrSchedulerObjectFactory_t **schedulerObjectFactories; /**< All the schedulerObject factories
                                                  * known to this policy domain */
 

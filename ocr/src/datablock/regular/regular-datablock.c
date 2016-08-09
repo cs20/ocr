@@ -316,8 +316,8 @@ ocrRuntimeHint_t* getRuntimeHintDbRegular(ocrDataBlock_t* self) {
 /* OCR DATABLOCK REGULAR FACTORY                      */
 /******************************************************/
 
-void destructRegularFactory(ocrDataBlockFactory_t *factory) {
-    runtimeChunkFree((u64)factory->hintPropMap, PERSISTENT_CHUNK);
+void destructRegularFactory(ocrObjectFactory_t *factory) {
+    runtimeChunkFree((u64)((ocrDataBlockFactory_t*)factory)->hintPropMap, PERSISTENT_CHUNK);
     runtimeChunkFree((u64)factory, PERSISTENT_CHUNK);
 }
 
@@ -331,7 +331,9 @@ ocrDataBlockFactory_t *newDataBlockFactoryRegular(ocrParamList_t *perType, u32 f
     base->instantiate = FUNC_ADDR(u8 (*)
                                   (ocrDataBlockFactory_t*, ocrFatGuid_t *, ocrFatGuid_t, ocrFatGuid_t,
                                    u64, void*, ocrHint_t*, u32, ocrParamList_t*), newDataBlockRegular);
-    base->destruct = FUNC_ADDR(void (*)(ocrDataBlockFactory_t*), destructRegularFactory);
+    base->base.destruct = FUNC_ADDR(void (*)(ocrObjectFactory_t*), destructRegularFactory);
+
+    // Functions for the instance
     base->fcts.destruct = FUNC_ADDR(u8 (*)(ocrDataBlock_t*), regularDestruct);
     base->fcts.acquire = FUNC_ADDR(u8 (*)(ocrDataBlock_t*, void**, ocrFatGuid_t, u32, ocrDbAccessMode_t, bool, u32), regularAcquire);
     base->fcts.release = FUNC_ADDR(u8 (*)(ocrDataBlock_t*, ocrFatGuid_t, bool), regularRelease);

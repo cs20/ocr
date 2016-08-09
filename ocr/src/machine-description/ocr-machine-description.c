@@ -1254,36 +1254,38 @@ void add_dependence (type_enum fromtype, type_enum totype, char *refstr,
             f->schedulers[dependence_index] = (ocrScheduler_t *)toinstance;
             break;
         }
-        case taskfactory_type: {
-            if (f->taskFactories == NULL) {
-                f->taskFactoryCount = dependence_count;
-                f->taskFactories = (ocrTaskFactory_t **)runtimeChunkAlloc(dependence_count * sizeof(ocrTaskFactory_t *), PERSISTENT_CHUNK);
+        case taskfactory_type: case tasktemplatefactory_type: case datablockfactory_type: case eventfactory_type: {
+            if(f->factories == NULL) {
+                f->taskFactoryIdx = f->taskTemplateFactoryIdx = f->datablockFactoryIdx = f->eventFactoryIdx = dependence_count+1;
+                f->factoryCount = dependence_count;
+                f->factories = (ocrObjectFactory_t**)runtimeChunkAlloc(dependence_count*sizeof(ocrObjectFactory_t*), PERSISTENT_CHUNK);
             }
-            f->taskFactories[dependence_index] = (ocrTaskFactory_t *)toinstance;
-            break;
-        }
-        case tasktemplatefactory_type: {
-            if (f->taskTemplateFactories == NULL) {
-                f->taskTemplateFactoryCount = dependence_count;
-                f->taskTemplateFactories = (ocrTaskTemplateFactory_t **)runtimeChunkAlloc(dependence_count * sizeof(ocrTaskTemplateFactory_t *), PERSISTENT_CHUNK);
+            f->factories[dependence_index] = (ocrObjectFactory_t*)toinstance;
+            switch(totype) {
+            case taskfactory_type: {
+                if(f->taskFactoryIdx > dependence_index)
+                    f->taskFactoryIdx = dependence_index;
+                break;
             }
-            f->taskTemplateFactories[dependence_index] = (ocrTaskTemplateFactory_t *)toinstance;
-            break;
-        }
-        case datablockfactory_type: {
-            if (f->dbFactories == NULL) {
-                f->dbFactoryCount = dependence_count;
-                f->dbFactories = (ocrDataBlockFactory_t **)runtimeChunkAlloc(dependence_count * sizeof(ocrDataBlockFactory_t *), PERSISTENT_CHUNK);
+            case tasktemplatefactory_type: {
+                if(f->taskTemplateFactoryIdx > dependence_index)
+                    f->taskTemplateFactoryIdx = dependence_index;
+                break;
             }
-            f->dbFactories[dependence_index] = (ocrDataBlockFactory_t *)toinstance;
-            break;
-        }
-        case eventfactory_type: {
-            if (f->eventFactories == NULL) {
-                f->eventFactoryCount = dependence_count;
-                f->eventFactories = (ocrEventFactory_t **)runtimeChunkAlloc(dependence_count * sizeof(ocrEventFactory_t *), PERSISTENT_CHUNK);
+            case datablockfactory_type: {
+                if(f->datablockFactoryIdx > dependence_index)
+                    f->datablockFactoryIdx = dependence_index;
+                break;
             }
-            f->eventFactories[dependence_index] = (ocrEventFactory_t *)toinstance;
+            case eventfactory_type: {
+                if(f->eventFactoryIdx > dependence_index)
+                    f->eventFactoryIdx = dependence_index;
+                break;
+            }
+            default:
+                ASSERT(0);
+                break;
+            }
             break;
         }
         case schedulerObject_type: {
@@ -1343,15 +1345,35 @@ s32 build_deps (dictionary *dict, s32 A, s32 B, char *refstr, void ***all_instan
     return 0;
 }
 
-s32 build_deps_types (s32 A, s32 B, char *refstr, void **pdinst, int pdcount, int type_count, void ***all_factories, ocrParamList_t ***type_params) {
+s32 build_deps_types (s32 A, s32 B, char *refstr, void **pdinst, int pdcount, int *type_counts, void ***all_factories, ocrParamList_t ***type_params) {
     s32 i, j;
 
-    for (i = 0; i < pdcount; i++) {
-        for (j = 0; j < type_count; j++) {
-            add_dependence(A, B, refstr, pdinst[i], NULL, all_factories[B][j], NULL, j, type_count);
+    if(B >= taskfactory_type && B <= eventfactory_type) {
+        // We clump all of these together in factories so we calculate the start index
+        s32 initJ = 0;
+        s32 totalCount = 0;
+        for(j=taskfactory_type; j<=eventfactory_type; ++j) {
+            if(j == B) {
+                break;
+            }
+            initJ += type_counts[j];
+        }
+        totalCount = initJ;
+        for(; j<=eventfactory_type; ++j)
+            totalCount += type_counts[j];
+
+        for(i=0; i<pdcount; ++i) {
+            for(j=initJ; j<type_counts[B]+initJ; ++j) {
+                add_dependence(A, B, refstr, pdinst[i], NULL, all_factories[taskfactory_type][j], NULL, j, totalCount);
+            }
+        }
+    } else {
+        for (i = 0; i < pdcount; i++) {
+            for (j = 0; j < type_counts[B]; j++) {
+                add_dependence(A, B, refstr, pdinst[i], NULL, all_factories[B][j], NULL, j, type_counts[B]);
+            }
         }
     }
-
     return 0;
 }
 

@@ -43,10 +43,11 @@ typedef enum {
     policydomain_type,
     // Everything above is used as instances
     // Everything below is used as types
-    taskfactory_type,
+    // WARNING: Order must match the order in ocr-policy-domain.h
+    taskfactory_type, // WARNING: the code relies on the fact that this is the first factory type
     tasktemplatefactory_type,
     datablockfactory_type,
-    eventfactory_type,
+    eventfactory_type, // WARNING: the code relies on the fact that this is the last factory type
 } type_enum;
 
 /* Dependence information (from->to) referenced by refstr */

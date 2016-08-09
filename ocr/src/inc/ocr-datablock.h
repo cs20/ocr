@@ -246,11 +246,7 @@ typedef struct _ocrDataBlockFactory_t {
     u8 (*instantiate)(struct _ocrDataBlockFactory_t *factory, ocrFatGuid_t *guid,
                       ocrFatGuid_t allocator, ocrFatGuid_t allocPD, u64 size,
                       void* ptr, ocrHint_t *hint, u32 properties, ocrParamList_t *instanceArg);
-    /**
-     * @brief Factory destructor
-     * @param factory       Pointer to the factory to destroy.
-     */
-    void (*destruct)(struct _ocrDataBlockFactory_t *factory);
+
     u32 factoryId; /**< Corresponds to fctId in DB */
     ocrDataBlockFcts_t fcts; /**< Function pointers created instances should use */
     u64 *hintPropMap; /**< Mapping hint properties to implementation specific packed array */

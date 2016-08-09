@@ -139,10 +139,6 @@ typedef struct _ocrTaskTemplateFactory_t {
                                       u32 paramc, u32 depc, const char* fctName,
                                       ocrParamList_t *perInstance);
 
-    /** @brief Destructor for the TaskTemplateFactory interface
-     */
-    void (*destruct)(struct _ocrTaskTemplateFactory_t * factory);
-
     u32 factoryId;
     ocrTaskTemplateFcts_t fcts;
     u64 *hintPropMap; /**< Mapping hint properties to implementation specific packed array */
@@ -382,10 +378,6 @@ typedef struct _ocrTaskFactory_t {
                               ocrHint_t *hint, ocrFatGuid_t *outputEvent,
                               ocrTask_t *curEdt, ocrFatGuid_t parentLatch,
                               ocrParamList_t *perInstance);
-
-    /*! \brief Virtual destructor for the TaskFactory interface
-     */
-    void (*destruct)(struct _ocrTaskFactory_t * factory);
 
     ocrTaskFcts_t fcts;         /**< Function pointers created instances should use */
     u32 factoryId;              /**< Corresponds to fctId in task */

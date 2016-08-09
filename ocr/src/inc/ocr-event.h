@@ -226,11 +226,6 @@ typedef struct _ocrEventFactory_t {
                       ocrEventTypes_t eventType, u32 properties,
                       ocrParamList_t *instanceArg);
 
-    /** @brief Virtual destructor for the factory
-     *  @param[in] factory          Pointer to this factory
-     */
-    void (*destruct)(struct _ocrEventFactory_t* factory);
-
     u32 factoryId;             /**< Factory ID (matches fctId in event */
     ocrEventCommonFcts_t commonFcts; /**< Functions common for all the types of events */
     ocrEventFcts_t fcts[OCR_EVENT_T_MAX]; /**< Functions for specific types of events */
