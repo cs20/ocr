@@ -246,6 +246,20 @@ u8 ocrEdtCreate(ocrGuid_t* edtGuidPtr, ocrGuid_t templateGuid,
     }
 
     bool reqResponse = false;
+
+    if((properties & GUID_PROP_IS_LABELED)) {
+        if(depv != NULL) {
+            // This is disallowed for now because if there are two creators,
+            // they can't both be adding dependences
+            DPRINTF(DEBUG_LVL_WARN, "Ignoring depv specification for ocrEdtCreate since GUID is labeled\n");
+            depv = NULL;
+            depc = 0;
+        }
+        // You have to give a guid if you expect it to be labeled :)
+        ASSERT(edtGuidPtr);
+        reqResponse = true; // We always need a response in this case (for now)
+    }
+
 #define PD_MSG (&msg)
 #define PD_TYPE PD_MSG_WORK_CREATE
     msg.type = PD_MSG_WORK_CREATE | PD_MSG_REQUEST;
@@ -294,7 +308,7 @@ u8 ocrEdtCreate(ocrGuid_t* edtGuidPtr, ocrGuid_t templateGuid,
         hint = &userHint;
     }
 
-    PD_MSG_FIELD_IO(guid.guid) = NULL_GUID; // to be set by callee
+    PD_MSG_FIELD_IO(guid.guid) = edtGuidPtr?*edtGuidPtr:NULL_GUID;
     PD_MSG_FIELD_IO(guid.metaDataPtr) = NULL;
     if(outputEvent) {
         PD_MSG_FIELD_IO(outputEvent.guid) = UNINITIALIZED_GUID;
@@ -323,23 +337,30 @@ u8 ocrEdtCreate(ocrGuid_t* edtGuidPtr, ocrGuid_t templateGuid,
         returnCode = PD_MSG_FIELD_O(returnDetail);
     }
 
-    if(returnCode) {
-        DPRINTF(DEBUG_LVL_WARN, "EXIT ocrEdtCreate -> %"PRIu32"\n", returnCode);
-        RETURN_PROFILE(returnCode);
-    }
-
-    // Read the GUID anyway as the EDT may have been assigned one
-    // even if the user didn't need it to be returned.
-    edtGuid = PD_MSG_FIELD_IO(guid.guid);
-    if (edtGuidPtr != NULL) {
-        *edtGuidPtr = edtGuid;
+    if(returnCode != 0) {
+        if(returnCode != OCR_EGUIDEXISTS) {
+            ASSERT(edtGuidPtr);
+            *edtGuidPtr = NULL_GUID;
+            DPRINTF(DEBUG_LVL_WARN, "EXIT ocrEdtCreate -> %"PRIu32"\n", returnCode);
+            RETURN_PROFILE(returnCode);
+        } else {
+            DPRINTF(DEBUG_LVL_INFO, "EDT create for "GUIDF" returned OCR_EGUIDEXISTS\n", GUIDA(*edtGuidPtr));
+            ASSERT(edtGuidPtr);
+            *edtGuidPtr = PD_MSG_FIELD_IO(guid.guid);
+            RETURN_PROFILE(OCR_EGUIDEXISTS);
+        }
+    } else {
+        edtGuid = PD_MSG_FIELD_IO(guid.guid);
+        if(edtGuidPtr)
+            *edtGuidPtr = edtGuid;
+        if(outputEvent)
+            *outputEvent = PD_MSG_FIELD_IO(outputEvent.guid);
     }
     // These should have been resolved
     paramc = PD_MSG_FIELD_IO(paramc);
     depc = PD_MSG_FIELD_IO(depc);
 
-    if(outputEvent)
-        *outputEvent = PD_MSG_FIELD_IO(outputEvent.guid);
+
 
 #ifndef EDT_DEPV_DELAYED
     // We still need to do that in case depc was EDT_PARAM_DEF
@@ -368,10 +389,10 @@ u8 ocrEdtCreate(ocrGuid_t* edtGuidPtr, ocrGuid_t templateGuid,
     }
 
     if(outputEvent) {
-        DPRINTF(DEBUG_LVL_INFO, "EXIT ocrEdtCreate -> 0; GUID: "GUIDF"; outEvt: "GUIDF"\n",
-                GUIDA(edtGuid), GUIDA(*outputEvent));
+        DPRINTF(DEBUG_LVL_INFO, "EXIT ocrEdtCreate -> %"PRIu32"; GUID: "GUIDF"; outEvt: "GUIDF"\n",
+                returnCode, GUIDA(edtGuid), GUIDA(*outputEvent));
     } else {
-        DPRINTF(DEBUG_LVL_INFO, "EXIT ocrEdtCreate -> 0; GUID: "GUIDF"\n", GUIDA(edtGuid));
+        DPRINTF(DEBUG_LVL_INFO, "EXIT ocrEdtCreate -> %"PRIu32"; GUID: "GUIDF"\n", returnCode, GUIDA(edtGuid));
     }
     RETURN_PROFILE(0);
 #undef PD_MSG

@@ -1206,11 +1206,26 @@ static u8 ceCreateEdt(ocrPolicyDomain_t *self, ocrFatGuid_t *guid,
         return OCR_EINVAL;
     }
 
-    RESULT_ASSERT(((ocrTaskFactory_t*)(self->factories[self->taskFactoryIdx]))->instantiate(
-        (ocrTaskFactory_t*)(self->factories[self->taskFactoryIdx]), guid, edtTemplate, *paramc, paramv,
-        *depc, properties, hint, outputEvent, currentEdt, parentLatch, NULL), ==, 0);
+    if(properties & GUID_PROP_IS_LABELED) {
+        if(ocrGuidIsUninitialized(outputEvent->guid)) {
+            DPRINTF(DEBUG_LVL_WARN, "Labeled EDTs cannot request an output event\n");
+            ASSERT(0);
+            return OCR_EINVAL;
+        }
+        if(!ocrGuidIsNull(parentLatch.guid)) {
+            DPRINTF(DEBUG_LVL_WARN, "Labeled EDTs in a finish scope are dangerous and will only be registered by the winner of the creation\n");
+        }
+    }
 
-    return 0;
+    u8 returnCode = ((ocrTaskFactory_t*)(self->factories[self->taskFactoryIdx]))->instantiate(
+        (ocrTaskFactory_t*)(self->factories[self->taskFactoryIdx]), guid, edtTemplate, *paramc, paramv,
+        *depc, properties, hint, outputEvent, currentEdt, parentLatch, NULL);
+
+    if(returnCode && returnCode != OCR_EGUIDEXISTS) {
+        DPRINTF(DEBUG_LVL_WARN, "Unable to create EDT, instantiate return code is %"PRIu32"\n", returnCode);
+        ASSERT(false);
+    }
+    return returnCode;
 }
 
 static u8 ceCreateEdtTemplate(ocrPolicyDomain_t *self, ocrFatGuid_t *guid,

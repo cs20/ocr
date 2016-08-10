@@ -299,7 +299,7 @@ u8 labeledGuidCreateGuid(ocrGuidProvider_t* self, ocrFatGuid_t *fguid, u64 size,
                 DPRINTF(DEBUG_LVL_VVERB, "LabeledGUID: FAILED to insert (got %p instead of %p)\n",
                         value, ptr);
                 // Fail; already exists
-                fguid->metaDataPtr = value; // Do we need to return this?
+                fguid->metaDataPtr = value; // Return this because we may need the output event extracted
                 // We now need to free the memory we allocated
                 getCurrentEnv(NULL, NULL, NULL, &msg);
 #define PD_TYPE PD_MSG_MEM_UNALLOC

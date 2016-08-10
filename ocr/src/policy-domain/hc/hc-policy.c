@@ -816,7 +816,7 @@ static u8 createEdtHelper(ocrPolicyDomain_t *self, ocrFatGuid_t *guid,
                            edtTemplate, *paramc, paramv,
                            *depc, properties, hint, outputEvent, currentEdt,
                            parentLatch, (ocrParamList_t*)(&taskparams));
-    if(returnCode) {
+    if(returnCode && returnCode != OCR_EGUIDEXISTS) {
         DPRINTF(DEBUG_LVL_WARN, "unable to create EDT, instantiate returnCode is %"PRIx32"\n", returnCode);
         ASSERT(false);
     }
@@ -1205,6 +1205,23 @@ static u8 hcPdDeferredProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *ms
                 DPRINTF(DEBUG_LVL_WARN, "[DFRD] Warning: EDT creation cannot be deferred because of EDT_PARAM_DEF being used\n");
                 return OCR_EPERM;
             }
+            if(PD_MSG_FIELD_I(properties) & GUID_PROP_IS_LABELED) {
+                if(ocrGuidIsUninitialized(PD_MSG_FIELD_IO(outputEvent.guid))) {
+                    DPRINTF(DEBUG_LVL_WARN, "Labeled EDTs cannot request an output event\n");
+                    ASSERT(0);
+                    setDeferredReturnDetail(msg, OCR_EINVAL);
+                    return OCR_EINVAL;
+                }
+                if(PD_MSG_FIELD_I(properties) & EDT_PROP_FINISH) {
+                    DPRINTF(DEBUG_LVL_WARN, "[DFRD] Labeled EDT has the FINISH property -- call cannot be deferred\n");
+                    return OCR_EPERM;
+                }
+                if(!ocrGuidIsNull(PD_MSG_FIELD_I(parentLatch.guid))) {
+                    DPRINTF(DEBUG_LVL_WARN, "[DFRD] Labeled EDT is in a FINISH scope -- call cannot be deferred\n");
+                    DPRINTF(DEBUG_LVL_WARN, "Labeled EDTs in a finish scope are dangerous and will only be registered by the winner of the creation\n");
+                    return OCR_EPERM;
+                }
+            }
             // Only generate GUIDs for two-way EDTs
             if (msg->type & PD_MSG_REQ_RESPONSE) {
                 ocrGuid_t edtGuid;
@@ -1290,8 +1307,14 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         return hcPdDeferredProcessMessage(self, msg, isBlocking);
     }
 #else
-    if ((msg->type & PD_MSG_DEFERRABLE) && !hcPdDeferredProcessMessage(self, msg, isBlocking)) {
-        return 0;
+    returnCode = hcPdDeferredProcessMessage(self, msg, isBlocking);
+    // OCR_EPERM means drop-through and continue processing (can't defer)
+    // 0 means call was deferred
+    // Other error codes should be returned as usual
+    if ((msg->type & PD_MSG_DEFERRABLE)) {
+        if(returnCode != OCR_EPERM)
+            return returnCode;
+        returnCode = 0;
     }
 #endif
 #endif
@@ -1610,9 +1633,10 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         if (msg->type & PD_MSG_REQ_RESPONSE) {
             PD_MSG_FIELD_O(returnDetail) = returnCode;
         }
-        ASSERT(returnCode == 0);
+        ASSERT((returnCode == 0) || (returnCode == OCR_EGUIDEXISTS));
 #ifndef EDT_DEPV_DELAYED
-        if ((depv != NULL) && (returnCode == 0)) {
+        if ((depv != NULL)) {
+            ASSERT(returnCode == 0);
             ASSERT(depc != EDT_PARAM_DEF);
             ocrGuid_t destination = PD_MSG_FIELD_IO(guid).guid;
             u32 i = 0;

@@ -685,6 +685,10 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
         ocrFatGuid_t parentLatch = PD_MSG_FIELD_I(parentLatch);
 
         // The placer may have altered msg->destLocation
+        // We override if it is labeled
+        if(PD_MSG_FIELD_I(properties) & GUID_PROP_IS_LABELED) {
+            RETRIEVE_LOCATION_FROM_GUID_MSG(self, msg->destLocation, IO);
+        }
         if (msg->destLocation == curLoc) {
             DPRINTF(DEBUG_LVL_VVERB,"WORK_CREATE: local EDT creation for template GUID "GUIDF"\n", GUIDA(PD_MSG_FIELD_I(templateGuid.guid)));
         } else {
@@ -809,6 +813,10 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
 #define PD_MSG msg
 #define PD_TYPE PD_MSG_DB_CREATE
         // The placer may have altered msg->destLocation
+        // We override in case the GUID is labeled
+        if (PD_MSG_FIELD_IO(properties) & GUID_PROP_IS_LABELED) {
+            RETRIEVE_LOCATION_FROM_GUID_MSG(self, msg->destLocation, IO);
+        }
 #undef PD_MSG
 #undef PD_TYPE
         break;
@@ -2030,6 +2038,19 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
             ASSERT(msg->type & PD_MSG_RESPONSE);
             ASSERT((msg->type & PD_MSG_TYPE_ONLY) != PD_MSG_MGT_MONITOR_PROGRESS);
             switch(msg->type & PD_MSG_TYPE_ONLY) {
+            case PD_MSG_WORK_CREATE:
+            {
+#define PD_MSG (msg)
+#define PD_TYPE PD_MSG_WORK_CREATE
+                // Here we have to extract the output event's GUID from the EDT's metadata pointer
+                // if the response is OCR_EGUIDEXISTS
+                if(PD_MSG_FIELD_O(returnDetail) == OCR_EGUIDEXISTS) {
+                    PD_MSG_FIELD_IO(outputEvent.guid) = ((ocrTask_t*)(PD_MSG_FIELD_IO(guid.metaDataPtr)))->outputEvent;
+                }
+#undef PD_MSG
+#undef PD_TYPE
+                break;
+            }
             case PD_MSG_GUID_METADATA_CLONE:
             {
 #define PD_MSG (msg)

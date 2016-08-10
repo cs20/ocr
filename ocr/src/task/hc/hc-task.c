@@ -284,7 +284,7 @@ static u8 registerOnFrontier(ocrTaskHc_t *self, ocrPolicyDomain_t *pd,
 /* OCR-HC Support functions                           */
 /******************************************************/
 
-static u8 initTaskHcInternal(ocrTaskHc_t *task, ocrPolicyDomain_t * pd,
+static u8 initTaskHcInternal(ocrTaskHc_t *task, ocrGuid_t taskGuid, ocrPolicyDomain_t * pd,
                              ocrTask_t *curTask, ocrFatGuid_t outputEvent,
                              ocrFatGuid_t parentLatch, u32 properties) {
     task->frontierSlot = 0;
@@ -319,7 +319,7 @@ static u8 initTaskHcInternal(ocrTaskHc_t *task, ocrPolicyDomain_t * pd,
         PD_MSG_STACK(msg);
         getCurrentEnv(NULL, NULL, NULL, &msg);
         ocrFatGuid_t edtCheckin;
-        edtCheckin.guid = task->base.guid;
+        edtCheckin.guid = taskGuid;
         edtCheckin.metaDataPtr = task;
 #define PD_MSG (&msg)
 #define PD_TYPE PD_MSG_EVT_CREATE
@@ -342,14 +342,14 @@ static u8 initTaskHcInternal(ocrTaskHc_t *task, ocrPolicyDomain_t * pd,
         ASSERT(!(ocrGuidIsNull(latchFGuid.guid)) && latchFGuid.metaDataPtr != NULL);
 
         if (!(ocrGuidIsNull(parentLatch.guid))) {
-            DPRINTF(DEBUG_LVL_INFO, "Checkin "GUIDF" on parent flatch "GUIDF"\n", GUIDA(task->base.guid), GUIDA(parentLatch.guid));
+            DPRINTF(DEBUG_LVL_INFO, "Checkin "GUIDF" on parent flatch "GUIDF"\n", GUIDA(taskGuid), GUIDA(parentLatch.guid));
             // Check in this EDT finish latch with the parent's one and setup the dependence between current latch and parent's one
             getCurrentEnv(NULL, NULL, NULL, &msg);
             RESULT_PROPAGATE(finishLatchCheckin(pd, &msg, edtCheckin, latchFGuid, parentLatch));
         }
 
         // Check in the current EDT into the new finish scope and link its outputEvent to the current finish latch
-        DPRINTF(DEBUG_LVL_INFO, "Checkin "GUIDF" on self flatch "GUIDF"\n", GUIDA(task->base.guid), GUIDA(latchFGuid.guid));
+        DPRINTF(DEBUG_LVL_INFO, "Checkin "GUIDF" on self flatch "GUIDF"\n", GUIDA(taskGuid), GUIDA(latchFGuid.guid));
         getCurrentEnv(NULL, NULL, NULL, &msg);
         RESULT_PROPAGATE(finishLatchCheckin(pd, &msg, edtCheckin, outputEvent, latchFGuid));
         // Set edt's ELS to the new latch
@@ -360,10 +360,10 @@ static u8 initTaskHcInternal(ocrTaskHc_t *task, ocrPolicyDomain_t * pd,
         if(!(ocrGuidIsNull(parentLatch.guid))) {
             PD_MSG_STACK(msg);
             getCurrentEnv(NULL, NULL, NULL, &msg);
-            DPRINTF(DEBUG_LVL_INFO, "Checkin "GUIDF" on current flatch "GUIDF"\n", GUIDA(task->base.guid), GUIDA(parentLatch.guid));
+            DPRINTF(DEBUG_LVL_INFO, "Checkin "GUIDF" on current flatch "GUIDF"\n", GUIDA(taskGuid), GUIDA(parentLatch.guid));
             // Check in current finish latch
             ocrFatGuid_t edtCheckin;
-            edtCheckin.guid = task->base.guid;
+            edtCheckin.guid = taskGuid;
             edtCheckin.metaDataPtr = task;
             RESULT_PROPAGATE(finishLatchCheckin(pd, &msg, edtCheckin, outputEvent, parentLatch));
         }
@@ -769,62 +769,9 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
     //    that latch event)
     ASSERT(outputEventPtr != NULL); // This should always be initialized
     ocrFatGuid_t outputEvent = {.guid = NULL_GUID, .metaDataPtr = NULL};
+    u8 returnValue = 0;
+    ocrGuid_t taskGuid = NULL_GUID; // Temporary storage for the task GUID
 
-#ifdef ENABLE_OCR_API_DEFERRABLE
-    ocrFatGuid_t defFinish;
-    // In deferred, when we have a finish the output event is the latch event
-    defFinish.guid = NULL_GUID;
-    defFinish.metaDataPtr = NULL;
-    if (hasProperty(properties, EDT_PROP_FINISH)) {
-        // Creating a finish EDT and requested an output-event
-        // With PARAM_DEF the call are synchronous even in deferred. In that case
-        // the outputEventPtr doesn't hold a valid GUID. Hence only read if non-uninitialized
-        if (!ocrGuidIsUninitialized(outputEventPtr->guid)) {
-            //TODO-DEFERRED: Seems ill defined, now I can't know if the user did
-            //request an outputEventPtr but it doesn't really matter since we generate one
-            //anyway when we have a finish scope. In deferred the user/rt interface will have
-            //read the guid from outputEventPtr anyway
-            defFinish = *outputEventPtr;
-        } else {
-            outputEventPtr->guid = UNINITIALIZED_GUID;
-        }
-    }
-#endif
-    if (!ocrGuidIsNull(outputEventPtr->guid) || hasProperty(properties, EDT_PROP_FINISH) ||
-            !(ocrGuidIsNull(parentLatch.guid))) {
-        PD_MSG_STACK(msg);
-        getCurrentEnv(NULL, NULL, NULL, &msg);
-#define PD_MSG (&msg)
-#define PD_TYPE PD_MSG_EVT_CREATE
-        msg.type = PD_MSG_EVT_CREATE | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
-        PD_MSG_FIELD_IO(guid.guid) = outputEventPtr->guid; // May or may not be read depending on props
-        PD_MSG_FIELD_IO(guid.metaDataPtr) = NULL;
-        PD_MSG_FIELD_I(currentEdt.guid) = curTask!=NULL?curTask->guid:NULL_GUID;
-        PD_MSG_FIELD_I(currentEdt.metaDataPtr) = curTask;
-#ifdef ENABLE_EXTENSION_PARAMS_EVT
-        PD_MSG_FIELD_I(params) = NULL;
-#endif
-        //In deferred properties carry the valid and torecord flags
-#ifdef ENABLE_OCR_API_DEFERRABLE
-        PD_MSG_FIELD_I(properties) = (properties & GUID_RT_PROP_ALL) | GUID_PROP_TORECORD;
-        // Since we used the output event to store the finish latch event, we must remove
-        // the isvalid flag so as to generate a proper output event.
-        // Also, the valid flag could be set for the EDT guid while the output event hadn't been requested
-        if (ocrGuidIsNull(outputEventPtr->guid) || ocrGuidIsUninitialized(outputEventPtr->guid)) {
-            PD_MSG_FIELD_I(properties) &= ~GUID_PROP_ISVALID;
-        }
-#else
-        PD_MSG_FIELD_I(properties) = (properties & GUID_RT_PROP_ALL) | GUID_PROP_TORECORD;
-#endif
-        PD_MSG_FIELD_I(type) = OCR_EVENT_ONCE_T; // Output events of EDTs are non sticky
-
-        RESULT_PROPAGATE2(pd->fcts.processMessage(pd, &msg, true), 1);
-        outputEvent = PD_MSG_FIELD_IO(guid);
-        ASSERT(!ocrGuidIsNull(outputEvent.guid));
-        ASSERT(!ocrGuidIsUninitialized(outputEvent.guid));
-#undef PD_MSG
-#undef PD_TYPE
-    }
 
     PD_MSG_STACK(msg);
     // Create the task itself by getting a GUID
@@ -855,16 +802,81 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
     PD_MSG_FIELD_I(kind) = OCR_GUID_EDT;
     PD_MSG_FIELD_I(targetLoc) = targetLoc;
     //In deferred properties carry the valid and torecord flags
-    PD_MSG_FIELD_I(properties) = (properties & GUID_RT_PROP_ALL) | GUID_PROP_TORECORD;
+    PD_MSG_FIELD_I(properties) = (properties & GUID_PROP_ALL) | GUID_PROP_TORECORD;
     RESULT_PROPAGATE2(pd->fcts.processMessage(pd, &msg, true), 1);
     edt = (ocrTaskHc_t*)PD_MSG_FIELD_IO(guid.metaDataPtr);
     base = (ocrTask_t*)edt;
+    returnValue = PD_MSG_FIELD_O(returnDetail);
     ASSERT(edt);
+
+    // Labeled case most likely. We return and don't create the event
+    if(returnValue)
+        return returnValue;
+
+#ifdef ENABLE_OCR_API_DEFERRABLE
+    ocrFatGuid_t defFinish;
+    // In deferred, when we have a finish the output event is the latch event
+    defFinish.guid = NULL_GUID;
+    defFinish.metaDataPtr = NULL;
+    if (hasProperty(properties, EDT_PROP_FINISH)) {
+        // Creating a finish EDT and requested an output-event
+        // With PARAM_DEF the call are synchronous even in deferred. In that case
+        // the outputEventPtr doesn't hold a valid GUID. Hence only read if non-uninitialized
+        if (!ocrGuidIsUninitialized(outputEventPtr->guid)) {
+            //TODO-DEFERRED: Seems ill defined, now I can't know if the user did
+            //request an outputEventPtr but it doesn't really matter since we generate one
+            //anyway when we have a finish scope. In deferred the user/rt interface will have
+            //read the guid from outputEventPtr anyway
+            defFinish = *outputEventPtr;
+        } else {
+            outputEventPtr->guid = UNINITIALIZED_GUID;
+        }
+    }
+#endif
+    if (!ocrGuidIsNull(outputEventPtr->guid) || hasProperty(properties, EDT_PROP_FINISH) ||
+        !(ocrGuidIsNull(parentLatch.guid))) {
+#undef PD_MSG
+#undef PD_TYPE
+        PD_MSG_STACK(msg2);
+        getCurrentEnv(NULL, NULL, NULL, &msg2);
+#define PD_MSG (&msg2)
+#define PD_TYPE PD_MSG_EVT_CREATE
+        msg2.type = PD_MSG_EVT_CREATE | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
+        PD_MSG_FIELD_IO(guid.guid) = outputEventPtr->guid; // May or may not be read depending on props
+        PD_MSG_FIELD_IO(guid.metaDataPtr) = NULL;
+        PD_MSG_FIELD_I(currentEdt.guid) = curTask!=NULL?curTask->guid:NULL_GUID;
+        PD_MSG_FIELD_I(currentEdt.metaDataPtr) = curTask;
+#ifdef ENABLE_EXTENSION_PARAMS_EVT
+        PD_MSG_FIELD_I(params) = NULL;
+#endif
+        //In deferred properties carry the valid and torecord flags
+#ifdef ENABLE_OCR_API_DEFERRABLE
+        PD_MSG_FIELD_I(properties) = (properties & GUID_RT_PROP_ALL) | GUID_PROP_TORECORD;
+        // Since we used the output event to store the finish latch event, we must remove
+        // the isvalid flag so as to generate a proper output event.
+        // Also, the valid flag could be set for the EDT guid while the output event hadn't been requested
+        if (ocrGuidIsNull(outputEventPtr->guid) || ocrGuidIsUninitialized(outputEventPtr->guid)) {
+            PD_MSG_FIELD_I(properties) &= ~GUID_PROP_ISVALID;
+        }
+#else
+        PD_MSG_FIELD_I(properties) = (properties & GUID_RT_PROP_ALL) | GUID_PROP_TORECORD;
+#endif
+        PD_MSG_FIELD_I(type) = OCR_EVENT_ONCE_T; // Output events of EDTs are non sticky
+
+        RESULT_PROPAGATE2(pd->fcts.processMessage(pd, &msg2, true), 1);
+        outputEvent = PD_MSG_FIELD_IO(guid);
+        ASSERT(!ocrGuidIsNull(outputEvent.guid));
+        ASSERT(!ocrGuidIsUninitialized(outputEvent.guid));
+#undef PD_MSG
+#undef PD_TYPE
+#define PD_MSG (&msg)
+#define PD_TYPE PD_MSG_GUID_CREATE
+    }
 
     // Set up the base's base
     base->base.fctId = factory->factoryId;
     // Set-up base structures
-    base->guid = PD_MSG_FIELD_IO(guid.guid);
+    taskGuid = PD_MSG_FIELD_IO(guid.guid);
     base->templateGuid = edtTemplate.guid;
     ASSERT(edtTemplate.metaDataPtr); // For now we just assume it is passed whole
     base->funcPtr = ((ocrTaskTemplate_t*)(edtTemplate.metaDataPtr))->executePtr;
@@ -932,7 +944,7 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
 #endif
 
     // Set up HC specific stuff
-    RESULT_PROPAGATE2(initTaskHcInternal(edt, pd, curEdt, outputEvent, parentLatch, properties), 1);
+    RESULT_PROPAGATE2(initTaskHcInternal(edt, taskGuid, pd, curEdt, outputEvent, parentLatch, properties), 1);
 
     // Set up outputEventPtr:
     //   - if a finish EDT, wait on its latch event
@@ -968,8 +980,9 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
         }
     }
 #endif /* OCR_ENABLE_STATISTICS */
-    DPRINTF(DEBUG_LVL_INFO, "Create "GUIDF" depc %"PRId32" outputEvent "GUIDF"\n", GUIDA(base->guid), depc, GUIDA(outputEventPtr?outputEventPtr->guid:NULL_GUID));
-    edtGuid->guid = base->guid;
+    DPRINTF(DEBUG_LVL_INFO, "Create "GUIDF" depc %"PRId32" outputEvent "GUIDF"\n", GUIDA(taskGuid), depc, GUIDA(outputEventPtr?outputEventPtr->guid:NULL_GUID));
+    edtGuid->guid = taskGuid;
+    base->guid = taskGuid;
     edtGuid->metaDataPtr = base;
     OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_EDT, OCR_ACTION_CREATE, traceTaskCreate, edtGuid->guid);
     // Check to see if the EDT can be run
