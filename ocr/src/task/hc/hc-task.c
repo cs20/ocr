@@ -501,8 +501,11 @@ static u8 taskAllDepvSatisfied(ocrTask_t *self) {
         u32 i = 0;
         while(i < depc) {
             ASSERT(!ocrGuidIsUninitialized(signalers[i].guid) && !ocrGuidIsError(signalers[i].guid));
+            if (signalers[i].mode == DB_MODE_NULL) {
+                signalers[i].guid = NULL_GUID;
+            }
             rself->signalers[i].slot = i; // reset the slot info
-            resolvedDeps[i].guid = (signalers[i].mode == DB_MODE_NULL) ? NULL_GUID : signalers[i].guid; // DB guids by now
+            resolvedDeps[i].guid = signalers[i].guid; // DB guids by now
             resolvedDeps[i].ptr = NULL; // resolved by acquire messages
             resolvedDeps[i].mode = signalers[i].mode;
             i++;
