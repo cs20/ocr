@@ -35,8 +35,10 @@ struct _listnode;
 typedef struct _linkedlist_t {
     struct _ocrPolicyDomain_t * pd;
     struct _listnode * head;
+    struct _listnode * tail;
     struct _iterator_t * (*iterator) (struct _linkedlist_t *self);
     void (*pushFront)(struct _linkedlist_t *self, void * elt);
+    void (*pushTail)(struct _linkedlist_t *self, void * elt);
     bool (*isEmpty)(struct _linkedlist_t *self);
     void (*destruct)(struct _linkedlist_t *self);
 } linkedlist_t;

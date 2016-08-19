@@ -97,6 +97,9 @@ CFLAGS += -DGUID_PROVIDER_LOCID_SIZE=10
 # - MPI specifics
 #   - Make use of MPI-3 message
 # CFLAGS += -DMPI_MSG
+#   - For MPI_PROBE impl, push new operations at
+#     the tail of incoming and outgoing queues
+# CFLAGS += -DMPI_COMM_PUSH_AT_TAIL
 
 # **** EDTs parameters ****
 

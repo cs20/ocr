@@ -152,7 +152,6 @@ static void postRecvAny(ocrCommPlatform_t * self) {
 #ifdef OCR_MONITOR_NETWORK
     buf->rcvTime = salGetTime();
 #endif
-
     mpiComm->incoming->pushFront(mpiComm->incoming, handle);
 }
 #endif
@@ -214,7 +213,11 @@ static u8 verifyOutgoing(ocrCommPlatformMPIProbe_t *mpiComm) {
                     // we can periodically check for it
                     DPRINTF(DEBUG_LVL_VVERB, "[MPI %"PRId32"] Pushing MT handle to incoming queue\n",
                             locationToMpiRank(pd->myLocation));
+#ifdef MPI_COMM_PUSH_AT_TAIL
+                    mpiComm->incoming->pushTail(mpiComm->incoming, mpiHandle);
+#else
                     mpiComm->incoming->pushFront(mpiComm->incoming, mpiHandle);
+#endif
                 }
             } else {
                 u32 msgProperties = ((mpiCommHandle_t*)mpiHandle)->properties;
@@ -228,7 +231,11 @@ static u8 verifyOutgoing(ocrCommPlatformMPIProbe_t *mpiComm) {
                     pd->fcts.pdFree(pd, mpiHandle);
                 } else {
                     // The message requires a response, put it in the incoming list
+#ifdef MPI_COMM_PUSH_AT_TAIL
+                    mpiComm->incoming->pushTail(mpiComm->incoming, mpiHandle);
+#else
                     mpiComm->incoming->pushFront(mpiComm->incoming, mpiHandle);
+#endif
                 }
             }
             outgoingIt->removeCurrent(outgoingIt);
@@ -442,8 +449,11 @@ static u8 MPICommSendMessage(ocrCommPlatform_t * self,
 #ifdef OCR_MONITOR_NETWORK
         respMsg->rcvTime = salGetTime();
 #endif
-
+#ifdef MPI_COMM_PUSH_AT_TAIL
+        mpiComm->incoming->pushTail(mpiComm->incoming, respHandle);
+#else
         mpiComm->incoming->pushFront(mpiComm->incoming, respHandle);
+#endif
 #endif
 #if STRATEGY_PROBE_RECV
         // In probe mode just record the recipient id to be checked later
@@ -479,7 +489,11 @@ static u8 MPICommSendMessage(ocrCommPlatform_t * self,
     int res = MPI_Isend(messageBuffer, (int) fullMsgSize, datatype, targetRank, tag, comm, status);
 
     if (res == MPI_SUCCESS) {
+#ifdef MPI_COMM_PUSH_AT_TAIL
+        mpiComm->outgoing->pushTail(mpiComm->outgoing, handle);
+#else
         mpiComm->outgoing->pushFront(mpiComm->outgoing, handle);
+#endif
         *id = mpiId;
     } else {
         //BUG #603 define error for comm-api
@@ -678,7 +692,11 @@ static u8 MPICommSendMessageMT(ocrCommPlatform_t * self,
         }
         // We push this to the outgoing queue because we need to check if we
         // can free the buffer at some point
+#ifdef MPI_COMM_PUSH_AT_TAIL
+        mpiComm->outgoing->pushTail(mpiComm->outgoing, handle);
+#else
         mpiComm->outgoing->pushFront(mpiComm->outgoing, handle);
+#endif
     } else {
         //BUG #603 define error for comm-api
         ASSERT(false);
