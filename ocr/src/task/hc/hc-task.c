@@ -779,7 +779,7 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
             affGuid.lower = hintValue;
 #endif
             ASSERT(!ocrGuidIsNull(affGuid));
-            targetLoc = affinityToLocation(affGuid);
+            affinityToLocation(&(targetLoc), affGuid);
         }
     }
 
