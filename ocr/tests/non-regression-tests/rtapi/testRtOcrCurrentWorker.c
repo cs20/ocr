@@ -17,7 +17,8 @@
 
 ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     // No real right or wrong here, just check the call doesn't crash
-    ocrGuid_t workerGuid = ocrCurrentWorkerGuid();
+    ocrGuid_t workerGuid;
+    ocrCurrentWorkerGuid(&workerGuid);
     PRINTF("Current worker GUID is "GUIDF"\n", GUIDA(workerGuid));
     ocrShutdown();
     return NULL_GUID;

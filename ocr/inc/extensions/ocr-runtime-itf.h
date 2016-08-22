@@ -69,7 +69,7 @@ void ocrElsUserSet(u8 offset, ocrGuid_t data);
  * @return the GUID of the calling EDT or NULL_GUID if this code
  * is running outside an EDT (runtime code)
  **/
-ocrGuid_t currentEdtUserGet();
+void currentEdtUserGet(ocrGuid_t * guid);
 
 /**
  * @brief Get the number of workers the runtime currently uses
@@ -89,7 +89,7 @@ u64 ocrNbWorkers();
  *
  * @return the GUID of the calling worker
  **/
-ocrGuid_t ocrCurrentWorkerGuid();
+void ocrCurrentWorkerGuid(ocrGuid_t * guid);
 
 /**
  * @brief Inform the OCR runtime that the currently
