@@ -1115,7 +1115,7 @@ void* xePdMalloc(ocrPolicyDomain_t *self, u64 size) {
 
     void* result;
     s8 allocatorIndex = 0;
-    result = self->allocators[allocatorIndex]->fcts.allocate(self->allocators[allocatorIndex], size, OCR_ALLOC_HINT_RUNTIME);
+    result = self->allocators[allocatorIndex]->fcts.allocate(self->allocators[allocatorIndex], size, OCR_ALLOC_HINT_PDMALLOC);
     if (result) {
         RETURN_PROFILE(result);
     }

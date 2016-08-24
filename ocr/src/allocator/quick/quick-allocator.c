@@ -1036,7 +1036,7 @@ static void quickInit(poolHdr_t *pool, u64 size)
 
         doBmapOp(pool, &bmap_op);
 #endif
-        DPRINTF(DEBUG_LVL_INFO, "init'ed pool %p, avail %"PRId64" bytes , sizeof(poolHdr_t) = %zd\n", pool, size, sizeof(poolHdr_t));
+        DPRINTF(DEBUG_LVL_INFO, "init'ed pool %p, avail %"PRId64" bytes , sizeof(poolHdr_t) = %"PRId64"\n", pool, size, sizeof(poolHdr_t));
         pool->init_count++;
 #ifdef ENABLE_VALGRIND
         VALGRIND_CREATE_MEMPOOL(p, 0, 1);  // BUG #600: Mempool needs to be destroyed
@@ -1949,7 +1949,7 @@ void* quickAllocate(
         type_id = -type_id;
         ASSERT(type_id > 0 && type_id < MAX_SLABS_NAMED );
         ret = quickMallocSlab((poolHdr_t *)rself->poolAddr, type_id+MAX_SLABS_UNNAMED, self->pd);
-    } else if (hints & OCR_ALLOC_HINT_RUNTIME) {
+    } else if (hints & OCR_ALLOC_HINT_PDMALLOC) {
         // ideally pdMalloc uses fast path only, but sometimes pdMalloc wants quite big size,
         // e.g. ~256KB for baseDequeInit() so we use quickMalloc() to check just big sizes.
         //

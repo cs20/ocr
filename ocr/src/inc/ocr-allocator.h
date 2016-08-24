@@ -21,7 +21,8 @@
 #endif
 
 #define OCR_ALLOC_HINT_NONE                   0x0
-#define OCR_ALLOC_HINT_RUNTIME                0x30000000  // for pdMalloc
+#define OCR_ALLOC_HINT_PDMALLOC               0x20000000  // for pdMalloc
+#define OCR_ALLOC_HINT_USER                   0x40000000  // for user DBs
 #define OCR_ALLOC_HINT_REDUCE_CONTENTION      0x1         // used by tlsf
 
 struct _ocrPolicyDomain_t;

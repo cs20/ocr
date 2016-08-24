@@ -711,8 +711,10 @@ static u8 hcAllocateDb(ocrPolicyDomain_t *self, ocrFatGuid_t *guid, void** ptr, 
     // eventually be eliminated here and instead, above this level, processed into the "prescription"
     // variable, which has been added to this argument list.  The prescription indicates an order in
     // which to attempt to allocate the block to a pool.
-    u64 idx = 0;
-    void * result = self->allocators[idx]->fcts.allocate(self->allocators[idx], size, 0);
+    u64 idx = 0, hints = 0;
+    if(dbType == USER_DBTYPE)
+        hints = OCR_ALLOC_HINT_USER;
+    void * result = self->allocators[idx]->fcts.allocate(self->allocators[idx], size, hints);
     if (result) {
         u8 returnValue = 0;
         returnValue = ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->instantiate(
@@ -2755,7 +2757,7 @@ void* hcPdMalloc(ocrPolicyDomain_t *self, u64 size) {
 #else
     // Just try in the first allocator
     void* toReturn = NULL;
-    toReturn = self->allocators[0]->fcts.allocate(self->allocators[0], size, OCR_ALLOC_HINT_RUNTIME);
+    toReturn = self->allocators[0]->fcts.allocate(self->allocators[0], size, OCR_ALLOC_HINT_PDMALLOC);
     if(toReturn == NULL)
         DPRINTF(DEBUG_LVL_WARN, "Failed PDMalloc for size %"PRIx64"\n", size);
     ASSERT(toReturn != NULL);

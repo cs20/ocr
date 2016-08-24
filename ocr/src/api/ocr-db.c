@@ -54,7 +54,11 @@ u8 ocrDbCreate(ocrGuid_t *db, void** addr, u64 len, u16 flags,
     PD_MSG_FIELD_I(edt.guid) = task?task->guid:NULL_GUID; // Can happen when non EDT creates the DB
     PD_MSG_FIELD_I(edt.metaDataPtr) = task;
     PD_MSG_FIELD_I(hint) = hint;
-    PD_MSG_FIELD_I(dbType) = USER_DBTYPE;
+    if (flags & DB_PROP_RUNTIME) {
+        PD_MSG_FIELD_I(dbType) = RUNTIME_DBTYPE;
+    } else {
+        PD_MSG_FIELD_I(dbType) = USER_DBTYPE;
+    }
     PD_MSG_FIELD_I(allocator) = allocator;
 #ifdef ENABLE_OCR_API_DEFERRABLE
     tagDeferredMsg(&msg, task);

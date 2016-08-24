@@ -291,6 +291,10 @@ typedef enum {
 //This is clashing with the RT/GUID mask. No space left anywhere else.
 #define DB_PROP_IGNORE_WARN ((u16)(0x4000))
 
+/** @brief Indicates that it's runtime DB
+ */
+#define DB_PROP_RUNTIME     ((u16)(0x2000))
+
 /**
  * @brief Type of memory allocated/unallocated
  * by MEM_ALLOC and MEM_UNALLOC
