@@ -1080,7 +1080,7 @@ static pdEvent_t * createDeferredMT(ocrPolicyDomain_t * pd, ocrPolicyMsg_t * msg
 #ifdef ENABLE_OCR_API_DEFERRABLE_MT
     // The event will be marked ready whenever the previous MT is completed.
     // This is to the exception of the first deferred event that's made ready
-    // when the EDT user code has finished executing
+    // when the EDT user code has finished executing. (Can do in parallel in future)
 #else
     //TODO-MT-DEFERRED: I was assuming the pdEvent would be eligible for scheduling if
     //marked ready. Is this currently working because the pdCreateEvent doesn't reserve in the table ?
@@ -1119,7 +1119,7 @@ static void hcPdDeferredRecord(ocrPolicyDomain_t *pd, ocrPolicyMsg_t *msg) {
 #ifdef ENABLE_OCR_API_DEFERRABLE_MT
     pdStrand_t * tailStrand;
     RESULT_ASSERT(pdGetNewStrand(pd, &tailStrand, pd->strandTables[PDSTT_EVT], pdEvent, 0 /*unused*/), ==, 0);
-    pdAction_t * processAction = pdGetProcessMessageAction(NP_WORK);
+    pdAction_t * processAction = pdGetProcessMessageAction(msg->destLocation == pd->myLocation?NP_WORK:NP_COMM);
     RESULT_ASSERT(pdEnqueueActions(pd, tailStrand, 1, &processAction, false/*clear hold*/), ==, 0);
     RESULT_ASSERT(pdUnlockStrand(tailStrand), ==, 0);
     if (hcTask->evtHead == NULL) {
@@ -2857,11 +2857,15 @@ u8 hcPdProcessEvent(ocrPolicyDomain_t* self, pdEvent_t **evt, u32 idx) {
     if (evtMsg->ctx) {
         worker->curTask = evtMsg->ctx;
     }
-    hcPolicyDomainProcessMessage(self, evtMsg->msg, true);
+    ocrPolicyMsg_t * msg = evtMsg->msg;
+    DPRINTF(DEBUG_LVL_WARN, "hcPdProcessEvent executing msg of type 0x%"PRIx64"\n", msg->type & PD_MSG_TYPE_ONLY);
+    hcPolicyDomainProcessMessage(self, msg, true);
     worker->curTask = curTask;
     *evt = NULL;
     return 0;
 }
+
+
 
 u8 hcPdSendMessage(ocrPolicyDomain_t* self, ocrLocation_t target, ocrPolicyMsg_t *message,
                    ocrMsgHandle_t **handle, u32 properties) {

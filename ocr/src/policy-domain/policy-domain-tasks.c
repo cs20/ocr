@@ -162,7 +162,7 @@
 // ----- Action related functions -----
 
 /**
- * @brief Gets the NP_* value for a given actuion.
+ * @brief Gets the NP_* value for a given action.
  *
  * This can be extracted from the properties flag for regular
  * actions but special care must be used with actions that
@@ -438,6 +438,9 @@ u8 pdCreateEvent(ocrPolicyDomain_t *pd, pdEvent_t **event, u32 type, u8 reserveI
         case PDEVT_TYPE_MSG:
             sizeToAllocate = sizeof(pdEventMsg_t);
             break;
+        case PDEVT_TYPE_FCT:
+            sizeToAllocate = sizeof(pdEventFct_t);
+            break;
         default:
             DPRINTF(DEBUG_LVL_WARN, "PD Event type 0x%"PRIu32" not known\n", type);
             return OCR_EINVAL;
@@ -486,6 +489,13 @@ u8 pdCreateEvent(ocrPolicyDomain_t *pd, pdEvent_t **event, u32 type, u8 reserveI
         }
         t->others = NULL;
         break;
+    }
+    case PDEVT_TYPE_FCT: {
+        pdEventFct_t *t = (pdEventFct_t*)(*event);
+        t->ctx = NULL;
+        t->args = NULL;
+        t->continuation = NULL;
+        t->args = 0;
     }
     default:
         break;
@@ -976,7 +986,6 @@ END_LABEL(markWaitEventEnd)
     } while(0);
 
 pdAction_t* pdGetProcessMessageAction(u32 workType) {
-
     DPRINTF(DEBUG_LVL_INFO, "ENTER pdGetProcessMessageAction(%"PRIu32")\n", workType);
     ASSERT(workType == NP_COMM || workType == NP_WORK);
     DPRINTF(DEBUG_LVL_INFO, "EXIT pdGetProcessMessageAction -> action:0x%"PRIx64"\n", (u64)(((u64)workType<<3) | PDACTION_ENC_PROCESS_MESSAGE));
@@ -1860,16 +1869,6 @@ u32 _pdProcessNStrands(ocrPolicyDomain_t *pd, u32 processType, u32 count, u32 pr
                     ASSERT(arrayDequeSize(toProcess->actions) > 0);
                     RESULT_ASSERT(arrayDequePeekFromHead(toProcess->actions, (void**)&curAction), ==, 0);
                     _pdActionToNP(npIdx, curAction);
-                    npIdxCounter = 0;
-                    while(npIdx[npIdxCounter]) {
-                        u8 tIdx = npIdx[npIdxCounter] - 1;
-                        curNode->nodeNeedsProcess[tIdx] &= ~(1ULL<<processSlot);
-                        propagateNP |= curNode->nodeNeedsProcess[tIdx] == 0ULL;
-#ifdef MT_OPTI_CONTENTIONLIMIT
-                        changeConsumerCount[tIdx] -= 1;
-#endif
-                        ++npIdxCounter;
-                    }
 #ifdef OCR_ASSERT
                     npIdxCounter = 0;
                     while(npIdx[npIdxCounter]) {
@@ -1883,6 +1882,20 @@ u32 _pdProcessNStrands(ocrPolicyDomain_t *pd, u32 processType, u32 count, u32 pr
                     if(npIdxCounter != (u32)-1)
                         ASSERT(0);
 #endif
+                    npIdxCounter = 0;
+                    while(npIdx[npIdxCounter]) {
+                        u8 tIdx = npIdx[npIdxCounter] - 1;
+                        curNode->nodeNeedsProcess[tIdx] &= ~(1ULL<<processSlot);
+                        if(curNode->nodeNeedsProcess[tIdx] == 0ULL) {
+                            propagateNP = true;
+                        } else {
+                            npIdx[npIdxCounter] = 0;
+                        }
+#ifdef MT_OPTI_CONTENTIONLIMIT
+                        changeConsumerCount[tIdx] -= 1;
+#endif
+                        ++npIdxCounter;
+                    }
 
                     pdStrandTableNode_t *t = curNode;
                     pdStrandTableNode_t *parent = curNode->parent;
@@ -1951,7 +1964,7 @@ u32 _pdProcessNStrands(ocrPolicyDomain_t *pd, u32 processType, u32 count, u32 pr
                     npIdxCounter = 0;
                     _pdActionToNP(npIdx, curAction);
                     while(npIdx[npIdxCounter]) {
-                        if(npIdx[npIdxCounter] - 1 == processType) {
+                        if((npIdx[npIdxCounter] - 1) == processType) {
                             canProcess = true;
                             break;
                         }
@@ -2229,20 +2242,6 @@ u8 pdProcessResolveEvents(ocrPolicyDomain_t *pd, u32 processType, u32 count, pdE
                         RESULT_ASSERT(arrayDequePeekFromHead(toProcess->actions, (void**)&curAction), ==, 0);
                                             _pdActionToNP(npIdx, curAction);
                         _pdActionToNP(npIdx, curAction);
-                        npIdxCounter = 0;
-                        while(npIdx[npIdxCounter]) {
-                            u8 tIdx = npIdx[npIdxCounter] - 1;
-                            curNode->nodeNeedsProcess[tIdx] &= ~(1ULL<<stIdx);
-                            propagateNP |= curNode->nodeNeedsProcess[tIdx] == 0ULL;
-#ifdef MT_OPTI_CONTENTIONLIMIT
-                            {
-                                u32 t __attribute__((unused)) = hal_xadd32(&(toProcess->containingTable->consumerCount[tIdx]), -1);
-                                DPRINTF(DEBUG_LVL_VVERB, "Decrementing consumerCount[%"PRIu32"] @ table %p (processResolveEvents); was %"PRId32"\n",
-                                    tIdx, toProcess->containingTable, t);
-                            }
-#endif
-                            ++npIdxCounter;
-                        }
 #ifdef OCR_ASSERT
                         npIdxCounter = 0;
                         while(npIdx[npIdxCounter]) {
@@ -2256,6 +2255,24 @@ u8 pdProcessResolveEvents(ocrPolicyDomain_t *pd, u32 processType, u32 count, pdE
                         if(npIdxCounter != (u32)-1)
                             ASSERT(0);
 #endif
+                        npIdxCounter = 0;
+                        while(npIdx[npIdxCounter]) {
+                            u8 tIdx = npIdx[npIdxCounter] - 1;
+                            curNode->nodeNeedsProcess[tIdx] &= ~(1ULL<<stIdx);
+                            if(curNode->nodeNeedsProcess[tIdx] == 0ULL) {
+                                propagateNP = true;
+                            } else {
+                                npIdx[npIdxCounter] = 0;
+                            }
+#ifdef MT_OPTI_CONTENTIONLIMIT
+                            {
+                                u32 t __attribute__((unused)) = hal_xadd32(&(toProcess->containingTable->consumerCount[tIdx]), -1);
+                                DPRINTF(DEBUG_LVL_VVERB, "Decrementing consumerCount[%"PRIu32"] @ table %p (processResolveEvents); was %"PRId32"\n",
+                                    tIdx, toProcess->containingTable, t);
+                            }
+#endif
+                            ++npIdxCounter;
+                        }
 
                         // Go back up the tree; we switch nodeNeedsProcess for our parent if
                         // we have no more nodes to process due to the strand we are currently
@@ -2552,8 +2569,10 @@ static u8 _pdProcessAction(ocrPolicyDomain_t *pd, ocrWorker_t *worker, pdStrand_
 #define _END_FUNC processActionEnd
 
     ASSERT(pd && worker);
-    // If we are processing, the event better be ready
-    ASSERT(strand->curEvent->properties & PDEVT_READY);
+    // If we are processing, the event should either be ready or NULL as certain
+    // actions do not require an event
+    ASSERT(strand);
+    ASSERT((strand->curEvent == NULL) || (strand->curEvent->properties & PDEVT_READY));
 
     u8 toReturn = 0;
 
@@ -2585,12 +2604,17 @@ static u8 _pdProcessAction(ocrPolicyDomain_t *pd, ocrWorker_t *worker, pdStrand_
             }
 
             if(strand->curEvent != curEvent) {
-                DPRINTF(DEBUG_LVL_INFO, "Event changed from %p to %p -- freeing old event\n",
-                    strand->curEvent, curEvent);
-                // Make sure we don't grab lock on this strand
-                strand->curEvent->strand = NULL;
-                RESULT_ASSERT(pdDestroyEvent(pd, strand->curEvent), ==, 0);
-                strand->curEvent = curEvent;
+                if(strand->curEvent) {
+                    DPRINTF(DEBUG_LVL_INFO, "Event changed from %p to %p -- freeing old event\n",
+                        strand->curEvent, curEvent);
+                    // Make sure we don't grab lock on this strand
+                    strand->curEvent->strand = NULL;
+                    RESULT_ASSERT(pdDestroyEvent(pd, strand->curEvent), ==, 0);
+                    strand->curEvent = curEvent;
+                } else {
+                    DPRINTF(DEBUG_LVL_INFO, "Event chnaged from NULL to %p\n", curEvent);
+                    strand->curEvent = curEvent;
+                }
             } else {
                 // Event did not change, nothing to do
             }
@@ -2623,12 +2647,17 @@ static u8 _pdProcessAction(ocrPolicyDomain_t *pd, ocrWorker_t *worker, pdStrand_
             }
 
             if(strand->curEvent != curEvent) {
-                DPRINTF(DEBUG_LVL_INFO, "Event changed from %p to %p -- freeing old event\n",
-                    strand->curEvent, curEvent);
-                // Make sure we don't grab lock on this strand
-                strand->curEvent->strand = NULL;
-                RESULT_ASSERT(pdDestroyEvent(pd, strand->curEvent), ==, 0);
-                strand->curEvent = curEvent;
+                if(strand->curEvent) {
+                    DPRINTF(DEBUG_LVL_INFO, "Event changed from %p to %p -- freeing old event\n",
+                        strand->curEvent, curEvent);
+                    // Make sure we don't grab lock on this strand
+                    strand->curEvent->strand = NULL;
+                    RESULT_ASSERT(pdDestroyEvent(pd, strand->curEvent), ==, 0);
+                    strand->curEvent = curEvent;
+                } else {
+                    DPRINTF(DEBUG_LVL_INFO, "Event chnaged from NULL to %p\n", curEvent);
+                    strand->curEvent = curEvent;
+                }
             } else {
                 // Event did not change, nothing to do
             }
@@ -2640,6 +2669,7 @@ static u8 _pdProcessAction(ocrPolicyDomain_t *pd, ocrWorker_t *worker, pdStrand_
             pdEvent_t *evt = strand->curEvent;
             DPRINTF(DEBUG_LVL_VERB, "Action is make strand %p ready (evt %p)\n",
                     strand, evt);
+            ASSERT(evt);
             RESULT_ASSERT(pdMarkReadyEvent(pd, evt), ==, 0);
             break;
         }
@@ -2663,6 +2693,7 @@ static u8 _pdProcessAction(ocrPolicyDomain_t *pd, ocrWorker_t *worker, pdStrand_
                 pdStrand_t *strand = NULL;
                 RESULT_ASSERT(pdGetStrandForIndex(pd, &strand, pd->strandTables[stTableIdx-1], stIdx), ==, 0);
                 DPRINTF(DEBUG_LVL_VVERB, "Found strand %p and event %p\n", strand, strand->curEvent);
+                ASSERT(strand && strand->curEvent);
                 RESULT_ASSERT(pdMarkReadyEvent(pd, strand->curEvent), ==, 0);
                 break;
             }

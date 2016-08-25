@@ -2161,7 +2161,19 @@ u8 hcDistProcessEvent(ocrPolicyDomain_t* self, pdEvent_t **evt, u32 idx) {
 #ifndef ENABLE_OCR_API_DEFERRABLE
         ASSERT(0);
 #endif
+        //TODO-DEFERRED Copy paste from hc-policy.c
+        ocrWorker_t * worker;
+        getCurrentEnv(NULL, &worker, NULL, NULL);
+        // Check if we need to restore a context in which the MT is supposed to execute.
+        // Can typically happen in deferred execution where the EDT user code is done
+        // but there still is pending OCR operations in the form of MT to execute.
+        ocrTask_t * curTask = worker->curTask;
+        if (evtMsg->ctx) {
+            worker->curTask = evtMsg->ctx;
+        }
+        DPRINTF(DEBUG_LVL_WARN, "hcDistProcessEvent executing msg of type 0x%"PRIx64"\n", msg->type & PD_MSG_TYPE_ONLY);
         hcDistProcessMessage(self, evtMsg->msg, true);
+        worker->curTask = curTask;
         *evt = NULL;
     }
     return 0;

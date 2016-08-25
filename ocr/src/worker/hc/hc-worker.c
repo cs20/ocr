@@ -33,7 +33,7 @@
 
 #define DEBUG_TYPE WORKER
 
-#if defined(UTASK_COMM) || defined(UTASK_COMM2)
+#if defined(UTASK_COMM) || defined(UTASK_COMM2) || defined(ENABLE_OCR_API_DEFERRABLE_MT)
 #include "ocr-policy-domain-tasks.h"
 #endif
 
@@ -53,7 +53,7 @@ static void hcWorkShift(ocrWorker_t * worker) {
     getCurrentEnv(&pd, NULL, NULL, &msg);
 
     ocrWorkerHc_t *hcWorker = (ocrWorkerHc_t *) worker;
-#if defined(UTASK_COMM) || defined(UTASK_COMM2)
+#if defined(UTASK_COMM) || defined(UTASK_COMM2) || defined(ENABLE_OCR_API_DEFERRABLE_MT)
     RESULT_ASSERT(pdProcessStrands(pd, NP_WORK, 0), ==, 0);
 #endif
     u8 retCode = 0;
@@ -72,7 +72,6 @@ static void hcWorkShift(ocrWorker_t * worker) {
         OCR_TOOL_TRACE(false, OCR_TRACE_TYPE_WORKER, OCR_ACTION_WORK_REQUEST);
     }
 #endif
-
     retCode = pd->fcts.processMessage(pd, &msg, true);
     EXIT_PROFILE;
     }
@@ -101,7 +100,11 @@ static void hcWorkShift(ocrWorker_t * worker) {
                     salPerfStart(hcWorker->perfCtrs);
                 else DPRINTF(DEBUG_LVL_VERB, "Steady state reached\n");
 #endif
+#undef PD_MSG
+#undef PD_TYPE
                 ((ocrTaskFactory_t *)(pd->factories[factoryId]))->fcts.execute(curTask);
+                //TODO-DEFERRED: With MT, there can be multiple workers executing curTask.
+                // Not sure we thought about that and implications
 #ifdef ENABLE_EXTENSION_PERF
                 if(worker->curTask->flags & OCR_TASK_FLAG_PERFMON_ME) {
                     salPerfStop(hcWorker->perfCtrs);
@@ -154,10 +157,11 @@ static void hcWorkShift(ocrWorker_t * worker) {
                 hcWorker->name = curTask->name;
 #endif
                 EXIT_PROFILE;
-#undef PD_TYPE
             }
+#ifndef ENABLE_OCR_API_DEFERRABLE_MT
             {
                 START_PROFILE(wo_hc_wrapupWork);
+#define PD_MSG (&msg)
 #define PD_TYPE PD_MSG_SCHED_NOTIFY
                 getCurrentEnv(NULL, NULL, NULL, &msg);
                 msg.type = PD_MSG_SCHED_NOTIFY | PD_MSG_REQUEST;
@@ -166,7 +170,10 @@ static void hcWorkShift(ocrWorker_t * worker) {
                 PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_EDT_DONE).guid.metaDataPtr = taskGuid.metaDataPtr;
                 RESULT_ASSERT(pd->fcts.processMessage(pd, &msg, false), ==, 0);
                 EXIT_PROFILE;
+#undef PD_MSG
+#undef PD_TYPE
             }
+#endif
 
             // Important for this to be the last
             worker->curTask = NULL;
@@ -175,8 +182,8 @@ static void hcWorkShift(ocrWorker_t * worker) {
     } else {
         ASSERT(0); //Handle error code
     }
-#undef PD_MSG
-#undef PD_TYPE
+// #undef PD_MSG
+// #undef PD_TYPE
 #ifdef ENABLE_EXTENSION_PAUSE
     ocrPolicyDomainHc_t *self = (ocrPolicyDomainHc_t *)pd;
     if(self->pqrFlags.runtimePause == true) {

@@ -1652,6 +1652,24 @@ static u8 taskEpilogue(ocrTask_t * base, ocrPolicyDomain_t *pd, ocrWorker_t * cu
     }
 #endif
     EXIT_PROFILE;
+
+//TODO-DEFERRED: In non-deferred this is in the worker code after task->execute. Pondering if that
+//should be enqueued by the worker on an event/strand that represents the task being done ?
+#ifdef ENABLE_OCR_API_DEFERRABLE_MT
+    START_PROFILE(wo_hc_wrapupWork);
+#define PD_MSG (&msg)
+#define PD_TYPE PD_MSG_SCHED_NOTIFY
+    getCurrentEnv(NULL, NULL, NULL, &msg);
+    msg.type = PD_MSG_SCHED_NOTIFY | PD_MSG_REQUEST;
+    PD_MSG_FIELD_IO(schedArgs).kind = OCR_SCHED_NOTIFY_EDT_DONE;
+    PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_EDT_DONE).guid.guid = base->guid;
+    PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_EDT_DONE).guid.metaDataPtr = base;
+    RESULT_ASSERT(pd->fcts.processMessage(pd, &msg, false), ==, 0);
+    EXIT_PROFILE;
+#undef PD_MSG
+#undef PD_TYPE
+#endif
+
     return 0;
 }
 
@@ -1767,13 +1785,13 @@ u8 taskExecute(ocrTask_t* base) {
 
 #ifdef ENABLE_OCR_API_DEFERRABLE
 #ifdef ENABLE_OCR_API_DEFERRABLE_MT
+    // For now we do post-EDT execution, hence mark the head event as being ready
     deferredExecute(base);
     //Create a processEvent function callback event
     pdEvent_t * callbackEvent;
     RESULT_ASSERT(pdCreateEvent(pd, &callbackEvent, PDEVT_TYPE_FCT, 0), ==, 0);
     //Record some calling context info
     pdEventFct_t * devt = ((pdEventFct_t *) callbackEvent);
-    devt->object = (ocrObject_t *) base;
     devt->id = CONTINUATION_EDT_EPILOGUE;
     devt->ctx = base;
     //TODO missing the DEEP_GC
@@ -1784,7 +1802,6 @@ u8 taskExecute(ocrTask_t* base) {
     } else {
         devt->args = NULL;
     }
-    pdMarkReadyEvent(pd, callbackEvent);
     // Create the process event action and enqueue it to the callbackEvent's strand
     pdStrand_t * callbackStrand;
     RESULT_ASSERT(
@@ -1797,11 +1814,16 @@ u8 taskExecute(ocrTask_t* base) {
     RESULT_ASSERT(pdUnlockStrand(callbackStrand), ==, 0);
     // Chain the epilogue to the last deferred call
     pdStrand_t * oldTailStrand = derived->tailStrand;
-    pdAction_t* satisfyAction = pdGetMarkReadyAction(callbackEvent);
-    RESULT_ASSERT(pdLockStrand(oldTailStrand, 0), ==, 0);
-    RESULT_ASSERT(pdEnqueueActions(pd, oldTailStrand, 1, &satisfyAction, true/*clear hold*/), ==, 0);
-    RESULT_ASSERT(pdUnlockStrand(oldTailStrand), ==, 0);
-    derived->tailStrand = callbackStrand;
+    if(oldTailStrand) {
+        pdAction_t* satisfyAction = pdGetMarkReadyAction(callbackEvent);
+        RESULT_ASSERT(pdLockStrand(oldTailStrand, 0), ==, 0);
+        RESULT_ASSERT(pdEnqueueActions(pd, oldTailStrand, 1, &satisfyAction, true/*clear hold*/), ==, 0);
+        RESULT_ASSERT(pdUnlockStrand(oldTailStrand), ==, 0);
+        derived->tailStrand = callbackStrand;
+    } else {
+        derived->evtHead = callbackEvent;
+        deferredExecute(base);
+    }
 #else
     deferredExecute(base);
     taskEpilogue(base, pd, curWorker, retGuid);
@@ -1812,19 +1834,21 @@ u8 taskExecute(ocrTask_t* base) {
     RETURN_PROFILE(0);
 }
 
-u8 processEventTaskHc(ocrPolicyDomain_t *self, pdEvent_t** evt, u32 idx) {
+u8 processEventTaskHc(ocrObject_t *self, pdEvent_t** evt, u32 idx) {
 #ifdef ENABLE_OCR_API_DEFERRABLE_MT
+    DPRINTF(DEBUG_LVL_WARN, "processEventTaskHc executing CONTINUATION_EDT_EPILOGUE\n");
     ASSERT((evt != NULL) && (*evt != NULL));
     pdEventFct_t * devt = (pdEventFct_t *) *evt;
     ASSERT(devt->id == CONTINUATION_EDT_EPILOGUE);
     ocrGuid_t * retGuid = devt->args;
+    ocrPolicyDomain_t * pd;
     ocrWorker_t * curWorker;
-    getCurrentEnv(NULL, &curWorker, NULL, NULL);
+    getCurrentEnv(&pd, &curWorker, NULL, NULL);
     curWorker->curTask = devt->ctx;
-    taskEpilogue((ocrTask_t *) devt->object, self, curWorker, ((retGuid == NULL) ? NULL_GUID : retGuid[0]));
+    taskEpilogue((ocrTask_t*)self, pd, curWorker, ((retGuid == NULL) ? NULL_GUID : retGuid[0]));
     curWorker->curTask = NULL;
     if (devt->args) {
-        self->fcts.pdFree(self, devt->args);
+        pd->fcts.pdFree(pd, devt->args);
     }
 #endif
     return 0;

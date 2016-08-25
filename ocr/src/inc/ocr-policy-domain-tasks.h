@@ -57,6 +57,8 @@
 
 /* Define this if you want to limit contention
  * among consumers */
+// WARNING: Seems to cause weird timing issues and crashes in some cases
+// needs to be looked at in a bit more detail
 //#define MT_OPTI_CONTENTIONLIMIT
 
 /**< Each strand can determine who should process it next (for example, workers or
@@ -191,11 +193,10 @@ typedef struct _pdEventMerge_t {
 typedef struct _pdEventFct_t {
     pdEvent_t base;
     ocrTask_t *ctx;         /**< Context for executing this message */
-    ocrObject_t * object;   /**< The object processEvent is called on */
-    u32 id;                 /**< Continuation id */
     void * args;            /**< Additional arguments to processEvents */
-    struct _pdTask_t *continuation; /**< Current continuation to execute (cached version
-                             * from the strands table) */
+    struct _pdTask_t *continuation; /**< Current continuation to execute (cached
+                                      *  version from the strands table) */
+    u32 id;                 /**< Continuation id */
 } pdEventFct_t;
 
 
@@ -539,6 +540,10 @@ u8 pdMarkWaitEvent(ocrPolicyDomain_t *pd, pdEvent_t *event);
  *         a true pointer and should not be used directly
  */
 pdAction_t* pdGetProcessMessageAction(u32 workType);
+
+
+pdAction_t* pdGetProcessEventAction(ocrObject_t* object);
+
 
 /**
  * @brief Creates an action that will satisfy the given event
