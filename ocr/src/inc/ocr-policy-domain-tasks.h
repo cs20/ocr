@@ -57,7 +57,7 @@
 
 /* Define this if you want to limit contention
  * among consumers */
-#define MT_OPTI_CONTENTIONLIMIT
+//#define MT_OPTI_CONTENTIONLIMIT
 
 /**< Each strand can determine who should process it next (for example, workers or
  * communication workers). This can be managed using different strand tables EXCEPT if
