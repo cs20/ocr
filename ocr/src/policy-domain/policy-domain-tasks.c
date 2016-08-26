@@ -171,7 +171,7 @@
  * @param[in] action        Action to use
  * @return a NP_* value that corresponds to this action
  */
-static u8 _pdActionToNP(pdAction_t* action);
+static void _pdActionToNP(u8 *npIdx, pdAction_t* action);
 
 /**
  * @brief Processes and acts on a given action
@@ -723,24 +723,27 @@ u8 pdMarkReadyEvent(ocrPolicyDomain_t *pd, pdEvent_t *evt) {
             //     - there are actions so this strand needs processing
             //     - there are no actions -> this strand becomes ready (destroyed or kept around)
             bool propagateReady = false, propagateNP = false, didFree = false;
-            u32 npIdx = 0;
+            u32 npIdxCounter = 0;
+            u8 npIdx[NP_COUNT] = {0};
             hal_lock(&(curNode->lock));
             if ((strand->properties & PDST_WAIT_ACT) != 0) {
                 // Get the NP index for the first action to do
-                u32 npIdx = 0;
                 pdAction_t *tAct = NULL;
                 RESULT_ASSERT(arrayDequePeekFromHead(strand->actions, (void**)&(tAct)), ==, 0);
-                npIdx = _pdActionToNP(tAct);
-
-                DPRINTF(DEBUG_LVL_VERB, "Strand %p has waiting actions -> setting NP[%"PRIu32"]\n", strand, npIdx);
-                  // We have pending actions, making this a NP node
-                propagateNP = curNode->nodeNeedsProcess[npIdx] == 0ULL;
-                curNode->nodeNeedsProcess[npIdx] |= (1ULL<<stIdx);
+                _pdActionToNP(npIdx, tAct);
+                while(npIdx[npIdxCounter]) {
+                    u8 tIdx = npIdx[npIdxCounter] - 1;
+                    DPRINTF(DEBUG_LVL_VERB, "Strand %p has waiting actions -> setting NP[%"PRIu32"]\n", strand, tIdx);
+                    // We have pending actions, making this a NP node
+                    propagateNP |= curNode->nodeNeedsProcess[tIdx] == 0ULL;
+                    curNode->nodeNeedsProcess[tIdx] |= (1ULL<<stIdx);
 #ifdef MT_OPTI_CONTENTIONLIMIT
-                u32 t __attribute__((unused)) = hal_xadd32(&(strand->containingTable->consumerCount[npIdx]), 1);
-                DPRINTF(DEBUG_LVL_VVERB, "Incrementing consumerCount[%"PRIu32"] @ table %p (markReadyEvent); was %"PRId32"\n",
-                        npIdx, strand->containingTable, t);
+                    u32 t __attribute__((unused)) = hal_xadd32(&(strand->containingTable->consumerCount[tIdx]), 1);
+                    DPRINTF(DEBUG_LVL_VVERB, "Incrementing consumerCount[%"PRIu32"] @ table %p (markReadyEvent); was %"PRId32"\n",
+                        tIdx, strand->containingTable, t);
 #endif
+                    ++npIdxCounter;
+                }
             } else {
                 DPRINTF(DEBUG_LVL_VERB, "Strand %p is fully ready\n", strand);
                 propagateReady = curNode->nodeReady == 0ULL;
@@ -779,15 +782,30 @@ u8 pdMarkReadyEvent(ocrPolicyDomain_t *pd, pdEvent_t *evt) {
                 ASSERT(hal_islocked(&(curNode->lock)));
                 // We flipped nodeReady from 0 to 1; to up until we see a 1
                 // We flipped nodeNeedsProcessing from 0 to 1; same as above
-                PROPAGATE_UP_TREE(curNode, parent, npIdx,
+                u8 tNpIdx = npIdx[0]?(npIdx[0]-1):0;
+                if(npIdx[1]) {
+                    DPRINTF(DEBUG_LVL_VVERB, "WARNING: The below status of propagation will not print all NP vectors affected\n");
+                }
+                PROPAGATE_UP_TREE(curNode, parent, tNpIdx,
                     propagateReady || propagateNP, {
                     if (propagateReady) {
                         propagateReady = parent->nodeReady == 0ULL;
                         parent->nodeReady |= (1ULL<<curNode->parentSlot);
                     }
                     if (propagateNP) {
-                        propagateNP = parent->nodeNeedsProcess[npIdx] == 0ULL;
-                        parent->nodeNeedsProcess[npIdx] |= (1ULL<<curNode->parentSlot);
+                        propagateNP = false;
+                        u32 i;
+                        for(i=0; i<NP_COUNT; ++i) {
+                            if(npIdx[i]) { // npIdx[i] == 0 means nothing to propagate at that position
+                                if(parent->nodeNeedsProcess[npIdx[i]-1] == 0ULL) {
+                                    parent->nodeNeedsProcess[npIdx[i]-1] |= (1ULL<<curNode->parentSlot);
+                                    propagateNP = true;
+                                } else {
+                                    parent->nodeNeedsProcess[npIdx[i]-1] |= (1ULL<<curNode->parentSlot);
+                                    npIdx[i] = 0;
+                                }
+                            }
+                        }
                     }
                 });
             } else {
@@ -846,24 +864,29 @@ u8 pdMarkWaitEvent(ocrPolicyDomain_t *pd, pdEvent_t *evt) {
             //     - there are no actions -> this strand is no longer ready
             bool propagateReady = false, propagateNP = false;
             // Need Processing index (what's the next work to do)
-            u32 npIdx = 0;
+            u32 npIdxCounter = 0;
+            u8 npIdx[NP_COUNT] = {0};
             hal_lock(&(curNode->lock));
             if ((strand->properties & PDST_WAIT_ACT) != 0) {
                 DPRINTF(DEBUG_LVL_VERB, "(POSSIBLE RACE) Strand %p has waiting actions\n", strand);
                 pdAction_t *tAct = NULL;
                 RESULT_ASSERT(arrayDequePeekFromHead(strand->actions, (void**)&(tAct)), ==, 0);
-                npIdx = _pdActionToNP(tAct);
-                curNode->nodeNeedsProcess[npIdx] &= ~(1ULL<<stIdx);
-                propagateNP = curNode->nodeNeedsProcess[npIdx] == 0ULL;
+                _pdActionToNP(npIdx, tAct);
+                while(npIdx[npIdxCounter]) {
+                    u8 tIdx = npIdx[npIdxCounter] - 1;
+                    curNode->nodeNeedsProcess[tIdx] &= ~(1ULL<<stIdx);
+                    propagateNP |= curNode->nodeNeedsProcess[tIdx] == 0ULL;
 
 #ifdef MT_OPTI_CONTENTIONLIMIT
-                u32 t __attribute__((unused)) = hal_xadd32(&(strand->containingTable->consumerCount[npIdx]), -1);
-                DPRINTF(DEBUG_LVL_VVERB, "Decrementing consumerCount[%"PRIu32"] @ table %p (markEventWait); was %"PRId32"\n",
-                        npIdx, strand->containingTable, t);
+                    u32 t __attribute__((unused)) = hal_xadd32(&(strand->containingTable->consumerCount[tIdx]), -1);
+                    DPRINTF(DEBUG_LVL_VVERB, "Decrementing consumerCount[%"PRIu32"] @ table %p (markEventWait); was %"PRId32"\n",
+                        tIdx, strand->containingTable, t);
 #endif
+                    ++npIdxCounter;
+                }
             } else {
                 DPRINTF(DEBUG_LVL_VERB, "Strand %p is no longer ready\n", strand);
-            // If we are still around, it means we have an active hold
+                // If we are still around, it means we have an active hold
                 ASSERT(strand->properties & PDST_HOLD);
                 curNode->nodeReady &= ~(1ULL<<stIdx);
                 propagateReady = curNode->nodeReady == 0ULL;
@@ -880,16 +903,29 @@ u8 pdMarkWaitEvent(ocrPolicyDomain_t *pd, pdEvent_t *evt) {
                 ASSERT(hal_islocked(&(curNode->lock)));
                 // We flipped nodeReady from 1 to 0; to up until we see a sibbling
                 // We flipped nodeNeedsProcessing from 1 to 0; same as above
-
-                PROPAGATE_UP_TREE(curNode, parent, npIdx,
+                u8 tNpIdx = npIdx[0]?(npIdx[0]-1):0;
+                if(npIdx[1]) {
+                    DPRINTF(DEBUG_LVL_VVERB, "WARNING: The below status of propagation will not print all NP vectors affected\n");
+                }
+                PROPAGATE_UP_TREE(curNode, parent, tNpIdx,
                   propagateReady || propagateNP, {
                     if (propagateReady) {
                         parent->nodeReady &= ~(1ULL<<curNode->parentSlot);
                         propagateReady = parent->nodeReady == 0ULL;
                     }
                     if (propagateNP) {
-                        parent->nodeNeedsProcess[npIdx] &= ~(1ULL<<curNode->parentSlot);
-                        propagateNP = parent->nodeNeedsProcess[npIdx] == 0ULL;
+                        propagateNP = false;
+                        u32 i;
+                        for(i=0; i<NP_COUNT; ++i) {
+                            if(npIdx[i]) {
+                                parent->nodeNeedsProcess[npIdx[i]-1] &= ~(1ULL<<curNode->parentSlot);
+                                if(parent->nodeNeedsProcess[npIdx[i]-1] == 0ULL) {
+                                    propagateNP = true;
+                                } else {
+                                    npIdx[i] = 0;
+                                }
+                            }
+                        }
                     }
                 });
             } else {
@@ -923,6 +959,12 @@ END_LABEL(markWaitEventEnd)
 #define PDACTION_ENCEXT_MAKEREADY     0x01
 
 // Convenience functions
+
+#define PDACTION_DECEXT_TYPE(_type, _value) do {    \
+        u64 __v = (_value);                         \
+        _type = (__v >> 3) & 0xFFULL;               \
+    } while(0);
+
 #define PDACTION_ENCEXT_2ARG(_arg1, _arg2, _type) ((_arg1)<<37 | (_arg2)<<11 | (_type) | PDACTION_ENC_EXTEND)
 
 #define PDACTION_DECEXT_2ARG(_arg1, _arg2, _type, _value) do {  \
@@ -1359,8 +1401,11 @@ u8 pdGetNewStrand(ocrPolicyDomain_t *pd, pdStrand_t **returnStrand, pdStrandTabl
 
     // The strand should be free
     RESULT_ASSERT(_pdLockStrand(strand, 0), ==, 0);
+
     strand->curEvent = event;
     strand->actions = NULL;
+    strand->processingWorker = NULL;
+    strand->contextTask = task;
     strand->properties |= PDST_RHOLD |
         (((event->properties & PDEVT_READY) != 0)?0:PDST_WAIT_EVT);
     strand->properties |= properties;
@@ -1497,7 +1542,9 @@ u8 pdEnqueueActions(ocrPolicyDomain_t *pd, pdStrand_t* strand, u32 actionCount,
     // fails, most likely an internal runtime error
     ASSERT(hal_islocked(&(strand->lock)));
 
-    u32 npIdx = _pdActionToNP(actions[0]);
+    u32 npIdxCounter = 0;
+    u8 npIdx[NP_COUNT];
+    _pdActionToNP(npIdx, actions[0]);
     if(strand->actions == NULL) {
         // Create and initialize the actions strand
         CHECK_MALLOC(strand->actions = (arrayDeque_t*)pd->fcts.pdMalloc(pd, sizeof(arrayDeque_t)), );
@@ -1536,31 +1583,52 @@ u8 pdEnqueueActions(ocrPolicyDomain_t *pd, pdStrand_t* strand, u32 actionCount,
 
             hal_lock(&(curNode->lock));
             // We need processing
-            propagateNP = curNode->nodeNeedsProcess[npIdx] == 0ULL;
-            curNode->nodeNeedsProcess[npIdx] |= (1ULL<<stIdx);
+            while(npIdx[npIdxCounter]) {
+                u8 tIdx = npIdx[npIdxCounter] - 1;
+                propagateNP |= curNode->nodeNeedsProcess[tIdx] == 0ULL;
+                curNode->nodeNeedsProcess[tIdx] |= (1ULL<<stIdx);
+#ifdef MT_OPTI_CONTENTIONLIMIT
+                u32 t __attribute__((unused)) = hal_xadd32(&(strand->containingTable->consumerCount[tIdx]), 1);
+                DPRINTF(DEBUG_LVL_VVERB, "Incrementing consumerCount[%"PRIu32"] @ table %p (enqueueActions); was %"PRId32"\n",
+                    tIdx, strand->containingTable, t);
+#endif
+                ++npIdxCounter;
+            }
+
             // We are no longer ready
             ASSERT((curNode->nodeReady & (1ULL<<stIdx)) != 0);
             curNode->nodeReady &= ~(1ULL<<stIdx);
             propagateReady = (curNode->nodeReady == 0ULL);
             ASSERT(hal_islocked(&(curNode->lock)));
-#ifdef MT_OPTI_CONTENTIONLIMIT
-            u32 t __attribute__((unused)) = hal_xadd32(&(strand->containingTable->consumerCount[npIdx]), 1);
-            DPRINTF(DEBUG_LVL_VVERB, "Incrementing consumerCount[%"PRIu32"] @ table %p (enqueueActions); was %"PRId32"\n",
-                    npIdx, strand->containingTable, t);
-#endif
+
             // In this case, we flipped:
             // NP from 0 to 1 (stop when we see a 1)
             // Ready from 1 to 0 (stop when sibblings have ready nodes)
+            u8 tNpIdx = npIdx[0]?(npIdx[0]-1):0;
+            if(npIdx[1]) {
+                DPRINTF(DEBUG_LVL_VVERB, "WARNING: The below status of propagation will not print all NP vectors affected\n");
+            }
             PROPAGATE_UP_TREE(
-                curNode, parent, npIdx,
+                curNode, parent, tNpIdx,
                 propagateReady || propagateNP, {
                     if (propagateReady) {
                         parent->nodeReady &= ~(1ULL<<curNode->parentSlot);
                         propagateReady = parent->nodeReady == 0ULL;
                     }
                     if (propagateNP) {
-                        propagateNP = parent->nodeNeedsProcess[npIdx] == 0ULL;
-                        parent->nodeNeedsProcess[npIdx] |= (1ULL<<curNode->parentSlot);
+                        propagateNP = false;
+                        u32 i;
+                        for(i=0; i<NP_COUNT; ++i) {
+                            if(npIdx[i]) { // npIdx[i] == 0 means nothing to propagate at that position
+                                if(parent->nodeNeedsProcess[npIdx[i]-1] == 0ULL) {
+                                    parent->nodeNeedsProcess[npIdx[i]-1] |= (1ULL<<curNode->parentSlot);
+                                    propagateNP = true;
+                                } else {
+                                    parent->nodeNeedsProcess[npIdx[i]-1] |= (1ULL<<curNode->parentSlot);
+                                    npIdx[i] = 0;
+                                }
+                            }
+                        }
                     }
                 });
         }
@@ -1692,6 +1760,10 @@ u32 _pdProcessNStrands(ocrPolicyDomain_t *pd, u32 processType, u32 count, u32 pr
     getCurrentEnv(NULL, &worker, NULL, NULL);
     ocrTask_t *savedTask = worker->curTask;
 
+    // Structure to figure out what we can process
+    u32 npIdxCounter = 0;
+    u8 npIdx[NP_COUNT];
+
     // We iterate over tables but still look for work of type 'processType'
     // This is because once a strand is created, it cannot move from table to table
     // as its index and table ID are used as handles when things wait on it. However,
@@ -1750,9 +1822,9 @@ u32 _pdProcessNStrands(ocrPolicyDomain_t *pd, u32 processType, u32 count, u32 pr
             // what not
             ASSERT(curNode);
             ASSERT(hal_islocked(&(curNode->lock)));
+            DPRINTF(DEBUG_LVL_VERB, "Looking at node %p with children nodeNeedsProcess[%"PRIu32"] = [0x%"PRIx64"]\n",
+                curNode, processType, curNode->nodeNeedsProcess[processType]);
             if (curNode->nodeNeedsProcess[processType]) {
-                DPRINTF(DEBUG_LVL_VERB, "Node %p has children of type %"PRIu32" to process [0x%"PRIx64"]\n",
-                        curNode, processType, curNode->nodeNeedsProcess[processType]);
                 u32 processSlot = selectProcessSlot(curNode, processType, fudgeFactor);
                 pdStrandTableNode_t *tentativeChild = NULL;
                 if(!IS_LEAF_NODE(curNode->lmIndex)) {
@@ -1777,23 +1849,67 @@ u32 _pdProcessNStrands(ocrPolicyDomain_t *pd, u32 processType, u32 count, u32 pr
                     }
                 } else {
                     // If we are a leaf, we want to check if this is the last needProcess and if so
-                    // we want to go back up and flip the bits properly
-                    pdStrandTableNode_t *t = curNode;
-                    curNode->nodeNeedsProcess[processType] &= ~(1ULL<<processSlot);
-                    u32 propagateNP = curNode->nodeNeedsProcess[processType] == 0ULL;
-                    pdStrandTableNode_t *parent = curNode->parent;
+                    // we want to go back up and flip the bits properly. We also check for all the
+                    // nodeNeedsProcess that have been flipped for this action
+                    // Note that without the lock, this is still safe to read the first action
+                    // because there is at least one (it needs processing) and even adding to
+                    // the tail will not break the head (in this implementation).
+                    pdStrand_t *toProcess = curNode->data.slots[processSlot];
+                    pdAction_t *curAction = NULL;
+                    bool propagateNP = false;
+                    ASSERT(arrayDequeSize(toProcess->actions) > 0);
+                    RESULT_ASSERT(arrayDequePeekFromHead(toProcess->actions, (void**)&curAction), ==, 0);
+                    _pdActionToNP(npIdx, curAction);
+                    npIdxCounter = 0;
+                    while(npIdx[npIdxCounter]) {
+                        u8 tIdx = npIdx[npIdxCounter] - 1;
+                        curNode->nodeNeedsProcess[tIdx] &= ~(1ULL<<processSlot);
+                        propagateNP |= curNode->nodeNeedsProcess[tIdx] == 0ULL;
 #ifdef MT_OPTI_CONTENTIONLIMIT
-                    changeConsumerCount[processType] -= 1;
+                        changeConsumerCount[tIdx] -= 1;
 #endif
-                    PROPAGATE_UP_TREE(curNode, parent, processType, propagateNP, {
-                        // The following assert should always be true because
-                        // even if something else is modifying nodeNeedsProcess at the same time,
-                        // we don't release curNode (old parent) between the time
-                        // we check the condition to set propagateNP and the time
-                        // we check with the assert
-                        ASSERT(curNode->nodeNeedsProcess[processType] == 0ULL);
-                        parent->nodeNeedsProcess[processType] &= ~(1ULL<<curNode->parentSlot);
-                        propagateNP = parent->nodeNeedsProcess[processType] == 0ULL;
+                        ++npIdxCounter;
+                    }
+#ifdef OCR_ASSERT
+                    npIdxCounter = 0;
+                    while(npIdx[npIdxCounter]) {
+                        if(npIdx[npIdxCounter] -1 == processType) {
+                            npIdxCounter = (u32)-1;
+                            break;
+                        }
+                        ++npIdxCounter;
+                    }
+                    // Somehow we are trying to process something that we shouldn't be. Runtime error most likely
+                    if(npIdxCounter != (u32)-1)
+                        ASSERT(0);
+#endif
+
+                    pdStrandTableNode_t *t = curNode;
+                    pdStrandTableNode_t *parent = curNode->parent;
+
+                    u8 tNpIdx = npIdx[0]?(npIdx[0]-1):0;
+                    if(npIdx[1]) {
+                        DPRINTF(DEBUG_LVL_VVERB, "WARNING: The below status of propagation will not print all NP vectors affected\n");
+                    }
+                    PROPAGATE_UP_TREE(curNode, parent, tNpIdx, propagateNP, {
+                        propagateNP = false;
+                        u32 i;
+                        for(i=0; i<NP_COUNT; ++i) {
+                            if(npIdx[i]) { // npIdx[i] == 0 means nothing to propagate at that position
+                                // The following assert should always be true because
+                                // even if something else is modifying nodeNeedsProcess at the same time,
+                                // we don't release curNode (old parent) between the time
+                                // we check the condition to set propagateNP and the time
+                                // we check with the assert
+                                ASSERT(curNode->nodeNeedsProcess[npIdx[i]-1] == 0ULL);
+                                parent->nodeNeedsProcess[npIdx[i]-1] &= ~(1ULL<<curNode->parentSlot);
+                                if(parent->nodeNeedsProcess[npIdx[i]-1] == 0ULL) {
+                                    propagateNP = true;
+                                } else {
+                                    npIdx[i] = 0;
+                                }
+                            }
+                        }
                     });
                     // Reset curNode to the proper value
                     curNode = t;
@@ -1829,9 +1945,19 @@ u32 _pdProcessNStrands(ocrPolicyDomain_t *pd, u32 processType, u32 count, u32 pr
                 while (((toProcess->properties & PDST_WAIT_EVT) == 0) &&
                        arrayDequeSize(toProcess->actions)) {
                     pdAction_t *curAction = NULL;
+                    bool canProcess = false;
                     RESULT_ASSERT(arrayDequePeekFromHead(toProcess->actions, (void**)&curAction), ==, 0);
                     ASSERT(curAction);
-                    if(_pdActionToNP(curAction) == processType) {
+                    npIdxCounter = 0;
+                    _pdActionToNP(npIdx, curAction);
+                    while(npIdx[npIdxCounter]) {
+                        if(npIdx[npIdxCounter] - 1 == processType) {
+                            canProcess = true;
+                            break;
+                        }
+                        ++npIdxCounter;
+                    }
+                    if(canProcess) {
                         pdAction_t *tAction __attribute__((unused)) = NULL;
                         RESULT_ASSERT(arrayDequePopFromHead(toProcess->actions, (void**)&tAction), ==, 0);
                         ASSERT(tAction == curAction);
@@ -1839,8 +1965,8 @@ u32 _pdProcessNStrands(ocrPolicyDomain_t *pd, u32 processType, u32 count, u32 pr
                         RESULT_ASSERT(_pdProcessAction(pd, worker, toProcess, curAction, 0), ==, 0);
                         DPRINTF(DEBUG_LVL_VERB, "Done processing action %p\n", curAction);
                     } else {
-                        DPRINTF(DEBUG_LVL_VERB, "Action %p is of the wrong type [%"PRIu32" vs %"PRIu32"] -- leaving as is\n",
-                                curAction, _pdActionToNP(curAction), processType);
+                        DPRINTF(DEBUG_LVL_VERB, "Action %p is of the wrong type (needed %"PRIu32") -- leaving as is\n",
+                                curAction, processType);
                         break;
                     }
                 }
@@ -1853,7 +1979,6 @@ u32 _pdProcessNStrands(ocrPolicyDomain_t *pd, u32 processType, u32 count, u32 pr
                 // Update properties
                 hal_lock(&(curNode->lock));
                 bool propagateReady = false, propagateNP = false, didFree = false;
-                u32 nextProcessType = 0;
                 if(arrayDequeSize(toProcess->actions) == 0) {
                     toProcess->properties &= ~(PDST_WAIT_ACT);
                     if((toProcess->properties & PDST_WAIT_EVT) == 0) {
@@ -1898,16 +2023,21 @@ u32 _pdProcessNStrands(ocrPolicyDomain_t *pd, u32 processType, u32 count, u32 pr
                         // We need to check by whom these actions need to be processed; in other words, there
                         // may be actions left because we are not processing actions of this type. We need
                         // to set the proper nodeNeedsProcess flag
-                        pdAction_t *tAction = NULL;
-                        RESULT_ASSERT(arrayDequePeekFromHead(toProcess->actions, (void**)&tAction), ==, 0);
-                        nextProcessType = _pdActionToNP(tAction);
-                        ASSERT(nextProcessType < NP_COUNT);
-                        DPRINTF(DEBUG_LVL_VVERB, "Next action has type %"PRIu32"\n", nextProcessType);
-                        propagateNP = curNode->nodeNeedsProcess[nextProcessType] == 0ULL;
-                        curNode->nodeNeedsProcess[nextProcessType] |= (1ULL<<processSlot);
+                        // We already updated npIdx with the proper types for this action (that's when
+                        // we figured out we couldn't process it)
+                        npIdxCounter = 0;
+                        propagateNP = false;
+                        while(npIdx[npIdxCounter]) {
+                            u8 tIdx = npIdx[npIdxCounter] - 1;
+                            DPRINTF(DEBUG_LVL_VVERB, "Next action can be processed by type %"PRIu32"\n", tIdx);
+                            propagateNP |= curNode->nodeNeedsProcess[tIdx] == 0ULL;
+                            curNode->nodeNeedsProcess[tIdx] |= (1ULL<<processSlot);
 #ifdef MT_OPTI_CONTENTIONLIMIT
-                        changeConsumerCount[nextProcessType] += 1;
+                            changeConsumerCount[tIdx] += 1;
 #endif
+                            ++npIdxCounter;
+                        }
+
                         ASSERT((curNode->nodeReady & (1ULL<<processSlot)) == 0);
                     } else {
                         DPRINTF(DEBUG_LVL_VERB, "Strand %p has pending actions but not ready\n",
@@ -1933,16 +2063,31 @@ u32 _pdProcessNStrands(ocrPolicyDomain_t *pd, u32 processType, u32 count, u32 pr
                     ASSERT(hal_islocked(&(curNode->lock)));
                     // We flip nodeReady from 0 to 1; to up until we see a 1
                     // We flip nodeNeedsProcessing from 0 to 1; same as above
+                    u8 tNpIdx = npIdx[0]?(npIdx[0]-1):0;
+                    if(npIdx[1]) {
+                        DPRINTF(DEBUG_LVL_VVERB, "WARNING: The below status of propagation will not print all NP vectors affected\n");
+                    }
                     PROPAGATE_UP_TREE(
-                        curNode, parent, nextProcessType,
+                        curNode, parent, tNpIdx,
                         propagateReady || propagateNP, {
                             if (propagateReady) {
                                 propagateReady = parent->nodeReady == 0ULL;
                                 parent->nodeReady |= (1ULL<<curNode->parentSlot);
                             }
                             if (propagateNP) {
-                                propagateNP = parent->nodeNeedsProcess[nextProcessType] == 0ULL;
-                                parent->nodeNeedsProcess[nextProcessType] |= (1ULL<<curNode->parentSlot);
+                                propagateNP = false;
+                                u32 i;
+                                for(i=0; i<NP_COUNT; ++i) {
+                                    if(npIdx[i]) {
+                                        if(parent->nodeNeedsProcess[npIdx[i]-1]) {
+                                            parent->nodeNeedsProcess[npIdx[i]-1] |= (1ULL<<curNode->parentSlot);
+                                            propagateNP = true;
+                                        } else {
+                                            parent->nodeNeedsProcess[npIdx[i]-1] |= (1ULL<<curNode->parentSlot);
+                                            npIdx[i] = 0;
+                                        }
+                                    }
+                                }
                             }
                         });
                 } else {
@@ -2001,6 +2146,9 @@ u8 pdProcessResolveEvents(ocrPolicyDomain_t *pd, u32 processType, u32 count, pdE
     getCurrentEnv(&pd, &worker, NULL, NULL);
     ocrTask_t *savedTask = worker->curTask;
 
+    // Structure to figure out what we can process
+    u32 npIdxCounter = 0;
+    u8 npIdx[NP_COUNT];
 
     bool doClearHold = properties & PDSTT_CLEARHOLD;
     // HACK: For now limit ourselves to 64 so we can track what we resolved easily
@@ -2075,24 +2223,68 @@ u8 pdProcessResolveEvents(ocrPolicyDomain_t *pd, u32 processType, u32 count, pdE
                     if(curNode->nodeNeedsProcess[processType] & (1ULL<<stIdx)) {
                         DPRINTF(DEBUG_LVL_VVERB, "Strand %p [idx %"PRIu32"] needs processing we can do\n",
                                 toProcess, stIdx);
-                        // It does need processing
-                        curNode->nodeNeedsProcess[processType] &= ~(1ULL<<stIdx);
+                        pdAction_t *curAction = NULL;
+                        bool propagateNP = false;
+                        ASSERT(arrayDequeSize(toProcess->actions) > 0);
+                        RESULT_ASSERT(arrayDequePeekFromHead(toProcess->actions, (void**)&curAction), ==, 0);
+                                            _pdActionToNP(npIdx, curAction);
+                        _pdActionToNP(npIdx, curAction);
+                        npIdxCounter = 0;
+                        while(npIdx[npIdxCounter]) {
+                            u8 tIdx = npIdx[npIdxCounter] - 1;
+                            curNode->nodeNeedsProcess[tIdx] &= ~(1ULL<<stIdx);
+                            propagateNP |= curNode->nodeNeedsProcess[tIdx] == 0ULL;
 #ifdef MT_OPTI_CONTENTIONLIMIT
-                        {
-                            u32 t __attribute__((unused)) = hal_xadd32(&(toProcess->containingTable->consumerCount[processType]), 1);
-                            DPRINTF(DEBUG_LVL_VVERB, "Decrementing consumerCount[%"PRIu32"] @ table %p (processResolveEvents); was %"PRId32"\n",
-                                    processType, toProcess->containingTable, t);
-                        }
+                            {
+                                u32 t __attribute__((unused)) = hal_xadd32(&(toProcess->containingTable->consumerCount[tIdx]), -1);
+                                DPRINTF(DEBUG_LVL_VVERB, "Decrementing consumerCount[%"PRIu32"] @ table %p (processResolveEvents); was %"PRId32"\n",
+                                    tIdx, toProcess->containingTable, t);
+                            }
 #endif
+                            ++npIdxCounter;
+                        }
+#ifdef OCR_ASSERT
+                        npIdxCounter = 0;
+                        while(npIdx[npIdxCounter]) {
+                            if(npIdx[npIdxCounter] -1 == processType) {
+                                npIdxCounter = (u32)-1;
+                                break;
+                            }
+                            ++npIdxCounter;
+                        }
+                        // Somehow we are trying to process something that we shouldn't be. Runtime error most likely
+                        if(npIdxCounter != (u32)-1)
+                            ASSERT(0);
+#endif
+
                         // Go back up the tree; we switch nodeNeedsProcess for our parent if
                         // we have no more nodes to process due to the strand we are currently
                         // processing
                         pdStrandTableNode_t *parentNode = curNode->parent;
-                        PROPAGATE_UP_TREE(curNode, parentNode, processType,
-                                          curNode->nodeNeedsProcess[processType] == 0, {
-                                parentNode->nodeNeedsProcess[processType] &=
-                                  ~(1ULL << curNode->parentSlot);
-                            });
+                        u8 tNpIdx = npIdx[0]?(npIdx[0]-1):0;
+                        if(npIdx[1]) {
+                            DPRINTF(DEBUG_LVL_VVERB, "WARNING: The below status of propagation will not print all NP vectors affected\n");
+                        }
+                        PROPAGATE_UP_TREE(curNode, parentNode, tNpIdx, propagateNP, {
+                            propagateNP = false;
+                            u32 i;
+                            for(i=0; i<NP_COUNT; ++i) {
+                                if(npIdx[i]) { // npIdx[i] == 0 means nothing to propagate at that position
+                                    // The following assert should always be true because
+                                    // even if something else is modifying nodeNeedsProcess at the same time,
+                                    // we don't release curNode (old parent) between the time
+                                    // we check the condition to set propagateNP and the time
+                                    // we check with the assert
+                                    ASSERT(curNode->nodeNeedsProcess[npIdx[i]-1] == 0ULL);
+                                    parentNode->nodeNeedsProcess[npIdx[i]-1] &= ~(1ULL<<curNode->parentSlot);
+                                    if(parentNode->nodeNeedsProcess[npIdx[i]-1] == 0ULL) {
+                                        propagateNP = true;
+                                    } else {
+                                        npIdx[i] = 0;
+                                    }
+                                }
+                            }
+                        });
 
                         // Reset curNode properly
                         curNode = toProcess->parent;
@@ -2109,11 +2301,21 @@ u8 pdProcessResolveEvents(ocrPolicyDomain_t *pd, u32 processType, u32 count, pdE
                         // of checking every time
                         while (((toProcess->properties & PDST_WAIT_EVT) == 0) &&
                                arrayDequeSize(toProcess->actions)) {
+                            bool canProcess = false;
                             pdAction_t *curAction = NULL;
                             RESULT_ASSERT(arrayDequePeekFromHead(toProcess->actions, (void**)&curAction),
                                           ==, 0);
                             ASSERT(curAction);
-                            if(_pdActionToNP(curAction) == processType) {
+                            npIdxCounter = 0;
+                            _pdActionToNP(npIdx, curAction);
+                            while(npIdx[npIdxCounter]) {
+                                if(npIdx[npIdxCounter] - 1 == processType) {
+                                    canProcess = true;
+                                    break;
+                                }
+                                ++npIdxCounter;
+                            }
+                            if(canProcess) {
                                 pdAction_t *tAction __attribute__((unused)) = NULL;
                                 RESULT_ASSERT(arrayDequePopFromHead(toProcess->actions, (void**)&tAction),
                                               ==, 0);
@@ -2122,8 +2324,8 @@ u8 pdProcessResolveEvents(ocrPolicyDomain_t *pd, u32 processType, u32 count, pdE
                                 RESULT_ASSERT(_pdProcessAction(pd, worker, toProcess, curAction, 0), ==, 0);
                                 DPRINTF(DEBUG_LVL_VERB, "Done processing action %p\n", curAction);
                             } else {
-                                DPRINTF(DEBUG_LVL_VERB, "Action %p is of the wrong type [%"PRIu32" vs %"PRIu32"] -- leaving as is\n",
-                                        curAction, _pdActionToNP(curAction), processType);
+                                DPRINTF(DEBUG_LVL_VERB, "Action %p is of the wrong type (need %"PRIu32") -- leaving as is\n",
+                                        curAction, processType);
                                 break;
                             }
                         }
@@ -2133,8 +2335,8 @@ u8 pdProcessResolveEvents(ocrPolicyDomain_t *pd, u32 processType, u32 count, pdE
                         toProcess->properties &= ~PDST_MODIFIED;
 
                         hal_lock(&(curNode->lock));
-                        bool propagateReady = false, propagateNP = false, didFree = false;
-                        u32 nextProcessType = 0;
+                        bool propagateReady = false, didFree = false;
+                        propagateNP = false;
                         if(arrayDequeSize(toProcess->actions) == 0) {
                             toProcess->properties &= ~(PDST_WAIT_ACT);
                             if((toProcess->properties & PDST_WAIT_EVT) == 0) {
@@ -2183,23 +2385,25 @@ u8 pdProcessResolveEvents(ocrPolicyDomain_t *pd, u32 processType, u32 count, pdE
                                 // We need to check by whom these actions need to be processed; in other words, there
                                 // may be actions left because we are not processing actions of this type. We need
                                 // to set the proper nodeNeedsProcess flag
-                                pdAction_t *tAction = NULL;
-                                RESULT_ASSERT(arrayDequePeekFromHead(toProcess->actions, (void**)&tAction),
-                                              ==, 0);
-                                nextProcessType = _pdActionToNP(tAction);
-                                ASSERT(nextProcessType < NP_COUNT);
-                                DPRINTF(DEBUG_LVL_VVERB, "Next action has type %"PRIu32"\n", nextProcessType);
-                                propagateNP = curNode->nodeNeedsProcess[nextProcessType] == 0ULL;
-                                curNode->nodeNeedsProcess[nextProcessType] |= (1ULL<<stIdx);
-
-                                ASSERT((curNode->nodeReady & (1ULL<<stIdx)) == 0);
+                                // We already updated npIdx with the proper types for this action (that's when
+                                // we figured out we couldn't process it)
+                                propagateNP = false;
+                                npIdxCounter = 0;
+                                while(npIdx[npIdxCounter]) {
+                                    u8 tIdx = npIdx[npIdxCounter] - 1;
+                                    DPRINTF(DEBUG_LVL_VVERB, "Next action can be processed by type %"PRIu32"\n", tIdx);
+                                    propagateNP |= curNode->nodeNeedsProcess[tIdx] == 0ULL;
+                                    curNode->nodeNeedsProcess[tIdx] |= (1ULL<<stIdx);
 #ifdef MT_OPTI_CONTENTIONLIMIT
-                                {
-                                    u32 t __attribute__((unused)) = hal_xadd32(&(toProcess->containingTable->consumerCount[nextProcessType]), 1);
-                                    DPRINTF(DEBUG_LVL_VVERB, "Incrementing consumerCount[%"PRIu32"] @ table %p (processResolveEvents 2); was %"PRId32"\n",
-                                            nextProcessType, toProcess->containingTable, t);
-                                }
+                                    {
+                                        u32 t __attribute__((unused)) = hal_xadd32(&(toProcess->containingTable->consumerCount[tIdx]), 1);
+                                        DPRINTF(DEBUG_LVL_VVERB, "Incrementing consumerCount[%"PRIu32"] @ table %p (processResolveEvents 2); was %"PRId32"\n",
+                                                tIdx, toProcess->containingTable, t);
+                                    }
 #endif
+                                    ++npIdxCounter;
+                                }
+                                ASSERT((curNode->nodeReady & (1ULL<<stIdx)) == 0);
                             } else {
                                 DPRINTF(DEBUG_LVL_VERB, "Strand %p has pending actions but not ready\n",
                                         toProcess);
@@ -2222,18 +2426,33 @@ u8 pdProcessResolveEvents(ocrPolicyDomain_t *pd, u32 processType, u32 count, pdE
 
                             pdStrandTableNode_t *parent = curNode->parent;
                             ASSERT(hal_islocked(&(curNode->lock)));
+                            u8 tNpIdx = npIdx[0]?(npIdx[0]-1):0;
+                            if(npIdx[1]) {
+                                DPRINTF(DEBUG_LVL_VVERB, "WARNING: The below status of propagation will not print all NP vectors affected\n");
+                            }
                             // We flip nodeReady from 0 to 1; to up until we see a 1
                             // We flip nodeNeedsProcessing from 0 to 1; same as above
                             PROPAGATE_UP_TREE(
-                                curNode, parent, nextProcessType,
+                                curNode, parent, tNpIdx,
                                 propagateReady || propagateNP, {
                                     if (propagateReady) {
                                         propagateReady = parent->nodeReady == 0ULL;
                                         parent->nodeReady |= (1ULL<<curNode->parentSlot);
                                     }
                                     if (propagateNP) {
-                                        propagateNP = parent->nodeNeedsProcess[nextProcessType] == 0ULL;
-                                        parent->nodeNeedsProcess[nextProcessType] |= (1ULL<<curNode->parentSlot);
+                                        propagateNP = false;
+                                        u32 i;
+                                        for(i=0; i<NP_COUNT; ++i) {
+                                            if(npIdx[i]) {
+                                                if(parent->nodeNeedsProcess[npIdx[i]-1]) {
+                                                    parent->nodeNeedsProcess[npIdx[i]-1] |= (1ULL<<curNode->parentSlot);
+                                                    propagateNP = true;
+                                                } else {
+                                                    parent->nodeNeedsProcess[npIdx[i]-1] |= (1ULL<<curNode->parentSlot);
+                                                    npIdx[i] = 0;
+                                                }
+                                            }
+                                        }
                                     }
                                 });
                         } else {
@@ -2280,22 +2499,49 @@ END_LABEL(processResolveEventsEnd)
 /********** Internal functions *********/
 /***************************************/
 
-static u8 _pdActionToNP(pdAction_t* action) {
+static void _pdActionToNP(u8 *npIdx, pdAction_t* action) {
+    u32 i = 0;
     switch((u64)(action) & 0X7) {
     case 0b000:
-        return (u8)((action->properties & PDACT_NPTYPE_MASK) >> PDACT_NPTYPE_SHIFT);
+        /* An actual action -- read the properties field */
+        npIdx[0] = (u8)(((action->properties & PDACT_NPTYPE_MASK) >> PDACT_NPTYPE_SHIFT)+1);
+        for(i=1; i<NP_COUNT; ++i) npIdx[i] = 0;
+        return;
     case 0b001:
-        return ((u64)action >> 3);
-    case 0b111:
+        /* PROCESS_MESSAGE */
+        npIdx[0] = (u8)(((u64)action >> 3)+1);
+        for(i=1; i<NP_COUNT; ++i) npIdx[i] = 0;
+        return;
+    case 0b010:
+        /* PROCESS_EVENT -- always a computation thing */
+        npIdx[0] = (u8)(NP_WORK + 1);
+        for(i=1; i<NP_COUNT; ++i) npIdx[i] = 0;
+        return;
+    case 0b011:
+        /* MAKEREADYST -- anyone can process */
+        for(i=0; i < NP_COUNT; ++i) npIdx[i] = i+1;
+        return;
+    case 0b111: {
         /* Add extended values here */
-        ASSERT(0);
+        u8 type = 0;
+        PDACTION_DECEXT_TYPE(type, (u64)action);
+        switch(type) {
+        case PDACTION_ENCEXT_MAKEREADY:
+            /* MAKEREADY for an event -- anyone can process */
+            for(i=0; i < NP_COUNT; ++i) npIdx[i] = i+1;
+            return;
+        default:
+            ASSERT(0);
+            for(i=0; i<NP_COUNT; ++i) npIdx[i] = 0;
+
+        }
+    }
     default:
         DPRINTF(DEBUG_LVL_WARN, "Unknown action type in pdActionToNP: 0x%"PRIx64"\n",
                 (u64)(action) & 0x7);
         ASSERT(0);
+        for(i=0; i<NP_COUNT; ++i) npIdx[i] = 0;
     }
-    /* Keep the compiler happy */
-    return NP_WORK;
 }
 
 static u8 _pdProcessAction(ocrPolicyDomain_t *pd, ocrWorker_t *worker, pdStrand_t *strand,
@@ -2625,10 +2871,8 @@ static u8 _pdSetStrandNodeAtIdx(ocrPolicyDomain_t *pd, pdStrandTableNode_t *pare
 
     pdStrandTableNode_t *curNode = NULL;
     bool propagateFree = false, propagateReady = false, propagateNP = false;
-    u32 npIdx[NP_COUNT] = {0}; // What to process next
-    for(i=0; i<NP_COUNT; ++i) {
-        npIdx[i] = (u32)-1;
-    }
+    u32 npIdxCounter = 0;
+    u8 npIdx[NP_COUNT] = {0}; // npIdx[i] will be set j+1 if we need to propagate NP j
     if (flags & IS_STRAND) {
         parent->data.slots[idx] = child;
         pdStrand_t *strand = (pdStrand_t*)child;
@@ -2648,15 +2892,20 @@ static u8 _pdSetStrandNodeAtIdx(ocrPolicyDomain_t *pd, pdStrandTableNode_t *pare
             // We need to figure out what the first action is
             pdAction_t *tAct = NULL;
             RESULT_ASSERT(arrayDequePeekFromHead(strand->actions, (void**)&(tAct)), ==, 0);
-            npIdx[0] = _pdActionToNP(tAct);
-            propagateNP = parent->nodeNeedsProcess[npIdx[0]] == 0ULL;
-            parent->nodeNeedsProcess[npIdx[0]] |= (1ULL<<idx);
+            _pdActionToNP(npIdx, tAct);
+            // We go over this value and set all the bits that *can* process
+            // this action. Since this is only 8 bits, we just check by hand
+            while(npIdx[npIdxCounter]) {
+                u8 tIdx = npIdx[npIdxCounter] - 1;
+                propagateNP |= curNode->nodeNeedsProcess[tIdx] == 0ULL;
+                curNode->nodeNeedsProcess[tIdx] |= (1ULL<<idx);
 #ifdef MT_OPTI_CONTENTIONLIMIT
-            u32 t __attribute__((unused)) = hal_xadd32(&(strand->containingTable->consumerCount[npIdx[0]]), 1);
-            DPRINTF(DEBUG_LVL_VVERB, "Incrementing consumerCount[%"PRIu32"] @ table %p (setStrandNodeAtIdx); was %"PRId32"\n",
-                    npIdx[0], strand->containingTable, t);
-
+                u32 t __attribute__((unused)) = hal_xadd32(&(strand->containingTable->consumerCount[tIdx]), 1);
+                DPRINTF(DEBUG_LVL_VVERB, "Incrementing consumerCount[%"PRIu32"] @ table %p (setStrandNodeAtIdx); was %"PRId32"\n",
+                    tIdx, strand->containingTable, t);
 #endif
+                ++npIdxCounter;
+            }
         }
         curNode = parent;
     } else {
@@ -2672,14 +2921,13 @@ static u8 _pdSetStrandNodeAtIdx(ocrPolicyDomain_t *pd, pdStrandTableNode_t *pare
             propagateReady = parent->nodeReady == 0ULL;
             parent->nodeReady |= 1ULL<<idx;
         }
-
         for(i=0; i<NP_COUNT; ++i) {
             if (childNode->nodeNeedsProcess[i] != 0ULL) {
                 // WARNING: We do not increment consumerCount here because
                 // we only insert full trees. If this changes, we may need to update this
                 propagateNP |= parent->nodeNeedsProcess[i] == 0ULL;
                 parent->nodeNeedsProcess[i] |= 1ULL<<idx;
-                npIdx[i] = i;
+                npIdx[npIdxCounter++] = i+1;
             }
         }
         curNode = parent;
@@ -2693,9 +2941,12 @@ static u8 _pdSetStrandNodeAtIdx(ocrPolicyDomain_t *pd, pdStrandTableNode_t *pare
     // NP bits: we flipped from 0 to 1, see if this makes others 1 (stop when see 1)
 
     // If we have the lock on curNode, we should *not* release it.
-    DPRINTF(DEBUG_LVL_VVERB, "WARNING: The below status of propagation may not print all NP vectors\n");
+    u8 tNpIdx = npIdx[0]?(npIdx[0]-1):0; // If we don't have propagateNP, we don't want the print to fail
+    if(npIdx[1]) {
+        DPRINTF(DEBUG_LVL_VVERB, "WARNING: The below status of propagation will not print all NP vectors affected\n");
+    }
     PROPAGATE_UP_TREE_NO_UNLOCK(
-        curNode, parent, npIdx[0],
+        curNode, parent, tNpIdx,
         propagateFree || propagateReady || propagateNP, {
             if (propagateFree) {
                 parent->nodeFree &= ~(1ULL<<curNode->parentSlot);
@@ -2707,13 +2958,15 @@ static u8 _pdSetStrandNodeAtIdx(ocrPolicyDomain_t *pd, pdStrandTableNode_t *pare
             }
             if (propagateNP) {
                 propagateNP = false;
+                u32 i;
                 for(i=0; i<NP_COUNT; ++i) {
-                    if(npIdx[i] != (u32)-1) {
-                        if(parent->nodeNeedsProcess[i] == 0ULL) {
+                    if(npIdx[i]) { // npIdx[i] == 0 means nothing to propagate at that position
+                        if(parent->nodeNeedsProcess[npIdx[i]-1] == 0ULL) {
+                            parent->nodeNeedsProcess[npIdx[i]-1] |= (1ULL<<curNode->parentSlot);
                             propagateNP = true;
-                            parent->nodeNeedsProcess[i] |= (1ULL<<curNode->parentSlot);
                         } else {
-                            npIdx[i] = (u32)-1;
+                            parent->nodeNeedsProcess[npIdx[i]-1] |= (1ULL<<curNode->parentSlot);
+                            npIdx[i] = 0;
                         }
                     }
                 }

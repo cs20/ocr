@@ -70,6 +70,8 @@
 #define NP_COMM  1
 #define NP_COUNT 2
 
+// For now, the implementation is limited to 8 types of NP_*.
+ COMPILE_ASSERT(NP_COUNT <= 8);
 // We use a 64-bit bitvector to keep track of status so this needs to be properly sized
 COMPILE_ASSERT(PDST_NODE_SIZE <= 64);
 
