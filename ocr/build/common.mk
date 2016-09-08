@@ -21,7 +21,13 @@ DEFAULT_CONFIG ?= jenkins-common-8w-lockableDB.cfg
 # for jenkins testing purpose
 #CFLAGS += -DUTASK_COMM -DUTASK_COMM2
 
+# **** System-dependent values ****
+
+# Cache line size in bytes (Mostly used for padding)
+CFLAGS += -DCACHE_LINE_SZB=64
+
 # **** Lock implementation ****
+
 # By default, a test test-and-set lock is used but you
 # can also enable a ticket-lock instead. This increase space
 # requirements for each lock (from 32 bits to 64 bits)
@@ -80,6 +86,11 @@ CFLAGS += -DGUID_PROVIDER_LOCID_SIZE=10
 # - Activate a different hashmap implementation
 #   Warning: Necessitates an additional -D activating the alternate implementation
 # CFLAGS += -DGUID_PROVIDER_CUSTOM_MAP -D_TODO_FILL_ME_IN
+
+# **** Hashtable Parameters ****
+
+# - Distributed hashtable locks over cache lines
+# CFLAGS += -DHASHTABLE_LOCK_SPREAD
 
 # **** Communication Platform Parameters ****
 
