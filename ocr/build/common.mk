@@ -89,8 +89,18 @@ CFLAGS += -DGUID_PROVIDER_LOCID_SIZE=10
 
 # **** Hashtable Parameters ****
 
-# - Distributed hashtable locks over cache lines
+# - Distribute hashtable locks over cache lines
 # CFLAGS += -DHASHTABLE_LOCK_SPREAD
+
+# - Activates hashtable statistics
+#   - Prints high watermark on buckets
+# CFLAGS += -DSTATS_HASHTABLE
+
+# - Keeps track of bucket's lock collision 
+# CFLAGS += -DSTATS_HASHTABLE_COLLIDE
+
+# - Print per bucket stats
+# CFLAGS += -DSTATS_HASHTABLE_VERB
 
 # **** Communication Platform Parameters ****
 
