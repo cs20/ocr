@@ -32,7 +32,7 @@ ocrGuid_t producer1(u32 paramc, u64 *paramv, u32 depc, ocrEdtDep_t *depv) {
     // of producer being satisfied and destroyed before we
     // could have returned its guid.
     ocrGuid_t complete_event;
-    ocrEventCreate(&complete_event,OCR_EVENT_ONCE_T, EVT_PROP_NONE);
+    ocrEventCreate(&complete_event,OCR_EVENT_STICKY_T, EVT_PROP_NONE);
     ocrEdtCreate(&producer_edt, producer_template, 0, NULL, 1, NULL,
                  EDT_PROP_NONE, NULL_HINT, &producer_done_event);
     ocrAddDependence(producer_done_event, complete_event, 0, DB_MODE_CONST);

@@ -58,6 +58,7 @@ ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
         ocrGuid_t idxGuid;
         ocrDbCreate(&idxGuid,(void **)&idxPtr, sizeof(int), 0, NULL_HINT, NO_ALLOC);
         *idxPtr = i;
+        ocrDbRelease(idxGuid);
 
         ocrGuid_t childEdtGuid;
         ocrGuid_t childEdtTemplateGuid;

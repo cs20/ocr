@@ -328,13 +328,15 @@ function scalingTest {
 
     for nodes in `echo "${NODE_SCALING}"`; do
         for cores in `echo "${CORE_SCALING}"`; do
-            export pes=`echo "${cores}*${nodes}" | bc`
+            export nodes_all=${nodes}
+            export pes_per_node=${cores}
+            export pes_all=`echo "${cores}*${nodes}" | bc`
             if [[ "${OCR_TYPE}" == "x86-mpi" ]]; then
                 export pes_comp=`echo "(${cores}-1)*${nodes}" | bc`
             else
-                export pes_comp=${pes}
+                export pes_comp=${pes_all}
             fi
-            runInfo="NB_WORKERS=${cores} NB_NODES=${nodes}"
+            runInfo="NB_WORKERS=${cores} NB_NODES=${nodes} nodes_all=${nodes_all} pes_per_node=${pes_per_node} pes_all=${pes_all}"
             echo "======== $runInfo ======== "
 
             export OCR_NUM_NODES=${nodes}
