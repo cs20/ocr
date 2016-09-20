@@ -876,7 +876,10 @@ static ocrStats_t* hcGetStats(ocrPolicyDomain_t *self) {
 
 //Notify scheduler of policy message before it is processed
 static inline void hcSchedNotifyPreProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg) {
-    if (msg->type & PD_MSG_IGNORE_PRE_PROCESS_SCHEDULER)
+    //Hard-coded for now, ideally scheduler should register interests
+    bool eligible = ((msg->type & PD_MSG_TYPE_ONLY) == PD_MSG_WORK_CREATE) ||
+                  ((msg->type & PD_MSG_TYPE_ONLY) == PD_MSG_DB_CREATE);
+    if ((msg->type & PD_MSG_IGNORE_PRE_PROCESS_SCHEDULER) || !eligible)
         return;
     ocrSchedulerOpNotifyArgs_t notifyArgs;
     notifyArgs.base.location = msg->srcLocation;
@@ -890,7 +893,10 @@ static inline void hcSchedNotifyPreProcessMessage(ocrPolicyDomain_t *self, ocrPo
 
 //Notify scheduler of policy message after it is processed
 static inline void hcSchedNotifyPostProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg) {
-    if (!(msg->type & PD_MSG_REQ_POST_PROCESS_SCHEDULER))
+    //Hard-coded for now, ideally scheduler should register interests
+    bool eligible = ((msg->type & PD_MSG_TYPE_ONLY) == PD_MSG_WORK_CREATE) ||
+                  ((msg->type & PD_MSG_TYPE_ONLY) == PD_MSG_DB_CREATE);
+    if (!(msg->type & PD_MSG_REQ_POST_PROCESS_SCHEDULER) || !eligible)
         return;
     ocrSchedulerOpNotifyArgs_t notifyArgs;
     notifyArgs.base.location = msg->srcLocation;
