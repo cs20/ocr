@@ -697,34 +697,6 @@ static void localDeguidify(ocrPolicyDomain_t *self, ocrFatGuid_t *guid) {
     RETURN_PROFILE();
 }
 
-// In all these functions, we consider only a single PD. In other words, in CE, we
-// deal with everything locally and never send messages
-
-// allocateDatablock:  Utility used by hcAllocateDb and hcMemAlloc, just below.
-static void* allocateDatablock (ocrPolicyDomain_t *self,
-                                u64                size,
-                                u64                prescription,
-                                u64               *allocatorIdx) {
-    void* result;
-    u64 idx;  // Index into the allocators array to select the allocator to try.
-    ASSERT (self->allocatorCount > 0);
-    do {
-        prescription >>= 1;
-        idx = prescription & 7;  // Get the index of the allocator to use.
-        prescription >>= 3;
-        if ((idx > self->allocatorCount) || (self->allocators[idx] == NULL)) {
-            continue;  // Skip this allocator if it doesn't exist.
-        }
-        result = self->allocators[idx]->fcts.allocate(self->allocators[idx], size, 0);
-
-        if (result) {
-            *allocatorIdx = idx;
-            return result;
-        }
-    } while (prescription != 0);
-    return NULL;
-}
-
 static u8 hcMemUnAlloc(ocrPolicyDomain_t *self, ocrFatGuid_t* allocator,
                        void* ptr, ocrMemType_t memType);
 
@@ -739,8 +711,8 @@ static u8 hcAllocateDb(ocrPolicyDomain_t *self, ocrFatGuid_t *guid, void** ptr, 
     // eventually be eliminated here and instead, above this level, processed into the "prescription"
     // variable, which has been added to this argument list.  The prescription indicates an order in
     // which to attempt to allocate the block to a pool.
-    u64 idx;
-    void *result = allocateDatablock (self, size, prescription, &idx);
+    u64 idx = 0;
+    void * result = self->allocators[idx]->fcts.allocate(self->allocators[idx], size, 0);
     if (result) {
         u8 returnValue = 0;
         returnValue = ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->instantiate(
@@ -762,16 +734,10 @@ static u8 hcAllocateDb(ocrPolicyDomain_t *self, ocrFatGuid_t *guid, void** ptr, 
 
 static u8 hcMemAlloc(ocrPolicyDomain_t *self, ocrFatGuid_t* allocator, u64 size,
                      ocrMemType_t memType, void** ptr, u64 prescription) {
-    // Like hcAllocateDb, this function also allocates a data block.  But it does NOT guidify
-    // the results.  The main usage of this function is to allocate space for the guid needed
-    // by hcAllocateDb; so if this function also guidified its results, you'd be in an infinite
-    // guidification loop!
-    //
-    // The prescription indicates an order in which to attempt to allocate the block to a pool.
     void* result;
-    u64 idx;
+    u64 idx = 0;
     ASSERT (memType == GUID_MEMTYPE || memType == DB_MEMTYPE);
-    result = allocateDatablock (self, size, prescription, &idx);
+    result = self->allocators[idx]->fcts.allocate(self->allocators[idx], size, 0);
     if (result) {
         *ptr = result;
         *allocator = self->allocators[idx]->fguid;
@@ -784,30 +750,8 @@ static u8 hcMemAlloc(ocrPolicyDomain_t *self, ocrFatGuid_t* allocator, u64 size,
 
 static u8 hcMemUnAlloc(ocrPolicyDomain_t *self, ocrFatGuid_t* allocator,
                        void* ptr, ocrMemType_t memType) {
-#if 1
     allocatorFreeFunction(ptr);
     return 0;
-#else
-    u64 i;
-    ASSERT (memType == GUID_MEMTYPE || memType == DB_MEMTYPE);
-    if (memType == DB_MEMTYPE) {
-        for(i=0; i < self->allocatorCount; ++i) {
-            if(self->allocators[i]->fguid.guid == allocator->guid) {
-                allocator->metaDataPtr = self->allocators[i]->fguid.metaDataPtr;
-                self->allocators[i]->fcts.free(self->allocators[i], ptr);
-                return 0;
-            }
-        }
-        return OCR_EINVAL;
-    } else if (memType == GUID_MEMTYPE) {
-        ASSERT (self->allocatorCount > 0);
-        self->allocators[self->allocatorCount-1]->fcts.free(self->allocators[self->allocatorCount-1], ptr);
-        return 0;
-    } else {
-        ASSERT (false);
-    }
-    return OCR_EINVAL;
-#endif
 }
 
 /**
