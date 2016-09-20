@@ -1627,7 +1627,6 @@ u8 createProcessRequestEdtDistPolicy(ocrPolicyDomain_t * pd, ocrGuid_t templateG
 }
 
 #ifndef ENABLE_POLICY_DOMAIN_HC
-//Note: These are moved to common modules in subsequent patches
 u8 resolveRemoteMetaData(ocrPolicyDomain_t * pd, ocrFatGuid_t * fatGuid,
                                 ocrPolicyMsg_t * msg, bool isBlocking) {
     u64 val;

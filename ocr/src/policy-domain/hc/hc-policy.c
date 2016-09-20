@@ -351,18 +351,18 @@ u8 hcPdSwitchRunlevel(ocrPolicyDomain_t *policy, ocrRunlevel_t runlevel, u32 pro
             }
         }
 
+#ifdef ENABLE_EXTENSION_PAUSE
         if((!toReturn) && (properties & RL_BRING_UP)) {
             //BUG #583: is it important to do that at the first phase or ?
             // if((properties & RL_BRING_UP) && RL_IS_FIRST_PHASE_UP(PD, RL_PD_OK, phase)) {
-#ifdef ENABLE_EXTENSION_PAUSE
             registerSignalHandler();
-#endif
             ocrPolicyDomainHc_t *rself = (ocrPolicyDomainHc_t*)policy;
             //Initialize pause/query/resume variables
             rself->pqrFlags.runtimePause = false;
             rself->pqrFlags.pauseCounter = 0;
             rself->pqrFlags.pausingWorker = -1;
         }
+#endif
 
         if(toReturn) {
             DPRINTF(DEBUG_LVL_WARN, "RL_PD_OK(%"PRId32") phase %"PRId32" failed: %"PRId32"\n", origProperties, curPhase, toReturn);

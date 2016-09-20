@@ -24,13 +24,6 @@ typedef enum _taskType_t {
     taskMax_id
 } taskType_t;
 
-const char * task_types [] = {
-#ifdef ENABLE_TASK_HC
-    "HC",
-#endif
-    NULL
-};
-
 typedef enum _taskTemplateType_t {
 #ifdef ENABLE_TASKTEMPLATE_HC
     taskTemplateHc_id,
@@ -38,40 +31,16 @@ typedef enum _taskTemplateType_t {
     taskTemplateMax_id
 } taskTemplateType_t;
 
-const char * taskTemplate_types [] = {
-#ifdef ENABLE_TASKTEMPLATE_HC
-    "HC",
-#endif
-    NULL
-};
+extern const char * task_types[];
 
-// HC Task
-#include "task/hc/hc-task.h"
+extern const char * taskTemplate_types[];
 
-// Add other tasks using the same pattern as above
-
-static inline ocrTaskFactory_t *newTaskFactory(taskType_t type, ocrParamList_t *typeArg) {
-    switch(type) {
 #ifdef ENABLE_TASK_HC
-    case taskHc_id:
-        return newTaskFactoryHc(typeArg, typeArg->id);
+#include "task/hc/hc-task.h"
 #endif
-    default:
-        ASSERT(0);
-    };
-    return NULL;
-}
 
-static inline ocrTaskTemplateFactory_t *newTaskTemplateFactory(taskTemplateType_t type, ocrParamList_t *typeArg) {
-    switch(type) {
-#ifdef ENABLE_TASKTEMPLATE_HC
-    case taskTemplateHc_id:
-        return newTaskTemplateFactoryHc(typeArg, typeArg->id);
-#endif
-    default:
-        ASSERT(0);
-        return NULL;
-    };
-}
+ocrTaskFactory_t *newTaskFactory(taskType_t type, ocrParamList_t *typeArg);
+
+ocrTaskTemplateFactory_t *newTaskTemplateFactory(taskTemplateType_t type, ocrParamList_t *typeArg);
 
 #endif /* __TASK_ALL_H__ */

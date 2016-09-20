@@ -49,10 +49,6 @@ static inline u8 guidLocationShort(struct _ocrPolicyDomain_t * pd, ocrFatGuid_t 
     return pd->guidProviders[0]->fcts.getLocation(pd->guidProviders[0], guid.guid, locationRes);
 }
 
-static inline u8 checkLocationValidity(struct _ocrPolicyDomain_t * pd, ocrLocation_t loc) {
-    u64 locID = ((u64)loc);
-    return ((locID >= 0) && (locID <= pd->neighborCount));
-}
 
 extern u8 resolveRemoteMetaData(ocrPolicyDomain_t * pd, ocrFatGuid_t * fatGuid,
                                 ocrPolicyMsg_t * msg, bool isBlocking);

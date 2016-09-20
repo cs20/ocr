@@ -34,17 +34,21 @@ typedef struct {
     bool legacySecondStart;
 } pdHcResumeSwitchRL_t;
 
+#ifdef ENABLE_EXTENSION_PAUSE
 typedef struct {
     volatile u32 pausingWorker; //Worker responsible for pause
     volatile bool runtimePause; //flag to indicate pause
     volatile u32 pauseCounter; //number of paused workers
     volatile ocrGuid_t prevDb; //Previous DB used for sat.
 } hcPqrFlags;
+#endif
 
 typedef struct {
     ocrPolicyDomain_t base;
     pdHcResumeSwitchRL_t rlSwitch; // Used for asynchronous RL switch
+#ifdef ENABLE_EXTENSION_PAUSE
     hcPqrFlags pqrFlags;
+#endif
 #ifdef ENABLE_RESILIENCY
     ocrFaultArgs_t faultArgs;
     volatile u32 shutdownInProgress;

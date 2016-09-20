@@ -113,17 +113,21 @@ u8 ocrEventSatisfySlot(ocrGuid_t eventGuid, ocrGuid_t dataGuid /*= INVALID_GUID*
     ocrPolicyDomain_t *pd = NULL;
     ocrTask_t * curEdt = NULL;
     getCurrentEnv(&pd, NULL, &curEdt, &msg);
+    ocrFatGuid_t satisfierGuid;
+    satisfierGuid.guid = curEdt?curEdt->guid:NULL_GUID;
+    satisfierGuid.metaDataPtr = curEdt;
 #define PD_MSG (&msg)
 #define PD_TYPE PD_MSG_DEP_SATISFY
     msg.type = PD_MSG_DEP_SATISFY | PD_MSG_REQUEST;
-    PD_MSG_FIELD_I(satisfierGuid.guid) = curEdt?curEdt->guid:NULL_GUID;
-    PD_MSG_FIELD_I(satisfierGuid.metaDataPtr) = curEdt;
+    PD_MSG_FIELD_I(satisfierGuid) = satisfierGuid;
+    PD_MSG_FIELD_I(satisfierGuid.guid) = satisfierGuid.guid;
+    PD_MSG_FIELD_I(satisfierGuid.metaDataPtr) = satisfierGuid.metaDataPtr;
     PD_MSG_FIELD_I(guid.guid) = eventGuid;
     PD_MSG_FIELD_I(guid.metaDataPtr) = NULL;
     PD_MSG_FIELD_I(payload.guid) = dataGuid;
     PD_MSG_FIELD_I(payload.metaDataPtr) = NULL;
-    PD_MSG_FIELD_I(currentEdt.guid) = curEdt ? curEdt->guid : NULL_GUID;
-    PD_MSG_FIELD_I(currentEdt.metaDataPtr) = curEdt;
+    PD_MSG_FIELD_I(currentEdt.guid) = satisfierGuid.guid;
+    PD_MSG_FIELD_I(currentEdt.metaDataPtr) = satisfierGuid.metaDataPtr;
     PD_MSG_FIELD_I(slot) = slot;
 #ifdef REG_ASYNC_SGL
     PD_MSG_FIELD_I(mode) = -1;

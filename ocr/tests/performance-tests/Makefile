@@ -42,9 +42,11 @@ ifndef BIN_GEN_DIR
 BIN_GEN_DIR=build
 endif
 
+
 INCS=-I./inc
 CFLAGS=-O3 -g -Wp,-w $(INCS)
 OCR_FLAGS=-L${OCR_INSTALL}/lib -I${OCR_INSTALL}/include -locr_${OCR_TYPE} -lpthread -lm ${OCR_LDFLAGS}
+OCR_RUN_FLAGS=-ocr:cfg ${OCR_CONFIG}
 
 ifeq (${OCR_ASAN}, yes)
   ASAN_FLAGS := -g -fsanitize=address -fno-omit-frame-pointer
@@ -52,7 +54,11 @@ ifeq (${OCR_ASAN}, yes)
   LDFLAGS += $(ASAN_FLAGS)
 endif
 
-OCR_RUN_FLAGS=-ocr:cfg ${OCR_CONFIG}
+ifeq (${OCR_ASAN}, leak)
+  ASAN_FLAGS := -g -fsanitize=leak -fno-omit-frame-pointer
+  CFLAGS += $(ASAN_FLAGS)
+  LDFLAGS += $(ASAN_FLAGS)
+endif
 
 DEPS=platform/$(TYPE).c
 

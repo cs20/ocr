@@ -159,6 +159,8 @@ CFLAGS += -DGUID_PROVIDER_LOCID_SIZE=10
 
 # Declare flags for AddressSanitizer
 # Warning: Applications must use the same flags else it will crash.
+# Declare flags for AddressSanitizer
+# Warning: Applications must use the same flags else it will crash.
 ifeq (${OCR_ASAN}, yes)
   ASAN_FLAGS := -g -fsanitize=address -fno-omit-frame-pointer
   CFLAGS += $(ASAN_FLAGS)
@@ -209,6 +211,17 @@ endif
 #
 #
 #
+
+ifeq (${OCR_ASAN}, leak)
+  # Not using mpicc so put the good stuff here
+  CFLAGS += -I${MPI_ROOT}/include
+  LDFLAGS += -L${MPI_ROOT}/lib -lmpi
+  # Setup ASAN for leak detection
+  ASAN_FLAGS := -g -fsanitize=leak -fno-omit-frame-pointer
+  CFLAGS += $(ASAN_FLAGS)
+  LDFLAGS += $(ASAN_FLAGS) $(LDFLAGS)
+endif
+
 # Runtime overhead profiler
 # x86 only
 #

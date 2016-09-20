@@ -444,6 +444,13 @@ u8 satisfyEventHcOnce(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
     if (waitersCount) {
         RESULT_PROPAGATE(commonSatisfyWaiters(pd, base, db, waitersCount, currentEdt, &msg, false));
     }
+#ifdef NANNYMODE_ONCE_EVT
+    else {
+        DPRINTF(DEBUG_LVL_WARN, "Once event "GUIDF" satisfied with no dependences\n", GUIDA(base->guid));
+    }
+#endif
+
+
 
     // Since this a ONCE event, we need to destroy it as well
     // This is safe to do so at this point as all the messages have been sent
@@ -656,7 +663,6 @@ u8 satisfyEventHcLatch(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
     }
     // Here the event is satisfied
     DPRINTF(DEBUG_LVL_INFO, "Satisfy %s: "GUIDF" reached zero\n", eventTypeToString(base), GUIDA(base->guid));
-
     u32 waitersCount = event->base.waitersCount;
     // This is only to help users find out about wrongful use of events
     event->base.waitersCount = STATE_CHECKED_IN; // Indicate that the event is satisfied
@@ -1452,8 +1458,8 @@ static u8 initNewEventHc(ocrEventHc_t * event, ocrEventTypes_t eventType, ocrGui
     if(eventType == OCR_EVENT_COUNTED_T) {
         // Initialize the counter for dependencies tracking
         ocrEventParams_t * params = (ocrEventParams_t *) perInstance;
-        if ((params != NULL) && (((ocrEventParams_t *) perInstance)->EVENT_COUNTED.nbDeps != 0)) {
-            ((ocrEventHcCounted_t*)event)->nbDeps = (perInstance == NULL) ? 0 : params->EVENT_COUNTED.nbDeps;
+        if ((params != NULL) && (params->EVENT_COUNTED.nbDeps != 0)) {
+            ((ocrEventHcCounted_t*)event)->nbDeps = params->EVENT_COUNTED.nbDeps;
         } else {
             DPRINTF(DBG_HCEVT_ERR, "error: Illegal nbDeps value (zero) for OCR_EVENT_COUNTED_T 0x"GUIDF"\n", GUIDA(base->guid));
             factory->fcts[OCR_EVENT_COUNTED_T].destruct(base);

@@ -1049,7 +1049,7 @@ u8 dependenceResolvedTaskHc(ocrTask_t * self, ocrGuid_t dbGuid, void * localDbPt
 
 #ifdef REG_ASYNC_SGL
 u8 satisfyTaskHcWithMode(ocrTask_t * base, ocrFatGuid_t data, u32 slot, ocrDbAccessMode_t mode) {
-    ASSERT (((!ocrGuidIsNull(data.guid)) ? (mode != -1) : 1) && "Mode should alway be provided");
+    ASSERT (((!ocrGuidIsNull(data.guid)) ? (mode != ((ocrDbAccessMode_t)-1)) : 1) && "Mode should alway be provided");
     ASSERT(!ocrGuidIsUninitialized(data.guid) && !ocrGuidIsError(data.guid));
     // Check slot is in bounds
     ASSERT_BLOCK_BEGIN((slot >= 0) && (slot < base->depc))
