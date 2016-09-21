@@ -1,8 +1,8 @@
 % This is an included file. See the master file for more information.
 %
 
-\section{OCR core types, macros, and error codes}
-\index{OCR types, macros, and error codes}
+\section{OCR core types and macros}
+\index{OCR types and macros}
 \label{sec:OCRtypesmacros}
 
 The OCR Application Programming Interface (API) is defined in terms of a
@@ -72,27 +72,44 @@ This value is roughly analogous to a null pointer; however, it cannot be assumed
 that a value is uninitialized.
 \item \code{\#define ERROR\_GUID}: A reserved GUID value, used to indicate that an error has occurred.
 \end{itemize}
-%%
-\paragraph*{OCR error codes}
+%%%%%
+\section{OCR API conventions}
+\index{OCR API conventions}
+In OCR, most APIs are allowed to be \emph{deferred} or \emph{executed asynchronously} by the runtime implementation
+but all implementations guarantee that the effects of the execution of the API calls by the runtime will be
+identical to the non-deferred and sequential execution of the calls as specified by the user. Note that for
+APIs that return a value to the user (for example a GUID, a pointer, etc.), all runtime implementations guarantee
+that the values returned are valid; in other words, a portion of the call may be deferred but the user can
+rely on the returned values.
+%%%%
+\subsection{Conventions}
+In this chapter, the OCR APIs are discussed in detail. API calls not related to support functions
+(Section~\ref{sec:supportFuncs}) or GUID management (Section~\ref{sec:OCRGuidManagement}) all
+follow certain conventions described below
+%
+\paragraph*{API names}
+All API names start with ``ocr'' followed by the type of object the call refers to
+\footnote{\hyperlink{func_ocrAddDependence}{\code{ocrAddDependence()}} being the lone exception to this naming
+convention.} such as ``Edt'', ``Db'' or ``Event'' followed by the action on that event.
+%
+\paragraph*{Arguments}
+Arguments that are used as ``out'' or ``in/out'' arguments, if any, are listed first in the calls. ``Out'' or
+``in/out'' arguments are always pointers. ``In'' arguments are either values or pointers to constants.
+%
+\paragraph*{Error codes}
+All API calls return an error code with the convention that 0 means the call was successful. Error codes are discussed
+in more detail in Section~\ref{sec:errorCodes}.
+%%%%
+\subsection{OCR error codes}
+\label{sec:errorCodes}
 The OCR error codes are derived from standard error codes. They are defined
-internally to limit OCR's dependence on standard libraries. Most functions in the
-OCR API will return a status code where 0 signifies successful completion. A non-zero
-return code will be one of the following error codes. These codes are found
+internally to limit OCR's dependence on standard libraries. OCR uses the convention that a function's
+return value is its error code where a code of zero signifies successful completion. It is, however,
+important to note that given the potential deferred and asynchronous nature of OCR API calls, not all errors
+will be reported at the site of the call. This distinction is discussed later in this section.
+The error codes returned are found
 in the \code{ocr-errors.h} include file and described in
 Table~\ref{tab:errorcodes}.
-
-Since OCR aims to be as asynchronous as possible, it may not always be
-possible to immediately identify an error and return the appropriate
-error code. In general, providing incorrect parameters to an OCR API
-call results in undefined behavior. If, however, the OCR
-implementation returns an error code, it will correctly reflect the
-cause of the error. In other words, if an API call returns an error
-code, that error code will accurately describe the error that happened
-(for example, OCR\_ENOMEM will always indicate that the runtime ran out
-of memory). Future revisions of this specification will detail OCR
-runtime modes which will either {\bf a)} guarantee a certain level of
-error detection (potentially at a cost) or {\bf b)} immediately abort
-upon the detection of an error.
 \tablefirsthead{%
 \hline
 \textsf{\textbf{Error code}} & \textsf{\textbf{Generic Interpretation}}\\
@@ -137,6 +154,33 @@ upon the detection of an error.
 \plc{OCR\_EPEND} & Operation is pending\\
 \plc{OCR\_ECANCELED} & Operation canceled\\
 \end{supertabular}
+%
+\paragraph*{Immediate versus deferred error}
+Since the OCR APIs can be deferred or executed asynchronously by the underlying
+implementation, not all error codes can be reported immediately at the API call-site. In the
+API description in the following sections, the error codes returned are separated into
+two categories: {\bf a)} the \emph{immediate} error codes that are guaranteed to be returned at the call-site and
+{\bf b)} the \emph{deferred} error codes that \emph{may} be returned either at the call-site but also
+later (see the following paragraph for more detail).
+
+Immediate errors are typically errors that result from incorrect arguments. Deferred errors are
+either returned at the call-site or reported later, depending on the implementation. In other words,
+if the return code of an API call is zero, this means that either the function completed without any
+errors or that one of the deferred errors may occur later.
+%
+\paragraph*{Reporting of deferred errors}
+Currently, if an error occurs in a deferred manner, implementations are allowed to crash but will
+report the API call that caused the crash (deferred error) by reporting to the user at least the following
+information:
+\begin{itemize}
+  \item{File and line-number of the API call that caused the error;}
+  \item{Error code;}
+  \item{GUIDs of both the EDT in which the error occurred and the target object for the
+        error (typically the first argument of the API call).
+  }
+\end{itemize}
+Future revisions of this specification will provide a handler mechanism which would allow a user
+to determine if an error is fatal or if it can be recovered from.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% The OCR Main EDT
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -760,14 +804,14 @@ by \hyperlink{type_ocrInDbAllocator_t}{ocrInDbAllocator\_t}.\\
 \end{DoxyParams}
 
 \returns
-A status code:
+0 if no immediate error was detected or the following error codes:
 \begin{DoxyItemize}
-\item 0: Successful
-\item OCR\_ENOMEM: The runtime could not provide a data block of size
-  'len' due to insufficient memory
-\item OCR\_EINVAL: The arguments passed (flags, allocator, etc.) were
+\item OCR\_EINVAL ({\bf immediate}): The arguments passed (flags, allocator, etc.) were
   not valid
-\item OCR\_EBUSY: A resource required for this call was busy. A retry
+\item 0: Successful
+\item OCR\_ENOMEM ({\bf deferred}): The runtime could not provide a data block of size
+  'len' due to insufficient memory
+\item OCR\_EBUSY ({\bf deferred}): A resource required for this call was busy. A retry
   is possible
 \end{DoxyItemize}
 
@@ -823,11 +867,10 @@ destroyed when no longer needed to reclaim the space they utilize.
 \end{DoxyParams}
 
 \returns
-A status code:
+0 if no immediate error was detected or the following error codes:
 \begin{DoxyItemize}
-\item 0: successful
-\item OCR\_EPERM: The data block was already destroyed
-\item OCR\_EINVAL: The GUID passed as argument does not refer to
+\item OCR\_EPERM ({\bf deferred}): The data block was already destroyed
+\item OCR\_EINVAL ({\bf deferred}): The GUID passed as argument does not refer to
   a valid data block
 \end{DoxyItemize}
 
@@ -876,12 +919,11 @@ enables other EDTs to ``see'' the eventual changes to the data block (release co
 \end{DoxyParams}
 
 \returns
-A status code:
+0 if no immediate error was detected or the following error codes:
 \begin{DoxyItemize}
-\item 0: successful
-\item OCR\_EINVAL: The GUID passed as argument does not refer to a
+\item OCR\_EINVAL ({\bf immediate}): The GUID passed as argument does not refer to a
   valid data block
-\item OCR\_EACCESS: The calling EDT has not acquired the data block
+\item OCR\_EACCESS ({\bf immediate}): The calling EDT has not acquired the data block
   and therefore cannot release it
 \end{DoxyItemize}
 
@@ -1011,12 +1053,11 @@ the following flags are supported:
 \end{DoxyParams}
 
 \returns
-A status code:
+0 if no immediate error was detected or the following error codes:
 \begin{DoxyItemize}
-\item 0\-: successful
-\item OCR\_ENOMEM: The runtime could not create the event due to insufficient memory
-\item OCR\_EINVAL: The \code{eventType} argument is invalid or incompatible
+\item OCR\_EINVAL ({\bf immediate}): The \code{eventType} argument is invalid or incompatible
   with \code{flags}
+\item OCR\_ENOMEM ({\bf deferred}): The runtime could not create the event due to insufficient memory
 \end{DoxyItemize}
 
 \descr
@@ -1045,10 +1086,10 @@ destroy these events when they are no longer needed.
 \end{DoxyParams}
 
 \returns
-A status code:
+0 if no immediate error was detected or the following error codes:
 \begin{DoxyItemize}
 \item 0: Successful
-\item OCR\_EINVAL: The GUID passed as argument does not refer to a
+\item OCR\_EINVAL ({\bf deferred}): The GUID passed as argument does not refer to a
   valid event
 \end{DoxyItemize}
 
@@ -1091,14 +1132,13 @@ NULL\_GUID if this event does not take any data blocks (pure control dependence)
 \end{DoxyParams}
 
 \returns
-A status code
+0 if no immediate error was detected or the following error codes:
 \begin{DoxyItemize}
-\item 0\-: successful
-\item OCR\_ENOMEM: The runtime could not satisfy the event due to insufficent
+\item OCR\_ENOMEM ({\bf deferred}): The runtime could not satisfy the event due to insufficient
   memory
-\item OCR\_EINVAL: \code{eventGuid} or \code{dataGuid} do not refer
+\item OCR\_EINVAL ({\bf deferred}): \code{eventGuid} or \code{dataGuid} do not refer
   to valid event or data block GUIDs respectively
-\item OCR\_EPERM: The event has already been satisfied and does not support
+\item OCR\_EPERM ({\bf deferred}): The event has already been satisfied and does not support
   multiple satisfactions or a data block was passed to an event which does
   not take arguments
 \end{DoxyItemize}
@@ -1134,14 +1174,13 @@ NULL\_GUID if this event does not take any data blocks (pure control dependence)
 \end{DoxyParams}
 
 \returns
-A status code
+0 if no immediate error was detected or the following error codes:
 \begin{DoxyItemize}
-\item 0\-: successful
-\item OCR\_ENOMEM: The runtime could not satisfy the event due to insufficent
+\item OCR\_ENOMEM ({\bf deferred}): The runtime could not satisfy the event due to insufficent
   memory
-\item OCR\_EINVAL: \code{eventGuid} or \code{dataGuid} do not refer
+\item OCR\_EINVAL ({\bf deferred}): \code{eventGuid} or \code{dataGuid} do not refer
   to valid event or data block GUIDs respectively
-\item OCR\_EPERM: The event has already been satisfied and does not support
+\item OCR\_EPERM ({\bf deferred}): The event has already been satisfied and does not support
   multiple satisfactions or a data block was passed to an event which does
   not take arguments
 \end{DoxyItemize}
@@ -1276,10 +1315,9 @@ number of arguments, the constant EDT\_PARAM\_UNK can be used.\\
 \end{DoxyParams}
 
 \returns
-A status code:
+0 if no immediate error was detected or the following error codes:
 \begin{DoxyItemize}
-\item 0: Successful
-\item OCR\_ENOMEM: The runtime could not allocate the template
+\item OCR\_ENOMEM ({\bf deferred}): The runtime could not allocate the template
 \end{DoxyItemize}
 
 \descr
@@ -1313,10 +1351,9 @@ Destroy an EDT template.
 \end{DoxyParams}
 
 \returns
-A status code:
+0 if no immediate error was detected or the following error codes:
 \begin{DoxyItemize}
-\item 0: Successful
-\item OCR\_EINVAL: The GUID passed as argument does not refer to a valid
+\item OCR\_EINVAL ({\bf deferred}): The GUID passed as argument does not refer to a valid
   EDT template
 \end{DoxyItemize}
 
@@ -1403,11 +1440,10 @@ waiters on this event are set up properly \emph{before} the EDT transitions to t
 \end{DoxyParams}
 
 \returns
-A status code:
+0 if no immediate error was detected or the following error codes:
 \begin{DoxyItemize}
-\item 0: Successful
-\item OCR\_ENOMEM: The runtime could not create the EDT
-\item OCR\_EINVAL: The GUID specifying the template is invalid or the number
+\item OCR\_ENOMEM ({\bf deferred}): The runtime could not create the EDT
+\item OCR\_EINVAL ({\bf deferred}): The GUID specifying the template is invalid or the number
   of parameters or pre-slots are invalid
 \end{DoxyItemize}
 
@@ -1459,10 +1495,7 @@ destroyed.
 \end{DoxyNote}
 
 \returns
-A status code
-\begin{DoxyItemize}
-\item 0: Successful
-\end{DoxyItemize}
+0 if no immediate error was detected. There are no error codes for this function.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% OCR Dependences
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -1522,11 +1555,10 @@ value is ignored.\\
 \end{DoxyParams}
 
 \returns
-A status code
+0 if no immediate error was detected or the following error codes:
 \begin{DoxyItemize}
-\item 0\-: successful
-\item OCR\_EINVAL: \code{slot} is invalid
-\item OCR\_ENOPERM: \code{source} and \code{destination} cannot be linked with
+\item OCR\_EINVAL ({\bf deferred}): \code{slot} is invalid
+\item OCR\_ENOPERM ({\bf deferred}): \code{source} and \code{destination} cannot be linked with
   a dependence (for example, if \code{destination} is a data block)
 \end{DoxyItemize}
 
