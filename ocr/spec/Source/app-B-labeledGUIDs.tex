@@ -297,3 +297,21 @@ proposal is to have the notion of a local identifier which could only
 be used inside an EDT. This would allow creation calls to return
 immediately and allow the runtime to defer all long-latency calls till
 after the EDT finishes.
+
+Normally, the exact definition of the point in time that an object is
+destroyed is not necessary. The object cannot be used after the
+destroy call was made or after it was supposed to be destroyed
+automatically. It is up to the runtime to determine the right time to
+reclaim the object's resources. However, if the object is created using
+a labeled GUID, it is possible to re-use the GUID to create another
+object. When the create call is made with \code{GUID\_PROP\_CHECK},
+the outcome depends on the state of the object. A new object is only
+created if an object with the same GUID was not created elsewhere
+or if any such object was already destroyed. It's therefore necessary
+to establish a clear relation between the destruction of the object
+and the create call. For the purpose of labeled GUIDs, all objects are
+considered to be completely destroyed by a call to the appropriate
+destroy function or at the moment they should be automatically
+destroyed. EDTs are exception to this rule. An EDT releases its
+labeled GUID for re-use at some point after it becomes ready, but
+before it starts running.

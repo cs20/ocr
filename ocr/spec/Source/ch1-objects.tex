@@ -33,18 +33,18 @@ Objects have two well defined states:
 \item \emph{Created}: Resources associated with an object and its GUID
 have been created.
 \item \emph{Destroyed}: An object that is destroyed is marked for
-destruction when the destruction command executes. A destroyed object, its GUID,
+destruction when the destruction command executes. Some objects
+are destroyed automatically, when specific criteria is met. A destroyed object, its GUID,
 and any resources associated with the destroyed object are no longer
-defined. Note that destroyed objects may be destroyed and their
-resources freed at some later point. Specifically, for data blocks, a
-data block will only be freed when all EDTs that have previously
-acquired it have also released it.\footnote{As
+defined\footnote{As
 an optimization, the runtime may choose to reuse the same physical
 object for different logical objects~\cite{USBCSS12,SbKS12}. Similarly
 GUIDs may be reused for objects that have non-overlaping live ranges.}.
 % TODO: Incorporate Vivek's feedback on replacing "destroyed" with "dead" and
 % accompanying reasoning.
 \end{enumerate}
+More details regarding object creation and destruction are provided
+in Section~\ref{sec:Lifetime}.
 Furthermore, data blocks have two additional states:
 \begin{enumerate}
 \item \emph{Acquired}: the data associated with the data block is
@@ -354,4 +354,37 @@ EDT. Currently, OCR supports four modes:
   still passed to the EDT.
 \end{enumerate}
 
+\subsection{Object lifetime}
+\index{object lifetime}
+\label{sec:Lifetime}
+
+OCR objects are created by the appropriate OCR API call, for example
+\code{ocrEventCreate}. Even though the runtime may defer the actual
+creation of the object, it ensures that it appears to be valid to all
+subsequent OCR API calls. Objects are destroyed either automatically or
+using an OCR API call, like \code{ocrEventDestroy}. Again, the runtime
+may actually destroy the object at a later point in time, but the object
+cannot be used after it has been formally destroyed.
+
+In this Section, we detail when a user can assume an object is destroyed.
+%%%
+\subsubsection{Data blocks}
+Data blocks are explicitly destroyed using the \code{ocrDbDestroy} call. The
+runtime will delay the actual destruction of the data block and associated
+resources until all EDTs that have acquired the data block prior to the
+call to \code{ocrDbDestroy} have released it. In practice, all EDTs whose
+start happens before the call to \code{ocrDbDestroy} are guaranteed to be
+able to use the data block. For example, if EDT $A$ and EDT $B$ both satisfy,
+at their beginning, two dependences that allow EDT $C$ to run, EDT $C$ can
+safely destroy any data block that $A$ and $B$ are using.
+%%%
+\subsubsection{Events}
+Once and latch events are destroyed automatically after they are triggered and
+the destruction occurs before any pre-slots connected to the event's
+post-slot are satisfied. Sticky and idempotent events are destroyed explicitly and
+the runtime guarantees that any \code{ocrAddDependence} call adding a dependence
+from the event to another object that happened before the destruction call will
+be satisfied if the event destroyed is triggered. In particular, an event
+can be safely destroyed by any EDT that depends on its satisfaction provided
+all dependences were added prior to the triggering of the event.
 % This is the end of ch1-ocr-objects.tex of the OCR specification.
