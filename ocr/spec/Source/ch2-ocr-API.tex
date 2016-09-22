@@ -192,8 +192,8 @@ An OCR program's single point of entry is the user-defined main EDT (\code{mainE
 This EDT has a function prototype that is identical to any other EDT; its parameters
 and dependences are however special: the main EDT has no parameters and has a single
 input data block that encodes the arguments passed to the program from the
-command line. The arguments can be accessed using \hyperlink{func_getArgc}{\code{getArgc()}}
-and \hyperlink{func_getArgv}{\code{getArgv()}}.
+command line. The arguments can be accessed using \hyperlink{func_ocrGetArgc}{\code{ocrGetArgc()}}
+and \hyperlink{func_ocrGetArgv}{\code{ocrGetArgv()}}.
 
 \begin{boxedcode}
 \plc{ocrGuid\_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep\_t depv[])}
@@ -239,20 +239,20 @@ handled through the following functions.
       \small\item \emph{Called by an EDT to indicate an abnormal end of an OCR program.}
     \end{DoxyCompactList}
 \item
-  \hyperlink{type_u64}{u64} \hyperlink{func_getArgc}{\code{getArgc}}(void $\ast$dbPtr)
+  \hyperlink{type_u64}{u64} \hyperlink{func_ocrGetArgc}{\code{ocrGetArgc}}(void $\ast$dbPtr)
     \begin{DoxyCompactList}
       \small\item \emph{Retrieves the traditional `argc' value from
         \hyperlink{func_mainEdt}{\code{mainEdt()}}'s input data block.}
     \end{DoxyCompactList}
 \item
-  char $\ast$ \hyperlink{func_getArgv}{\code{getArgv}}(void $\ast$dbPtr,
+  char $\ast$ \hyperlink{func_ocrGetArgv}{\code{ocrGetArgv}}(void $\ast$dbPtr,
   \hyperlink{type_u64}{u64} index)
     \begin{DoxyCompactList}
       \small\item \emph{Retrieves the $index^{th}$ argument from
         \hyperlink{func_mainEdt}{\code{mainEdt()}}'s input data block.}
     \end{DoxyCompactList}
 \item
-  \hyperlink{type_u32}{u32} \hyperlink{func_PRINTF}{\code{PRINTF}}(const char $\ast$format, ...)
+  \hyperlink{type_u32}{u32} \hyperlink{func_ocrPrintf}{\code{ocrPrintf}}(const char $\ast$format, ...)
     \begin{DoxyCompactList}
       \small\item \emph{\code{printf()} equivalent for OCR.}
     \end{DoxyCompactList}
@@ -317,16 +317,16 @@ implementation dependent
 \descr
 See notes in Section~\ref{func_ocrShutdown}.
 %
-% getArgc
+% ocrGetArgc
 %
-\hypertarget{func_getArgc}{
+\hypertarget{func_ocrGetArgc}{
   \index{Supporting functions@{Supporting function}!get\-Argc@{get\-Argc}}
   \subsection[{get\-Argc}]{\setlength{\rightskip}{0pt plus 5cm}{\bf u64} get\-Argc(
 \begin{DoxyParamCaption}
 \item[{void $\ast$}]{db\-Ptr}
 \end{DoxyParamCaption}
 )}}
-\label{func_getArgc}
+\label{func_ocrGetArgc}
 
 Returns the number of arguments (traditionally called `argc') passed to the OCR program.
 The value is extracted from the unique data block passed to \hyperlink{func_mainEdt}{\code{mainEdt}}.
@@ -351,9 +351,9 @@ program:
   character arrays.
 \end{DoxyItemize}
 %
-% getArgv
+% ocrGetArgv
 %
-\hypertarget{func_getArgv}{
+\hypertarget{func_ocrGetArgv}{
   \index{Supporting functions@{Supporting function}!get\-Argv@{get\-Argv}}
   \subsection[{get\-Argv}]{\setlength{\rightskip}{0pt plus 5cm}{\bf char $\ast$} get\-Argv(
 \begin{DoxyParamCaption}
@@ -361,7 +361,7 @@ program:
 \item[{{\bf u64}}]{index}
 \end{DoxyParamCaption}
 )}}
-\label{func_getArgv}
+\label{func_ocrGetArgv}
 
 Returns the $index^{th}$ argument passed to the OCR program.
 The value is extracted from the unique data block passed to \hyperlink{func_mainEdt}{\code{mainEdt}}.
@@ -377,24 +377,24 @@ The value is extracted from the unique data block passed to \hyperlink{func_main
 A NULL terminated string corresponding to \code{argv[index]}.
 
 \descr
-See Section~\ref{func_getArgc} for details.
+See Section~\ref{func_ocrGetArgc} for details.
 \begin{DoxyNote}{Note}
 Attempting to extract an argument with \code{index} greater or equal to the value
-returned by \hyperlink{func_getArgc}{\code{getArgc}} will result in undefined
+returned by \hyperlink{func_ocrGetArgc}{\code{ocrGetArgc}} will result in undefined
 behavior.
 \end{DoxyNote}
 %
-% PRINTF
+% ocrPrintf
 %
-\hypertarget{func_PRINTF}{
-  \index{Supporting functions@{Supporting function}!PRINTF@{PRINTF}}
-  \subsection[{PRINTF}]{\setlength{\rightskip}{0pt plus 5cm}{\bf u32} PRINTF(
+\hypertarget{func_ocrPrintf}{
+  \index{Supporting functions@{Supporting function}!ocrPrintf@{ocrPrintf}}
+  \subsection[{ocrPrintf}]{\setlength{\rightskip}{0pt plus 5cm}{\bf u32} ocrPrintf(
 \begin{DoxyParamCaption}
 \item[{const char $\ast$}]{fmt}
 \item[{}]{...}
 \end{DoxyParamCaption}
 )}}
-\label{func_PRINTF}
+\label{func_ocrPrintf}
 
 A platform independent limited \code{printf} functionality.
 
@@ -640,7 +640,7 @@ properly print GUIDs.
 
 The following snippet shows how to print a GUID:
 \begin{ocrsnip}
-PRINTF("DB Guid "GUIDF" acquired by "GUIDF"\n", GUIDA(db.guid), GUIDA(edt.guid));
+ocrPrintf("DB Guid "GUIDF" acquired by "GUIDF"\n", GUIDA(db.guid), GUIDA(edt.guid));
 \end{ocrsnip}
 
 Note that the \code{GUIDF} format placeholder macro may actually expand into

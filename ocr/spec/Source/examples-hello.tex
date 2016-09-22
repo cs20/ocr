@@ -10,7 +10,7 @@ standard output and exit. Note that this program is fully functional
 #include <ocr.h> (@ \label{line:HW_include} @)
 
 ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) { (@ \label{line:HW_mainEdt} @)
-    PRINTF('Hello World!\n'); (@ \label{line:HW_printf}@)
+    ocrPrintf('Hello World!\n'); (@ \label{line:HW_printf}@)
     ocrShutdown(); (@ \label{line:HW_shutdown}@)
     return NULL_GUID;
 }

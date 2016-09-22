@@ -88,7 +88,7 @@ ocrGuid_t fftComputeEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     double *X_real = (double*)(data+offset + size*step);
     double *X_imag = (double*)(data+offset + 2*size*step);
 
-    PRINTF("COMPUTE START %"PRIu64"\n", size);
+    ocrPrintf("COMPUTE START %"PRIu64"\n", size);
     if(size <= blockSize) {
         ditfft2(X_real, X_imag, x_in+step_offset, size, step);
     } else {
@@ -117,7 +117,7 @@ ocrGuid_t fftComputeEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
         ocrAddDependence(dataGuid, edtGuid2, 0, DB_MODE_RW);
     }
 
-    PRINTF("COMPUTE END %"PRIu64"\n", size);
+    ocrPrintf("COMPUTE END %"PRIu64"\n", size);
     return NULL_GUID;
 }
 
@@ -132,9 +132,9 @@ ocrGuid_t fftTwiddleEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     double *X_real = (double*)(data+offset + size*step);
     double *X_imag = (double*)(data+offset + 2*size*step);
 
-    PRINTF("TWIDDLE START %"PRIu64"\n", size);
+    ocrPrintf("TWIDDLE START %"PRIu64"\n", size);
     ditfft2(X_real, X_imag, x_in, size, step);
-    PRINTF("TWIDDLE END %"PRIu64"\n", size);
+    ocrPrintf("TWIDDLE END %"PRIu64"\n", size);
 
     return NULL_GUID;
 }
@@ -142,7 +142,7 @@ ocrGuid_t fftTwiddleEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
 ocrGuid_t endEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     ocrGuid_t dataGuid = ((endPRM_t*)(paramv))->dbGuid;
 
-    PRINTF("END\n");
+    ocrPrintf("END\n");
     ocrDbDestroy(dataGuid);
     ocrShutdown();
     return NULL_GUID;

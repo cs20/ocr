@@ -39,7 +39,7 @@ ocrGuid_t exampleEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
 
 ocrGuid_t awaitingEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     u64 i;
-    PRINTF("Done!\n");
+    ocrPrintf("Done!\n");
     u32 *dbPtr = (u32*)depv[0].ptr;
     for (i = 0; i < N; i++) {
         if (dbPtr[i] != i * 2)
@@ -47,9 +47,9 @@ ocrGuid_t awaitingEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     }
 
     if (i == N) {
-        PRINTF("Passed Verification\n");
+        ocrPrintf("Passed Verification\n");
     } else {
-        PRINTF("!!! FAILED !!! Verification\n");
+        ocrPrintf("!!! FAILED !!! Verification\n");
     }
 
     ocrDbDestroy(depv[0].guid);
@@ -95,7 +95,7 @@ ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     ocrAddDependence(exampleEventGuid2, awaitingEdtGuid, 2, DB_DEFAULT_MODE);
 
     // START
-    PRINTF("Start!\n");
+    ocrPrintf("Start!\n");
     ocrAddDependence(dbGuid, exampleEdtGuid1, 0, DB_MODE_RW);
     ocrAddDependence(dbGuid, exampleEdtGuid2, 0, DB_MODE_RW);
 
