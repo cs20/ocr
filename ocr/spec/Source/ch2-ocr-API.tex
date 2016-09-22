@@ -1239,9 +1239,9 @@ The following macros and enums are used with OCR tasks.
 \item \code{EDT\_PROP\_FINISH} which specifies that the created EDT
   is a \emph{finish} EDT
 \item \code{EDT\_PARAM\_UNK} which specifies that the number of
-  parameters or dependences to an EDT template is unknown at this time
-\item \code{EDT\_PARAM\_DEF} which specifies that the number of parameters
-  or dependences to an EDT is the same as the one specified in its template
+  parameters or dependences to an EDT template is unknown and each EDT will
+  specify the number of parameters or dependences. This allows a single template
+  to be created for EDTs that can take a varying number of parameters or dependences.
 \end{itemize}
 
 The prototype of an EDT function is given by
@@ -1403,16 +1403,14 @@ EDT. If the call fails, the returned value is undefined.\\
 create the EDT.\\
 \hline
 \mbox{\tt in}  & \code{paramc} & Number of parameters (64-bit values) contained
-in the \code{paramv} array. Use \code{EDT\_PARAM\_DEF} to use the value specified
-for the EDT template.\\
+in the \code{paramv} array.\\
 \hline
 \mbox{\tt in}  & \code{paramv} & Pointer to an array of \code{paramc}
 \hyperlink{type_u64}{u64} values. The values are copied in and can therefore be
 freed/reused after this call returns. If \code{paramc} is 0, this parameter must be
 set to NULL.\\
 \hline
-\mbox{\tt in}  & \code{depc} & Number of pre-slots for this EDT. Use
-\code{EDT\_PARAM\_DEF} to use the value specified for the EDT template.\\
+\mbox{\tt in}  & \code{depc} & Number of pre-slots for this EDT.\\
 \hline
 \mbox{\tt in}  & \code{depv} & Pointer to an array of \code{depc}
 \hyperlink{type_ocrGuid_t}{ocrGuid\_t} values or NULL. All pre-slots specified
@@ -1456,9 +1454,8 @@ waiters on this event are set up properly \emph{before} the EDT transitions to t
 \descr
 The EDT is created based on the function provided during the creation of its template.
 It is required that the number of parameters (\code{paramc}) and number of
-pre-slots (\code{depc}) be resolved at this time. In other words, if
-\code{EDT\_PARAM\_UNK} was specified for either \code{paramc} or \code{depc} when
-creating the template, this function may not specify \code{EDT\_PARAM\_DEF}.
+pre-slots (\code{depc}) be resolved at this time. In other words, the number of
+parameters and dependences must be explicitly specified at this time.
 \begin{DoxyNote}{Note}
 If the EDT is created with all its pre-slots specified and resolved, it may execute
 immediately which means that the GUIDs returned (\code{guid} and \code{outputEvent})
