@@ -345,6 +345,12 @@ EDT. Currently, OCR supports four modes:
   If an EDT writes to a data block it has acquired in \emph{constant} mode,
   the results of those writes are undefined should other EDT's later
   acquire the same data block.
+\item \emph{NULL}\index{Data block, null}: The EDT will not access
+  the data block either to read or write. This mode is to let the runtime
+  know that the EDT does not care about the data passed to the EDT (through
+  an event for example) and has the effect of converting a potential data dependence
+  into a pure control dependence. Note that the GUID of the datablock, if any, is
+  still passed to the EDT.
 \end{enumerate}
 
 % This is the end of ch1-ocr-objects.tex of the OCR specification.

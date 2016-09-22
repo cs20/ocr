@@ -683,6 +683,7 @@ The following macros and enums are used with OCR data blocks.
     \item \code{DB\_MODE\_EW}
     \item \code{DB\_MODE\_RO}
     \item \code{DB\_MODE\_CONST}
+    \item \code{DB\_MODE\_NULL}
   \end{itemize}
 \item \code{DB\_DEFAULT\_MODE} which is an alias of \code{DB\_MODE\_RW}
 \item \code{DB\_PROP\_NONE} which specifies no special properties on the data block
@@ -1046,8 +1047,11 @@ event. If the call fails, the returned value is undefined.\\
 the following flags are supported:
 \begin{DoxyItemize}
 \item EVT\_PROP\_NONE: Default behavior
-\item EVT\_PROP\_TAKES\_ARG: The created event will potentially
-  carry a data block on satisfaction.
+\item EVT\_PROP\_TAKES\_ARG: If this flag is {\bf not} set, the event will ignore any data block
+  passed to it when it is satisfied. The satisfaction call will raise a deferred error if a data block
+  is passed in the satisfy call. If the flag is set, the event can take a data block or NULL\_GUID when
+  it is satisfied. In other words, EVT\_PROP\_TAKES\_ARG, if set, only tells the runtime that the event
+  {\bf may} take a data block on satisfaction but does not force it to.
 \end{DoxyItemize}\\
 \hline
 \end{DoxyParams}
@@ -1138,6 +1142,8 @@ NULL\_GUID if this event does not take any data blocks (pure control dependence)
   memory
 \item OCR\_EINVAL ({\bf deferred}): \code{eventGuid} or \code{dataGuid} do not refer
   to valid event or data block GUIDs respectively
+\item OCR\_EACCES ({\bf deferred}): a non NULL\_GUID was passed as \code{dataGuid} when the
+  event does not take an argument
 \item OCR\_EPERM ({\bf deferred}): The event has already been satisfied and does not support
   multiple satisfactions or a data block was passed to an event which does
   not take arguments
