@@ -976,8 +976,8 @@ meaning of these event types is given in Section~\ref{sec:Event}:
 %% When both counters are equal (and non-zero), the post-slot of the latch event is triggered.
 %% Any data block passed along its pre-slots is ignored. A LATCH event is similarly persistent
 %% as a ONCE event and is automatically destroyed when its post-slot is triggered.
-\item \code{enum ocrLatchEventSlots\_t} containing constants to identify the two
-pre-slots of the latch event type:
+\item \hypertarget{type_ocrLatchEventSlots}{\code{enum ocrLatchEventSlots\_t}} containing constants to
+identify the two pre-slots of the latch event type:
   \begin{itemize}
     \item \code{OCR\_EVENT\_LATCH\_DECR\_SLOT} identifying the decrement slot of
       the latch event
@@ -1016,7 +1016,8 @@ pre-slots of the latch event type:
     \hyperlink{type_ocrGuid_t}{ocr\-Guid\-\_\-t} data\-Guid, \hyperlink{type_u32}{u32} slot)
     \begin{DoxyCompactList}
       \small\item \emph{Satisfy the specified pre-slot of an event and optionally
-        pass a data block to the event.}
+        pass a data block to the event. Note that, in the case of a latch event, the slot
+        parameter is of type \hyperlink{type_ocrLatchEventSlots}{enum\ ocrLatchEventSlots\_t}}
     \end{DoxyCompactList}
 \end{DoxyCompactItemize}
 %
