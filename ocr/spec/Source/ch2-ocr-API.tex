@@ -1459,7 +1459,7 @@ parameters and dependences must be explicitly specified at this time.
 \begin{DoxyNote}{Note}
 If the EDT is created with all its pre-slots specified and resolved, it may execute
 immediately which means that the GUIDs returned (\code{guid} and \code{outputEvent})
-may be invalid by the time this function returns. It is the responsability of
+may be invalid by the time this function returns. It is the responsibility of
 the programmer to ensure, if he needs to use these returned values, that the EDT
 cannot start until a later time (by inserting a ``fake'' pre-slot for example).
 \end{DoxyNote}
@@ -1488,7 +1488,10 @@ will never become \emph{runnable}.
 Most programmers will not have use for this function as OCR implicitly destroys all
 EDTs that execute. There are some cases, however, where an EDT is created and the
 programmer later realizes that the task will never execute. This function allows the
-programmer to reclaim the memory used by the EDT
+programmer to reclaim the memory used by the EDT. If the destroyed EDT is a
+descendant of a finish EDT, the destruction preserves the finish EDT's property --
+i.e., its latch event is updated so that the finish EDT is allowed to trigger
+its post-slot as if the destroyed EDT was not part of its finish scope.
 \begin{DoxyNote}{Note}
 Destroying an EDT that is in the \emph{runnable} state or later will result in
 undefined behavior.
