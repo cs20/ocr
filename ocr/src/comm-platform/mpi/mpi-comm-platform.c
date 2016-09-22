@@ -807,7 +807,16 @@ static u8 MPICommPollMessage(ocrCommPlatform_t *self, ocrPolicyMsg_t **msg,
     DPRINTF(DEBUG_LVL_NEWMPI,"[MPI %"PRIu64"] Illegal runlevel[%"PRId32"] reached in MPI-comm-platform pollMessage\n",
             mpiRankToLocation(self->pd->myLocation), (mpiComm->curState >> 4));
     ASSERT_BLOCK_END
-    return MPICommPollMessageInternal(self, msg, properties, mask);
+    u8 retval;
+    retval = MPICommPollMessageInternal(self, msg, properties, mask);
+
+#ifdef OCR_ENABLE_SIMULATOR
+    // Advance local time to match received message
+    if((*msg) && ((*msg)->msgTime > self->pd->pdTime))
+        self->pd->pdTime = (*msg)->msgTime;
+#endif
+
+    return retval;
 }
 
 static u8 MPICommWaitMessage(ocrCommPlatform_t *self, ocrPolicyMsg_t **msg,

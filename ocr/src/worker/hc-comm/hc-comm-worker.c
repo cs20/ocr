@@ -466,6 +466,9 @@ static void workerLoopHcComm(ocrWorker_t * worker) {
     ASSERT(worker->curState == GET_STATE(RL_USER_OK, (RL_GET_PHASE_COUNT_DOWN(worker->pd, RL_USER_OK))));
     ocrPolicyDomain_t *pd = worker->pd;
 
+#ifdef OCR_ENABLE_SIMULATOR
+    worker->workerTime = 0;
+#endif
 #ifdef ENABLE_RESILIENCY
     if (worker->amBlessed && !doCheckpointResume(pd))
 #else

@@ -140,8 +140,15 @@ typedef struct _ocrWorker_t {
     volatile ocrEdtDep_t *activeDepv;
     lock_t notifyLock;
 #endif
+#ifdef OCR_ENABLE_SIMULATOR
+    u64 workerTime;
+#endif
 } ocrWorker_t;
 
+#ifdef OCR_ENABLE_SIMULATOR
+#define OCR_SIM_ALLOW_PROGRESS (((u64)1)<<63)     // Bit set in virtual time to control whether
+                                                  // simulated execution should proceed
+#endif
 
 /****************************************************/
 /* OCR WORKER FACTORY                               */

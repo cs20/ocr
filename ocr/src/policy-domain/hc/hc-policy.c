@@ -571,15 +571,31 @@ u8 hcPdSwitchRunlevel(ocrPolicyDomain_t *policy, ocrRunlevel_t runlevel, u32 pro
                 }
 #ifdef ENABLE_EXTENSION_PERF
                 ocrPerfCounters_t *counters;
+#ifdef OCR_ENABLE_SIMULATOR
+                char fname[64];
+                sprintf(fname, "output_%ld", (u64)policy->myLocation);
+                FILE *fp = fopen(fname, "w");
+                fprintf(fp, "EDT\tCount\tHW_CYCLES\tL1_HITS\tL1_MISS\tFLOAT_OPS\tEDT_CREATES\tDB_TOTAL\tDB_CREATES\tDB_DESTROYS\tEVT_SATISFIES\tMask\n");
+#else
                 PRINTF("EDT\tCount\tHW_CYCLES\tL1_HITS\tL1_MISS\tFLOAT_OPS\tEDT_CREATES\tDB_TOTAL\tDB_CREATES\tDB_DESTROYS\tEVT_SATISFIES\tMask\n");
+#endif
                 while(!queueIsEmpty(policy->taskPerfs)) {
                     u32 i;
                     counters = queueRemoveLast(policy->taskPerfs);
+#ifdef OCR_ENABLE_SIMULATOR
+                    fprintf(fp, "%p\t%"PRId32"\t", counters->edt, counters->count);
+                    for(i = 0; i < PERF_MAX; i++) fprintf(fp, "%"PRId64"\t", counters->stats[i].average);
+                    fprintf(fp, "%"PRIx32"\n", counters->steadyStateMask);
+#else
                     PRINTF("%p\t%"PRId32"\t", counters->edt, counters->count);
                     for(i = 0; i < PERF_MAX; i++) PRINTF("%"PRId64"\t", counters->stats[i].average);
                     PRINTF("%"PRIx32"\n", counters->steadyStateMask);
+#endif
                     policy->fcts.pdFree(policy, counters);
                 }
+#ifdef OCR_ENABLE_SIMULATOR
+                fclose(fp);
+#endif
                 queueDestroy(policy->taskPerfs);
 #endif
                 //to be deprecated
@@ -676,6 +692,10 @@ u8 hcPdSwitchRunlevel(ocrPolicyDomain_t *policy, ocrRunlevel_t runlevel, u32 pro
             rself->rlSwitch.properties = properties;
             phaseCount = RL_GET_PHASE_COUNT_UP(policy, RL_USER_OK);
             maxCount = policy->workerCount;
+#ifdef OCR_ENABLE_SIMULATOR
+            policy->pdTime = 0;
+            policy->slowestWorker = policy->workerCount;
+#endif
             for(i = 0; i < phaseCount - 1; ++i) {
                 if(toReturn) break;
                 toReturn |= helperSwitchInert(policy, runlevel, i, masterWorkerProperties);

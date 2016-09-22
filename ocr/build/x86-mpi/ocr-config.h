@@ -163,5 +163,12 @@
 //#define OCR_CHECKPOINT_INTERVAL     10000000UL /* 10 miliseconds */
 #endif
 
+// OCR Simulator
+//#define OCR_ENABLE_SIMULATOR
+
+#ifdef OCR_ENABLE_SIMULATOR
+#define ENABLE_EXTENSION_PERF
+#endif
+
 #endif /* __OCR_CONFIG_H__ */
 

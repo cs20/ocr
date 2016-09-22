@@ -48,6 +48,9 @@
 #ifdef OCR_ASSERT // For debugging spurious tasks at shutdown
 extern ocrGuid_t processRequestEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]);
 #endif
+#ifdef OCR_ENABLE_SIMULATOR
+#define MAX_TIME (((u64)1)<<62)       // Bit to indicate shutdown-in-progress
+#endif
 
 static void hcWorkShift(ocrWorker_t * worker) {
 
@@ -71,6 +74,15 @@ static void hcWorkShift(ocrWorker_t * worker) {
 #endif
 
     ocrWorkerHc_t *hcWorker = (ocrWorkerHc_t *) worker;
+
+#ifdef OCR_ENABLE_SIMULATOR
+    // Wait until global time catches up
+    while((pd->pdTime != MAX_TIME)
+          && ((worker->workerTime & OCR_SIM_ALLOW_PROGRESS) != OCR_SIM_ALLOW_PROGRESS)
+          && (worker->workerTime > pd->pdTime))
+        hal_pause();
+#endif
+
 #if defined(UTASK_COMM) || defined(UTASK_COMM2) || defined(ENABLE_OCR_API_DEFERRABLE_MT)
     RESULT_ASSERT(pdProcessStrands(pd, NP_WORK, 0), ==, 0);
 #endif
@@ -131,6 +143,12 @@ static void hcWorkShift(ocrWorker_t * worker) {
 #endif
 #undef PD_MSG
 #undef PD_TYPE
+#ifdef OCR_ENABLE_SIMULATOR
+                // Update if I'm the slowest worker
+                if(hcWorker->worker.workerTime <= pd->pdTime)
+                    hal_cmpswap32(&pd->slowestWorker, pd->slowestWorker, worker->id);
+                u64 edtTime = salGetTime(NULL);
+#endif
                 RESULT_ASSERT(((ocrTaskFactory_t *)(pd->factories[factoryId]))->fcts.execute(curTask), ==, 0);
                 //TODO-DEFERRED: With MT, there can be multiple workers executing curTask.
                 // Not sure we thought about that and implications
@@ -192,6 +210,13 @@ static void hcWorkShift(ocrWorker_t * worker) {
                 hcWorker->edtGuid = curTask->guid;
 #ifdef OCR_ENABLE_EDT_NAMING
                 hcWorker->name = curTask->name;
+#endif
+#ifdef OCR_ENABLE_SIMULATOR
+                edtTime = salGetTime(NULL)-edtTime;
+                // This is the slowest worker currently
+                if((pd->slowestWorker == worker->id) && (pd->pdTime != MAX_TIME))
+                    pd->pdTime = worker->workerTime+edtTime;
+                worker->workerTime += edtTime;
 #endif
                 EXIT_PROFILE;
             }
@@ -269,6 +294,9 @@ static void workerLoop(ocrWorker_t * worker) {
     // At this stage, we are in the USER_OK runlevel
     ASSERT(worker->curState == GET_STATE(RL_USER_OK, (RL_GET_PHASE_COUNT_DOWN(worker->pd, RL_USER_OK))));
     ocrPolicyDomain_t *pd = worker->pd;
+#ifdef OCR_ENABLE_SIMULATOR
+    worker->workerTime = 0;
+#endif
 #ifdef ENABLE_RESILIENCY
     if (worker->amBlessed && !doCheckpointResume(pd))
 #else
@@ -601,6 +629,12 @@ u8 hcWorkerSwitchRunlevel(ocrWorker_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_
                 //while(self->curState != GET_STATE(RL_USER_OK, (phase+1))){
                 while(self->curState != GET_STATE(RL_USER_OK, (phase+1)));
                 ASSERT(self->curState == GET_STATE(RL_USER_OK, (phase+1)));
+#ifdef OCR_ENABLE_SIMULATOR
+                if(self->pd->pdTime != MAX_TIME) {
+                    PRINTF("Virtual clock at shutdown %ld\n", self->pd->pdTime & ~OCR_SIM_ALLOW_PROGRESS);
+                    self->pd->pdTime = MAX_TIME;
+                }
+#endif
             }
 
             // Transition to the next phase

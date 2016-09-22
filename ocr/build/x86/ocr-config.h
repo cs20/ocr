@@ -153,5 +153,14 @@
 #endif
 
 #endif
+
+// OCR Simulator
+//#define OCR_ENABLE_SIMULATOR
+
+#ifdef OCR_ENABLE_SIMULATOR
+#define ENABLE_EXTENSION_PERF
+#endif
+
+
 #endif /* __OCR_CONFIG_H__ */
 
