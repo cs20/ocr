@@ -1770,6 +1770,11 @@ u8 taskExecute(ocrTask_t* base) {
         // Check for faults before EDT execution
         while(checkForFaults(base, false) != 0)
             ;
+        if ((base->flags & OCR_TASK_FLAG_RUNTIME_EDT) == 0) {
+            hal_lock(&curWorker->notifyLock);
+            curWorker->activeDepv = depv;
+            hal_unlock(&curWorker->notifyLock);
+        }
 #endif
 #ifdef OCR_ENABLE_VISUALIZER
         u64 startTime = salGetTime();
@@ -1836,6 +1841,9 @@ u8 taskExecute(ocrTask_t* base) {
         DPRINTF(DEBUG_LVL_INFO, "Execute "GUIDF" FctName: %s Start: %"PRIu64" End: %"PRIu64"\n", GUIDA(base->guid), base->name, startTime, endTime);
 #endif
 #ifdef ENABLE_RESILIENCY
+        hal_lock(&curWorker->notifyLock);
+        curWorker->activeDepv = NULL;
+        hal_unlock(&curWorker->notifyLock);
         // Check for faults after EDT execution
         // If required, re-execute EDT
         err = checkForFaults(base, true);

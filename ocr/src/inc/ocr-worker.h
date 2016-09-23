@@ -131,6 +131,10 @@ typedef struct _ocrWorker_t {
 #ifdef OCR_MONITOR_SCHEDULER
     bool isSeeking;
 #endif
+#ifdef ENABLE_RESILIENCY
+    volatile ocrEdtDep_t *activeDepv;
+    lock_t notifyLock;
+#endif
 } ocrWorker_t;
 
 
