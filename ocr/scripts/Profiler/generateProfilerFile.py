@@ -256,10 +256,12 @@ typedef enum {
         with open(outFile + '.c', 'w') as fileHandle:
             fileHandle.write("""#ifdef OCR_RUNTIME_PROFILER
 #include "%sRT.h"
-#include "%sApp.h"
-#include "ocr-types.h"
+""" % (outFile))
+            if opMode == MODE_RTAPP:
+                fileHandle.write("#include \"%sApp.h\"\n" % (outFile))
+            fileHandle.write("""#include "ocr-types.h"
 const char* _profilerEventNames[] = {
-""" % (outFile, outFile))
+""")
 
             isFirst = True
             for function in allFunctions:
