@@ -96,7 +96,7 @@ CFLAGS += -DGUID_PROVIDER_LOCID_SIZE=10
 #   - Prints high watermark on buckets
 # CFLAGS += -DSTATS_HASHTABLE
 
-# - Keeps track of bucket's lock collision 
+# - Keeps track of bucket's lock collision
 # CFLAGS += -DSTATS_HASHTABLE_COLLIDE
 
 # - Print per bucket stats
@@ -867,10 +867,12 @@ else
 
 endif # Darwin ifeq
 
+.PHONY: grablock
+grablock: /tmp/$(subst /,_,$(OCR_INSTALL))_lock
+
 # List the lock file as intermediate so it is removed if things crash
 .INTERMEDIATE: /tmp/$(subst /,_,$(OCR_INSTALL))_lock
-.PHONY: grablock
-grablock:
+/tmp/$(subst /,_,$(OCR_INSTALL))_lock:
 	@printf "\033[32m Grabbing install lock\033[0m\n"
 	$(AT)lockfile "/tmp/$(subst /,_,$(OCR_INSTALL))_lock";
 
