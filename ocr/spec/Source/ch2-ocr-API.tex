@@ -742,6 +742,13 @@ The following macros and enums are used with OCR data blocks.
       \small\item \emph{Release the data block indicating the end of its use by
         the EDT.}
     \end{DoxyCompactList}
+\item
+  \hyperlink{type_u8}{u8} \hyperlink{func_ocrDbDowngradeRelease}
+            {\code{ocrDbDowngradeRelease}}(\hyperlink{type_ocrGuid_t}{ocr\-Guid\-\_\-t} db)
+    \begin{DoxyCompactList}
+      \small\item \emph{Release updates made to a writable data block
+        while retaining read-only access to the data block.}
+    \end{DoxyCompactList}
 \end{DoxyCompactItemize}
 %
 %  ocrDbCreate
@@ -941,6 +948,64 @@ pointer it had to it should be considered invalid). Violating this rule will
 result in undefined behavior. A consequence of this is that a data block can
 only be released at most once by an EDT.
 \end{DoxyNote}
+
+%
+% ocrDbDowngradeRelease
+%
+\hypertarget{func_ocrDbDowngradeRelease}{
+  \index{Data block management@{Data-\/block management}!ocr\-Db\-Downgrade\-Release@{ocr\-Db\-Downgrade\-Release}}
+  \subsection[{ocr\-Db\-Downgrade\-Release}]{\setlength{\rightskip}{0pt plus 5cm}{\bf u8} ocr\-Db\-Downgrade\-Release(
+\begin{DoxyParamCaption}
+\item[{{\bf ocr\-Guid\-\_\-t}}]{db}
+\end{DoxyParamCaption}
+)}}
+\label{func_ocrDbDowngradeRelease}
+
+This function allows for any writes made to a data block in the current EDT
+to be \textit{released} (in terms of OCR's release consistency memory model)
+while still allowing the data block to be read later in the current EDT.
+In contrast, a call to \hyperlink{func_ocrDbRelease}{\code{ocrDbRelease()}}
+indicates the end of both write and read access to the target data block
+within the current EDT.
+
+\begin{DoxyParams}[1]{Parameters}
+\mbox{\tt in}  & \code{db} & GUID of the data block to downgrade/release\\
+\hline
+\end{DoxyParams}
+
+\returns
+0 if no immediate error was detected or the following error codes:
+\begin{DoxyItemize}
+\item OCR\_EINVAL ({\bf deferred}): The GUID passed as argument does not refer to a
+  valid data block
+\item OCR\_EACCESS ({\bf immediate}): The calling EDT has not acquired the data block
+  and therefore cannot downgrade/release it
+\end{DoxyItemize}
+
+\descr
+OCR's release-consistency memory model requires a \textit{release}
+operation on a data block for synchronization, ensuring that writes to that data block
+are visible by all EDTs ordered after the \textit{release} operation.
+For a data block that is acquired in a writable mode by the current EDT,
+this function performs a \textit{release} operation
+(making all preceding writes visible in terms of the memory model);
+however, the current EDT retains read-only access to the data block
+by \textit{downgrading} the data block's access mode to a read-only
+access mode (i.e., \code{DB\_MODE\_RO} or \code{DB\_MODE\_CONST}).
+The user should assume that the mode for the downgraded data block
+is \code{DB\_MODE\_RO} but conformant implementations may downgrade
+certain data blocks to \code{DB\_MODE\_CONST}.
+If the target data block is already in a read-only access mode,
+then this function does nothing.
+
+\begin{DoxyNote}{Note}
+Unlike \hyperlink{func_ocrDbRelease}{\code{ocrDbRelease()}},
+it is safe to call this function multiple times with the same target data block
+within a single EDT. The target data block can later be fully released via
+a call to \hyperlink{func_ocrDbRelease}{\code{ocrDbRelease()}},
+otherwise it will be released implicitly at the end of the current EDT.
+\end{DoxyNote}
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Event Management
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
