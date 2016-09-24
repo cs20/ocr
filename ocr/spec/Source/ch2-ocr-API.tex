@@ -1645,9 +1645,12 @@ The following dependences can be added:
   pre-slot will be satisfied. When the runtime transitions the EDT from the
   \emph{runnable} to \emph{ready} state, the data block associated with the
   post-slot of the event will be acquired using the \code{mode} specified.
-\item Data block to event: Equivalent to \hyperlink{func_ocrEventSatisfySlot}{
-  \code{ocrEventSatisfySlot}}; \code{ocrAddDependence(db, evt, slot, mode)} is
-  equivalent to \code{ocrEventSatisfySlot(evt, db, slot)}.
+\item Data block to event: Adding a dependence between a data block and an
+  event will result in the eventual satisfaction of the event with the data block;
+  i.e., \code{ocrAddDependence(db, evt, slot, mode)} is
+  similar to \hyperlink{func_ocrEventSatisfySlot}{
+  \code{ocrEventSatisfySlot}}\code{(evt, db, slot)},
+  but the satisfaction of the target event is not guaranteed to happen synchronously.
 \item Data block to EDT: This represents a pure data dependence. Adding a
   dependence between a data block and an EDT immediately satisfies the pre-slot
   of the EDT. When the runtime transitions the EDT from the \emph{runnable}
