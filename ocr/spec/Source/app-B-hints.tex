@@ -30,6 +30,15 @@ OCR objects. Group hints can be applied either to each individual object in the
 group or to the group as a whole.
 \end{itemize}
 
+\item \hypertarget{type_ocrHintVal_t}{\code{ocrHintVal\_t}}: The type of a hint object's
+  value can vary depending on the hint being set; therefore, values are provided via
+  \code{ocrHintVal\_t}, which is defined as a union with at least the following fields:
+\begin{itemize}
+\item \hyperlink{type_s64}{\code{s64}}\code{ s64Value}
+\item \hyperlink{type_ocrGuid_t}{\code{ocrGuid\_t}}\code{ guidValue}
+\end{itemize}
+In the future, this union may be expanded to provide more value-type options.
+
 \item \hypertarget{type_ocrHintProp_t}{\code{ocrHintProp\_t}}: User hints are
 set as hint properties in the hint variable. The runtime defines the hint
 properties that can be set for a specific hint type. Supported properties are
@@ -56,23 +65,23 @@ the guid.
       \small\item \emph{Initializes a user hint variable}
     \end{DoxyCompactList}
 \item
-  \hyperlink{type_u8}{u8} \hyperlink{func_ocrSetHintValue}
-            {\code{ocrSetHintValue}}(\hyperlink{type_ocrHint_t}{ocr\-Hint\-\_\-t} $\ast$hint,
-      \hyperlink{type_ocrHintProp_t}{ocrHintProp\_t} hintProp, \hyperlink{type_s64}{s64} value)
+  \hyperlink{type_u8}{u8} \hyperlink{func_ocrHintSetValue}
+            {\code{ocrHintSetValue}}(\hyperlink{type_ocrHint_t}{ocr\-Hint\-\_\-t} $\ast$hint,
+      \hyperlink{type_ocrHintProp_t}{ocrHintProp\_t} hintProp, \hyperlink{type_ocrHintVal_t}{ocr\-Hint\-Val\-\_\-t} value)
     \begin{DoxyCompactList}
       \small\item \emph{Sets the value of a specific hint property}
     \end{DoxyCompactList}
 \item
-  \hyperlink{type_u8}{u8} \hyperlink{func_ocrUnsetHintValue}
-            {\code{ocrUnsetHintValue}}(\hyperlink{type_ocrHint_t}{ocr\-Hint\-\_\-t} $\ast$hint,
+  \hyperlink{type_u8}{u8} \hyperlink{func_ocrHintUnsetValue}
+            {\code{ocrHintUnsetValue}}(\hyperlink{type_ocrHint_t}{ocr\-Hint\-\_\-t} $\ast$hint,
       \hyperlink{type_ocrHintProp_t}{ocrHintProp\_t} hintProp)
     \begin{DoxyCompactList}
       \small\item \emph{Unsets the value of a specific hint property}
     \end{DoxyCompactList}
 \item
-  \hyperlink{type_u8}{u8} \hyperlink{func_ocrGetHintValue}
-            {\code{ocrGetHintValue}}(\hyperlink{type_ocrHint_t}{ocr\-Hint\-\_\-t} $\ast$hint,
-      \hyperlink{type_ocrHintProp_t}{ocrHintProp\_t} hintProp, \hyperlink{type_s64}{s64} $\ast$value)
+  \hyperlink{type_u8}{u8} \hyperlink{func_ocrHintGetValue}
+            {\code{ocrHintGetValue}}(\hyperlink{type_ocrHint_t}{ocr\-Hint\-\_\-t} $\ast$hint,
+      \hyperlink{type_ocrHintProp_t}{ocrHintProp\_t} hintProp, \hyperlink{type_ocrHintVal_t}{ocr\-Hint\-Val\-\_\-t} $\ast$value)
     \begin{DoxyCompactList}
       \small\item \emph{Gets the value of a specific hint property}
     \end{DoxyCompactList}
@@ -130,18 +139,18 @@ before using it. Subsequent calls to ocrHintInit will reset the variable to
 an empty state, that is where none of the properties are set.
 
 %
-% ocrSetHintValue
+% ocrHintSetValue
 %
-\hypertarget{func_ocrSetHintValue}{
-  \index{User specified hints@{User specified hints}!ocr\-Set\-Hint\-Value@{ocr\-Set\-Hint\-Value}}
-  \subsection[{ocr\-Set\-Hint\-Value}]{\setlength{\rightskip}{0pt plus 5cm}{\bf u8} ocr\-Set\-Hint\-Value(
+\hypertarget{func_ocrHintSetValue}{
+  \index{User specified hints@{User specified hints}!ocr\-Hint\-Set\-Value@{ocr\-Hint\-Set\-Value}}
+  \subsection[{ocr\-Hint\-Set\-Value}]{\setlength{\rightskip}{0pt plus 5cm}{\bf u8} ocr\-Hint\-Set\-Value(
 \begin{DoxyParamCaption}
 \item[{{\bf ocr\-Hint\-\_\-t} $\ast$}]{hint, }
 \item[{{\bf ocr\-Hint\-Prop\-\_\-t}}]{hintProp, }
-\item[{{\bf s64}}]{value}
+\item[{{\bf ocr\-Hint\-Val\-\_\-t}}]{value}
 \end{DoxyParamCaption}
 )}}
-\label{func_ocrSetHintValue}
+\label{func_ocrHintSetValue}
 
 Sets the value of a specific hint property on to a hint variable. Multiple hint
 properties of the same usage type can be set on a single hint variable.
@@ -168,17 +177,17 @@ supported for that specific hint type. If a property value is already set,
 then the value is updated.
 
 %
-% ocrUnsetHintValue
+% ocrHintUnsetValue
 %
-\hypertarget{func_ocrUnsetHintValue}{
-  \index{User specified hints@{User specified hints}!ocr\-Unset\-Hint\-Value@{ocr\-Unset\-Hint\-Value}}
-  \subsection[{ocr\-Unset\-Hint\-Value}]{\setlength{\rightskip}{0pt plus 5cm}{\bf u8} ocr\-Unset\-Hint\-Value(
+\hypertarget{func_ocrHintUnsetValue}{
+  \index{User specified hints@{User specified hints}!ocr\-Hint\-Unset\-Value@{ocr\-Hint\-Unset\-Value}}
+  \subsection[{ocr\-Hint\-Unset\-Value}]{\setlength{\rightskip}{0pt plus 5cm}{\bf u8} ocr\-Hint\-Unset\-Value(
 \begin{DoxyParamCaption}
 \item[{{\bf ocr\-Hint\-\_\-t} $\ast$}]{hint, }
 \item[{{\bf ocr\-Hint\-Prop\-\_\-t}}]{hintProp}
 \end{DoxyParamCaption}
 )}}
-\label{func_ocrUnsetHintValue}
+\label{func_ocrHintUnsetValue}
 
 Unsets the value of a specific hint property in a hint variable.
 
@@ -202,18 +211,18 @@ supported for that specific hint type and is already set.
 If a property value was not set earlier, then unset is a no-op.
 
 %
-% ocrGetHintValue
+% ocrHintGetValue
 %
-\hypertarget{func_ocrGetHintValue}{
-  \index{User specified hints@{User specified hints}!ocr\-Get\-Hint\-Value@{ocr\-Get\-Hint\-Value}}
-  \subsection[{ocr\-Get\-Hint\-Value}]{\setlength{\rightskip}{0pt plus 5cm}{\bf u8} ocr\-Get\-Hint\-Value(
+\hypertarget{func_ocrHintGetValue}{
+  \index{User specified hints@{User specified hints}!ocr\-Hint\-Get\-Value@{ocr\-Hint\-Get\-Value}}
+  \subsection[{ocr\-Hint\-Get\-Value}]{\setlength{\rightskip}{0pt plus 5cm}{\bf u8} ocr\-Hint\-Get\-Value(
 \begin{DoxyParamCaption}
 \item[{{\bf ocr\-Hint\-\_\-t} $\ast$}]{hint, }
 \item[{{\bf ocr\-Hint\-Prop\-\_\-t}}]{hintProp, }
-\item[{{\bf s64} $\ast$}]{value}
+\item[{{\bf ocr\-Hint\-Val\-\_\-t} $\ast$}]{value}
 \end{DoxyParamCaption}
 )}}
-\label{func_ocrGetHintValue}
+\label{func_ocrHintGetValue}
 
 Gets the value of a specific hint property from a hint variable.
 
@@ -326,7 +335,8 @@ As an example, we show how hints can be added to an OCR program solving a tiled 
 
 ocrHint_t hintVar;
 ocrHintInit(&hintVar, OCR_HINT_EDT_T);
-if (ocrSetHintValue(&hintVar, OCR_HINT_EDT_SLOT_MAX_ACCESS, 0 /*slot number hint*/) == 0) {
+ocrHintVal_t slotNumberHintValue = { .s64Value = 0 };
+if (ocrHintSetValue(&hintVar, OCR_HINT_EDT_SLOT_MAX_ACCESS, slotNumberHintValue) == 0) {
     ocrSetHint(templateSeq, &hintVar);
     ocrSetHint(templateTrisolve, &hintVar);
     ocrSetHint(templateUpdateNonDiag, &hintVar);
@@ -340,11 +350,4 @@ if (ocrSetHintValue(&hintVar, OCR_HINT_EDT_SLOT_MAX_ACCESS, 0 /*slot number hint
 %The OCR hint framework is intended for runtime developers to explore hints that
 %can be useful for creating adaptive runtime algorithms, either through the
 %addition of new hints or by using existing ones.
-
-\subsection{Useful feedback}
-It has been suggested that the hint property value should have a more generic
-type instead of \hyperlink{type_s64}{s64}. One suggestion is to create a union
-type that would allow users to set property value that may not be known to be
-within 64 bits, such as, \hyperlink{type_ocrGuid_t}{ocr\-Guid\-\_\-t}.
-
 
