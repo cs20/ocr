@@ -13,6 +13,10 @@
 #include "ocr-policy-domain.h"
 #include "ocr-sysboot.h"
 
+#if defined(TG_XE_TARGET) || defined(TG_CE_TARGET)
+#include "xstg-map.h"
+#endif
+
 #define DEBUG_TYPE GUID
 
 #define ENABLE_GUID_BITMAP_BASED 1
@@ -106,6 +110,17 @@ u8 labeledGuidSwitchRunlevel(ocrGuidProvider_t *self, ocrPolicyDomain_t *PD, ocr
     case RL_PD_OK:
         if ((properties & RL_BRING_UP) && RL_IS_FIRST_PHASE_UP(PD, RL_PD_OK, phase)) {
             self->pd = PD;
+#if defined(TG_XE_TARGET) || defined(TG_CE_TARGET)
+            // HACK: Since we can "query" the GUID provider of another agent, we make
+            // the PD address be socket relative so that we extract the correct
+            // value irrespective of the agent we are querying from
+            {
+                ocrLocation_t myLocation = self->pd->myLocation;
+                self->pd = (ocrPolicyDomain_t*)(
+                    SR_L1_BASE(CLUSTER_FROM_ID(myLocation), BLOCK_FROM_ID(myLocation), AGENT_FROM_ID(myLocation))
+                    + (u64)(self->pd) - AR_L1_BASE);
+            }
+#endif
 #ifdef GUID_PROVIDER_WID_INGUID
             ocrGuidProviderLabeled_t *rself = (ocrGuidProviderLabeled_t*)self;
             u32 i = 0, ub = PD->workerCount;
@@ -158,7 +173,6 @@ u8 labeledGuidSwitchRunlevel(ocrGuidProvider_t *self, ocrPolicyDomain_t *PD, ocr
         }
         break;
     case RL_GUID_OK:
-        ASSERT(self->pd == PD);
         if((properties & RL_BRING_UP) && RL_IS_LAST_PHASE_UP(PD, RL_GUID_OK, phase)) {
             // //TODO clean-up when isLocalGuid is used. Just to keep compiler happy with unused
             // bool res __attribute__((unused)) = isLocalGuid(self, NULL_GUID);
@@ -583,6 +597,7 @@ u8 labeledGuidRegisterGuid(ocrGuidProvider_t* self, ocrGuid_t guid, u64 val) {
  * @brief Remove an already existing GUID and its associated value from the provider
  */
 u8 labeledGuidUnregisterGuid(ocrGuidProvider_t* self, ocrGuid_t guid, u64 ** val) {
+    DPRINTF(DEBUG_LVL_VERB, "LabeledGUID: 1release GUID "GUIDF"\n", GUIDA(guid));
     // See BUG #928 on GUID issues
 #if GUID_BIT_COUNT == 64
     GP_HASHTABLE_DEL(((ocrGuidProviderLabeled_t *) self)->guidImplTable, (void *) guid.guid, (void **) val);
@@ -597,7 +612,7 @@ u8 labeledGuidUnregisterGuid(ocrGuidProvider_t* self, ocrGuid_t guid, u64 ** val
 u8 labeledGuidReleaseGuid(ocrGuidProvider_t *self, ocrFatGuid_t fatGuid, bool releaseVal) {
     // We can only destroy GUIDs that we created
     ASSERT(extractLocIdFromGuid(fatGuid.guid) == locationToLocId(self->pd->myLocation));
-    DPRINTF(DEBUG_LVL_VERB, "LabeledGUID: release GUID "GUIDF"\n", GUIDA(fatGuid.guid));
+    DPRINTF(DEBUG_LVL_VERB, "LabeledGUID: 2release GUID "GUIDF"\n", GUIDA(fatGuid.guid));
     ocrGuid_t guid = fatGuid.guid;
     // We *first* remove the GUID from the hashtable otherwise the following race
     // could occur:

@@ -14,6 +14,10 @@
 #include "ocr-types.h"
 #include "ocr-errors.h"
 
+#if defined(TG_XE_TARGET) || defined(TG_CE_TARGET)
+#include "xstg-map.h"
+#endif
+
 #define DEBUG_TYPE GUID
 
 #define ENABLE_GUID_BITMAP_BASED 1
@@ -99,6 +103,17 @@ u8 countedMapSwitchRunlevel(ocrGuidProvider_t *self, ocrPolicyDomain_t *PD, ocrR
     case RL_PD_OK:
         if ((properties & RL_BRING_UP) && RL_IS_FIRST_PHASE_UP(PD, RL_PD_OK, phase)) {
             self->pd = PD;
+#if defined(TG_XE_TARGET) || defined(TG_CE_TARGET)
+            // HACK: Since we can "query" the GUID provider of another agent, we make
+            // the PD address be socket relative so that we extract the correct
+            // value irrespective of the agent we are querying from
+            {
+                ocrLocation_t myLocation = self->pd->myLocation;
+                self->pd = (ocrPolicyDomain_t*)(
+                    SR_L1_BASE(CLUSTER_FROM_ID(myLocation), BLOCK_FROM_ID(myLocation), AGENT_FROM_ID(myLocation))
+                    + (u64)(self->pd) - AR_L1_BASE);
+            }
+#endif
 #ifdef GUID_PROVIDER_WID_INGUID
             ocrGuidProviderCountedMap_t *rself = (ocrGuidProviderCountedMap_t*)self;
             u32 i = 0, ub = PD->workerCount;
@@ -151,7 +166,6 @@ u8 countedMapSwitchRunlevel(ocrGuidProvider_t *self, ocrPolicyDomain_t *PD, ocrR
         }
         break;
     case RL_GUID_OK:
-        ASSERT(self->pd == PD);
         if((properties & RL_BRING_UP) && RL_IS_LAST_PHASE_UP(PD, RL_GUID_OK, phase)) {
             //Initialize the map now that we have an assigned policy domain
             ocrGuidProviderCountedMap_t * derived = (ocrGuidProviderCountedMap_t *) self;

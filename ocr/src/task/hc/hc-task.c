@@ -520,6 +520,7 @@ static u8 scheduleTask(ocrTask_t *self) {
     PD_MSG_FIELD_IO(schedArgs).kind = OCR_SCHED_NOTIFY_EDT_READY;
     PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_EDT_READY).guid.guid = self->guid;
     PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_EDT_READY).guid.metaDataPtr = self;
+    ASSERT(self != NULL);
     RESULT_PROPAGATE(pd->fcts.processMessage(pd, &msg, false));
     ASSERT(PD_MSG_FIELD_O(returnDetail) == 0);
 #undef PD_MSG

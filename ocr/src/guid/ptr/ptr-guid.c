@@ -20,7 +20,7 @@
 
 #define DEBUG_TYPE GUID
 
-#ifdef HAL_FSIM_CE
+#if defined(TG_XE_TARGET) || defined(TG_CE_TARGET)
 #include "xstg-map.h"
 #endif
 
@@ -56,8 +56,20 @@ u8 ptrSwitchRunlevel(ocrGuidProvider_t *self, ocrPolicyDomain_t *PD, ocrRunlevel
     case RL_NETWORK_OK:
         break;
     case RL_PD_OK:
-        if(properties & RL_BRING_UP)
+        if(properties & RL_BRING_UP) {
             self->pd = PD;
+#if defined(TG_XE_TARGET) || defined(TG_CE_TARGET)
+            // HACK: Since we can "query" the GUID provider of another agent, we make
+            // the PD address be socket relative so that we extract the correct
+            // value irrespective of the agent we are querying from
+            {
+                ocrLocation_t myLocation = self->pd->myLocation;
+                self->pd = (ocrPolicyDomain_t*)(
+                    SR_L1_BASE(CLUSTER_FROM_ID(myLocation), BLOCK_FROM_ID(myLocation), AGENT_FROM_ID(myLocation))
+                    + (u64)(self->pd) - AR_L1_BASE);
+            }
+#endif
+        }
         break;
     case RL_MEMORY_OK:
         break;

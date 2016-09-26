@@ -418,6 +418,7 @@ void * hashtableConcBucketLockedGet(hashtable_t * hashtable, void * key) {
 #endif
 #endif
     ocr_hashtable_entry * entry = hashtableFindEntry(hashtable, key);
+    //DPRINTF(DEBUG_LVL_WARN, "ht=%p For get key=%p: bucket=%"PRIu32" found entry=%p value=%p\n", hashtable, key, bucket, entry, (entry) ? entry->value : NULL);
     hal_unlock(&(rhashtable->bucketLock[GET_LOCK_IDX(bucket)]));
     return (entry == NULL) ? 0x0 : entry->value;
 }
@@ -428,6 +429,7 @@ bool hashtableConcBucketLockedPut(hashtable_t * hashtable, void * key, void * va
     ocr_hashtable_entry * newHead = hashtable->pd->fcts.pdMalloc(hashtable->pd, sizeof(ocr_hashtable_entry));
     newHead->key = key;
     newHead->value = value;
+    //DPRINTF(DEBUG_LVL_WARN, "ht=%p For put key=%p: bucket=%"PRIu32" found entry=%p value=%p\n", hashtable, key, bucket, newHead, newHead->value);
 #ifdef STATS_HASHTABLE_COLLIDE
     bool isBusy = hal_islocked(&(rhashtable->bucketLock[GET_LOCK_IDX(bucket)]));
 #endif
@@ -488,6 +490,7 @@ bool hashtableConcBucketLockedRemove(hashtable_t * hashtable, void * key, void *
 #endif
 #endif
     bool res = hashtableNonConcRemove(hashtable, key, value);
+    //DPRINTF(DEBUG_LVL_WARN, "ht=%p For del key=%p: bucket=%"PRIu32" found value=%p *value=%p\n", hashtable, key, bucket, value, ((value) ? *value : NULL));
     hal_unlock(&(rhashtable->bucketLock[GET_LOCK_IDX(bucket)]));
     return res;
 }

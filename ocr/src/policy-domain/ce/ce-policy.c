@@ -1865,18 +1865,21 @@ u8 cePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
                     ocrPolicyDomain_t *otherPd = rself->allPDs[CLUSTER_FROM_ID(guidLocation)*MAX_NUM_BLOCK +
                                                                BLOCK_FROM_ID(guidLocation)*(MAX_NUM_XE+MAX_NUM_CE) +
                                                                AGENT_FROM_ID(guidLocation)];
+                    ocrGuidProvider_t *otherGuidProvider = otherPd->guidProviders[0];
 #else
                     // Self is always relative to ourself (the CE). All PDs are at the same location
                     // relatively to the CE itself
                     ocrPolicyDomain_t *otherPd = (ocrPolicyDomain_t*)(
                         SR_L1_BASE(CLUSTER_FROM_ID(guidLocation), BLOCK_FROM_ID(guidLocation), ID_AGENT_CE) + ((u64)(self) - AR_L1_BASE));
+                    ocrGuidProvider_t *otherGuidProvider = (ocrGuidProvider_t*)(
+                        SR_L1_BASE(CLUSTER_FROM_ID(guidLocation), BLOCK_FROM_ID(guidLocation), ID_AGENT_CE) + (u64)(self->guidProviders[0]) - AR_L1_BASE);
 #endif
                     // Note that this a HACK for now because we do not have asynchronous runtime
                     // execution (Bug #695). There is a risk that getCurrentEnv is called in this
                     // chain which may screw things up. So far it seems OK :).
                     ASSERT(otherPd->myLocation == guidLocation);
-                    PD_MSG_FIELD_O(returnDetail) = otherPd->guidProviders[0]->fcts.createGuid(
-                        otherPd->guidProviders[0], &(PD_MSG_FIELD_IO(guid)), PD_MSG_FIELD_I(size),
+                    PD_MSG_FIELD_O(returnDetail) = otherGuidProvider->fcts.createGuid(
+                        otherGuidProvider, &(PD_MSG_FIELD_IO(guid)), PD_MSG_FIELD_I(size),
                         PD_MSG_FIELD_I(kind), self->myLocation /*PD_MSG_FIELD_I(targetLoc)*/, PD_MSG_FIELD_I(properties));
                     DPRINTF(DEBUG_LVL_VVERB, "GUID_CREATE (new, remote) response: GUID: "GUIDF"\n",
                             GUIDA(PD_MSG_FIELD_IO(guid.guid)));
@@ -1918,56 +1921,27 @@ u8 cePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
 #define PD_TYPE PD_MSG_GUID_INFO
         // We need to resolve the GUID
         DPRINTF(DEBUG_LVL_VERB, "Processing GUID_INFO request for GUID "GUIDF"\n", GUIDA(PD_MSG_FIELD_IO(guid.guid)));
-        if(self->guidProviders[0]->fcts.getVal(self->guidProviders[0], PD_MSG_FIELD_IO(guid.guid),
-                                               (u64*)(&(PD_MSG_FIELD_IO(guid.metaDataPtr))), NULL, MD_LOCAL, NULL)) {
-            // If we get here, it means our GUID provider has no clue about
-            // this GUID so we probably have to go fetch it from somewhere else
-            ocrLocation_t guidLocation;
-            self->guidProviders[0]->fcts.getLocation(self->guidProviders[0], PD_MSG_FIELD_IO(guid.guid),
-                                                     &guidLocation);
-            // If we get an error, we should really not know about this GUID
-            ASSERT(guidLocation != INVALID_LOCATION && guidLocation != self->myLocation);
-
-            // Go and ask the other CE's provider
-            DPRINTF(DEBUG_LVL_VVERB, "Cannot resolve GUID_INFO, asking 0x%"PRIx64"\n",
-                    guidLocation);
-#ifdef TG_X86_TARGET
-            ocrPolicyDomain_t *otherPd = rself->allPDs[CLUSTER_FROM_ID(guidLocation)*MAX_NUM_BLOCK +
-                                                       BLOCK_FROM_ID(guidLocation)*(MAX_NUM_XE+MAX_NUM_CE) +
-                                                       AGENT_FROM_ID(guidLocation)];
-#else
-            ocrPolicyDomain_t *otherPd = (ocrPolicyDomain_t*)(
-                SR_L1_BASE(CLUSTER_FROM_ID(guidLocation), BLOCK_FROM_ID(guidLocation), ID_AGENT_CE) + (u64)(self) - AR_L1_BASE);
-#endif
-            ASSERT(otherPd->myLocation == guidLocation);
-            RESULT_ASSERT(otherPd->guidProviders[0]->fcts.getVal(otherPd->guidProviders[0], PD_MSG_FIELD_IO(guid.guid),
-                                                                 (u64*)(&(PD_MSG_FIELD_IO(guid.metaDataPtr))), NULL, MD_LOCAL, NULL), ==, 0);
-
-            if(PD_MSG_FIELD_I(properties) & KIND_GUIDPROP) {
-                PD_MSG_FIELD_O(returnDetail) = otherPd->guidProviders[0]->fcts.getKind(
-                    otherPd->guidProviders[0], PD_MSG_FIELD_IO(guid.guid), &(PD_MSG_FIELD_O(kind)));
-                if(PD_MSG_FIELD_O(returnDetail) == 0)
-                    PD_MSG_FIELD_O(returnDetail) = KIND_GUIDPROP | WMETA_GUIDPROP | RMETA_GUIDPROP;
-            } else if (PD_MSG_FIELD_I(properties) & LOCATION_GUIDPROP) {
-                PD_MSG_FIELD_O(returnDetail) = otherPd->guidProviders[0]->fcts.getLocation(
-                    otherPd->guidProviders[0], PD_MSG_FIELD_IO(guid.guid), &(PD_MSG_FIELD_O(location)));
-                if(PD_MSG_FIELD_O(returnDetail) == 0) {
-                    PD_MSG_FIELD_O(returnDetail) = LOCATION_GUIDPROP | WMETA_GUIDPROP | RMETA_GUIDPROP;
-                }
-            } else {
-                PD_MSG_FIELD_O(returnDetail) = WMETA_GUIDPROP | RMETA_GUIDPROP;
-            }
-
-            // The results are *not* cached because we don't know how to "un-cache" them and with
-            // labeled GUIDs, it is legal to reuse GUIDs.
-        } else {
+        ocrLocation_t guidLocation;
+        self->guidProviders[0]->fcts.getLocation(self->guidProviders[0], PD_MSG_FIELD_IO(guid.guid), &guidLocation);
+        if (guidLocation == self->myLocation) {
             DPRINTF(DEBUG_LVL_VVERB, "GUID is locally known\n");
+            if (PD_MSG_FIELD_IO(guid.metaDataPtr) != NULL) {
+#ifdef OCR_ASSERT // Double checking it's not junk
+                u64 val = 0;
+                RESULT_ASSERT(self->guidProviders[0]->fcts.getVal(self->guidProviders[0], PD_MSG_FIELD_IO(guid.guid), &val, NULL, MD_LOCAL, NULL), ==, 0);
+                ASSERT(((void *)val) == PD_MSG_FIELD_IO(guid.metaDataPtr));
+#endif
+            } else {
+                RESULT_ASSERT(self->guidProviders[0]->fcts.getVal(self->guidProviders[0], PD_MSG_FIELD_IO(guid.guid),
+                                                                  (u64 *) (&PD_MSG_FIELD_IO(guid.metaDataPtr)), NULL, MD_LOCAL, NULL), ==, 0);
+            }
             if(PD_MSG_FIELD_I(properties) & KIND_GUIDPROP) {
                 PD_MSG_FIELD_O(returnDetail) = self->guidProviders[0]->fcts.getKind(
                     self->guidProviders[0], PD_MSG_FIELD_IO(guid.guid), &(PD_MSG_FIELD_O(kind)));
                 if(PD_MSG_FIELD_O(returnDetail) == 0)
                     PD_MSG_FIELD_O(returnDetail) = KIND_GUIDPROP | WMETA_GUIDPROP | RMETA_GUIDPROP;
             } else if (PD_MSG_FIELD_I(properties) & LOCATION_GUIDPROP) {
+                //TODO reuse location
                 PD_MSG_FIELD_O(returnDetail) = self->guidProviders[0]->fcts.getLocation(
                     self->guidProviders[0], PD_MSG_FIELD_IO(guid.guid), &(PD_MSG_FIELD_O(location)));
                 if(PD_MSG_FIELD_O(returnDetail) == 0) {
@@ -1976,10 +1950,66 @@ u8 cePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
             } else {
                 PD_MSG_FIELD_O(returnDetail) = WMETA_GUIDPROP | RMETA_GUIDPROP;
             }
+            ASSERT(PD_MSG_FIELD_IO(guid.metaDataPtr) != NULL);
+        } else {
+            // If we get here, it means our GUID provider has no clue about
+            // this GUID so we probably have to go fetch it from somewhere else
+            bool fetch = (PD_MSG_FIELD_IO(guid.metaDataPtr) == NULL);
+#ifdef OCR_ASSERT
+            fetch = true;
+#endif
+            ocrPolicyDomain_t *otherPd = self;
+            ocrGuidProvider_t *otherGuidProvider = self->guidProviders[0];
+            if (fetch) {
+                // If we get an error, we should really not know about this GUID
+                ASSERT(guidLocation != INVALID_LOCATION && guidLocation != self->myLocation);
+
+                // Go and ask the other CE's provider
+                ocrGuidKind debugKind;
+                self->guidProviders[0]->fcts.getKind(self->guidProviders[0], PD_MSG_FIELD_IO(guid.guid), &debugKind);
+                DPRINTF(DEBUG_LVL_VERB, "Cannot resolve GUID_INFO for GUID "GUIDF", asking 0x%"PRIx64" debugKind=%"PRIu64"\n",
+                         GUIDA(PD_MSG_FIELD_IO(guid.guid)), guidLocation, (u64)debugKind);
+#ifdef TG_X86_TARGET
+                otherPd = rself->allPDs[CLUSTER_FROM_ID(guidLocation)*MAX_NUM_BLOCK +
+                                        BLOCK_FROM_ID(guidLocation)*(MAX_NUM_XE+MAX_NUM_CE) +
+                                        AGENT_FROM_ID(guidLocation)];
+                otherGuidProvider = otherPd->guidProviders[0];
+#else
+                otherPd = (ocrPolicyDomain_t*)(
+                    SR_L1_BASE(CLUSTER_FROM_ID(guidLocation), BLOCK_FROM_ID(guidLocation), ID_AGENT_CE) + (u64)(self) - AR_L1_BASE);
+                otherGuidProvider = (ocrGuidProvider_t*)(
+                    SR_L1_BASE(CLUSTER_FROM_ID(guidLocation), BLOCK_FROM_ID(guidLocation), ID_AGENT_CE) + (u64)(self->guidProviders[0]) - AR_L1_BASE);
+#endif
+                u64 ptr = 0;
+                ASSERT(otherPd->myLocation == guidLocation);
+                RESULT_ASSERT(otherGuidProvider->fcts.getVal(otherGuidProvider, PD_MSG_FIELD_IO(guid.guid),
+                                                             (u64*) &ptr, NULL, MD_LOCAL, NULL), ==, 0);
+
+                ASSERT((PD_MSG_FIELD_IO(guid.metaDataPtr) == NULL) || (PD_MSG_FIELD_IO(guid.metaDataPtr) == ((void*) ptr)));
+                PD_MSG_FIELD_IO(guid.metaDataPtr) = (void *) ptr;
+                ASSERT(PD_MSG_FIELD_IO(guid.metaDataPtr) != NULL);
+            }
+            // Here the MD is resolved locally
+            if(PD_MSG_FIELD_I(properties) & KIND_GUIDPROP) {
+                PD_MSG_FIELD_O(returnDetail) = otherGuidProvider->fcts.getKind(
+                    otherGuidProvider, PD_MSG_FIELD_IO(guid.guid), &(PD_MSG_FIELD_O(kind)));
+                if(PD_MSG_FIELD_O(returnDetail) == 0)
+                    PD_MSG_FIELD_O(returnDetail) = KIND_GUIDPROP | WMETA_GUIDPROP | RMETA_GUIDPROP;
+            } else if (PD_MSG_FIELD_I(properties) & LOCATION_GUIDPROP) {
+                PD_MSG_FIELD_O(location) = guidLocation;
+                if(PD_MSG_FIELD_O(returnDetail) == 0) {
+                    PD_MSG_FIELD_O(returnDetail) = LOCATION_GUIDPROP | WMETA_GUIDPROP | RMETA_GUIDPROP;
+                }
+            } else {
+                PD_MSG_FIELD_O(returnDetail) = WMETA_GUIDPROP | RMETA_GUIDPROP;
+            }
+            // The results are *not* cached because we don't know how to "un-cache" them and with
+            // labeled GUIDs, it is legal to reuse GUIDs.
         }
         DPRINTF(DEBUG_LVL_VERB, "GUID_INFO response: GUID: "GUIDF", PTR: %p\n",
                 GUIDA(PD_MSG_FIELD_IO(guid.guid)), PD_MSG_FIELD_IO(guid.metaDataPtr));
         returnCode = ceProcessResponse(self, msg, 0);
+        ASSERT(PD_MSG_FIELD_IO(guid.metaDataPtr) != NULL);
 #undef PD_MSG
 #undef PD_TYPE
         EXIT_PROFILE;
@@ -2046,14 +2076,17 @@ u8 cePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
                 ocrPolicyDomain_t *otherPd = rself->allPDs[CLUSTER_FROM_ID(guidLocation)*MAX_NUM_BLOCK +
                                                            BLOCK_FROM_ID(guidLocation)*(MAX_NUM_XE+MAX_NUM_CE) +
                                                            AGENT_FROM_ID(guidLocation)];
+                ocrGuidProvider_t *otherGuidProvider = otherPd->guidProviders[0];
 #else
                 ocrPolicyDomain_t *otherPd = (ocrPolicyDomain_t*)(
                     SR_L1_BASE(CLUSTER_FROM_ID(guidLocation), BLOCK_FROM_ID(guidLocation), ID_AGENT_CE) + (u64)(self) - AR_L1_BASE);
+                ocrGuidProvider_t *otherGuidProvider = (ocrGuidProvider_t*)(
+                    SR_L1_BASE(CLUSTER_FROM_ID(guidLocation), BLOCK_FROM_ID(guidLocation), ID_AGENT_CE) + (u64)(self->guidProviders[0]) - AR_L1_BASE);
 #endif
                 ASSERT(otherPd->myLocation == guidLocation);
-                RESULT_ASSERT(otherPd->guidProviders[0]->fcts.releaseGuid(otherPd->guidProviders[0],
-                                                                          PD_MSG_FIELD_I(guid),
-                                                                          PD_MSG_FIELD_I(properties) & 1), ==, 0);
+                RESULT_ASSERT(otherGuidProvider->fcts.releaseGuid(otherGuidProvider,
+                                                                  PD_MSG_FIELD_I(guid),
+                                                                  PD_MSG_FIELD_I(properties) & 1), ==, 0);
                 /*
                 // Same as for GUID info. Keeping here as example of what can be done
                 // Remove for now because of a possible race condition between a destroy
@@ -2272,6 +2305,7 @@ u8 cePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
                 DPRINTF(DEBUG_LVL_VERB, "Got work from 0x%"PRIx64": EDT GUID "GUIDF"\n",
                         msg->srcLocation, GUIDA(fguid.guid));
                 localDeguidify(self, &fguid, NULL);
+                ASSERT(fguid.metaDataPtr);
                 ocrSchedulerOpNotifyArgs_t notifyArgs;
                 notifyArgs.base.location = msg->srcLocation;
                 notifyArgs.kind = OCR_SCHED_NOTIFY_EDT_READY;
