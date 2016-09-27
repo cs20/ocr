@@ -26,7 +26,7 @@ design.
 %%%
 \subsubsection{Referring to a previously created OCR object}
 In this scenario, a root EDT \texttt{R} creates a sink EDT \texttt{S}
-(for example a reduction EDT) and then spawns multiple children
+(for example a reduction EDT) and then spawns multiple child
 EDTs which will in turn spawn EDTs which will satisfy a slot of
 \texttt{S}. Without labeled GUIDs, \texttt{S}'s GUID would need to be
 passed down to each and every producer. Labeled GUIDs allow the
@@ -62,7 +62,7 @@ containing:
 \begin{itemize}
 \item \code{GUID\_USER\_NONE} The GUID is invalid and does not refer
   to any object.
-\\item \code{GUID\_USER\_DB} The GUID refers to a data block.
+\item \code{GUID\_USER\_DB} The GUID refers to a data block.
 \item \code{GUID\_USER\_EDT} The GUID refers to an EDT.
 \item \code{GUID\_USER\_EDT\_TEMPLATE} The GUID refers to an EDT
   template.
@@ -261,9 +261,10 @@ The creation calls are all modified to allow them to accept a GUID as
 input (as opposed to just output). In the current implementation, events, EDTs
 and data blocks can be labeled. There are some restrictions on using labeled EDTs,
 namely: {\bf a)} labeled EDTs cannot have dependences listed in the create call,
-{\bf b)} labeled EDTs cannot request an output event and {\bf c)} if a labeled EDT
-is created within a finish scope, the labeled EDT will only be registered in
-one of the finish scopes if the EDT is created in multiple places. To use
+{\bf b)} labeled EDTs cannot request an output event and {\bf c)} if an
+instance of a labeled EDT
+is created within a finish scope, that instance will only be registered in
+one of the finish scopes if the instance is created in multiple places. To use
 labeled GUIDs, the programmer should pass in the GUID returned by
 \hyperlink{func_ocrGuidFromIndex}{ocrGuidFromIndex} as the first argument of
 an \code{ocrXXCreate} call and also add an

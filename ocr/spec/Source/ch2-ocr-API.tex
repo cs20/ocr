@@ -985,7 +985,7 @@ within the current EDT.
 \descr
 OCR's release-consistency memory model requires a \textit{release}
 operation on a data block for synchronization, ensuring that writes to that data block
-are visible by all EDTs ordered after the \textit{release} operation.
+are visible to all EDTs ordered after the \textit{release} operation.
 For a data block that is acquired in a writable mode by the current EDT,
 this function performs a \textit{release} operation
 (making all preceding writes visible in terms of the memory model);
@@ -1045,9 +1045,9 @@ meaning of these event types is given in Section~\ref{sec:Event}:
 identify the two pre-slots of the latch event type:
   \begin{itemize}
     \item \code{OCR\_EVENT\_LATCH\_DECR\_SLOT} identifying the decrement slot of
-      the latch event
+      the latch event. The numeric equivalent of this value is $0$.
     \item \code{OCR\_EVENT\_LATCH\_INCR\_SLOT} identifying the increment slot of
-      the latch event
+      the latch event. The numeric equivalent of this value is $1$.
   \end{itemize}
 \end{itemize}
 
@@ -1521,7 +1521,10 @@ waiters on this event are set up properly \emph{before} the EDT transitions to t
 The EDT is created based on the function provided during the creation of its template.
 It is required that the number of parameters (\code{paramc}) and number of
 pre-slots (\code{depc}) be resolved at this time. In other words, the number of
-parameters and dependences must be explicitly specified at this time.
+parameters and dependences must be explicitly specified at this time. If the
+EDT template used for this EDT specified specific numbers of parameters or dependences,
+the values for \code{paramc} and \code{depc} must match those specified for
+the template.
 \begin{DoxyNote}{Note}
 If the EDT is created with all its pre-slots specified and resolved, it may execute
 immediately which means that the GUIDs returned (\code{guid} and \code{outputEvent})
