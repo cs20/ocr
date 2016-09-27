@@ -90,11 +90,10 @@ should be NULL\_HINT. \\
 \end{DoxyParams}
 
 \returns
-A status code:
+0 if no immediate error was detected or the following error codes:
 \begin{DoxyItemize}
-\item 0\-: successful
-\item OCR\_ENOMEM: The runtime could not create the event due to insufficient memory
-\item OCR\_EINVAL: The \code{eventType} argument is invalid or incompatible
+\item OCR\_ENOMEM ({\bf deferred}): The runtime could not create the event due to insufficient memory
+\item OCR\_EINVAL ({\bf immediate}): The \code{eventType} argument is invalid or incompatible
   with \code{flags}
 \end{DoxyItemize}
 

@@ -31,8 +31,7 @@ Exposes the local data-store associated with the current EDT and its size.
 \end{DoxyParams}
 
 \returns
-A status code:
+0 if no immediate error was detected or the following error codes:
 \begin{DoxyItemize}
-\item 0: Successful
-\item OCR\_EINVAL: If the pointer is invalid.
+\item OCR\_EINVAL ({\bf immediate}): If the pointer is invalid.
 \end{DoxyItemize}

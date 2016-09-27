@@ -125,10 +125,9 @@ to be initialized before any hint properties can be set.
 \end{DoxyParams}
 
 \returns
-A status code:
+0 if no immediate error was detected or the following error codes:
 \begin{DoxyItemize}
-\item 0: Successful
-\item OCR\_EINVAL: error in initializing hint when hintType is unrecognized
+\item OCR\_EINVAL ({\bf immediate}): error in initializing hint when hintType is unrecognized
 \end{DoxyItemize}
 
 \descr
@@ -165,10 +164,9 @@ properties of the same usage type can be set on a single hint variable.
 \end{DoxyParams}
 
 \returns
-A status code:
+0 if no immediate error was detected or the following error codes:
 \begin{DoxyItemize}
-\item 0: Successful
-\item OCR\_EINVAL: If property is invalid for the hint type.
+\item OCR\_EINVAL ({\bf immediate}): If property is invalid for the hint type.
 \end{DoxyItemize}
 
 \descr
@@ -199,10 +197,9 @@ Unsets the value of a specific hint property in a hint variable.
 \end{DoxyParams}
 
 \returns
-A status code:
+0 if no immediate error was detected or the following error codes:
 \begin{DoxyItemize}
-\item 0: Successful
-\item OCR\_EINVAL: If property is invalid for the hint type.
+\item OCR\_EINVAL ({\bf immediate}): If property is invalid for the hint type.
 \end{DoxyItemize}
 
 \descr
@@ -238,11 +235,10 @@ Gets the value of a specific hint property from a hint variable.
 Gets the value of a specific hint property that was already set on the hint variable.
 
 \returns
-A status code:
+0 if no immediate error was detected or the following error codes:
 \begin{DoxyItemize}
-\item 0: Successful
-\item OCR\_EINVAL: If property is invalid for the hint type.
-\item OCR\_ENOENT: If property is not set on this hint variable
+\item OCR\_EINVAL ({\bf immediate}): If property is invalid for the hint type.
+\item OCR\_ENOENT ({\bf immediate}): If property is not set on this hint variable
 \end{DoxyItemize}
 
 \descr
@@ -273,11 +269,10 @@ The target guid has to be of a compatible type with the hint variable's usage ty
 \end{DoxyParams}
 
 \returns
-A status code:
+0 if no immediate error was detected or the following error codes:
 \begin{DoxyItemize}
-\item 0: Successful
-\item OCR\_EINVAL: If hint type and target guid kind are incompatible
-\item OCR\_EFAULT: Some hints were not set due to insufficient or invalid values of hint properties
+\item OCR\_EINVAL ({\bf deferred}): If hint type and target guid kind are incompatible
+\item OCR\_EFAULT ({\bf deferred}): Some hints were not set due to insufficient or invalid values of hint properties
 \end{DoxyItemize}
 
 \descr
@@ -308,10 +303,9 @@ Gets the existing hint properties that have been set on a specific guid.
 \end{DoxyParams}
 
 \returns
-A status code:
+0 if no immediate error was detected or the following error codes:
 \begin{DoxyItemize}
-\item 0: Successful
-\item OCR\_EINVAL: If hint type and target guid kind are incompatible
+\item OCR\_EINVAL ({\bf immediate}): If hint type and target guid kind are incompatible
 \end{DoxyItemize}
 
 \descr
@@ -350,4 +344,3 @@ if (ocrHintSetValue(&hintVar, OCR_HINT_EDT_SLOT_MAX_ACCESS, slotNumberHintValue)
 %The OCR hint framework is intended for runtime developers to explore hints that
 %can be useful for creating adaptive runtime algorithms, either through the
 %addition of new hints or by using existing ones.
-

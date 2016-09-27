@@ -25,10 +25,10 @@ Exposes the GUID of the executing EDT from which this function is called.
 \end{DoxyParams}
 
 \returns
-A status code:
+0 if no immediate error was detected or the following error codes:
 \begin{DoxyItemize}
 \item 0: Successful
-\item OCR\_EINVAL: If the pointer is invalid.
+\item OCR\_EINVAL ({\bf immediate}): If the pointer is invalid.
 \end{DoxyItemize}
 
 %
@@ -51,8 +51,7 @@ Exposes the GUID of the output event of the executing EDT from which this functi
 \end{DoxyParams}
 
 \returns
-A status code:
+0 if no immediate error was detected or the following error codes:
 \begin{DoxyItemize}
-\item 0: Successful
-\item OCR\_EINVAL: If the pointer is invalid.
+\item OCR\_EINVAL ({\bf immediate}): If the pointer is invalid.
 \end{DoxyItemize}
