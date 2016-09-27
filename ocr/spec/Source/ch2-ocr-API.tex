@@ -1527,10 +1527,11 @@ the values for \code{paramc} and \code{depc} must match those specified for
 the template.
 \begin{DoxyNote}{Note}
 If the EDT is created with all its pre-slots specified and resolved, it may execute
-immediately which means that the GUIDs returned (\code{guid} and \code{outputEvent})
+immediately, which means that the GUIDs returned (\code{guid} and \code{outputEvent})
 may be invalid by the time this function returns. It is the responsibility of
-the programmer to ensure, if he needs to use these returned values, that the EDT
-cannot start until a later time (by inserting a ``fake'' pre-slot for example).
+the programmer -- if these returned values are needed -- to ensure that the EDT
+cannot start until a later time (e.g., by inserting an extra pre-slot
+that is satisfied only after setting up all dependences on the output event).
 \end{DoxyNote}
 %
 % ocrEdtDestroy
