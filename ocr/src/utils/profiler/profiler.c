@@ -89,7 +89,7 @@ void _profilerInit(_profiler *self, u32 event, u64 prevTicks) {
             if(event == PROFILER_FOCUS || event == PROFILER_PEEK) {
                 self->flags.isRtCall = 0; // Always consider the focus function to be user code
             }
-            if(self->flags.isRtCall && (self->myData->stack[self->myData->level-1]->myEvent != PROFILER_PEEK)) {
+            if(self->flags.isRtCall && (self->myData->stack[self->myData->level-1]->flags.isRtCall == 1)) {
                 // Call to the runtime and we shouldn't peek into the last function
                 // We already saw a call to the runtime, we return
                 return;
