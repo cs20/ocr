@@ -1593,6 +1593,10 @@ u8 taskExecute(ocrTask_t* base) {
     ocrEdtDep_t * depv = derived->resolvedDeps;
     {
         START_PROFILE(ta_hc_executeSetup);
+#ifdef NANNYMODE_SAFE_DEPV
+        ocrEdtDep_t defensiveDepv[depc];
+        hal_memCopy(defensiveDepv, depv, sizeof(ocrEdtDep_t)*depc, false);
+#endif
         base->state = RUNNING_EDTSTATE;
 
         //TODO Execute can be considered user on x86, but need to differentiate processRequestEdts in x86-mpi
@@ -1637,6 +1641,9 @@ u8 taskExecute(ocrTask_t* base) {
         TPRINTF("EDT Start: 0x%"PRIx64" 0x%"PRIx64" in %s\n",
                 base->funcPtr, base->guid, location);
 #endif
+#ifdef NANNYMODE_SAFE_DEPV
+        depv = defensiveDepv;
+#endif
 #ifdef ENABLE_POLICY_DOMAIN_HC_DIST
         if(base->funcPtr == &processRequestEdt) {
             retGuid = base->funcPtr(paramc, paramv, depc, depv);
@@ -1656,6 +1663,25 @@ u8 taskExecute(ocrTask_t* base) {
 #else
         TPRINTF("EDT End: 0x%"PRIx64" 0x%"PRIx64" in %s\n",
                 base->funcPtr, base->guid, location);
+#endif
+
+#ifdef NANNYMODE_SAFE_DEPV
+        depv = derived->resolvedDeps;
+        u32 ch = 0;
+        while (ch < depc) {
+            DPRINTF(DEBUG_LVL_WARN, "check %p %p %p %p\n",&defensiveDepv[ch], &depv[ch], defensiveDepv[ch].ptr, depv[ch].ptr);
+            if (memcmp((char *)&defensiveDepv[ch], (char *)&depv[ch], sizeof(ocrEdtDep_t)) != 0) {
+                DPRINTF(DEBUG_LVL_WARN, "Warning: EDT %s "GUIDF" had depv[%"PRIu32"] modified by user code",
+#ifdef OCR_ENABLE_EDT_NAMING
+                    base->name,
+#else
+                    "",
+#endif
+                    GUIDA(base->guid), ch);
+                ASSERT(false);
+            }
+            ch++;
+        }
 #endif
 
 #ifdef OCR_ENABLE_VISUALIZER
