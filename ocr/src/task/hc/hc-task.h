@@ -52,11 +52,18 @@ ocrTaskTemplateFactory_t * newTaskTemplateFactoryHc(ocrParamList_t* perType, u32
 #include "utils/queue.h"
 #endif
 
+//Indicates this EDT's MD is the authority
+#define MD_STATE_EDT_MASTER   0
+//Indicates this EDT's MD on the current policy-domain is not valid
+//anymore, for instance because the EDT has been moved. This allows
+//implementation to keep things around for forwarding and properly
+//destruct copies.
+#define MD_STATE_EDT_GHOST    1
+
 /*! \brief Event Driven Task(EDT) implementation for OCR Tasks
  */
 typedef struct {
     ocrTask_t base;
-
 #if !(defined(REG_ASYNC) || defined(REG_ASYNC_SGL))
     lock_t lock;
 #endif
@@ -67,6 +74,7 @@ typedef struct {
     ocrGuid_t* unkDbs;     /**< Contains the list of DBs dynamically acquired (through DB create) */
     u32 countUnkDbs;       /**< Count in unkDbs */
     u32 maxUnkDbs;         /**< Maximum number in unkDbs */
+    u32 mdState;           /**< State of this metadata - Impl. specific */
     ocrEdtDep_t * resolvedDeps; /**< List of satisfied dependences */
     u64 doNotReleaseSlots[OCR_MAX_MULTI_SLOT];
     ocrRuntimeHint_t hint;

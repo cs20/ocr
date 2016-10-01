@@ -160,9 +160,20 @@ typedef struct _ocrObjectFactory_t {
 } ocrObjectFactory_t;
 
 // Metadata Management
+
 #define ocrObjectOperation_t u32
+
+// Values set to indicate the direction of the requested metadata-cloning operation
+// Pull operation
 #define MD_DIR_PULL 1
+// Push operation
 #define MD_DIR_PUSH 2
+
+// Values set to indicate the type of requested metadata-cloning operation
+// Request a clone operation
+#define MD_CLONE 1
+// Request a move operation
+#define MD_MOVE  2
 
 /**
  * @brief Memory region "tags"

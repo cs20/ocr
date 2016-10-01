@@ -203,7 +203,6 @@ static u8 placerAffinitySchedHeuristicNotifyProcessMsgInvoke(ocrSchedulerHeurist
     }
 
     return 0;
-
 }
 
 static u8 placerAffinitySchedHeuristicNotifyInvoke(ocrSchedulerHeuristic_t *self, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {

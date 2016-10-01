@@ -19,6 +19,8 @@
 #include "ocr-scheduler-object.h"
 #include "scheduler-heuristic/hc/hc-scheduler-heuristic.h"
 
+#define DEBUG_TYPE SCHEDULER_HEURISTIC
+
 /******************************************************/
 /* OCR-HC SCHEDULER_HEURISTIC                         */
 /******************************************************/
