@@ -1363,7 +1363,7 @@ static void deferredExecute(ocrTask_t* self) {
         u32 ub = queueGetSize(dself->evts);
         while (i < ub) {
             pdEventMsg_t * evt = queueGet(dself->evts, i);
-            DPRINTF(DEBUG_LVL_WARN, "[DFRD] Executing msg type=0x%"PRIx32"\n", evt->msg->type);
+            DPRINTF(DEBUG_LVL_VERB, "[DFRD] Executing msg type=0x%"PRIx32"\n", evt->msg->type);
             // This is not the right way to use MT...
             // pd->fcts.processEvent(pd, (pdEvent_t **)&evt, 0);
             pd->fcts.processMessage(pd, evt->msg, true);
@@ -1640,7 +1640,7 @@ u8 taskExecute(ocrTask_t* base) {
         base->state = RUNNING_EDTSTATE;
 
         //TODO Execute can be considered user on x86, but need to differentiate processRequestEdts in x86-mpi
-        DPRINTF(DEBUG_LVL_INFO, "Execute "GUIDF" paramc:%"PRId32" depc:%"PRId32"\n", GUIDA(base->guid), base->paramc, base->depc);
+        DPRINTF(DEBUG_LVL_VERB, "Execute "GUIDF" paramc:%"PRId32" depc:%"PRId32"\n", GUIDA(base->guid), base->paramc, base->depc);
         OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_EDT, OCR_ACTION_EXECUTE, traceTaskExecute, base->guid, base->funcPtr);
 
         ASSERT(derived->unkDbs == NULL); // Should be no dynamically acquired DBs before running

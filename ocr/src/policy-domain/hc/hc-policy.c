@@ -1320,15 +1320,15 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
     //TODO-DEFERRED:
 #ifdef ENABLE_OCR_API_DEFERRABLE
 #ifdef ENABLE_POLICY_DOMAIN_HC_DIST
-    if ((msg->type & PD_MSG_DEFERRABLE)) {
+    if (msg->type & PD_MSG_DEFERRABLE) {
         return hcPdDeferredProcessMessage(self, msg, isBlocking);
     }
 #else
-    returnCode = hcPdDeferredProcessMessage(self, msg, isBlocking);
-    // OCR_EPERM means drop-through and continue processing (can't defer)
-    // 0 means call was deferred
-    // Other error codes should be returned as usual
-    if ((msg->type & PD_MSG_DEFERRABLE)) {
+    if(msg->type & PD_MSG_DEFERRABLE) {
+        returnCode = hcPdDeferredProcessMessage(self, msg, isBlocking);
+        // OCR_EPERM means drop-through and continue processing (can't defer)
+        // 0 means call was deferred
+        // Other error codes should be returned as usual
         if(returnCode != OCR_EPERM)
             return returnCode;
         returnCode = 0;
@@ -2857,7 +2857,7 @@ u8 hcPdProcessEvent(ocrPolicyDomain_t* self, pdEvent_t **evt, u32 idx) {
         worker->curTask = evtMsg->ctx;
     }
     ocrPolicyMsg_t * msg = evtMsg->msg;
-    DPRINTF(DEBUG_LVL_WARN, "hcPdProcessEvent executing msg of type 0x%"PRIx64"\n", msg->type & PD_MSG_TYPE_ONLY);
+    DPRINTF(DEBUG_LVL_VERB, "hcPdProcessEvent executing msg of type 0x%"PRIx64"\n", msg->type & PD_MSG_TYPE_ONLY);
     hcPolicyDomainProcessMessage(self, msg, true);
     worker->curTask = curTask;
     *evt = NULL;
