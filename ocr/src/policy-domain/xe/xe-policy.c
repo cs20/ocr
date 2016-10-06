@@ -815,6 +815,16 @@ u8 xePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         ASSERT((PD_MSG_FIELD_I(dbType) == USER_DBTYPE) || (PD_MSG_FIELD_I(dbType) == RUNTIME_DBTYPE));
         DPRINTF(DEBUG_LVL_VVERB, "DB_CREATE request from 0x%"PRIx64" for size %"PRIu64"\n",
                 msg->srcLocation, PD_MSG_FIELD_IO(size));
+
+        // We do not acquire a data-block in two cases:
+        //  - it was created with a labeled-GUID in non "trust me" mode. This is because it would be difficult
+        //    to handle cases where both EDTs create it but only one acquires it (particularly
+        //    in distributed case
+        //  - if the user does not want to acquire the data-block (DB_PROP_NO_ACQUIRE)
+        bool doNotAcquireDb = PD_MSG_FIELD_IO(properties) & DB_PROP_NO_ACQUIRE;
+        doNotAcquireDb |= (PD_MSG_FIELD_IO(properties) & GUID_PROP_CHECK) == GUID_PROP_CHECK;
+        doNotAcquireDb |= (PD_MSG_FIELD_IO(properties) & GUID_PROP_BLOCK) == GUID_PROP_BLOCK;
+
 // BUG #145: The prescription needs to be derived from the affinity, and needs to default to something sensible.
         u64 engineIndex = self->myLocation & 0xF;
         // getEngineIndex(self, msg->srcLocation);
@@ -830,8 +840,7 @@ u8 xePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
             if(PD_MSG_FIELD_O(returnDetail) == 0) {
                 ocrDataBlock_t *db= PD_MSG_FIELD_IO(guid.metaDataPtr);
                 ASSERT(db);
-                if((PD_MSG_FIELD_IO(properties) & GUID_PROP_IS_LABELED) ||
-                   (PD_MSG_FIELD_IO(properties) & DB_PROP_NO_ACQUIRE)) {
+                if(doNotAcquireDb) {
                     DPRINTF(DEBUG_LVL_INFO, "Not acquiring DB since disabled by property flags\n");
                     PD_MSG_FIELD_O(ptr) = NULL;
                 } else {

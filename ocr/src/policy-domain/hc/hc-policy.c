@@ -1350,6 +1350,15 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         // This would impact where we do the PD_MSG_MEM_ALLOC for ex
         // For now we deal with both USER and RT dbs the same way
         ASSERT(PD_MSG_FIELD_I(dbType) == USER_DBTYPE || PD_MSG_FIELD_I(dbType) == RUNTIME_DBTYPE);
+
+        // We do not acquire a data-block in two cases:
+        //  - it was created with a labeled-GUID in non "trust me" mode. This is because it would be difficult
+        //    to handle cases where both EDTs create it but only one acquires it (particularly
+        //    in distributed case
+        //  - if the user does not want to acquire the data-block (DB_PROP_NO_ACQUIRE)
+        bool doNotAcquireDb = PD_MSG_FIELD_IO(properties) & DB_PROP_NO_ACQUIRE;
+        doNotAcquireDb |= (PD_MSG_FIELD_IO(properties) & GUID_PROP_CHECK) == GUID_PROP_CHECK;
+        doNotAcquireDb |= (PD_MSG_FIELD_IO(properties) & GUID_PROP_BLOCK) == GUID_PROP_BLOCK;
         ocrFatGuid_t tEdt = PD_MSG_FIELD_I(edt);
 #define PRESCRIPTION 0x10LL
         PD_MSG_FIELD_O(returnDetail) = hcAllocateDb(self, &(PD_MSG_FIELD_IO(guid)),
@@ -1368,13 +1377,7 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
                 OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_DATABLOCK, OCR_ACTION_CREATE, traceDataCreate, db->guid, db->size);
             }
             ASSERT(db);
-            // We do not acquire a data-block in two cases:
-            //  - it was created with a labeled-GUID. This is because it would be difficult
-            //    to handle cases where both EDTs create it but only one acquires it (particularly
-            //    in distributed case
-            //  - if the user does not want to acquire the data-block (DB_PROP_NO_ACQUIRE)
-            if((PD_MSG_FIELD_IO(properties) & GUID_PROP_IS_LABELED) ||
-               (PD_MSG_FIELD_IO(properties) & DB_PROP_NO_ACQUIRE)) {
+            if(doNotAcquireDb) {
                 DPRINTF(DEBUG_LVL_INFO, "Not acquiring DB since disabled by property flags\n");
                 PD_MSG_FIELD_O(ptr) = NULL;
             } else {
@@ -1392,7 +1395,7 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         msg->type &= ~PD_MSG_REQUEST;
         msg->type |= PD_MSG_RESPONSE;
 
-        if (PD_MSG_FIELD_O(ptr) == NULL) {
+        if ((!doNotAcquireDb) && (PD_MSG_FIELD_O(ptr) == NULL)) {
             DPRINTF(DEBUG_LVL_WARN, "PD_MSG_DB_CREATE returning NULL for size %"PRId64"\n", (u64) PD_MSG_FIELD_IO(size));
             DPRINTF(DEBUG_LVL_WARN, "*** WARNING : OUT-OF-MEMORY ***\n");
             DPRINTF(DEBUG_LVL_WARN, "*** Please increase sizes in *ALL* MemPlatformInst, MemTargetInst, AllocatorInst sections.\n");

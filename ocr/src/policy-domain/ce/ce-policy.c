@@ -1396,6 +1396,16 @@ u8 cePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         ASSERT((PD_MSG_FIELD_I(dbType) == USER_DBTYPE) || (PD_MSG_FIELD_I(dbType) == RUNTIME_DBTYPE));
         DPRINTF(DEBUG_LVL_VERB, "Processing DB_CREATE for size %"PRIu64"\n",
                 PD_MSG_FIELD_IO(size));
+
+        // We do not acquire a data-block in two cases:
+        //  - it was created with a labeled-GUID in non "trust me" mode. This is because it would be difficult
+        //    to handle cases where both EDTs create it but only one acquires it (particularly
+        //    in distributed case
+        //  - if the user does not want to acquire the data-block (DB_PROP_NO_ACQUIRE)
+        bool doNotAcquireDb = PD_MSG_FIELD_IO(properties) & DB_PROP_NO_ACQUIRE;
+        doNotAcquireDb |= (PD_MSG_FIELD_IO(properties) & GUID_PROP_CHECK) == GUID_PROP_CHECK;
+        doNotAcquireDb |= (PD_MSG_FIELD_IO(properties) & GUID_PROP_BLOCK) == GUID_PROP_BLOCK;
+
         // BUG #145: The prescription needs to be derived from the affinity, and needs to default to something sensible.
         u64 engineIndex = getEngineIndex(self, msg->srcLocation);
         ocrFatGuid_t edtFatGuid = {.guid = PD_MSG_FIELD_I(edt.guid), .metaDataPtr = PD_MSG_FIELD_I(edt.metaDataPtr)};
@@ -1417,8 +1427,7 @@ u8 cePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
                 RESULT_ASSERT(ocrSetHint(db->guid, &hintVar), ==, 0);
             }
 
-            if((PD_MSG_FIELD_IO(properties) & GUID_PROP_IS_LABELED) ||
-               (PD_MSG_FIELD_IO(properties) & DB_PROP_NO_ACQUIRE)) {
+            if(doNotAcquireDb) {
                 DPRINTF(DEBUG_LVL_INFO, "Not acquiring DB since disabled by property flags\n");
                 PD_MSG_FIELD_O(ptr) = NULL;
             } else {
@@ -1431,7 +1440,7 @@ u8 cePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
             // Cannot acquire
             PD_MSG_FIELD_O(ptr) = NULL;
         }
-        if (PD_MSG_FIELD_O(ptr) == NULL) {
+        if ((!doNotAcquireDb) && (PD_MSG_FIELD_O(ptr) == NULL)) {
             DPRINTF(DEBUG_LVL_WARN, "PD_MSG_DB_CREATE returning NULL for size %"PRId64"\n", (u64) reqSize);
             DPRINTF(DEBUG_LVL_WARN, "*** WARNING : OUT-OF-MEMORY ***\n");
             DPRINTF(DEBUG_LVL_WARN, "*** Please increase sizes in *ALL* MemPlatformInst, MemTargetInst, AllocatorInst sections.\n");
