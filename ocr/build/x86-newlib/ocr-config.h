@@ -81,6 +81,7 @@
 #define ENABLE_SCHEDULER_HEURISTIC_HC
 #define ENABLE_SCHEDULER_HEURISTIC_ST
 #define ENABLE_SCHEDULER_HEURISTIC_PRIORITY
+#define ENABLE_SCHEDULER_HEURISTIC_STATIC
 
 // Scheduler Objects
 #define ENABLE_SCHEDULER_OBJECT_NULL
@@ -115,8 +116,14 @@
 // Affinity support
 #define ENABLE_EXTENSION_AFFINITY
 
-// Runtime extension support
-#define ENABLE_EXTENSION_RTITF
+// Event creation with parameter
+#define ENABLE_EXTENSION_PARAMS_EVT
+
+//Counted Events support
+#define ENABLE_EXTENSION_COUNTED_EVT
+
+//Channel Events support
+#define ENABLE_EXTENSION_CHANNEL_EVT
 
 // Build pause/resume support
 //#define ENABLE_EXTENSION_PAUSE

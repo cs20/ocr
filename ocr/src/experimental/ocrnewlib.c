@@ -322,6 +322,10 @@ u8 ocrUSalUnlink(ocrGuid_t legacyContext, const char* name)
     ocr_assert( isGuidType( legacyContext, GUID_CONTEXT ) );
     return (u8) (unlink( name ) == -1);
 }
+u8 ocrUSalGetcwd(ocrGuid_t legacyContext, char* buf, u64 bufSize)
+{
+    return 0;
+}
 //
 // This file is compiled with the Linux host includes and it's struct stat
 // is a different size and order than newlib's. So we do a manual copy-over
