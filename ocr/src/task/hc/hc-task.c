@@ -745,7 +745,9 @@ u8 destructTaskHc(ocrTask_t* base) {
 }
 
 //TODO-MD discrepancy between szMd here and in events where they do not account for embedded MD
-static u8 allocateNewTaskHc(ocrPolicyDomain_t *pd, ocrFatGuid_t * resultGuid, u32 szMd, ocrLocation_t targetLoc, u32 properties) {
+static u8 allocateNewTaskHc(ocrPolicyDomain_t *pd, ocrFatGuid_t * resultGuid,
+                            u8 *returnDetail, u32 szMd, ocrLocation_t targetLoc,
+                            u32 properties) {
     PD_MSG_STACK(msg);
     // Create the task itself by getting a GUID
     getCurrentEnv(NULL, NULL, NULL, &msg);
@@ -760,6 +762,8 @@ static u8 allocateNewTaskHc(ocrPolicyDomain_t *pd, ocrFatGuid_t * resultGuid, u3
     PD_MSG_FIELD_I(properties) = properties;
     RESULT_PROPAGATE2(pd->fcts.processMessage(pd, &msg, true), 1);
     *resultGuid = PD_MSG_FIELD_IO(guid);
+    if(returnDetail)
+        *returnDetail = PD_MSG_FIELD_O(returnDetail);
 #undef PD_MSG
 #undef PD_TYPE
     return 0;
@@ -801,13 +805,17 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
     //      - MD creation master
     ASSERT(properties & GUID_PROP_TORECORD);
 
-    allocateNewTaskHc(pd, &resultGuid, szMd, targetLoc, properties);
-    ocrTask_t *base = (ocrTask_t*) resultGuid.metaDataPtr;
-    ocrTaskHc_t *edt = (ocrTaskHc_t*) base;
+    u8 returnValue = 0;
+    allocateNewTaskHc(pd, &resultGuid, &returnValue,
+                      szMd, targetLoc, properties);
+
+    ocrTask_t *base = (ocrTask_t*)(resultGuid.metaDataPtr);
+    ocrTaskHc_t* edt = (ocrTaskHc_t*)base;
+    ocrGuid_t taskGuid = resultGuid.guid; // Temporary storage for task GUID
     ASSERT(edt);
-    // Set up the base's base
-    base->base.fctId = factory->factoryId;
-    base->guid = resultGuid.guid;
+    // Labeled case most likely. We return and don't create the event
+    if(returnValue)
+        return returnValue;
 
     // We need an output event for the EDT if either:
     //  - the user requested one (outputEventPtr is non NULL)
@@ -817,49 +825,6 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
     //    that latch event)
     ASSERT(outputEventPtr != NULL); // This should always be initialized
     ocrFatGuid_t outputEvent = {.guid = NULL_GUID, .metaDataPtr = NULL};
-    u8 returnValue = 0;
-    ocrGuid_t taskGuid = NULL_GUID; // Temporary storage for the task GUID
-
-
-    PD_MSG_STACK(msg);
-    // Create the task itself by getting a GUID
-    getCurrentEnv(NULL, NULL, NULL, &msg);
-
-    if (hint != NULL_HINT) {
-        u64 hintValue = 0ULL;
-        if ((ocrGetHintValue(hint, OCR_HINT_EDT_AFFINITY, &hintValue) == 0) && (hintValue != 0)) {
-            ocrGuid_t affGuid;
-#if GUID_BIT_COUNT == 64
-            affGuid.guid = hintValue;
-#elif GUID_BIT_COUNT == 128
-            affGuid.upper = 0ULL;
-            affGuid.lower = hintValue;
-#endif
-            ASSERT(!ocrGuidIsNull(affGuid));
-            affinityToLocation(&(targetLoc), affGuid);
-        }
-    }
-
-#define PD_MSG (&msg)
-#define PD_TYPE PD_MSG_GUID_CREATE
-    msg.type = PD_MSG_GUID_CREATE | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
-    PD_MSG_FIELD_IO(guid.guid) = edtGuid->guid;
-    PD_MSG_FIELD_IO(guid.metaDataPtr) = NULL;
-    // We allocate everything in the meta-data to keep things simple
-    PD_MSG_FIELD_I(size) = sizeof(ocrTaskHc_t) + paramc*sizeof(u64) + depc*sizeof(regNode_t) + hintc*sizeof(u64);
-    PD_MSG_FIELD_I(kind) = OCR_GUID_EDT;
-    PD_MSG_FIELD_I(targetLoc) = targetLoc;
-    //In deferred properties carry the valid and torecord flags
-    PD_MSG_FIELD_I(properties) = (properties & GUID_PROP_ALL) | GUID_PROP_TORECORD;
-    RESULT_PROPAGATE2(pd->fcts.processMessage(pd, &msg, true), 1);
-    edt = (ocrTaskHc_t*)PD_MSG_FIELD_IO(guid.metaDataPtr);
-    base = (ocrTask_t*)edt;
-    returnValue = PD_MSG_FIELD_O(returnDetail);
-    ASSERT(edt);
-
-    // Labeled case most likely. We return and don't create the event
-    if(returnValue)
-        return returnValue;
 
 #ifdef ENABLE_OCR_API_DEFERRABLE
     ocrFatGuid_t defFinish;
@@ -883,8 +848,6 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
 #endif
     if (!ocrGuidIsNull(outputEventPtr->guid) || hasProperty(properties, EDT_PROP_FINISH) ||
         !(ocrGuidIsNull(parentLatch.guid))) {
-#undef PD_MSG
-#undef PD_TYPE
         PD_MSG_STACK(msg2);
         getCurrentEnv(NULL, NULL, NULL, &msg2);
 #define PD_MSG (&msg2)
@@ -917,14 +880,11 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
         ASSERT(!ocrGuidIsUninitialized(outputEvent.guid));
 #undef PD_MSG
 #undef PD_TYPE
-#define PD_MSG (&msg)
-#define PD_TYPE PD_MSG_GUID_CREATE
     }
 
     // Set up the base's base
     base->base.fctId = factory->factoryId;
     // Set-up base structures
-    taskGuid = PD_MSG_FIELD_IO(guid.guid);
     base->templateGuid = edtTemplate.guid;
     ASSERT(edtTemplate.metaDataPtr); // For now we just assume it is passed whole
     base->funcPtr = ((ocrTaskTemplate_t*)(edtTemplate.metaDataPtr))->executePtr;
@@ -1944,7 +1904,7 @@ u8 deserializeTaskFactoryHc(ocrObjectFactory_t * pfactory, ocrGuid_t edtGuid, oc
     u32 dstSz = sizeof(ocrTaskHc_t) + SZ_PARAMV(src) + SZ_SIGNALERS(src) + SZ_HINTS(src);
     ocrFatGuid_t resultGuid = {.guid = edtGuid, .metaDataPtr = NULL};
     // Here the targetLoc doesn't matter since we already have a guid, just use current loc
-    allocateNewTaskHc(pd, &resultGuid, dstSz, /*targetLoc*/ pd->myLocation, GUID_PROP_ISVALID | GUID_PROP_TORECORD);
+    allocateNewTaskHc(pd, &resultGuid, NULL, dstSz, /*targetLoc*/ pd->myLocation, GUID_PROP_ISVALID | GUID_PROP_TORECORD);
     ocrTaskHc_t * dst = resultGuid.metaDataPtr;
     // Do this copy before so that all the fields are initialized
     *dst = *src;
