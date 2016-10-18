@@ -19,6 +19,13 @@ endif
 
 TG_INSTALL ?= ../../../../tg/tg/install
 
+# Check that this path exists
+_T := $(TG_INSTALL)
+TG_INSTALL := $(realpath $(_T))
+ifeq (,$(TG_INSTALL))
+$(error TG_INSTALL is not a valid path: $(_T))
+endif
+
 FORCE_CC ?= no
 ifeq ($(FORCE_CC), no)
   ifeq ($(CC), cc)

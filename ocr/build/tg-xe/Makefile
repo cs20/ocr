@@ -21,6 +21,13 @@ DEFAULT_CONFIG = xe-default.cfg
 
 TG_INSTALL ?= ../../../../tg/tg/install
 
+# Check that this path exists
+_T := $(TG_INSTALL)
+TG_INSTALL := $(realpath $(_T))
+ifeq (,$(TG_INSTALL))
+  $(error TG_INSTALL is not a valid path: $(_T))
+endif
+
 PREFIX  := $(TG_INSTALL)/bin/xstg-linux-elf-
 CC      := $(PREFIX)clang
 CFLAGS  := -fxstg-extensions -fno-builtin -Wno-typedef-redefinition -I $(TG_INSTALL)/include

@@ -19,8 +19,14 @@ endif
 
 TG_INSTALL ?= ../../../../tg/tg/install
 
-DEFAULT_CONFIG = ce-default.cfg
+# Check that this path exists
+_T := $(TG_INSTALL)
+TG_INSTALL := $(realpath $(_T))
+ifeq (,$(TG_INSTALL))
+$(error TG_INSTALL is not a valid path: $(_T))
+endif
 
+DEFAULT_CONFIG = ce-default.cfg
 
 FORCE_CC ?= no
 ifeq ($(FORCE_CC), no)
