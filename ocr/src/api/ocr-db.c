@@ -48,7 +48,7 @@ u8 ocrDbCreate(ocrGuid_t *db, void** addr, u64 len, u16 flags,
 #define PD_TYPE PD_MSG_DB_CREATE
     msg.type = PD_MSG_DB_CREATE | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
     // If the GUID is not labeled, we always put NULL to avoid giving spurious pointers
-    PD_MSG_FIELD_IO(guid.guid) = (flags & GUID_PROP_LABELED)?*db:NULL_GUID;
+    PD_MSG_FIELD_IO(guid.guid) = (flags & GUID_PROP_IS_LABELED)?*db:NULL_GUID;
     PD_MSG_FIELD_IO(guid.metaDataPtr) = NULL;
     PD_MSG_FIELD_IO(properties) = (u32) flags;
     PD_MSG_FIELD_IO(size) = len;
