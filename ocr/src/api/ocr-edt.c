@@ -30,7 +30,9 @@ u8 ocrEventCreateParams(ocrGuid_t *guid, ocrEventTypes_t eventType, u16 properti
 #define PD_MSG (&msg)
 #define PD_TYPE PD_MSG_EVT_CREATE
     msg.type = PD_MSG_EVT_CREATE | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
-    PD_MSG_FIELD_IO(guid.guid) = *guid;
+    // If the GUID is not labeled, we always set to NULL_GUID to avoid giving spurious
+    // pointer values
+    PD_MSG_FIELD_IO(guid.guid) = (properties & GUID_PROP_IS_LABELED)?*guid:NULL_GUID;
     PD_MSG_FIELD_IO(guid.metaDataPtr) = NULL;
     PD_MSG_FIELD_I(currentEdt.guid) = curEdt ? curEdt->guid : NULL_GUID;
     PD_MSG_FIELD_I(currentEdt.metaDataPtr) = curEdt;
@@ -258,12 +260,17 @@ u8 ocrEdtCreate(ocrGuid_t* edtGuidPtr, ocrGuid_t templateGuid,
         // You have to give a guid if you expect it to be labeled :)
         ASSERT(edtGuidPtr);
         reqResponse = true; // We always need a response in this case (for now)
+    } else {
+        // If we don't have labeling, we reset this to NULL_GUID to avoid
+        // propagating crap
+        edtGuid = NULL_GUID;
     }
 
 #define PD_MSG (&msg)
 #define PD_TYPE PD_MSG_WORK_CREATE
     msg.type = PD_MSG_WORK_CREATE | PD_MSG_REQUEST;
     PD_MSG_FIELD_IO(guid.guid) = edtGuid;
+    PD_MSG_FIELD_IO(guid.metaDataPtr) = NULL;
     if (edtGuidPtr != NULL) {
         reqResponse = true;
     } else {
@@ -308,8 +315,6 @@ u8 ocrEdtCreate(ocrGuid_t* edtGuidPtr, ocrGuid_t templateGuid,
         hint = &userHint;
     }
 
-    PD_MSG_FIELD_IO(guid.guid) = edtGuidPtr?*edtGuidPtr:NULL_GUID;
-    PD_MSG_FIELD_IO(guid.metaDataPtr) = NULL;
     if(outputEvent) {
         PD_MSG_FIELD_IO(outputEvent.guid) = UNINITIALIZED_GUID;
     } else {
