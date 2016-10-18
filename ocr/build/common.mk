@@ -698,6 +698,23 @@ ifneq ("$(wildcard $(OCR_INSTALL)/include/ocr-options_$(OCR_TYPE).h)", "")
   endif
 endif
 
+# We do something similar with configuration options but actually dump them in a build file
+# so that we can build without installing and not have to rebuild when we install
+OPTIONS_UPTODATE := no
+ifneq ("$(wildcard $(OCR_BUILD)/cflags)", "")
+  ifeq ($(shell cat $(OCR_BUILD)/cflags | xargs), $(shell echo "$(CFLAGS)" | xargs))
+    OPTIONS_UPTODATE := yes
+  endif
+endif
+
+ifeq ($(OPTIONS_UPTODATE), no)
+  # If the options have changed, we make it so that the configuration file
+  # looks changed so that things get properly rebuilt. This could be, for
+  # example, if the CFLAGS were changed on the command line
+  $(shell touch $(OCR_BUILD)/ocr-config.h)
+  $(shell rm -f $(OCR_BUILD)/cflags)
+  $(shell echo "$(CFLAGS)" | xargs > $(OCR_BUILD)/cflags)
+endif
 ifeq ($(OPTIONS_FILE_UPTODATE), no)
 .PHONY: $(OCR_INSTALL)/include/ocr-options_$(OCR_TYPE).h
 $(OCR_INSTALL)/include/ocr-options_$(OCR_TYPE).h: | $(OCR_INSTALL)/include
