@@ -29,6 +29,22 @@ extern void salResume(u32 flag);
 
 #define sal_exit(x) hal_exit(x)
 
+#ifdef TG_GDB_SUPPORT
+extern void __xeDoAssert(const char* fn, u32 ln);
+
+#define sal_assert(x, fn, ln) do { if(!(x)) {                   \
+            PRINTF("ASSERT FAILUTRE XE at line %"PRId32" in '%s'\n", (int)(ln), fn); \
+            __xeDoAssert(fn, ln);                                       \
+            __asm__ __volatile__ __attribute__((noreturn)) (    \
+                "lea %0, %0\n\t"                                \
+                "alarm %2\n\t"                                  \
+                :                                               \
+                : "{r" XE_ASSERT_FILE_REG_STR "}" (fn),         \
+                  "{r" XE_ASSERT_LINE_REG_STR "}" (ln),         \
+                  "L" (XE_ASSERT_ERROR)                         \
+                : "r" XE_ASSERT_FILE_REG_STR);                  \
+        } } while(0)
+#else
 #define sal_assert(x, fn, ln) do { if(!(x)) {                           \
             __asm__ __volatile__ __attribute__((noreturn)) (            \
                 "lea %0, %0\n\t"                                        \
@@ -39,6 +55,7 @@ extern void salResume(u32 flag);
                   "L" (XE_ASSERT_ERROR)                                 \
                 : "r" XE_ASSERT_FILE_REG_STR);                          \
         } } while(0)
+#endif
 
 #define sal_print(msg, len) __asm__ __volatile__(                   \
         "lea %0, %0\n\t"                                            \

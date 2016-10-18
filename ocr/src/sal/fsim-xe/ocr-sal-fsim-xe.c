@@ -120,4 +120,12 @@ u64 salPerfShutdown(salPerfCounter *perfCtr) {
 }
 
 #endif
+
+#ifdef TG_GDB_SUPPORT
+void __xeDoAssert(const char* fn, u32 ln) {
+    DPRINTF(DEBUG_LVL_WARN, "ASSERT FAILURE XE at line %"PRId32" in '%s'\n", (int)(ln), fn);
+    DPRINTF(DEBUG_LVL_WARN, "GDB should break here for assert\n");
+}
+#endif
+
 #endif /* ENABLE_POLICY_DOMAIN_XE */

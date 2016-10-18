@@ -807,7 +807,6 @@ u8 xePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
     DPRINTF(DEBUG_LVL_VVERB, "Going to process message of type 0x%"PRIx64"\n",
             (msg->type & PD_MSG_TYPE_ONLY));
     switch(msg->type & PD_MSG_TYPE_ONLY) {
-
     // try direct DB alloc, if fails, fallback to CE
     case PD_MSG_DB_CREATE: {
         START_PROFILE(pd_xe_DbCreate);

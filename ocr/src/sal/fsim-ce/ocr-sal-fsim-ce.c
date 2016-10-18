@@ -78,4 +78,9 @@ u64 salGetTime(void){
     return cycles;
 }
 
+#ifdef TG_GDB_SUPPORT
+void __ceDoAssert() {
+    DPRINTF(DEBUG_LVL_WARN, "GDB should break here for assert\n");
+}
+#endif
 #endif

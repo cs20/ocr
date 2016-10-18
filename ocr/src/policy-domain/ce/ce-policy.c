@@ -45,6 +45,12 @@
 
 #define DEBUG_TYPE POLICY
 
+#ifdef TG_GDB_SUPPORT
+// volatile u32 __gdbConnected = 0;
+// Extern function so we can set a breakpoint on it
+extern void __ceWaitForGdb();
+#endif
+
 extern void ocrShutdown(void);
 
 // Helper routines for RL barriers with other PDs
@@ -443,7 +449,6 @@ static void findNeighborsPd(ocrPolicyDomain_t *policy) {
 
 // Function to cause run-level switches in this PD
 u8 cePdSwitchRunlevel(ocrPolicyDomain_t *policy, ocrRunlevel_t runlevel, u32 properties) {
-
 #define GET_PHASE(counter) curPhase = (properties & RL_BRING_UP)?counter:(phaseCount - counter - 1)
 
     u32 maxCount = 0;
@@ -487,6 +492,16 @@ u8 cePdSwitchRunlevel(ocrPolicyDomain_t *policy, ocrRunlevel_t runlevel, u32 pro
             // and RL_NETWORK_OK and the comm platforms will need the neighbor information
             // during RL_CONFIG_PARSE
             performNeighborDiscovery(policy);
+#ifdef TG_GDB_SUPPORT
+            DPRINTF(DEBUG_LVL_WARN, "Waiting for debugger to connect -- set __gdbConnected to 1 to continue\n");
+            // There is a bug in QEMU about setting globals so we use a trick
+            {
+                volatile u32 __gdbConnected = 0;
+                while(!__gdbConnected) {
+                    __ceWaitForGdb();
+                }
+            }
+#endif
         } else {
             // Tear down
             phaseCount = policy->phasesPerRunlevel[RL_CONFIG_PARSE][0] >> 4;
