@@ -7,6 +7,7 @@
 #include "ocr-config.h"
 #ifdef ENABLE_EXTENSION_AFFINITY
 
+#include "debug.h"
 #include "extensions/ocr-affinity.h"
 #include "ocr-policy-domain.h"
 #include "experimental/ocr-platform-model.h"
@@ -28,8 +29,12 @@
 // and data to each guid.
 
 u8 ocrAffinityCount(ocrAffinityKind kind, u64 * count) {
+    OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_API_AFFINITY, OCR_ACTION_GET_COUNT);
+    if(kind == AFFINITY_SIM)
+        return 0;
+
     START_PROFILE(api_ocrAffinityCount)
-    ocrPolicyDomain_t * pd = NULL;
+    ocrPolicyDomain_t *pd = NULL;
     getCurrentEnv(&pd, NULL, NULL, NULL);
     // If no platformModel, we know nothing so just say that we are the only one
     if(pd->platformModel == NULL) {
@@ -51,6 +56,7 @@ u8 ocrAffinityCount(ocrAffinityKind kind, u64 * count) {
 }
 
 u8 ocrAffinityQuery(ocrGuid_t guid, u64 * count, ocrGuid_t * affinities) {
+    OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_API_AFFINITY, OCR_ACTION_QUERY);
     START_PROFILE(api_ocrAffinityQuery);
     ocrPolicyDomain_t * pd = NULL;
     getCurrentEnv(&pd, NULL, NULL, NULL);
@@ -117,6 +123,7 @@ u8 ocrAffinityGet(ocrAffinityKind kind, u64 * count, ocrGuid_t * affinities) {
 }
 
 u8 ocrAffinityGetAt(ocrAffinityKind kind, u64 idx, ocrGuid_t * affinity) {
+    OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_API_AFFINITY, OCR_ACTION_GET_AT);
     START_PROFILE(api_ocrAffinityGetAt);
     ocrPolicyDomain_t * pd = NULL;
     getCurrentEnv(&pd, NULL, NULL, NULL);
@@ -144,6 +151,7 @@ u8 ocrAffinityGetAt(ocrAffinityKind kind, u64 idx, ocrGuid_t * affinity) {
 }
 
 u8 ocrAffinityGetCurrent(ocrGuid_t * affinity) {
+    OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_API_AFFINITY, OCR_ACTION_GET_CURRENT);
     u64 count = 1;
     return ocrAffinityGet(AFFINITY_CURRENT, &count, affinity);
 }

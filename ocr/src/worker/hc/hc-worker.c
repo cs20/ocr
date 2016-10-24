@@ -133,14 +133,22 @@ static void hcWorkShift(ocrWorker_t * worker) {
                                                       : (curTask->swPerfCtrs[i-PERF_HW_MAX]);
                         u64 oldaverage = ctrs->stats[i].average;
                         ctrs->stats[i].average = (oldaverage + perfval)>>1;
+                        ctrs->stats[i].current = perfval;
                         // Check for steady state
                         if(ctrs->count > STEADY_STATE_COUNT) {
                             s64 diff = ctrs->stats[i].average - oldaverage;
                             diff = (diff < 0)?(-diff):(diff);
+#if !defined(OCR_ENABLE_SIMULATOR)
                             if(diff <= ctrs->stats[i].average >> STEADY_STATE_SHIFT)
                                 ctrs->steadyStateMask &= ~(1<<i);  // Steady state reached for this counter
+#endif
                         }
                     }
+#ifdef OCR_ENABLE_SIMULATOR
+                    //The below trace should only happen in worker if we are doing a simulator trace run. otherwise trace in task
+                    OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_EDT, OCR_ACTION_FINISH, traceTaskFinish, worker->curTask->guid , ctrs->edt, ctrs->count, ctrs->stats);
+#endif
+
                 } else {
                     // If hints are specified, simply read them
                     u64 hintValue;
@@ -279,9 +287,17 @@ static void workerLoop(ocrWorker_t * worker) {
 #else
 #error Unknown GUID type
 #endif
+
+#ifdef OCR_ENABLE_SIMULATOR
+        //Cannot use EDT_PARAM_DEF when collecting simulator traces
+         ocrEdtCreate(&edtGuid, edtTemplateGuid, 0, /* paramv = */ NULL,
+                     /* depc = */ 1, /* depv = */ &dbGuid,
+                     GUID_PROP_TORECORD, &edtHint, NULL);
+#else
         ocrEdtCreate(&edtGuid, edtTemplateGuid, EDT_PARAM_DEF, /* paramv = */ NULL,
                      /* depc = */ EDT_PARAM_DEF, /* depv = */ &dbGuid,
-                     EDT_PROP_NONE, &edtHint, NULL);
+                     GUID_PROP_TORECORD, &edtHint, NULL);
+#endif
         // Once mainEdt is created, its template is no longer needed
         ocrEdtTemplateDestroy(edtTemplateGuid);
     }

@@ -16,18 +16,22 @@ const char *evt_type[] = {
 //Strings for traced OCR objects
 const char *obj_type[] = {
     "EDT",
+    "API_EDT",
     "EVENT",
-    "MESSAGE",
-    "DATABLOCK"
+    "API_EVENT",
     "DATABLOCK",
+    "API_DATABLOCK",
+    "MESSAGE",
     "WORKER",
     "SCHEDULER",
-    "DEQUE"
+    "API_AFFINITY",
+    "API_HINT",
 };
 
 //Strings for traced OCR events
 const char *action_type[] = {
     "CREATE",
+    "TEMPLATE_CREATE",
     "DESTROY",
     "RUNNABLE",
     "SCHEDULED",
@@ -39,16 +43,17 @@ const char *action_type[] = {
     "DATA_RELEASE",
     "END_TO_END",
     "WORK_REQUEST",
-    "BEGIN_WORK_STEAL",
     "WORK_TAKEN",
-    "WORK_AVAIL",
-    "WORK_SPIN",
-    "WORK_DEPLETED",
     "SCHED_MSG_SEND",
     "SCHED_MSG_RCV",
     "SCHED_INVOKE",
-    "SCHED_HEUR_INVOKE"
-    "ACTION_MAX"
+    "GET_CURRENT",
+    "GET_AT",
+    "GET_COUNT",
+    "QUERY",
+    "INIT",
+    "SET_VAL",
+    "RANGE_CREATE"
 };
 
 #endif /* __TRACE_EVENTS_H__ */

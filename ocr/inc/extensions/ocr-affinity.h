@@ -54,6 +54,7 @@ typedef enum {
                   * affinitize EDTs and data blocks to these affinities
                   * in the creation calls */
     AFFINITY_PD_MASTER, /**< Runtime reserved (do not use) */
+    AFFINITY_SIM, /**<Reserved for simulator */
     AFFINITY_GUID /**< Affinities of a GUID */
 } ocrAffinityKind;
 

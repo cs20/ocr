@@ -22,6 +22,7 @@ typedef struct _variance_t {
 typedef struct _ocrPerfStat {
     u64 average;
     variance_t var;
+    u64 current;
 } ocrPerfStat_t;
 
 typedef enum _perfEvents {

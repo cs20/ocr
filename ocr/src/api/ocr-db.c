@@ -27,7 +27,7 @@
 
 u8 ocrDbCreate(ocrGuid_t *db, void** addr, u64 len, u16 flags,
                ocrHint_t *hint, ocrInDbAllocator_t allocator) {
-
+    OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_API_DATABLOCK, OCR_ACTION_CREATE, len);
     START_PROFILE(api_ocrDbCreate);
     DPRINTF(DEBUG_LVL_INFO, "ENTER ocrDbCreate(*guid="GUIDF", len=%"PRIu64", flags=%"PRIu32""
             ", hint=%p, alloc=%"PRIu32")\n", GUIDA(*db), len, (u32)flags, hint, (u32)allocator);
@@ -125,7 +125,9 @@ u8 ocrDbCreate(ocrGuid_t *db, void** addr, u64 len, u16 flags,
 }
 
 u8 ocrDbDestroy(ocrGuid_t db) {
-
+    OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_API_DATABLOCK, OCR_ACTION_DESTROY, db);
+    if(ocrGuidIsNull(db))
+        return 0;
     START_PROFILE(api_ocrDbDestroy);
     DPRINTF(DEBUG_LVL_INFO, "ENTER ocrDbDestroy(guid="GUIDF")\n", GUIDA(db));
     PD_MSG_STACK(msg);
@@ -198,6 +200,9 @@ u8 ocrDbDestroy(ocrGuid_t db) {
 
 u8 ocrDbRelease(ocrGuid_t db) {
 
+    OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_API_DATABLOCK, OCR_ACTION_DATA_RELEASE, db);
+    if(ocrGuidIsNull(db))
+        return 0;
     START_PROFILE(api_ocrDbRelease);
     DPRINTF(DEBUG_LVL_INFO, "ENTER ocrDbRelease(guid="GUIDF")\n", GUIDA(db));
     PD_MSG_STACK(msg);

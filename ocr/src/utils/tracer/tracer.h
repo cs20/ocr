@@ -4,6 +4,7 @@
 #include "ocr-config.h"
 #include "ocr-runtime-types.h"
 #include "ocr-types.h"
+#include "ocr-perfmon.h"
 
 #include "utils/deque.h"
 
@@ -12,16 +13,16 @@
 #include <stdarg.h>
 
 #define TRACE_TYPE_NAME(ID) _type_##ID
-
 #define _TRACE_FIELD_FULL(ttype, taction, obj, field) obj->type._type_##ttype.action.taction.field
 #define TRACE_FIELD(type, action, traceObj, field) _TRACE_FIELD_FULL(type, action, (traceObj), field)
 
-/*
- * Data structure for trace objects.  Not yet fully populated
- * as not all trace coverage is needed/supported yet.
- *
- */
+#ifndef MAX_PARAMS
+#define MAX_PARAMS 32
+#endif
 
+#ifndef MAX_DEPS
+#define MAX_DEPS 32
+#endif
 
 bool isDequeFull(deque_t *deq);
 bool isSystem(ocrPolicyDomain_t *pd);
@@ -31,6 +32,7 @@ void populateTraceObject(u64 location, bool evtType, ocrTraceType_t objType, ocr
 
 
 
+/* Macros to condense and simplify the packing of trace objects */
 #define INIT_TRACE_OBJECT()                                                 \
                                                                             \
     ocrPolicyDomain_t *pd = NULL;                                           \
@@ -46,14 +48,20 @@ void populateTraceObject(u64 location, bool evtType, ocrTraceType_t objType, ocr
     tr->parent = parent;                                                    \
     tr->eventType = evtType;
 
-#define PUSH_TO_TRACE_DEQUE()                                                                       \
-    while(isDequeFull(((ocrWorkerHc_t*)worker)->sysDeque)){                                         \
-        hal_pause();                                                                                \
-    }                                                                                               \
-                                                                                                    \
-    ((ocrWorkerHc_t *)worker)->sysDeque->pushAtTail(((ocrWorkerHc_t *)worker)->sysDeque, tr, 0);
+#define PUSH_TO_TRACE_DEQUE()                                                                           \
+    if(worker != NULL){                                                                                 \
+        while(isDequeFull(((ocrWorkerHc_t*)worker)->sysDeque)){                                         \
+            hal_pause();                                                                                \
+        }                                                                                               \
+                                                                                                        \
+        ((ocrWorkerHc_t *)worker)->sysDeque->pushAtTail(((ocrWorkerHc_t *)worker)->sysDeque, tr, 0);    \
+    }
 
+//TODO: Add comment descriptions for new trace fields
 
+/*
+ * Data structure for trace objects.
+ */
 typedef struct {
 
     ocrTraceType_t  typeSwitch;
@@ -71,7 +79,16 @@ typedef struct {
         struct{ /* Task (EDT) */
             union{
                 struct{
+                    ocrGuid_t templateGuid;         /* GUID of EDT template */
+                    ocrEdt_t funcPtr;               /* function pointer associated with EDT template */
+                }taskTemplateCreate;
+
+                struct{
                     ocrGuid_t taskGuid;             /* GUID of created task*/
+                    ocrGuid_t parentID;             /* GUID of parent creating cur EDT*/
+                    u32 depc;                       /* Number of dependencies associated with task */
+                    u32 paramc;                     /* Number of paramaters associated with task */
+                    u64 paramv[MAX_PARAMS];         /* List of paramaters associated with task */
                 }taskCreate;
 
                 struct{
@@ -97,10 +114,24 @@ typedef struct {
                     u32 whyDelay;                   /* TODO: define this... may not be needed/useful */
                     ocrGuid_t taskGuid;             /* GUID of task executing */
                     ocrEdt_t funcPtr;               /* Function ptr to current function associated with the task */
+                    u64 depc;                       /* Number of dependencies associated with task */
+                    u64 paramc;                     /* Number of paramaters associated with task */
+                    u64 paramv[MAX_PARAMS];         /* List of paramaters associated with task */
                 }taskExeBegin;
 
                 struct{
                     ocrGuid_t taskGuid;             /* GUID of task completing */
+                    void *edt;                      /* Pointer to EDT */
+                    u32 count;                      /* Number of times this EDT has executed */
+                    u64 hwCycles;                   /* Perf counter: total clock cycles */
+                    u64 hwCacheRefs;                /* Perf counter: L1 hits */
+                    u64 hwCacheMisses;              /* Perf counter: L1 misses */
+                    u64 hwFpOps;                    /* Perf counter: Floating pointer operations */
+                    u64 swEdtCreates;               /* Soft counter: Number of ocrEdtCreate calls */
+                    u64 swDbTotal;                  /* Soft counter: Total memory footprint of datablocks */
+                    u64 swDbCreates;                /* Soft counter: Number of ocrDbCreate calls */
+                    u64 swDbDestroys;               /* Soft counter: Number if ocrDbDestroy calls */
+                    u64 swEvtSats;                  /* Soft counter: Number of ocrEventSatisfy calls */
                 }taskExeEnd;
 
                 struct{
@@ -227,6 +258,117 @@ typedef struct {
             }action;
         } TRACE_TYPE_NAME(SCHEDULER);
 
+        struct{
+            union{
+                struct{
+                    ocrGuid_t templateGuid;         /* GUID of template on API entry */
+                    u32 paramc;                     /* Number of params associated with EDT on API entry */
+                    u64 paramv[MAX_PARAMS];         /* List of params associated with EDT on API entry */
+                    u32 depc;                       /* Number of dependencies associated with EDT on API entry */
+                    ocrGuid_t depv[MAX_DEPS];       /* List of dependencies associated with EDT on API entry */
+                }simEdtCreate;
+
+                struct{
+                    ocrEdt_t funcPtr;               /* Function pointer associated with task template on API entry */
+                    u32 paramc;                     /* Number of paramaters associated with task template on API entry */
+                    u32 depc;                       /* Number of dependencies associated with task template on API entry */
+                }simEdtTemplateCreate;
+
+            }action;
+
+        } TRACE_TYPE_NAME(API_EDT);
+
+        struct{
+            union{
+                struct{
+                    ocrEventTypes_t eventType;      /* Type of event bieng created on API entry */
+                }simEventCreate;
+
+                struct{
+                    ocrGuid_t eventGuid;            /* GUID of the event bieng satisfied on API entry */
+                    ocrGuid_t dataGuid;             /* GUID of object satisfying the event on API entry */
+                }simEventSatisfy;
+
+                struct{
+                    ocrGuid_t source;                   /* OCR object having dependence added on API entry */
+                    ocrGuid_t destination;              /* OCR object bieng depended on by source on API entry */
+                    u32 slot;                           /* Slot number of event where dependence being added on API entry */
+                    ocrDbAccessMode_t accessMode;       /* Access mode of associated dependence on API entry */
+                }simEventAddDep;
+
+                struct{
+                    ocrGuid_t eventGuid;            /* GUID of event being destroyed on API entry */
+                }simEventDestroy;
+
+            }action;
+
+        } TRACE_TYPE_NAME(API_EVENT);
+
+        struct{
+            union{
+                struct{
+                    u64 len;                        /* Size of datablock being created on API entry */
+                }simDbCreate;
+
+                struct{
+                    ocrGuid_t guid;                 /* GUID of datablock being released on API entry */
+                }simDbRelease;
+
+                struct{
+                    ocrGuid_t guid;                 /* GUID of datablock being destroyed on API entry */
+                }simDbDestroy;
+
+            }action;
+
+        } TRACE_TYPE_NAME(API_DATABLOCK);
+
+
+        struct{
+            union{
+                struct{
+                    void *placeHolder;              /* TODO: define necessary field if simulation of Affinity calls becomes necessary */
+                }simAffinityGetCurrent;
+
+                struct{
+                    void *placeHolder;              /* TODO: define necessary field if simulation of Affinity calls becomes necessary */
+                }simAffinityGetAt;
+
+                struct{
+                    void *placeHolder;              /* TODO: define necessary field if simulation of Affinity calls becomes necessary */
+                }simAffinityGetCount;
+
+                struct{
+                    void *placeHolder;              /* TODO: define necessary field if simulation of Affinity calls becomes necessary */
+                }simAffinityQuery;
+
+            }action;
+
+        } TRACE_TYPE_NAME(API_AFFINITY);
+
+
+        struct{
+            union{
+                struct{
+                    void *placeHolder;              /* TODO: define necessary field if simulation of hint calls becomes necessary */
+                }simHintInit;
+
+                struct{
+                    void *placeHolder;              /* TODO: define necessary field if simulation of hint calls becomes necessary */
+                }simHintSetValue;
+
+            }action;
+
+        } TRACE_TYPE_NAME(API_HINT);
+
+
+//        struct{
+//            union{
+//                void *placeHolder;
+//            }action;
+//
+//        } TRACE_TYPE_NAME(API_GUID);
+
+
         struct{ /* User-facing custom marker */
             union{
                 struct{
@@ -251,14 +393,14 @@ typedef struct {
         struct{
             union{
                 struct{
-                    ocrLocation_t src;
-                    ocrLocation_t dst;
-                    u64 usefulSize;
-                    u64 marshTime;
-                    u64 sendTime;
-                    u64 rcvTime;
-                    u64 unMarshTime;
-                    u64 type;
+                    ocrLocation_t src;              /* Source policy domain of message */
+                    ocrLocation_t dst;              /* Destination policy domain of message */
+                    u64 usefulSize;                 /* Size of message contents */
+                    u64 marshTime;                  /* Timestamp when message was marshalled */
+                    u64 sendTime;                   /* Timestamp when message was sent */
+                    u64 rcvTime;                    /* Timestamp when message was received */
+                    u64 unMarshTime;                /* Timestamp when message was unmarshalled */
+                    u64 type;                       /* Type of message */
                 }msgEndToEnd;
 
             }action;
@@ -273,3 +415,4 @@ typedef struct {
 void doTrace(u64 location, u64 wrkr, ocrGuid_t taskGuid, ...);
 
 #endif
+

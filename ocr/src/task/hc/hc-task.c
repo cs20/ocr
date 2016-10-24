@@ -113,7 +113,10 @@ void addPerfEntry(ocrPolicyDomain_t *pd, void *executePtr,
         if(k==queueGetSize(pd->taskPerfs)) {
             u32 j;
             ocrPerfCounters_t *cumulativeStats = (ocrPerfCounters_t *)pd->fcts.pdMalloc(pd, sizeof(ocrPerfCounters_t));
-            for(j = 0; j<PERF_MAX; j++) cumulativeStats->stats[j].average = 0;
+            for(j = 0; j<PERF_MAX; j++){
+                cumulativeStats->stats[j].average = 0;
+                cumulativeStats->stats[j].current = 0;
+            }
             cumulativeStats->count = 0;
             cumulativeStats->steadyStateMask = ((1 << PERF_MAX) - 1); // Steady state not reached
             cumulativeStats->edt = executePtr;
@@ -910,7 +913,7 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
     edtGuid->guid = taskGuid;
     self->guid = taskGuid;
     edtGuid->metaDataPtr = self;
-    OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_EDT, OCR_ACTION_CREATE, traceTaskCreate, edtGuid->guid);
+    OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_EDT, OCR_ACTION_CREATE, traceTaskCreate, edtGuid->guid, depc, paramc, paramv);
     // Check to see if the EDT can be ran
     if(self->depc == dself->slotSatisfiedCount) {
         DPRINTF(DEBUG_LVL_INFO,
@@ -1394,7 +1397,9 @@ static u8 taskEpilogue(ocrTask_t * base, ocrPolicyDomain_t *pd, ocrWorker_t * cu
     statsEDT_END(pd, ctx->sourceObj, curWorker, base->guid, base);
 #endif /* OCR_ENABLE_STATISTICS */
     DPRINTF(DEBUG_LVL_INFO, "End_Execution "GUIDF"\n", GUIDA(base->guid));
+#if !defined(OCR_ENABLE_SIMULATOR)
     OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_EDT, OCR_ACTION_FINISH, traceTaskFinish, base->guid);
+#endif
     // edt user code is done, if any deps, release data-blocks
     if(depc != 0) {
         START_PROFILE(ta_hc_dbRel);
@@ -1641,7 +1646,7 @@ u8 taskExecute(ocrTask_t* base) {
 
         //TODO Execute can be considered user on x86, but need to differentiate processRequestEdts in x86-mpi
         DPRINTF(DEBUG_LVL_VERB, "Execute "GUIDF" paramc:%"PRId32" depc:%"PRId32"\n", GUIDA(base->guid), base->paramc, base->depc);
-        OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_EDT, OCR_ACTION_EXECUTE, traceTaskExecute, base->guid, base->funcPtr);
+        OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_EDT, OCR_ACTION_EXECUTE, traceTaskExecute, base->guid, base->funcPtr, depc, paramc, paramv);
 
         ASSERT(derived->unkDbs == NULL); // Should be no dynamically acquired DBs before running
 
