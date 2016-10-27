@@ -1045,7 +1045,16 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
     {
 #define PD_MSG (msg)
 #define PD_TYPE PD_MSG_GUID_DESTROY
-        RETRIEVE_LOCATION_FROM_GUID_MSG(self, msg->destLocation, I);
+        // This is always a local call and there should be something to destroy in the map
+        ocrGuidKind kind;
+        u64 val;
+        self->guidProviders[0]->fcts.getVal(self->guidProviders[0], PD_MSG_FIELD_I(guid).guid, &val, &kind, MD_LOCAL, NULL);
+        // Check if target was an EDT that had been moved here.
+        // This code is deprecated in subsequent patches where all GUIDs are
+        // backed by MD and the code is always local, at least initially.
+        if (!((kind == OCR_GUID_EDT) && (val))) {
+            RETRIEVE_LOCATION_FROM_GUID_MSG(self, msg->destLocation, I);
+        }
         DPRINTF(DEBUG_LVL_VVERB, "GUID_DESTROY: target is %"PRId32"\n", (u32)msg->destLocation);
 #undef PD_MSG
 #undef PD_TYPE

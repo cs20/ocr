@@ -388,7 +388,18 @@ u8 labeledGuidCreateGuid(ocrGuidProvider_t* self, ocrFatGuid_t *fguid, u64 size,
     #else
     #error Unknown type of GUID
     #endif
-                GP_HASHTABLE_PUT(((ocrGuidProviderLabeled_t *) self)->guidImplTable, (void *) guid, (void *) ptr);
+                void * toPut = ptr;
+                // Inject proxy for foreign guids. Stems from pushing OCR objects to other PDs
+                if (!isLocalGuid(self, fguid->guid)) {
+                    // Impl assumes there's a single creation per GUID so there's no code to
+                    // handle races here. We just setup the proxy and insert it in the map
+                    ocrPolicyDomain_t * pd = self->pd;
+                    MdProxy_t * mdProxy = (MdProxy_t *) pd->fcts.pdMalloc(pd, sizeof(MdProxy_t));
+                    mdProxy->ptr = (u64) ptr;
+                    mdProxy->queueHead = REG_CLOSED;
+                    toPut = (void *) mdProxy;
+                }
+                GP_HASHTABLE_PUT(((ocrGuidProviderLabeled_t *) self)->guidImplTable, (void *) guid, (void *) toPut);
             }
         } else {
             labeledGuidGetGuid(self, &(fguid->guid), (u64) (fguid->metaDataPtr), kind, targetLoc, GUID_PROP_TORECORD);
@@ -625,30 +636,46 @@ u8 labeledGuidReleaseGuid(ocrGuidProvider_t *self, ocrFatGuid_t fatGuid, bool re
     ocrGuidProviderLabeled_t * derived = (ocrGuidProviderLabeled_t *) self;
     // See BUG #928 on GUID issues
 #if GUID_BIT_COUNT == 64
-    RESULT_ASSERT(GP_HASHTABLE_DEL(derived->guidImplTable, (void *)guid.guid, NULL), ==, true);
+    void * lguid = (void *) guid.guid;
 #elif GUID_BIT_COUNT == 128
-    RESULT_ASSERT(GP_HASHTABLE_DEL(derived->guidImplTable, (void *)guid.lower, NULL), ==, true);
+    void * lguid = (void *) guid.lower;
 #else
 #error Unknown GUID type
 #endif
+    void * value;
+    RESULT_ASSERT(GP_HASHTABLE_DEL(derived->guidImplTable, lguid, &value), ==, true);
     // If there's metaData associated with guid we need to deallocate memory
-    if(releaseVal && (fatGuid.metaDataPtr != NULL)) {
-        PD_MSG_STACK(msg);
-        ocrPolicyDomain_t *policy = NULL;
-        getCurrentEnv(&policy, NULL, NULL, &msg);
+    if(releaseVal && (value != NULL)) {
+        void * metaDataPtr = fatGuid.metaDataPtr;
+        if (!isLocalGuid(self, guid)) { // We have a proxy in between
+            ASSERT(value != metaDataPtr);
+            MdProxy_t * proxy = (MdProxy_t *) value;
+            ASSERT ((proxy->queueHead == NULL) ||
+                    (((u64)proxy->queueHead) == REG_OPEN) ||
+                    (((u64)proxy->queueHead) == REG_CLOSED));
+            // if (proxy->ptr) { //TODO why that ?
+            ASSERT(proxy->ptr);
+            self->pd->fcts.pdFree(self->pd, proxy);
+            // }
+        }
+        if (metaDataPtr != NULL) {
+            PD_MSG_STACK(msg);
+            ocrPolicyDomain_t *policy = NULL;
+            getCurrentEnv(&policy, NULL, NULL, &msg); //TODO use GP's PD: would that work with TG ?
 #define PD_MSG (&msg)
 #define PD_TYPE PD_MSG_MEM_UNALLOC
-        msg.type = PD_MSG_MEM_UNALLOC | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
-        PD_MSG_FIELD_I(allocatingPD.guid) = NULL_GUID;
-        PD_MSG_FIELD_I(allocatingPD.metaDataPtr) = NULL;
-        PD_MSG_FIELD_I(allocator.guid) = NULL_GUID;
-        PD_MSG_FIELD_I(allocator.metaDataPtr) = NULL;
-        PD_MSG_FIELD_I(ptr) = fatGuid.metaDataPtr;
-        PD_MSG_FIELD_I(type) = GUID_MEMTYPE;
-        PD_MSG_FIELD_I(properties) = 0;
-        RESULT_PROPAGATE(policy->fcts.processMessage (policy, &msg, true));
+            msg.type = PD_MSG_MEM_UNALLOC | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
+            PD_MSG_FIELD_I(allocatingPD.guid) = NULL_GUID;
+            PD_MSG_FIELD_I(allocatingPD.metaDataPtr) = NULL;
+            PD_MSG_FIELD_I(allocator.guid) = NULL_GUID;
+            PD_MSG_FIELD_I(allocator.metaDataPtr) = NULL;
+            PD_MSG_FIELD_I(ptr) = metaDataPtr;
+            PD_MSG_FIELD_I(type) = GUID_MEMTYPE;
+            PD_MSG_FIELD_I(properties) = 0;
+            RESULT_PROPAGATE(policy->fcts.processMessage(policy, &msg, true));
 #undef PD_MSG
 #undef PD_TYPE
+        }
     }
     return 0;
 }

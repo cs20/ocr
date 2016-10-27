@@ -282,9 +282,12 @@ u8 countedMapCreateGuid(ocrGuidProvider_t* self, ocrFatGuid_t *fguid, u64 size, 
             void * toPut = ptr;
             // Inject proxy for foreign guids. Stems from pushing OCR objects to other PDs
             if (!isLocalGuid(self, fguid->guid)) {
+                // Impl assumes there's a single creation per GUID so there's no code to
+                // handle races here. We just setup the proxy and insert it in the map
                 ocrPolicyDomain_t * pd = self->pd;
                 MdProxy_t * mdProxy = (MdProxy_t *) pd->fcts.pdMalloc(pd, sizeof(MdProxy_t));
                 mdProxy->ptr = (u64) ptr;
+                mdProxy->queueHead = REG_CLOSED;
                 toPut = (void *) mdProxy;
             }
             GP_HASHTABLE_PUT(((ocrGuidProviderCountedMap_t *) self)->guidImplTable, (void *) guid, (void *) toPut);

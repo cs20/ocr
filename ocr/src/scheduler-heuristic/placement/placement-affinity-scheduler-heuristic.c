@@ -199,12 +199,12 @@ static u8 placerAffinitySchedHeuristicNotifyProcessMsgInvoke(ocrSchedulerHeurist
         if (doAutoPlace) {
             hal_lock(&(dself->lock));
             u32 placementIndex = dself->edtLastPlacementIndex;
-            ocrGuid_t pdLocAffinity = model->pdLocAffinities[placementIndex];
             dself->edtLastPlacementIndex++;
             if (dself->edtLastPlacementIndex == model->pdLocAffinitiesSize) {
                 dself->edtLastPlacementIndex = 0;
             }
             hal_unlock(&(dself->lock));
+            ocrGuid_t pdLocAffinity = model->pdLocAffinities[placementIndex];
             affinityToLocation(&(msg->destLocation), pdLocAffinity);
             DPRINTF(DEBUG_LVL_VVERB,"Auto-Placement for msg %p, type 0x%"PRIx64", at location %"PRId32"\n",
                     msg, (msg->type & PD_MSG_TYPE_ONLY), (u32)placementIndex);
@@ -263,12 +263,12 @@ static u8 placerAffinitySchedulerHeuristicNotifyEdtSatisfiedInvoke(ocrSchedulerH
         ocrPlatformModelAffinity_t * model = dself->platformModel; // Cached from the PD initialization
         hal_lock(&(dself->lock)); // TODO this is concurrent with placement at the WORK creation time
         u32 placementIndex = dself->edtLastPlacementIndex;
-        ocrGuid_t pdLocAffinity = model->pdLocAffinities[placementIndex];
         dself->edtLastPlacementIndex++;
         if (dself->edtLastPlacementIndex == model->pdLocAffinitiesSize) {
             dself->edtLastPlacementIndex = 0;
         }
         hal_unlock(&(dself->lock));
+        ocrGuid_t pdLocAffinity = model->pdLocAffinities[placementIndex];
         ASSERT(pd != NULL);
         if(noHint) {
             ocrHintInit(&edtHints, OCR_HINT_EDT_T);
@@ -283,7 +283,6 @@ static u8 placerAffinitySchedulerHeuristicNotifyEdtSatisfiedInvoke(ocrSchedulerH
         ASSERT(hasHint);
 #endif
         if (dstLocation != pd->myLocation) {
-            ASSERT((((u64)pd->myLocation) == 0) || (((u64)pd->myLocation) == 1));
             DPRINTF(DEBUG_LVL_VVERB,"[LB] Moving EDT "GUIDF" from PD[%"PRIu64"] to PD[%"PRIu64"]\n",
                     GUIDA(edtObj.guid.guid), (u64) pd->myLocation, (u64) dstLocation);
             scheduleEdtMovement(pd, edtObj.guid, pd->myLocation, dstLocation);
@@ -341,7 +340,7 @@ static u8 placerAffinitySchedHeuristicNotifySimulate(ocrSchedulerHeuristic_t *se
     return OCR_ENOTSUP;
 }
 
-static u8 placerAffinitySchedHeuristicTransactInvoke(ocrSchedulerHeuristic_t *self, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
+static u8 placerAffinitySchedHeuristicTransactInvoke(ocrSchedulerHeuristic_t *self, ocrSchedulerOpNotifyArgs_t *opArgs, ocrRuntimeHint_t *hints) {
     ASSERT(0);
     return OCR_ENOTSUP;
 }
