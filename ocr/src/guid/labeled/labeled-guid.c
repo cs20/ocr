@@ -528,7 +528,8 @@ u8 labeledGuidGetVal(ocrGuidProvider_t* self, ocrGuid_t guid, u64* val, ocrGuidK
             }
         } else {
             //For labeled, currently delegating directly to the remote location that owns the reserved GUID
-            ASSERT(!IS_RESERVED_GUID(guid) && "Labeled Limitation");
+            //For reserved DBs, the unmarshalling code actually calls a getVal.
+            ASSERT((!IS_RESERVED_GUID(guid) || (getKindFromGuid(guid) == OCR_GUID_DB)) && "Labeled Limitation");
             *val = ((getKindFromGuid(guid) == OCR_GUID_DB) ? ((u64) mdProxy) : ((u64) mdProxy->ptr));
         }
         if (mode == MD_FETCH) {
@@ -621,9 +622,7 @@ u8 labeledGuidUnregisterGuid(ocrGuidProvider_t* self, ocrGuid_t guid, u64 ** val
 }
 
 u8 labeledGuidReleaseGuid(ocrGuidProvider_t *self, ocrFatGuid_t fatGuid, bool releaseVal) {
-    // We can only destroy GUIDs that we created
-    ASSERT(extractLocIdFromGuid(fatGuid.guid) == locationToLocId(self->pd->myLocation));
-    DPRINTF(DEBUG_LVL_VERB, "LabeledGUID: 2release GUID "GUIDF"\n", GUIDA(fatGuid.guid));
+    DPRINTF(DEBUG_LVL_VERB, "LabeledGUID: release GUID "GUIDF"\n", GUIDA(fatGuid.guid));
     ocrGuid_t guid = fatGuid.guid;
     // We *first* remove the GUID from the hashtable otherwise the following race
     // could occur:
