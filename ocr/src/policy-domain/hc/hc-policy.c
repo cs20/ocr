@@ -1389,18 +1389,17 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
                 PD_MSG_FIELD_IO(properties) |= DB_MODE_RW;
             }
         } else {
-            // Cannot acquire
+            // Couldn't create the datablock
             PD_MSG_FIELD_O(ptr) = NULL;
+            if (!(PD_MSG_FIELD_IO(properties) & GUID_PROP_IS_LABELED)) {
+                DPRINTF(DEBUG_LVL_WARN, "PD_MSG_DB_CREATE returning NULL for size %"PRId64"\n", (u64) PD_MSG_FIELD_IO(size));
+                DPRINTF(DEBUG_LVL_WARN, "*** WARNING : OUT-OF-MEMORY ***\n");
+                DPRINTF(DEBUG_LVL_WARN, "*** Please increase sizes in *ALL* MemPlatformInst, MemTargetInst, AllocatorInst sections.\n");
+                DPRINTF(DEBUG_LVL_WARN, "*** Same amount increasing is recommended.\n");
+            }
         }
         msg->type &= ~PD_MSG_REQUEST;
         msg->type |= PD_MSG_RESPONSE;
-
-        if ((!doNotAcquireDb) && (PD_MSG_FIELD_O(ptr) == NULL)) {
-            DPRINTF(DEBUG_LVL_WARN, "PD_MSG_DB_CREATE returning NULL for size %"PRId64"\n", (u64) PD_MSG_FIELD_IO(size));
-            DPRINTF(DEBUG_LVL_WARN, "*** WARNING : OUT-OF-MEMORY ***\n");
-            DPRINTF(DEBUG_LVL_WARN, "*** Please increase sizes in *ALL* MemPlatformInst, MemTargetInst, AllocatorInst sections.\n");
-            DPRINTF(DEBUG_LVL_WARN, "*** Same amount increasing is recommended.\n");
-        }
 #undef PD_MSG
 #undef PD_TYPE
         EXIT_PROFILE;
