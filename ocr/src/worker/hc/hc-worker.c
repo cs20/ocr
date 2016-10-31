@@ -45,6 +45,10 @@
 /* OCR-HC WORKER                                      */
 /******************************************************/
 
+#ifdef OCR_ASSERT
+extern ocrGuid_t processRequestEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]);
+#endif
+
 static void hcWorkShift(ocrWorker_t * worker) {
 
     START_PROFILE(wo_hc_workShift);
@@ -80,6 +84,14 @@ static void hcWorkShift(ocrWorker_t * worker) {
         ocrFatGuid_t taskGuid = PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).edt;
         if(!(ocrGuidIsNull(taskGuid.guid))){
             ocrTask_t * curTask = (ocrTask_t*)taskGuid.metaDataPtr;
+#ifdef OCR_ASSERT
+        if (GET_STATE_PHASE(worker->curState) < (RL_GET_PHASE_COUNT_DOWN(pd, RL_USER_OK)-1)) {
+            if (curTask->funcPtr != processRequestEdt) {
+                DPRINTF(DEBUG_LVL_WARN, "user-error: task with funcPtr=%p scheduled after ocrShutdown\n", curTask->funcPtr);
+                ASSERT(false);
+            }
+        }
+#endif
 #ifdef ENABLE_EXTENSION_BLOCKING_SUPPORT
             if (((curTask->flags & OCR_TASK_FLAG_LONG) != 0) && (((ocrWorkerHc_t *) worker)->isHelping)) {
                 // Illegal to pick up a LONG EDT in that case to avoid creating a deadlock
