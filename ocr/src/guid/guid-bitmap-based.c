@@ -57,7 +57,7 @@ static u64 locationToLocId(ocrLocation_t location) {
     return locId;
 }
 
-static bool isLocalGuid(ocrGuidProvider_t* self, ocrGuid_t guid) {
+static bool isLocalGuidCheck(ocrGuidProvider_t* self, ocrGuid_t guid) {
 #if defined(OCR_ASSERT) && !(defined(TG_XE_TARGET)) && !(defined(TG_CE_TARGET)) && !(defined(TG_X86_TARGET))
     int oth = (int) locIdtoLocation(extractLocIdFromGuid(guid));
     ASSERT((oth >= 0) && (oth <= self->pd->neighborCount) && "Invalid neighbor ID");

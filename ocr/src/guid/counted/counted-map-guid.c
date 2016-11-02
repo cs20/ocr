@@ -228,7 +228,7 @@ static u8 countedMapGetGuid(ocrGuidProvider_t* self, ocrGuid_t* guid, u64 val, o
         DPRINTF(DEBUG_LVL_VVERB,"Recording %"PRIx64" @ %"PRIx64"\n", newGuid, val);
         // Inject proxy for foreign guids. Stems from pushing OCR objects to other PDs
         void * toPut = (void *) val;
-        if (!isLocalGuid(self, *guid)) {
+        if (!isLocalGuidCheck(self, *guid)) {
             ocrPolicyDomain_t * pd = self->pd;
             MdProxy_t * mdProxy = (MdProxy_t *) pd->fcts.pdMalloc(pd, sizeof(MdProxy_t));
             mdProxy->ptr = val;
@@ -281,7 +281,7 @@ u8 countedMapCreateGuid(ocrGuidProvider_t* self, ocrFatGuid_t *fguid, u64 size, 
 #endif
             void * toPut = ptr;
             // Inject proxy for foreign guids. Stems from pushing OCR objects to other PDs
-            if (!isLocalGuid(self, fguid->guid)) {
+            if (!isLocalGuidCheck(self, fguid->guid)) {
                 // Impl assumes there's a single creation per GUID so there's no code to
                 // handle races here. We just setup the proxy and insert it in the map
                 ocrPolicyDomain_t * pd = self->pd;
@@ -320,7 +320,7 @@ static u8 countedMapGetVal(ocrGuidProvider_t* self, ocrGuid_t guid, u64* val, oc
     #else
     #error Unknown type of GUID
     #endif
-    if (isLocalGuid(self, guid)) {
+    if (isLocalGuidCheck(self, guid)) {
         *val = (u64) GP_HASHTABLE_GET(((ocrGuidProviderCountedMap_t *) self)->guidImplTable, rguid);
     } else {
         // The GUID is remote, check if we have a local representent or need to fetch
@@ -422,7 +422,7 @@ extern u8 createProcessRequestEdtDistPolicy(ocrPolicyDomain_t * pd, ocrGuid_t te
  */
 u8 countedMapRegisterGuid(ocrGuidProvider_t* self, ocrGuid_t guid, u64 val) {
     ocrGuidProviderCountedMap_t * dself = (ocrGuidProviderCountedMap_t *) self;
-    if (isLocalGuid(self, guid)) {
+    if (isLocalGuidCheck(self, guid)) {
 #if GUID_BIT_COUNT == 64
         void * rguid = (void *) guid.guid;
 #elif GUID_BIT_COUNT == 128

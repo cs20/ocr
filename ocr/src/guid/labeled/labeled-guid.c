@@ -175,7 +175,7 @@ u8 labeledGuidSwitchRunlevel(ocrGuidProvider_t *self, ocrPolicyDomain_t *PD, ocr
     case RL_GUID_OK:
         if((properties & RL_BRING_UP) && RL_IS_LAST_PHASE_UP(PD, RL_GUID_OK, phase)) {
             // //TODO clean-up when isLocalGuid is used. Just to keep compiler happy with unused
-            // bool res __attribute__((unused)) = isLocalGuid(self, NULL_GUID);
+            // bool res __attribute__((unused)) = isLocalGuidCheck(self, NULL_GUID);
             //Initialize the map now that we have an assigned policy domain
             ocrGuidProviderLabeled_t * derived = (ocrGuidProviderLabeled_t *) self;
             derived->guidImplTable = GP_HASHTABLE_CREATE_MODULO(PD, GUID_PROVIDER_NB_BUCKETS, hashGuidCounterModulo);
@@ -390,7 +390,7 @@ u8 labeledGuidCreateGuid(ocrGuidProvider_t* self, ocrFatGuid_t *fguid, u64 size,
     #endif
                 void * toPut = ptr;
                 // Inject proxy for foreign guids. Stems from pushing OCR objects to other PDs
-                if (!isLocalGuid(self, fguid->guid)) {
+                if (!isLocalGuidCheck(self, fguid->guid)) {
                     // Impl assumes there's a single creation per GUID so there's no code to
                     // handle races here. We just setup the proxy and insert it in the map
                     ocrPolicyDomain_t * pd = self->pd;
@@ -429,7 +429,7 @@ u8 labeledGuidGetVal(ocrGuidProvider_t* self, ocrGuid_t guid, u64* val, ocrGuidK
     #else
     #error Unknown type of GUID
     #endif
-    if (isLocalGuid(self, guid)) {
+    if (isLocalGuidCheck(self, guid)) {
         *val = (u64) GP_HASHTABLE_GET(dself->guidImplTable, rguid);
         DPRINTF(DEBUG_LVL_VERB, "LabeledGUID: got val for GUID "GUIDF": 0x%"PRIx64"\n", GUIDA(guid), *val);
         if ((*val != (u64)NULL) && IS_RESERVED_GUID(guid)) {
@@ -437,7 +437,7 @@ u8 labeledGuidGetVal(ocrGuidProvider_t* self, ocrGuid_t guid, u64* val, ocrGuidK
             // by looking at the first field of ptr and waiting for it to be the GUID value (meaning the
             // object has been initialized
             volatile u64 * spinVal;
-            if (isLocalGuid(self, guid)) {
+            if (isLocalGuidCheck(self, guid)) {
                 spinVal = val;
             } else {
                 MdProxy_t * sproxy = (MdProxy_t *) val;
@@ -562,7 +562,7 @@ u8 labeledGuidRegisterGuid(ocrGuidProvider_t* self, ocrGuid_t guid, u64 val) {
 #else
 #error Unknown type of GUID
 #endif
-    if (isLocalGuid(self, guid)) {
+    if (isLocalGuidCheck(self, guid)) {
         // See BUG #928 on GUID issues
         GP_HASHTABLE_PUT(((ocrGuidProviderLabeled_t *) self)->guidImplTable, (void *) rguid, (void *) val);
     } else {
@@ -647,7 +647,7 @@ u8 labeledGuidReleaseGuid(ocrGuidProvider_t *self, ocrFatGuid_t fatGuid, bool re
     // If there's metaData associated with guid we need to deallocate memory
     if(releaseVal && (value != NULL)) {
         void * metaDataPtr = fatGuid.metaDataPtr;
-        if (!isLocalGuid(self, guid)) { // We have a proxy in between
+        if (!isLocalGuidCheck(self, guid)) { // We have a proxy in between
             ASSERT(value != metaDataPtr);
             MdProxy_t * proxy = (MdProxy_t *) value;
             ASSERT ((proxy->queueHead == NULL) ||
