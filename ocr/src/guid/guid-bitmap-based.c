@@ -20,7 +20,7 @@ static ocrGuidKind getKindFromGuid(ocrGuid_t guid) {
 }
 
 /**
- * @brief Utility function to extract a kind from a GUID.
+ * @brief Utility function to extract a location from a GUID.
  */
 static u64 extractLocIdFromGuid(ocrGuid_t guid) {
 // See BUG #928 on GUID issues

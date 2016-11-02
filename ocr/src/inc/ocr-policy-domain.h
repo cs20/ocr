@@ -1732,6 +1732,16 @@ u8 ocrPolicyMsgMarshallMsg(struct _ocrPolicyMsg_t* msg, u64 baseSize, u8* buffer
 u8 ocrPolicyMsgUnMarshallMsg(u8* mainBuffer, u8* addlBuffer,
                              struct _ocrPolicyMsg_t* msg, u32 mode);
 
+/**
+ * @brief Returns true if the GUID is owned by the policy domain
+ *
+ * @param[in] pd     The PD to test against
+ * @param[in] guid   The GUID to check for ownership
+ *
+ * @return true if local GUID
+ */
+bool isLocalGuid(ocrPolicyDomain_t *pd, ocrGuid_t guid);
+
 #ifdef ENABLE_OCR_API_DEFERRABLE
 void tagDeferredMsg(ocrPolicyMsg_t * msg, ocrTask_t * task);
 #endif

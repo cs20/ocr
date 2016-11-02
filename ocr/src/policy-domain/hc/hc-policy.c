@@ -1251,9 +1251,6 @@ static u8 hcPdDeferredProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *ms
                 ocrGuid_t oeGuid = NULL_GUID;
                 if (ocrGuidIsUninitialized(PD_MSG_FIELD_IO(outputEvent.guid))) {
                     ocrEventTypes_t evtType = OCR_GUID_EVENT_ONCE;
-                    if (PD_MSG_FIELD_I(properties) & EDT_PROP_FINISH) {
-                        evtType = OCR_GUID_EVENT_LATCH;
-                    }
                     getDeferredGuid(self, &oeGuid, evtType, msg->destLocation);
                     PD_MSG_FIELD_IO(outputEvent.guid) = oeGuid;
                     PD_MSG_FIELD_IO(outputEvent.metaDataPtr) = NULL;

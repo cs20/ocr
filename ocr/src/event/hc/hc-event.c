@@ -1080,9 +1080,7 @@ u8 newEventHc(ocrEventFactory_t * factory, ocrFatGuid_t *guid,
     PD_MSG_STACK(msg);
     ocrTask_t *curTask = NULL;
     u8 returnValue = 0;
-
     getCurrentEnv(&pd, NULL, &curTask, &msg);
-    // ocrFatGuid_t curEdt = {.guid = curTask!=NULL?curTask->guid:NULL_GUID, .metaDataPtr = curTask};
 
     // Create the event itself by getting a GUID
     u64 sizeOfGuid = sizeof(ocrEventHc_t);

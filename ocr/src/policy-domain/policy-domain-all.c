@@ -1555,6 +1555,13 @@ ocrObjectFactory_t * resolveObjectFactory(ocrPolicyDomain_t *pd, ocrGuidKind kin
     return NULL;
 }
 
+// Returns true of the GUID is owned by the policy domain 'pd'
+bool isLocalGuid(ocrPolicyDomain_t *pd, ocrGuid_t guid) {
+    ocrLocation_t guidLoc;
+    pd->guidProviders[0]->fcts.getLocation(pd->guidProviders[0], guid, &guidLoc);
+    return guidLoc == pd->myLocation;
+}
+
 
 #ifndef ENABLE_POLICY_DOMAIN_HC_DIST
 

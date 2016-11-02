@@ -53,6 +53,15 @@
 // Event
 #define ENABLE_EVENT_HC
 
+// Event creation with parameter
+#define ENABLE_EXTENSION_PARAMS_EVT
+
+// Counted Events support
+#define ENABLE_EXTENSION_COUNTED_EVT
+
+// Channel Events support
+#define ENABLE_EXTENSION_CHANNEL_EVT
+
 // External things (mostly needed by the INI parser)
 #define ENABLE_EXTERNAL_DICTIONARY
 #define ENABLE_EXTERNAL_INIPARSER

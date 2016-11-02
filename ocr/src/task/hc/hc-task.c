@@ -246,45 +246,49 @@ ocrTaskTemplateFactory_t * newTaskTemplateFactoryHc(ocrParamList_t* perType, u32
 #endif
 
 /******************************************************/
-/* OCR HC latch utilities                             */
+/* OCR HC utilities                                   */
 /******************************************************/
 
-// satisfies the incr slot of a finish latch event
-static u8 finishLatchCheckin(ocrPolicyDomain_t *pd, ocrPolicyMsg_t *msg,
-                             ocrFatGuid_t edtCheckin, ocrFatGuid_t sourceEvent, ocrFatGuid_t latchEvent) {
+// Factorize simple add satisfy call. The destination must be local.
+static u8 doSatisfy(ocrPolicyDomain_t *pd, ocrPolicyMsg_t *msg,
+                             ocrFatGuid_t edtCheckin, ocrFatGuid_t dest, ocrFatGuid_t payload, u32 slot) {
+    // By construction and for performances the 'dest' used should be local.
+#if defined(TG_X86_TARGET) || defined(TG_XE_TARGET) || defined(TG_CE_TARGET)
+    // On TG, the event is created by the CE? and the XE does the satisfy
+    // Shouldn't that become blocking ?
+#else
+    ASSERT(isLocalGuid(pd, dest.guid));
+#endif
 #define PD_MSG (msg)
 #define PD_TYPE PD_MSG_DEP_SATISFY
-    //BUG #207 This is a long shot but if the latchEvent is not local (which it shouldn't)
-    //then this could be in-flight and child EDT incr/decr is seen before completion,
-    //leading to the finish scope being considered completed.
-    //TODO => Really need to make this blocking I think
-
-    // Account for this EDT as being part of its parent finish scope
-    msg->type = PD_MSG_DEP_SATISFY | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
+    msg->type = PD_MSG_DEP_SATISFY | PD_MSG_REQUEST;
     PD_MSG_FIELD_I(satisfierGuid) = edtCheckin;
-    PD_MSG_FIELD_I(guid) = latchEvent;
-    PD_MSG_FIELD_I(payload.guid) = NULL_GUID;
-    PD_MSG_FIELD_I(payload.metaDataPtr) = NULL;
-    PD_MSG_FIELD_I(currentEdt.guid) = NULL_GUID;
-    PD_MSG_FIELD_I(currentEdt.metaDataPtr) = NULL;
-    PD_MSG_FIELD_I(slot) = OCR_EVENT_LATCH_INCR_SLOT;
+    PD_MSG_FIELD_I(guid) = dest;
+    PD_MSG_FIELD_I(payload) = payload;
+    PD_MSG_FIELD_I(currentEdt) = edtCheckin;
+    PD_MSG_FIELD_I(slot) = slot;
 #ifdef REG_ASYNC_SGL
-    PD_MSG_FIELD_I(mode) = -1; //Doesn't matter for latch
+    PD_MSG_FIELD_I(mode) = -1;
 #endif
     PD_MSG_FIELD_I(properties) = 0;
     RESULT_PROPAGATE(pd->fcts.processMessage(pd, msg, true));
 #undef PD_TYPE
-    // Tie the local latch event for this EDT's finish scope to its parent finish scope.
-    // All of the current EDT children will report to the local finish scope and when the
-    // local finish scope completes, it will notify the parent finish scope.
+#undef PD_MSG
+    return 0;
+}
+
+// Factorize simple add dependence call
+static u8 doAddDep(ocrPolicyDomain_t *pd, ocrPolicyMsg_t *msg,
+                             ocrFatGuid_t edtCheckin, ocrFatGuid_t src, ocrFatGuid_t dest, u32 slot) {
+#define PD_MSG (msg)
 #define PD_TYPE PD_MSG_DEP_ADD
     msg->type = PD_MSG_DEP_ADD | PD_MSG_REQUEST;
-    PD_MSG_FIELD_IO(properties) = DB_MODE_CONST; // not called from add-dependence
-    PD_MSG_FIELD_I(source) = sourceEvent;
-    PD_MSG_FIELD_I(dest) = latchEvent;
-    PD_MSG_FIELD_I(slot) = OCR_EVENT_LATCH_DECR_SLOT;
+    PD_MSG_FIELD_I(source) = src;
+    PD_MSG_FIELD_I(dest) = dest;
+    PD_MSG_FIELD_I(slot) = slot;
     PD_MSG_FIELD_I(currentEdt.guid) = NULL_GUID;
     PD_MSG_FIELD_I(currentEdt.metaDataPtr) = NULL;
+    PD_MSG_FIELD_IO(properties) = DB_MODE_CONST;
     RESULT_PROPAGATE(pd->fcts.processMessage(pd, msg, false));
 #undef PD_MSG
 #undef PD_TYPE
@@ -357,60 +361,6 @@ static u8 initTaskHcInternal(ocrTaskHc_t *task, ocrGuid_t taskGuid, ocrPolicyDom
     for(i = 0; i < PERF_MAX - PERF_HW_MAX; i++) task->base.swPerfCtrs[i] = 0;
 #endif
 
-    // If we are creating a finish-edt
-    if (hasProperty(properties, EDT_PROP_FINISH)) {
-        PD_MSG_STACK(msg);
-        getCurrentEnv(NULL, NULL, NULL, &msg);
-        ocrFatGuid_t edtCheckin;
-        edtCheckin.guid = taskGuid;
-        edtCheckin.metaDataPtr = task;
-#define PD_MSG (&msg)
-#define PD_TYPE PD_MSG_EVT_CREATE
-        msg.type = PD_MSG_EVT_CREATE | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
-        PD_MSG_FIELD_IO(guid.guid) = task->base.finishLatch;
-        PD_MSG_FIELD_IO(guid.metaDataPtr) = NULL;
-        PD_MSG_FIELD_I(currentEdt.guid) = curTask!=NULL?curTask->guid:NULL_GUID;
-        PD_MSG_FIELD_I(currentEdt.metaDataPtr) = NULL;
-        PD_MSG_FIELD_I(type) = OCR_EVENT_LATCH_T;
-#ifdef ENABLE_EXTENSION_PARAMS_EVT
-        PD_MSG_FIELD_I(params) = NULL;
-#endif
-        //For deferred we may feed a valid GUID for the finish latch
-        PD_MSG_FIELD_I(properties) = (ocrGuidIsNull(task->base.finishLatch) ? 0 : GUID_PROP_ISVALID);
-        RESULT_PROPAGATE(pd->fcts.processMessage(pd, &msg, true));
-        ocrFatGuid_t latchFGuid = PD_MSG_FIELD_IO(guid);
-#undef PD_MSG
-#undef PD_TYPE
-
-        ASSERT(!(ocrGuidIsNull(latchFGuid.guid)) && latchFGuid.metaDataPtr != NULL);
-
-        if (!(ocrGuidIsNull(parentLatch.guid))) {
-            DPRINTF(DEBUG_LVL_INFO, "Checkin "GUIDF" on parent flatch "GUIDF"\n", GUIDA(taskGuid), GUIDA(parentLatch.guid));
-            // Check in this EDT finish latch with the parent's one and setup the dependence between current latch and parent's one
-            getCurrentEnv(NULL, NULL, NULL, &msg);
-            RESULT_PROPAGATE(finishLatchCheckin(pd, &msg, edtCheckin, latchFGuid, parentLatch));
-        }
-
-        // Check in the current EDT into the new finish scope and link its outputEvent to the current finish latch
-        DPRINTF(DEBUG_LVL_INFO, "Checkin "GUIDF" on self flatch "GUIDF"\n", GUIDA(taskGuid), GUIDA(latchFGuid.guid));
-        getCurrentEnv(NULL, NULL, NULL, &msg);
-        RESULT_PROPAGATE(finishLatchCheckin(pd, &msg, edtCheckin, outputEvent, latchFGuid));
-        // Set edt's ELS to the new latch
-        task->base.finishLatch = latchFGuid.guid;
-    } else {
-        // If the currently executing edt is in a finish scope,
-        // but is not a finish-edt itself, just register to the scope
-        if(!(ocrGuidIsNull(parentLatch.guid))) {
-            PD_MSG_STACK(msg);
-            getCurrentEnv(NULL, NULL, NULL, &msg);
-            DPRINTF(DEBUG_LVL_INFO, "Checkin "GUIDF" on current flatch "GUIDF"\n", GUIDA(taskGuid), GUIDA(parentLatch.guid));
-            // Check in current finish latch
-            ocrFatGuid_t edtCheckin;
-            edtCheckin.guid = taskGuid;
-            edtCheckin.metaDataPtr = task;
-            RESULT_PROPAGATE(finishLatchCheckin(pd, &msg, edtCheckin, outputEvent, parentLatch));
-        }
-    }
     return 0;
 }
 
@@ -659,24 +609,7 @@ u8 destructTaskHc(ocrTask_t* base) {
 #undef PD_MSG
 #undef PD_TYPE
             }
-
-            // If this is a finish EDT and it hasn't ran yet just destroy
-            if (!(ocrGuidIsNull(base->finishLatch))) {
-                PD_MSG_STACK(msg);
-                getCurrentEnv(NULL, NULL, NULL, &msg);
-#define PD_MSG (&msg)
-#define PD_TYPE PD_MSG_EVT_DESTROY
-                msg.type = PD_MSG_EVT_DESTROY | PD_MSG_REQUEST;
-                PD_MSG_FIELD_I(guid.guid) = base->finishLatch;
-                PD_MSG_FIELD_I(guid.metaDataPtr) = NULL;
-                PD_MSG_FIELD_I(currentEdt.guid) = curEdt ? curEdt->guid : NULL_GUID;
-                PD_MSG_FIELD_I(currentEdt.metaDataPtr) = curEdt;
-                PD_MSG_FIELD_I(properties) = 0;
-                u8 returnCode __attribute__((unused)) = pd->fcts.processMessage(pd, &msg, false);
-                ASSERT(returnCode == 0);
-#undef PD_MSG
-#undef PD_TYPE
-            }
+            ASSERT(ocrGuidIsNull(base->finishLatch) || ocrGuidIsUninitialized(base->finishLatch));
 
             // Need to decrement the parent latch since the EDT didn't run
             if (!(ocrGuidIsNull(base->parentLatch))) {
@@ -686,7 +619,6 @@ u8 destructTaskHc(ocrTask_t* base) {
 #define PD_TYPE PD_MSG_DEP_SATISFY
                 //TODO ABA issue here if not REQ_RESP ?
                 msg.type = PD_MSG_DEP_SATISFY | PD_MSG_REQUEST;
-                // PD_MSG_FIELD_I(satisfierGuid) = {(curEdt ? curEdt->guid : NULL_GUID), curEdt};
                 PD_MSG_FIELD_I(satisfierGuid.guid) = (curEdt ? curEdt->guid : NULL_GUID);
                 PD_MSG_FIELD_I(satisfierGuid.metaDataPtr) = curEdt;
                 PD_MSG_FIELD_I(guid.guid) = base->parentLatch;
@@ -777,6 +709,7 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
     ocrPolicyDomain_t *pd = NULL;
     ocrTask_t *curTask = NULL;
     getCurrentEnv(&pd, NULL, &curTask, NULL);
+    ocrFatGuid_t currentEdt = {.guid = ((curTask) ? curTask->guid : NULL_GUID), curTask};
     ocrFatGuid_t resultGuid = *edtGuid;
     u32 hintc = hasProperty(properties, EDT_PROP_NO_HINT) ? 0 : OCR_HINT_COUNT_EDT_HC;
     u32 szMd = sizeof(ocrTaskHc_t) + paramc*sizeof(u64) + depc*sizeof(regNode_t) + hintc*sizeof(u64);
@@ -809,71 +742,40 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
     allocateNewTaskHc(pd, &resultGuid, &returnValue,
                       szMd, targetLoc, properties);
 
-    ocrTask_t *base = (ocrTask_t*)(resultGuid.metaDataPtr);
-    ocrTaskHc_t* edt = (ocrTaskHc_t*)base;
+    ocrTask_t * self = (ocrTask_t*)(resultGuid.metaDataPtr);
+    ocrTaskHc_t* dself = (ocrTaskHc_t*)self;
     ocrGuid_t taskGuid = resultGuid.guid; // Temporary storage for task GUID
-    ASSERT(edt);
+    ASSERT(dself);
     // Labeled case most likely. We return and don't create the event
     if(returnValue)
         return returnValue;
 
-    // We need an output event for the EDT if either:
-    //  - the user requested one (outputEventPtr is non NULL)
-    //  - the EDT is a finish EDT (and therefore we need to link
-    //    the output event to the latch event)
-    //  - the EDT is within a finish scope (and we need to link to
-    //    that latch event)
-    ASSERT(outputEventPtr != NULL); // This should always be initialized
+    // We need an output event if the user requested it.
+    // This is always initialized and the guid is either uninitialized or null_guid
+    ASSERT(outputEventPtr != NULL);
     ocrFatGuid_t outputEvent = {.guid = NULL_GUID, .metaDataPtr = NULL};
-
+    // Check if we need an output event created
 #ifdef ENABLE_OCR_API_DEFERRABLE
-    ocrFatGuid_t defFinish;
-    // In deferred, when we have a finish the output event is the latch event
-    defFinish.guid = NULL_GUID;
-    defFinish.metaDataPtr = NULL;
-    if (hasProperty(properties, EDT_PROP_FINISH)) {
-        // Creating a finish EDT and requested an output-event
-        // With PARAM_DEF the call are synchronous even in deferred. In that case
-        // the outputEventPtr doesn't hold a valid GUID. Hence only read if non-uninitialized
-        if (!ocrGuidIsUninitialized(outputEventPtr->guid)) {
-            //TODO-DEFERRED: Seems ill defined, now I can't know if the user did
-            //request an outputEventPtr but it doesn't really matter since we generate one
-            //anyway when we have a finish scope. In deferred the user/rt interface will have
-            //read the guid from outputEventPtr anyway
-            defFinish = *outputEventPtr;
-        } else {
-            outputEventPtr->guid = UNINITIALIZED_GUID;
-        }
-    }
+    if (!ocrGuidIsNull(outputEventPtr->guid)) {
+        // In deferred the GUID is either null or valid but no instance attached to it
+        ASSERT(!ocrGuidIsUninitialized(outputEventPtr->guid));
+#else
+    if (ocrGuidIsUninitialized(outputEventPtr->guid)) {
+        // In non-deferred, an unitialized guid indicates the user requested a creation
 #endif
-    if (!ocrGuidIsNull(outputEventPtr->guid) || hasProperty(properties, EDT_PROP_FINISH) ||
-        !(ocrGuidIsNull(parentLatch.guid))) {
         PD_MSG_STACK(msg2);
         getCurrentEnv(NULL, NULL, NULL, &msg2);
 #define PD_MSG (&msg2)
 #define PD_TYPE PD_MSG_EVT_CREATE
         msg2.type = PD_MSG_EVT_CREATE | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
-        PD_MSG_FIELD_IO(guid.guid) = outputEventPtr->guid; // May or may not be read depending on props
+        PD_MSG_FIELD_IO(guid.guid) = outputEventPtr->guid; // InOut depending on props
         PD_MSG_FIELD_IO(guid.metaDataPtr) = NULL;
-        PD_MSG_FIELD_I(currentEdt.guid) = curTask!=NULL?curTask->guid:NULL_GUID;
-        PD_MSG_FIELD_I(currentEdt.metaDataPtr) = curTask;
+        PD_MSG_FIELD_I(currentEdt) = currentEdt;
 #ifdef ENABLE_EXTENSION_PARAMS_EVT
         PD_MSG_FIELD_I(params) = NULL;
 #endif
-        //In deferred properties carry the valid and torecord flags
-#ifdef ENABLE_OCR_API_DEFERRABLE
         PD_MSG_FIELD_I(properties) = (properties & GUID_RT_PROP_ALL) | GUID_PROP_TORECORD;
-        // Since we used the output event to store the finish latch event, we must remove
-        // the isvalid flag so as to generate a proper output event.
-        // Also, the valid flag could be set for the EDT guid while the output event hadn't been requested
-        if (ocrGuidIsNull(outputEventPtr->guid) || ocrGuidIsUninitialized(outputEventPtr->guid)) {
-            PD_MSG_FIELD_I(properties) &= ~GUID_PROP_ISVALID;
-        }
-#else
-        PD_MSG_FIELD_I(properties) = (properties & GUID_RT_PROP_ALL) | GUID_PROP_TORECORD;
-#endif
-        PD_MSG_FIELD_I(type) = OCR_EVENT_ONCE_T; // Output events of EDTs are non sticky
-
+        PD_MSG_FIELD_I(type) = OCR_EVENT_ONCE_T; // Default OE type
         RESULT_PROPAGATE2(pd->fcts.processMessage(pd, &msg2, true), 1);
         outputEvent = PD_MSG_FIELD_IO(guid);
         ASSERT(!ocrGuidIsNull(outputEvent.guid));
@@ -883,67 +785,64 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
     }
 
     // Set up the base's base
-    base->base.fctId = factory->factoryId;
+    self->base.fctId = factory->factoryId;
     // Set-up base structures
-    base->templateGuid = edtTemplate.guid;
+    self->templateGuid = edtTemplate.guid;
     ASSERT(edtTemplate.metaDataPtr); // For now we just assume it is passed whole
-    base->funcPtr = ((ocrTaskTemplate_t*)(edtTemplate.metaDataPtr))->executePtr;
-    base->paramv = (paramc > 0) ? ((u64*)((u64)base + sizeof(ocrTaskHc_t))) : NULL;
+    self->funcPtr = ((ocrTaskTemplate_t*)(edtTemplate.metaDataPtr))->executePtr;
+    self->paramv = (paramc > 0) ? ((u64*)((u64)self + sizeof(ocrTaskHc_t))) : NULL;
 #ifdef OCR_ENABLE_EDT_NAMING
-    hal_memCopy(&(base->name[0]), &(((ocrTaskTemplate_t*)(edtTemplate.metaDataPtr))->name[0]),
+    hal_memCopy(&(self->name[0]), &(((ocrTaskTemplate_t*)(edtTemplate.metaDataPtr))->name[0]),
                 ocrStrlen(&(((ocrTaskTemplate_t*)(edtTemplate.metaDataPtr))->name[0])) + 1, false);
 #endif
-    base->outputEvent = outputEvent.guid;
-#ifdef ENABLE_OCR_API_DEFERRABLE
-    base->finishLatch = defFinish.guid;
-#else
-    base->finishLatch = NULL_GUID;
-#endif
-    base->parentLatch = parentLatch.guid;
+    self->outputEvent = outputEvent.guid;
+    // Sentinel value to remember a finish scope must be created when the EDT start executing
+    self->finishLatch = (hasProperty(properties, EDT_PROP_FINISH)) ? UNINITIALIZED_GUID : NULL_GUID;
+    self->parentLatch = parentLatch.guid;
     u32 i;
     for(i = 0; i < ELS_SIZE; ++i) {
-        base->els[i] = NULL_GUID;
+        self->els[i] = NULL_GUID;
     }
-    base->state = CREATED_EDTSTATE;
-    base->paramc = paramc;
-    base->depc = depc;
-    base->flags = 0;
-    base->fctId = factory->factoryId;
+    self->state = CREATED_EDTSTATE;
+    self->paramc = paramc;
+    self->depc = depc;
+    self->flags = 0;
+    self->fctId = factory->factoryId;
     for(i = 0; i < paramc; ++i) {
-        base->paramv[i] = paramv[i];
+        self->paramv[i] = paramv[i];
     }
-    edt->signalers = (regNode_t*)((u64)edt + sizeof(ocrTaskHc_t) + paramc*sizeof(u64));
+    dself->signalers = (regNode_t*)((u64)dself + sizeof(ocrTaskHc_t) + paramc*sizeof(u64));
     // Initialize the signalers properly
     for(i = 0; i < depc; ++i) {
-        edt->signalers[i].guid = UNINITIALIZED_GUID;
-        edt->signalers[i].slot = i;
-        edt->signalers[i].mode = -1; //Systematically set when adding dependence
+        dself->signalers[i].guid = UNINITIALIZED_GUID;
+        dself->signalers[i].slot = i;
+        dself->signalers[i].mode = -1; //Systematically set when adding dependence
     }
 
     if (hintc == 0) {
-        edt->hint.hintMask = 0;
-        edt->hint.hintVal = NULL;
+        dself->hint.hintMask = 0;
+        dself->hint.hintVal = NULL;
     } else {
-        base->flags |= OCR_TASK_FLAG_USES_HINTS;
+        self->flags |= OCR_TASK_FLAG_USES_HINTS;
         ocrTaskTemplateHc_t *derived = (ocrTaskTemplateHc_t*)(edtTemplate.metaDataPtr);
-        edt->hint.hintMask = derived->hint.hintMask;
-        edt->hint.hintVal = (u64*)((u64)base + sizeof(ocrTaskHc_t) + paramc*sizeof(u64) + depc*sizeof(regNode_t));
+        dself->hint.hintMask = derived->hint.hintMask;
+        dself->hint.hintVal = (u64*)((u64)self + sizeof(ocrTaskHc_t) + paramc*sizeof(u64) + depc*sizeof(regNode_t));
         u64 hintSize = OCR_RUNTIME_HINT_GET_SIZE(derived->hint.hintMask);
-        for (i = 0; i < hintc; i++) edt->hint.hintVal[i] = (hintSize == 0) ? 0 : derived->hint.hintVal[i]; //copy the hints from the template
-        if (hint != NULL_HINT) factory->fcts.setHint(base, hint);
+        for (i = 0; i < hintc; i++) dself->hint.hintVal[i] = (hintSize == 0) ? 0 : derived->hint.hintVal[i]; //copy the hints from the template
+        if (hint != NULL_HINT) factory->fcts.setHint(self, hint);
 #ifdef ENABLE_EXTENSION_PERF
-        base->taskPerfsEntry = derived->base.taskPerfsEntry;
-        ASSERT(base->taskPerfsEntry);
+        self->taskPerfsEntry = derived->base.taskPerfsEntry;
+        ASSERT(self->taskPerfsEntry);
         u64 hwCycles = 0;
         if(hint != NULL_HINT) ocrGetHintValue(hint, OCR_HINT_EDT_STATS_HW_CYCLES, &hwCycles);
 
         // If there are EDT statistics hint values, don't monitor and
         // set the task counter values directly
         if(hwCycles) {
-            base->flags &= ~OCR_TASK_FLAG_PERFMON_ME;
+            self->flags &= ~OCR_TASK_FLAG_PERFMON_ME;
         } else {
             // Look up the steadyStateMask value
-            if(base->taskPerfsEntry->steadyStateMask) base->flags |= OCR_TASK_FLAG_PERFMON_ME;
+            if(self->taskPerfsEntry->steadyStateMask) self->flags |= OCR_TASK_FLAG_PERFMON_ME;
          }
 #endif
     }
@@ -951,37 +850,41 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
     if (perInstance != NULL) {
         paramListTask_t *taskparams = (paramListTask_t*)perInstance;
         if (taskparams->workType == EDT_RT_WORKTYPE) {
-            base->flags |= OCR_TASK_FLAG_RUNTIME_EDT;
+            self->flags |= OCR_TASK_FLAG_RUNTIME_EDT;
         }
     }
 
     u64 val = 0;
     if (hint != NULL_HINT && (ocrGetHintValue(hint, OCR_HINT_EDT_AFFINITY, &val) == 0)) {
-      base->flags |= OCR_TASK_FLAG_USES_AFFINITY;
+      self->flags |= OCR_TASK_FLAG_USES_AFFINITY;
     }
 
 #ifdef ENABLE_EXTENSION_BLOCKING_SUPPORT
     if (hasProperty(properties, EDT_PROP_LONG)) {
-        base->flags |= OCR_TASK_FLAG_LONG;
+        self->flags |= OCR_TASK_FLAG_LONG;
     }
 #endif
 
     // Set up HC specific stuff
-    RESULT_PROPAGATE2(initTaskHcInternal(edt, taskGuid, pd, curEdt, outputEvent, parentLatch, properties), 1);
+    RESULT_PROPAGATE2(initTaskHcInternal(dself, taskGuid, pd, curEdt, outputEvent, parentLatch, properties), 1);
 
-    // Set up outputEventPtr:
-    //   - if a finish EDT, wait on its latch event
-    //   - if not a finish EDT, wait on its output event
-    if(!ocrGuidIsNull(outputEventPtr->guid)) { // If output event required i.e. not NULL_GUID
-        if(!(ocrGuidIsNull(base->finishLatch))) {
-            outputEventPtr->guid = base->finishLatch;
-#ifdef ENABLE_OCR_API_DEFERRABLE
-            ASSERT(ocrGuidIsEq(outputEventPtr->guid, defFinish.guid) || (ocrGuidIsNull(defFinish.guid)));
-#endif
-        } else {
-            ASSERT(!ocrGuidIsUninitialized(base->outputEvent));
-            outputEventPtr->guid = base->outputEvent;
-        }
+    // If there's a local parent latch for this EDT, register to it
+    if (!(ocrGuidIsNull(parentLatch.guid)) && isLocalGuid(pd, parentLatch.guid)) {
+        DPRINTF(DEBUG_LVL_INFO, "Checkin "GUIDF" on local parent finish latch "GUIDF"\n", GUIDA(taskGuid), GUIDA(parentLatch.guid));
+        PD_MSG_STACK(msg);
+        getCurrentEnv(NULL, NULL, NULL, &msg);
+        ocrFatGuid_t edtCheckin = {.guid = taskGuid, .metaDataPtr = NULL};
+        ocrFatGuid_t nullFGuid = {.guid = NULL_GUID, .metaDataPtr = NULL};
+        RESULT_PROPAGATE(doSatisfy(pd, &msg, edtCheckin, parentLatch, nullFGuid, OCR_EVENT_LATCH_INCR_SLOT));
+    }
+    // For remote creations of EDTs, the registration is handled
+    // in the distributed policy domain code instead. Not great.
+    // Also, other finish-scope scenari are handled in taskExecute.
+
+    // Write back the output event GUID parameter result
+    if(!ocrGuidIsNull(outputEventPtr->guid)) {
+        ASSERT(!ocrGuidIsUninitialized(self->outputEvent));
+        outputEventPtr->guid = self->outputEvent;
     }
 #undef PD_MSG
 #undef PD_TYPE
@@ -996,24 +899,24 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
             deguidify(pd, edtGuid, (u64*)&task, NULL);
 
             statsTEMP_USE(pd, edtGuid, task, taskTemplate->guid, taskTemplate);
-            statsEDT_CREATE(pd, edtGuid, task, base->guid, base);
+            statsEDT_CREATE(pd, edtGuid, task, self->guid, self);
         } else {
             statsTEMP_USE(pd, edtGuid, NULL, taskTemplate->guid, taskTemplate);
-            statsEDT_CREATE(pd, edtGuid, NULL, base->guid, base);
+            statsEDT_CREATE(pd, edtGuid, NULL, self->guid, self);
         }
     }
 #endif /* OCR_ENABLE_STATISTICS */
     DPRINTF(DEBUG_LVL_INFO, "Create "GUIDF" depc %"PRId32" outputEvent "GUIDF"\n", GUIDA(taskGuid), depc, GUIDA(outputEventPtr?outputEventPtr->guid:NULL_GUID));
     edtGuid->guid = taskGuid;
-    base->guid = taskGuid;
-    edtGuid->metaDataPtr = base;
+    self->guid = taskGuid;
+    edtGuid->metaDataPtr = self;
     OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_EDT, OCR_ACTION_CREATE, traceTaskCreate, edtGuid->guid);
-    // Check to see if the EDT can be run
-    if(base->depc == edt->slotSatisfiedCount) {
-        //TODO-MD-EDT: Is this an issue if the scheduler calls move here ?
+    // Check to see if the EDT can be ran
+    if(self->depc == dself->slotSatisfiedCount) {
         DPRINTF(DEBUG_LVL_INFO,
-                "Scheduling task "GUIDF" due to initial satisfactions\n", GUIDA(base->guid));
-        RESULT_PROPAGATE2(taskAllDepvSatisfied(base), 1);
+                "Scheduling task "GUIDF" due to initial satisfactions\n", GUIDA(self->guid));
+        //TODO-MD-EDT: Is this an issue if the scheduler calls move here ?
+        RESULT_PROPAGATE2(taskAllDepvSatisfied(self), 1);
     }
     return 0;
 }
@@ -1482,6 +1385,7 @@ static u8 taskEpilogue(ocrTask_t * base, ocrPolicyDomain_t *pd, ocrWorker_t * cu
     ocrTaskHc_t * derived = (ocrTaskHc_t *) base;
     u32 depc = base->depc;
     ocrEdtDep_t * depv = derived->resolvedDeps;
+    ocrFatGuid_t currentEdt = {.guid = base->guid, .metaDataPtr = base};
     PD_MSG_STACK(msg);
     START_PROFILE(ta_hc_executeCleanup);
 #ifdef OCR_ENABLE_STATISTICS
@@ -1506,8 +1410,7 @@ static u8 taskEpilogue(ocrTask_t * base, ocrPolicyDomain_t *pd, ocrWorker_t * cu
                 msg.type = PD_MSG_DB_RELEASE | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
                 PD_MSG_FIELD_IO(guid.guid) = depv[i].guid;
                 PD_MSG_FIELD_IO(guid.metaDataPtr) = NULL;
-                PD_MSG_FIELD_I(edt.guid) = base->guid;
-                PD_MSG_FIELD_I(edt.metaDataPtr) = base;
+                PD_MSG_FIELD_I(edt) = currentEdt;
                 PD_MSG_FIELD_I(srcLoc) = pd->myLocation;
                 PD_MSG_FIELD_I(ptr) = NULL;
                 PD_MSG_FIELD_I(size) = 0;
@@ -1534,8 +1437,7 @@ static u8 taskEpilogue(ocrTask_t * base, ocrPolicyDomain_t *pd, ocrWorker_t * cu
             msg.type = PD_MSG_DB_RELEASE | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
             PD_MSG_FIELD_IO(guid.guid) = extraToFree[0];
             PD_MSG_FIELD_IO(guid.metaDataPtr) = NULL;
-            PD_MSG_FIELD_I(edt.guid) = base->guid;
-            PD_MSG_FIELD_I(edt.metaDataPtr) = base;
+            PD_MSG_FIELD_I(edt) = currentEdt;
             PD_MSG_FIELD_I(srcLoc) = pd->myLocation;
             PD_MSG_FIELD_I(ptr) = NULL;
             PD_MSG_FIELD_I(size) = 0;
@@ -1555,55 +1457,55 @@ static u8 taskEpilogue(ocrTask_t * base, ocrPolicyDomain_t *pd, ocrWorker_t * cu
     // If marked to be rescheduled, do not satisfy output
     // event and do not update the task state to reaping
     if (base->state == RUNNING_EDTSTATE) {
-        // Now deal with the output event
-        if(!(ocrGuidIsNull(base->outputEvent))) {
-            if(!(ocrGuidIsNull(retGuid))) {
+        bool hasParent = !ocrGuidIsNull(base->parentLatch);
+        bool hasFinish = !ocrGuidIsNull(base->finishLatch);
+        bool hasOutputEvent = !ocrGuidIsNull(base->outputEvent);
+        if(hasFinish) {
+            DPRINTF(DEBUG_LVL_VVERB, "EDT epilogue: satisfy finish scope "GUIDF"\n", GUIDA(base->finishLatch));
+            // If we have a finish scope, just need to satisfy that event, which
+            // does take care of, if any, the parent latch and maybe the output event.
+            getCurrentEnv(NULL, NULL, NULL, &msg);
+            ocrFatGuid_t finishLatchFGuid = {.guid = base->finishLatch, .metaDataPtr = NULL};
+            ocrFatGuid_t retFGuid = {.guid = retGuid, .metaDataPtr = NULL};
+            RESULT_PROPAGATE(doSatisfy(pd, &msg, currentEdt, finishLatchFGuid, retFGuid, OCR_EVENT_LATCH_DECR_SLOT));
+            // If the finish scope is really a proxy scope, i.e. we conserved the parent latch GUID,
+            // we also need to satisfy the output event.
+            bool isProxyFinish = (hasParent && !isLocalGuid(pd, base->parentLatch));
+            if (isProxyFinish && hasOutputEvent) {
+                DPRINTF(DEBUG_LVL_VVERB, "EDT epilogue: satisfy output event "GUIDF"\n", GUIDA(base->outputEvent));
                 getCurrentEnv(NULL, NULL, NULL, &msg);
-#define PD_MSG (&msg)
-#define PD_TYPE PD_MSG_DEP_ADD
-                msg.type = PD_MSG_DEP_ADD | PD_MSG_REQUEST;
-                PD_MSG_FIELD_I(source.guid) = retGuid;
-                PD_MSG_FIELD_I(source.metaDataPtr) = NULL;
-                PD_MSG_FIELD_I(dest.guid) = base->outputEvent;
-                PD_MSG_FIELD_I(dest.metaDataPtr) = NULL;
-                PD_MSG_FIELD_I(currentEdt.guid) = base->guid;
-                PD_MSG_FIELD_I(currentEdt.metaDataPtr) = base;
-                PD_MSG_FIELD_I(slot) = 0; // Always satisfy on slot 0. This will trickle to
-                // the finish latch if needed
-                PD_MSG_FIELD_IO(properties) = DB_MODE_CONST;
-                // Ignore failure for now
-                // Bug #615
-                pd->fcts.processMessage(pd, &msg, false);
-#undef PD_MSG
-#undef PD_TYPE
-            } else {
-                getCurrentEnv(NULL, NULL, NULL, &msg);
-#define PD_MSG (&msg)
-#define PD_TYPE PD_MSG_DEP_SATISFY
-                msg.type = PD_MSG_DEP_SATISFY | PD_MSG_REQUEST;
-                PD_MSG_FIELD_I(satisfierGuid.guid) = base->guid;
-                PD_MSG_FIELD_I(satisfierGuid.metaDataPtr) = base;
-                PD_MSG_FIELD_I(guid.guid) = base->outputEvent;
-                PD_MSG_FIELD_I(guid.metaDataPtr) = NULL;
-                PD_MSG_FIELD_I(payload.guid) = retGuid;
-                PD_MSG_FIELD_I(payload.metaDataPtr) = NULL;
-                PD_MSG_FIELD_I(currentEdt.guid) = base->guid;
-                PD_MSG_FIELD_I(currentEdt.metaDataPtr) = base;
-                PD_MSG_FIELD_I(slot) = 0; // Always satisfy on slot 0. This will trickle to
-                // the finish latch if needed
-#ifdef REG_ASYNC_SGL
-                PD_MSG_FIELD_I(mode) = -1; //db is a NULL_GUID
-#endif
-                PD_MSG_FIELD_I(properties) = 0;
-                // Ignore failure for now
-                // Bug #615
-                pd->fcts.processMessage(pd, &msg, false);
-#undef PD_MSG
-#undef PD_TYPE
+                ocrFatGuid_t outputEventFGuid = {.guid = base->outputEvent, .metaDataPtr = NULL};
+                doAddDep(pd, &msg, currentEdt, retFGuid, outputEventFGuid, 0);
             }
-            // Because the output event is non-persistent it is deallocated automatically
-            base->outputEvent = NULL_GUID;
+        } else if (hasParent) {
+            DPRINTF(DEBUG_LVL_VVERB, "EDT epilogue: satisfy parent finish scope "GUIDF"\n", GUIDA(base->finishLatch));
+            // If we have a parent latch but no finish scope, satisfy its decrement slot.
+            ASSERT(ocrGuidIsNull(base->finishLatch));
+            ASSERT(isLocalGuid(pd, base->parentLatch)); // By construction for perfs
+            getCurrentEnv(NULL, NULL, NULL, &msg);
+            ocrFatGuid_t parentLatchFGuid = {.guid = base->parentLatch, .metaDataPtr = NULL};
+            ocrFatGuid_t nullFGuid = {.guid = NULL_GUID, .metaDataPtr = NULL};
+            RESULT_PROPAGATE(doSatisfy(pd, &msg, currentEdt, parentLatchFGuid, nullFGuid, OCR_EVENT_LATCH_DECR_SLOT));
+            // Also take care of satisfying the output event
+            if (hasOutputEvent) {
+                DPRINTF(DEBUG_LVL_VVERB, "EDT epilogue: satisfy output event "GUIDF"\n", GUIDA(base->outputEvent));
+                getCurrentEnv(NULL, NULL, NULL, &msg);
+                ocrFatGuid_t outputEventFGuid = {.guid = base->outputEvent, .metaDataPtr = NULL};
+                ocrFatGuid_t retFGuid = {.guid = retGuid, .metaDataPtr = NULL};
+                doAddDep(pd, &msg, currentEdt, retFGuid, outputEventFGuid, 0);
+            }
+        } else if (hasOutputEvent) {
+            DPRINTF(DEBUG_LVL_VVERB, "EDT epilogue: satisfy output event "GUIDF"\n", GUIDA(base->outputEvent));
+            // No finish scope nor parent latch, just need to satisfy the output ovent
+            ASSERT(ocrGuidIsNull(base->finishLatch));
+            ASSERT(ocrGuidIsNull(base->parentLatch));
+            getCurrentEnv(NULL, NULL, NULL, &msg);
+            ocrFatGuid_t outputEventFGuid = {.guid = base->outputEvent, .metaDataPtr = NULL};
+            ocrFatGuid_t retFGuid = {.guid = retGuid, .metaDataPtr = NULL};
+            doAddDep(pd, &msg, currentEdt, retFGuid, outputEventFGuid, 0);
         }
+        // Because the output event is non-persistent it is deallocated automatically
+        base->outputEvent = NULL_GUID;
         base->state = REAPING_EDTSTATE;
     }
 #ifdef ENABLE_EXTENSION_BLOCKING_SUPPORT
@@ -1644,9 +1546,93 @@ u8 taskExecute(ocrTask_t* base) {
     u32 depc = base->depc;
     ocrPolicyDomain_t *pd = NULL;
     ocrWorker_t *curWorker = NULL;
+    getCurrentEnv(&pd, &curWorker, NULL, NULL);
     ocrEdtDep_t * depv = derived->resolvedDeps;
     {
         START_PROFILE(ta_hc_executeSetup);
+        // Deal with finish scopes
+        // If creating a new finish scope
+        //   Create a new latch event
+        //   If there's a parent latch
+        //     Checkin with the new latch event
+        //     Note there's no need to check-in with the parent latch since it is done on EDT's creation.
+        //     Add dependence between the new finish scope and the parent latch decr
+        // Else
+        //   If there's a parent latch
+        //     If it is remote
+        //       Create a new latch event
+        //       Incr by one
+        //       Add dependence between the new latch and my output event
+        //       Add dependence between the new latch and the parent latch
+        //     Else
+        //       Nothing to do as the parent latch is incremented on creation
+        ocrGuid_t taskGuid = base->guid;
+        bool hasOutputEvent = !ocrGuidIsNull(base->outputEvent);
+        bool hasFinish = ocrGuidIsUninitialized(base->finishLatch);
+        bool hasParent = !ocrGuidIsNull(base->parentLatch);
+        bool hasLocalParent = hasParent && isLocalGuid(pd, base->parentLatch);
+        bool needProxy = (hasParent && !hasLocalParent);
+
+        if (hasFinish || needProxy) {
+            PD_MSG_STACK(msg);
+            getCurrentEnv(NULL, NULL, NULL, &msg);
+            ocrFatGuid_t currentEdt;
+            currentEdt.guid = taskGuid;
+            currentEdt.metaDataPtr = base;
+            ocrFatGuid_t newFinishLatchFGuid = {.guid = NULL_GUID, .metaDataPtr = NULL};
+#define PD_MSG (&msg)
+#define PD_TYPE PD_MSG_EVT_CREATE
+            msg.type = PD_MSG_EVT_CREATE | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
+            PD_MSG_FIELD_IO(guid) = newFinishLatchFGuid;
+            PD_MSG_FIELD_I(currentEdt) = currentEdt;
+            PD_MSG_FIELD_I(type) = OCR_EVENT_LATCH_T;
+#ifdef ENABLE_EXTENSION_PARAMS_EVT
+            ocrEventParams_t latchParams;
+            latchParams.EVENT_LATCH.counter = 1;
+            PD_MSG_FIELD_I(params) = &latchParams;
+#endif
+            PD_MSG_FIELD_I(properties) = 0;
+            RESULT_PROPAGATE(pd->fcts.processMessage(pd, &msg, true));
+            newFinishLatchFGuid = PD_MSG_FIELD_IO(guid);
+            ASSERT(!(ocrGuidIsNull(newFinishLatchFGuid.guid)) && newFinishLatchFGuid.metaDataPtr != NULL);
+            base->finishLatch = newFinishLatchFGuid.guid;
+#undef PD_MSG
+#undef PD_TYPE
+#ifndef ENABLE_EXTENSION_PARAMS_EVT
+            // Account for this EDT as being part of its local finish scope
+            getCurrentEnv(NULL, NULL, NULL, &msg);
+            ocrFatGuid_t nullFGuid = {.guid = NULL_GUID, .metaDataPtr = NULL};
+            RESULT_PROPAGATE(doSatisfy(pd, &msg, currentEdt, newFinishLatchFGuid, nullFGuid, OCR_EVENT_LATCH_INCR_SLOT));
+#endif
+            // Link the new finish scope to the parent finish scope
+            if (hasParent) {
+                DPRINTF(DEBUG_LVL_VVERB, "EDT check in on parent finish latch "GUIDF"\n", GUIDA(base->parentLatch));
+                getCurrentEnv(NULL, NULL, NULL, &msg);
+#if defined(TG_X86_TARGET) || defined(TG_XE_TARGET) || defined(TG_CE_TARGET)
+                // On TG, the event is created by the CE? and the XE does the satisfy
+                // Shouldn't that become blocking ?
+#else
+                ASSERT(isLocalGuid(pd, newFinishLatchFGuid.guid)); // By construction for perfs
+#endif
+                ocrFatGuid_t parentLatchFGuid = {.guid = base->parentLatch, .metaDataPtr = NULL};
+                doAddDep(pd, &msg, currentEdt, newFinishLatchFGuid, parentLatchFGuid, OCR_EVENT_LATCH_DECR_SLOT);
+            }
+            if (hasFinish) {
+                // Now that we've setup everything, if we're defining a new finish scope,
+                // we forget we had a parent. This is essentially a sentinel value that
+                // helps disambiguate which actions need to be carried out in the epilogue.
+                base->parentLatch = NULL_GUID;
+                if (hasOutputEvent) {
+                    // Link the new finish scope to the output event only if it's not a proxy finish scope
+                    // Otherwise we would unnecessarily delay the output event satisfaction to the proxy scope.
+                    DPRINTF(DEBUG_LVL_VVERB, "Link finish scope "GUIDF" to output event "GUIDF"\n", GUIDA(newFinishLatchFGuid.guid), GUIDA(base->outputEvent));
+                    getCurrentEnv(NULL, NULL, NULL, &msg);
+                    ocrFatGuid_t outputEventFGuid = {.guid = base->outputEvent, .metaDataPtr = NULL};
+                    doAddDep(pd, &msg, currentEdt, newFinishLatchFGuid, outputEventFGuid, 0);
+                }
+            }
+        }
+
 #ifdef NANNYMODE_SAFE_DEPV
         ocrEdtDep_t defensiveDepv[depc];
         hal_memCopy(defensiveDepv, depv, sizeof(ocrEdtDep_t)*depc, false);
@@ -1658,7 +1644,6 @@ u8 taskExecute(ocrTask_t* base) {
         OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_EDT, OCR_ACTION_EXECUTE, traceTaskExecute, base->guid, base->funcPtr);
 
         ASSERT(derived->unkDbs == NULL); // Should be no dynamically acquired DBs before running
-        getCurrentEnv(&pd, &curWorker, NULL, NULL);
 
 #ifdef OCR_ENABLE_STATISTICS
         // Bug #225
@@ -1723,7 +1708,6 @@ u8 taskExecute(ocrTask_t* base) {
         depv = derived->resolvedDeps;
         u32 ch = 0;
         while (ch < depc) {
-            DPRINTF(DEBUG_LVL_WARN, "check %p %p %p %p\n",&defensiveDepv[ch], &depv[ch], defensiveDepv[ch].ptr, depv[ch].ptr);
             if (memcmp((char *)&defensiveDepv[ch], (char *)&depv[ch], sizeof(ocrEdtDep_t)) != 0) {
                 DPRINTF(DEBUG_LVL_WARN, "Warning: EDT %s "GUIDF" had depv[%"PRIu32"] modified by user code",
 #ifdef OCR_ENABLE_EDT_NAMING
@@ -1797,7 +1781,7 @@ u8 taskExecute(ocrTask_t* base) {
 
 u8 processEventTaskHc(ocrObject_t *self, pdEvent_t** evt, u32 idx) {
 #ifdef ENABLE_OCR_API_DEFERRABLE_MT
-    DPRINTF(DEBUG_LVL_WARN, "processEventTaskHc executing CONTINUATION_EDT_EPILOGUE\n");
+    DPRINTF(DEBUG_LVL_VVERB, "processEventTaskHc executing CONTINUATION_EDT_EPILOGUE\n");
     ASSERT((evt != NULL) && (*evt != NULL));
     pdEventFct_t * devt = (pdEventFct_t *) *evt;
     ASSERT(devt->id == CONTINUATION_EDT_EPILOGUE);

@@ -691,9 +691,11 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
 
         // The placer may have altered msg->destLocation
         // We override if it is labeled
+        //TODO shouldn't this be handled by the placer ITSELF somehow ?
         if(PD_MSG_FIELD_I(properties) & GUID_PROP_IS_LABELED) {
             RETRIEVE_LOCATION_FROM_GUID_MSG(self, msg->destLocation, IO);
         }
+
         if (msg->destLocation == curLoc) {
             DPRINTF(DEBUG_LVL_VVERB,"WORK_CREATE: local EDT creation for template GUID "GUIDF"\n", GUIDA(PD_MSG_FIELD_I(templateGuid.guid)));
         } else {
@@ -720,88 +722,34 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
             DPRINTF(DEBUG_LVL_VVERB,"WORK_CREATE: remote EDT creation at %"PRIu64" for template GUID "GUIDF"\n", (u64)msg->destLocation, GUIDA(PD_MSG_FIELD_I(templateGuid.guid)));
 #undef PD_MSG
 #undef PD_TYPE
-            /* The support for finish EDT and latch in distributed OCR
-             * has the following implementation currently:
-             * Whenever an EDT needs to be created on a remote node,
-             * then a proxy latch is created on the remote node if
-             * there is a parent latch to report to on the source node.
-             * So, when a parent EDT creates a child EDT on a remote node,
-             * the local latch is first incremented on the source node.
-             * This latch will eventually be decremented through the proxy
-             * latch on the remote node.
-             */
+            // Before remotely creating the EDT, increment the parent finish scope.
+            // On the remote end, a local finish scope is then created and tied to this one.
             if (!(ocrGuidIsNull(parentLatch.guid))) {
                 ocrLocation_t parentLatchLoc;
                 RETRIEVE_LOCATION_FROM_GUID(self, parentLatchLoc, parentLatch.guid);
-                if (parentLatchLoc == curLoc) {
-                    //Check in to parent latch
-                    PD_MSG_STACK(msg2);
-                    getCurrentEnv(NULL, NULL, NULL, &msg2);
-#define PD_MSG (&msg2)
-#define PD_TYPE PD_MSG_DEP_SATISFY
-                    // This message MUST be fully processed (i.e. parentLatch satisfied)
-                    // before we return. Otherwise there's a race between this registration
-                    // and the current EDT finishing.
-                    msg2.type = PD_MSG_DEP_SATISFY | PD_MSG_REQUEST;
-                    PD_MSG_FIELD_I(satisfierGuid.guid) = NULL_GUID; // BUG #587: what to set these as?
-                    PD_MSG_FIELD_I(satisfierGuid.metaDataPtr) = NULL;
-                    PD_MSG_FIELD_I(guid) = parentLatch;
-                    PD_MSG_FIELD_I(payload.guid) = NULL_GUID;
-                    PD_MSG_FIELD_I(payload.metaDataPtr) = NULL;
-                    PD_MSG_FIELD_I(currentEdt) = currentEdt;
-                    PD_MSG_FIELD_I(slot) = OCR_EVENT_LATCH_INCR_SLOT;
-#ifdef REG_ASYNC_SGL
-                    PD_MSG_FIELD_I(mode) = -1; //Doesn't matter for latch
-#endif
-                    PD_MSG_FIELD_I(properties) = 0;
-                    RESULT_PROPAGATE(self->fcts.processMessage(self, &msg2, true));
-#undef PD_MSG
-#undef PD_TYPE
-                } // else, will create a proxy event at current location
-            }
-        }
-
-        if ((msg->srcLocation != curLoc) && (msg->destLocation == curLoc)) {
-            // we're receiving a message
-            DPRINTF(DEBUG_LVL_VVERB, "WORK_CREATE: received request from %"PRIu64"\n", msg->srcLocation);
-            if (!(ocrGuidIsNull(parentLatch.guid))) {
-                //Create a proxy latch in current node
-                /* On the remote side, a proxy latch is first created and a dep
-                 * is added to the source latch. Within the remote node, this
-                 * proxy latch becomes the new parent latch for the EDT to be
-                 * created inside the remote node.
-                 */
+                //By construction the parent latch is always local
+                ASSERT(parentLatchLoc == curLoc);
+                //Check in to parent latch
                 PD_MSG_STACK(msg2);
                 getCurrentEnv(NULL, NULL, NULL, &msg2);
 #define PD_MSG (&msg2)
-#define PD_TYPE PD_MSG_EVT_CREATE
-                msg2.type = PD_MSG_EVT_CREATE | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
-                PD_MSG_FIELD_IO(guid.guid) = NULL_GUID;
-                PD_MSG_FIELD_IO(guid.metaDataPtr) = NULL;
+#define PD_TYPE PD_MSG_DEP_SATISFY
+                // This message MUST be fully processed (i.e. parentLatch satisfied)
+                // before we return. Otherwise there's a race between this registration
+                // and the current EDT finishing.
+                msg2.type = PD_MSG_DEP_SATISFY | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
+                PD_MSG_FIELD_I(satisfierGuid.guid) = NULL_GUID; // BUG #587: what to set these as?
+                PD_MSG_FIELD_I(satisfierGuid.metaDataPtr) = NULL;
+                PD_MSG_FIELD_I(guid) = parentLatch;
+                PD_MSG_FIELD_I(payload.guid) = NULL_GUID;
+                PD_MSG_FIELD_I(payload.metaDataPtr) = NULL;
                 PD_MSG_FIELD_I(currentEdt) = currentEdt;
-#ifdef ENABLE_EXTENSION_PARAMS_EVT
-                PD_MSG_FIELD_I(params) = NULL;
+                PD_MSG_FIELD_I(slot) = OCR_EVENT_LATCH_INCR_SLOT;
+#ifdef REG_ASYNC_SGL
+                PD_MSG_FIELD_I(mode) = -1; //Doesn't matter for latch
 #endif
                 PD_MSG_FIELD_I(properties) = 0;
-                PD_MSG_FIELD_I(type) = OCR_EVENT_LATCH_T;
                 RESULT_PROPAGATE(self->fcts.processMessage(self, &msg2, true));
-
-                ocrFatGuid_t latchFGuid = PD_MSG_FIELD_IO(guid);
-#undef PD_TYPE
-#define PD_TYPE PD_MSG_DEP_ADD
-                msg2.type = PD_MSG_DEP_ADD | PD_MSG_REQUEST;
-                PD_MSG_FIELD_IO(properties) = DB_MODE_CONST; // not called from add-dependence
-                PD_MSG_FIELD_I(source) = latchFGuid;
-                PD_MSG_FIELD_I(dest) = parentLatch;
-                PD_MSG_FIELD_I(currentEdt) = currentEdt;
-                PD_MSG_FIELD_I(slot) = OCR_EVENT_LATCH_DECR_SLOT;
-                RESULT_PROPAGATE(self->fcts.processMessage(self, &msg2, true));
-#undef PD_MSG
-#undef PD_TYPE
-
-#define PD_MSG msg
-#define PD_TYPE PD_MSG_WORK_CREATE
-                PD_MSG_FIELD_I(parentLatch) = latchFGuid;
 #undef PD_MSG
 #undef PD_TYPE
             }
