@@ -62,13 +62,13 @@ def RewriteConfig(cfg):
             if section == 1 and 'start' in line:
                 line = '   start = \t' + hex(long(platstart,16)+binsize) + '\n'
             if section == 1 and 'size' in line:
-                line = '   size =\t' + hex(long(platsize,16)-binsize) + '\n'
+                line = '   size =\t' + hex(long(platsize,16)-binsize-0x100) + '\n'
                 section = 0
             if section == 2 and 'size' in line:
-                line = '   size =\t' + hex(long(tgtsize,16)-binsize) + '\n'
+                line = '   size =\t' + hex(long(tgtsize,16)-binsize-0x100) + '\n'
                 section = 0
             if section == 3 and 'size' in line:
-                line = '   size =\t' + hex(long(allocsize,16)-binsize) + '\n'
+                line = '   size =\t' + hex(long(allocsize,16)-binsize-0x100) + '\n'
                 section = 0
 
             fp.write(line)

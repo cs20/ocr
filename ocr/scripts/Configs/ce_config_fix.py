@@ -49,6 +49,8 @@ def ExtractValues(infilename):
     m4 = config.get('SocketGlobal', 'ipm_size').strip(' ').split(' ')[0]
     m4 = int(''.join(itertools.takewhile(lambda s: s.isdigit(), m4)))
     m4 = m4 * 1024 * 1024
+    m4 = m4 - 0x2000000   # 8*0x400000 = 0x2000000 is for stack
+    m4 = m4 - 0xc00000    # used by tgkrnl & rodat
     m5 = config.get('SocketGlobal', 'dram_size').strip(' ').split(' ')[0]
     m5 = int(''.join(itertools.takewhile(lambda s: s.isdigit(), m5)))
     m5 = m5 * 1024 * 1024
@@ -118,7 +120,7 @@ def RewriteConfig(cfg):
                 section = 0
 
             if section == 4 and 'size' in line:
-                line = '   size\t=\t' + hex(m4) + '\n'
+                line = '   size\t=\t' + hex(m4) + 'ULL\n'
                 m4 = m4 - (m4 >> 5)
                 section = 0
 
@@ -135,7 +137,7 @@ def RewriteConfig(cfg):
                 section = 0
 
             if section == 40 and 'size' in line:
-                line = '   size\t=\t' + hex(m4) + '\n'
+                line = '   size\t=\t' + hex(m4) + 'ULL\n'
                 m4 = m4 - (m4 >> 5)
                 section = 0
 
@@ -150,7 +152,7 @@ def RewriteConfig(cfg):
                 section = 0
 
             if section == 400 and 'size' in line:
-                line = '   size\t=\t' + hex(m4) + '\n'
+                line = '   size\t=\t' + hex(m4) + 'ULL\n'
                 section = 0
 
             fp.write(line)
