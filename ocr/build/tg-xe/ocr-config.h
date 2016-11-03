@@ -102,6 +102,8 @@
 // Build OCR legacy support
 //#define ENABLE_EXTENSION_LEGACY
 
+#define ENABLE_EXTENSION_AFFINITY
+
 // Build pause/resume support
 // #define ENABLE_EXTENSION_PAUSE
 
@@ -116,6 +118,9 @@
 
 // Performance monitoring
 //#define ENABLE_EXTENSION_PERF
+
+// Newlib support for TG
+#define ENABLE_NEWLIB_SCAFFOLD_TG
 
 #endif /* __OCR_CONFIG_H__ */
 
