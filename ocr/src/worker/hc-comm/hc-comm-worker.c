@@ -313,7 +313,6 @@ static void workerLoopHcComm(ocrWorker_t * worker) {
         // There should be a single master PD
         ASSERT(!ocrAffinityCount(AFFINITY_PD_MASTER, &count) && (count == 1));
         ocrAffinityGet(AFFINITY_PD_MASTER, &count, &affinityMasterPD);
-
         // This is all part of the mainEdt setup
         // and should be executed by the "blessed" worker.
         void * packedUserArgv = userArgsGet();
@@ -537,9 +536,25 @@ u8 hcCommWorkerSwitchRunlevel(ocrWorker_t *self, ocrPolicyDomain_t *PD, ocrRunle
                     self->desiredState = GET_STATE(RL_USER_OK, RL_GET_PHASE_COUNT_DOWN(PD, RL_USER_OK)); // We put ourself one past
                     // so that we can then come back down when shutting down
                 } else {
+                    // // At this point, the original capable thread goes to work
+                    // self->curState = self->desiredState = GET_STATE(RL_USER_OK, RL_GET_PHASE_COUNT_DOWN(PD, RL_USER_OK));
+                    // workerLoopHcComm(self);
                     // At this point, the original capable thread goes to work
-                    self->curState = self->desiredState = GET_STATE(RL_USER_OK, RL_GET_PHASE_COUNT_DOWN(PD, RL_USER_OK));
-                    workerLoopHcComm(self);
+                    self->curState = GET_STATE(RL_USER_OK, (RL_GET_PHASE_COUNT_DOWN(PD, RL_USER_OK)));
+                    if (!((ocrWorkerHc_t*) self)->legacySecondStart) {
+                        self->desiredState = self->curState;
+                        if (properties & RL_LEGACY) {
+                            // amBlessed was set to true when the runtime is brought up in COMPUTE_OK
+                            // but it is not known whether we are in legacy mode or not at that point.
+                            // There's no blessed worker in legacy mode, flip to false so that
+                            // the master thread legacy's second start does not try to execute a mainEdt.
+                            self->amBlessed = false;
+                        }
+                        ((ocrWorkerHc_t*) self)->legacySecondStart = true;
+                    }
+                    if (!(properties & RL_LEGACY)) {
+                        workerLoopHcComm(self);
+                    }
                 }
             }
         }

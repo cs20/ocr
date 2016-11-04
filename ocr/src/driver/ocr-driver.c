@@ -170,8 +170,7 @@ static void ocrConfigInit(ocrConfig_t * ocrConfig) {
     ocrConfig->iniFile = NULL;
 }
 
-void ocrParseArgs(s32 argc, const char* argv[], ocrConfig_t * ocrConfig) {
-
+void ocrParseArgsInternal(s32 argc, const char* argv[], ocrConfig_t * ocrConfig) {
     // Zero-ed the ocrConfig
     ocrConfigInit(ocrConfig);
 
@@ -201,6 +200,19 @@ void ocrParseArgs(s32 argc, const char* argv[], ocrConfig_t * ocrConfig) {
     }
     ocrConfig->userArgc = userArgs;
     ocrConfig->userArgv = (char **) argv;
+}
+
+void platformSpecificInit(ocrConfig_t * ocrConfig);
+
+// User-facing API called before ocrLegacyInit
+// Executes platform specific initialization that must happen before the
+// runtime is started.
+void ocrParseArgs(s32 argc, const char* argv[], ocrConfig_t * ocrConfig) {
+    ocrConfigInit(ocrConfig);
+    ocrConfig->userArgc = argc;
+    ocrConfig->userArgv = (char **) argv;
+    platformSpecificInit(ocrConfig);
+    ocrParseArgsInternal(argc, argv, ocrConfig);
 }
 
 extern u32 type_max[];
@@ -1004,7 +1016,8 @@ int __attribute__ ((weak)) main(int argc, const char* argv[]) {
     // Things that must initialize before OCR is started
     platformSpecificInit(&ocrConfig);
 
-    ocrParseArgs(argc, argv, &ocrConfig);
+    // Call the internal version that does not init platform specific
+    ocrParseArgsInternal(argc, argv, &ocrConfig);
 
     // Register pointer to the mainEdt
     mainEdtSet(mainEdt);
