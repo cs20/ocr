@@ -5,6 +5,7 @@
  */
 
 #include "ocr-config.h"
+#include "ocr-errors.h"
 #ifdef ENABLE_EXTENSION_RTITF
 
 #include "debug.h"
@@ -40,6 +41,22 @@ void ocrElsUserSet(u8 offset, ocrGuid_t data) {
     getCurrentEnv(NULL, NULL, &task, NULL);
     task->els[offset] = data;
     RETURN_PROFILE();
+}
+
+/**
+   @brief Get the local data-store associated with the current EDT
+          and its size
+ **/
+u8 ocrEdtLocalStorageGet(void **ptr, u64 *elsSize) {
+    ocrTask_t *task = NULL;
+    getCurrentEnv(NULL, NULL, &task, NULL);
+    if((ptr == NULL) || (elsSize == NULL) || (task==NULL))
+        return OCR_EINVAL;
+    else {
+        *ptr = task->els;
+        *elsSize = ELS_USER_SIZE;
+    }
+    return 0;
 }
 
 void currentEdtUserGet(ocrGuid_t * edtGuid) {
