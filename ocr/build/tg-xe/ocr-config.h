@@ -122,6 +122,9 @@
 // Newlib support for TG
 //#define ENABLE_NEWLIB_SCAFFOLD_TG
 
+// Affinity (no-op for now)
+#define ENABLE_EXTENSION_AFFINITY
+
 #endif /* __OCR_CONFIG_H__ */
 
 

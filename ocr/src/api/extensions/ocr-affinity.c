@@ -29,6 +29,11 @@
 // and data to each guid.
 
 u8 ocrAffinityCount(ocrAffinityKind kind, u64 * count) {
+#if defined(TG_CE_TARGET) || defined(TG_XE_TARGET)
+    // Temporary "no-op" hack for TG
+    *count = 0;
+    return 0;
+#endif
     OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_API_AFFINITY, OCR_ACTION_GET_COUNT);
     if(kind == AFFINITY_SIM)
         return 0;
@@ -56,6 +61,13 @@ u8 ocrAffinityCount(ocrAffinityKind kind, u64 * count) {
 }
 
 u8 ocrAffinityQuery(ocrGuid_t guid, u64 * count, ocrGuid_t * affinities) {
+#if defined(TG_CE_TARGET) || defined(TG_XE_TARGET)
+    // Temporary "no-op" hack for TG
+    if(count)
+        *count = 0;
+    affinities[0] = NULL_GUID;
+    return 0;
+#endif
     OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_API_AFFINITY, OCR_ACTION_QUERY);
     START_PROFILE(api_ocrAffinityQuery);
     ocrPolicyDomain_t * pd = NULL;
@@ -93,6 +105,11 @@ u8 ocrAffinityQuery(ocrGuid_t guid, u64 * count, ocrGuid_t * affinities) {
 
 //BUG #606/#VV4 Neighbors/affinities:  This call returns affinities with identical mapping across PDs.
 u8 ocrAffinityGet(ocrAffinityKind kind, u64 * count, ocrGuid_t * affinities) {
+#if defined(TG_CE_TARGET) || defined(TG_XE_TARGET)
+    // Temporary "no-op" hack for TG
+    ASSERT(count && (*count) == 0);
+    return 0;
+#endif
     START_PROFILE(api_ocrAffinityGet);
     ocrPolicyDomain_t * pd = NULL;
     getCurrentEnv(&pd, NULL, NULL, NULL);
@@ -123,6 +140,11 @@ u8 ocrAffinityGet(ocrAffinityKind kind, u64 * count, ocrGuid_t * affinities) {
 }
 
 u8 ocrAffinityGetAt(ocrAffinityKind kind, u64 idx, ocrGuid_t * affinity) {
+#if defined(TG_CE_TARGET) || defined(TG_XE_TARGET)
+    // Temporary "no-op" hack for TG
+    *affinity = NULL_GUID;
+    return 0;
+#endif
     OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_API_AFFINITY, OCR_ACTION_GET_AT);
     START_PROFILE(api_ocrAffinityGetAt);
     ocrPolicyDomain_t * pd = NULL;
@@ -151,6 +173,11 @@ u8 ocrAffinityGetAt(ocrAffinityKind kind, u64 idx, ocrGuid_t * affinity) {
 }
 
 u8 ocrAffinityGetCurrent(ocrGuid_t * affinity) {
+#if defined(TG_CE_TARGET) || defined(TG_XE_TARGET)
+    // Temporary "no-op" hack for TG
+    *affinity = NULL_GUID;
+    return 0;
+#endif
     OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_API_AFFINITY, OCR_ACTION_GET_CURRENT);
     u64 count = 1;
     return ocrAffinityGet(AFFINITY_CURRENT, &count, affinity);
@@ -167,4 +194,3 @@ u64 ocrAffinityToHintValue(ocrGuid_t affinity) {
 }
 
 #endif /* ENABLE_EXTENSION_AFFINITY */
-

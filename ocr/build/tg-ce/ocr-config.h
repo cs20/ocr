@@ -118,6 +118,9 @@
 // Performance monitoring
 //#define ENABLE_EXTENSION_PERF
 
+// Affinity (no-op for now)
+#define ENABLE_EXTENSION_AFFINITY
+
 #endif /* __OCR_CONFIG_H__ */
 
 
