@@ -42,6 +42,7 @@ jobtype_ocr_build_tg = {
                  'TG_ROOT': '${JJOB_INITDIR_TG}/tg',
                  'OCR_ROOT': '${JJOB_PRIVATE_HOME}/ocr/ocr',
                  'OCR_BUILD_ROOT': '${JJOB_PRIVATE_HOME}/ocr/ocr/build',
+                 'APPS_LIBS_INSTALL_ROOT': '${JJOB_PRIVATE_HOME}/apps/apps/libs/install/',
                  'OCR_INSTALL': '${JJOB_SHARED_HOME}/ocr/ocr/install'}
 }
 

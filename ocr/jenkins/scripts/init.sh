@@ -15,6 +15,8 @@ rsync -av  ${JJOB_INITDIR_APPS} ${JJOB_PRIVATE_HOME} --exclude .git
 
 if [ "x$TG" == "xtg" ]; then
     mkdir -p ${JJOB_PRIVATE_HOME}/tg/tg/
+    # This is for the tg-xe build
+    mkdir -p ${JJOB_PRIVATE_HOME}/apps/apps/libs/install/tg-xe
     cp -r ${JJOB_INITDIR_TG}/tg/tgkrnl ${JJOB_PRIVATE_HOME}/tg/tg
     cp -r ${JJOB_INITDIR_TG}/tg/build ${JJOB_PRIVATE_HOME}/tg/tg
     cp -r ${JJOB_INITDIR_TG}/tg/common ${JJOB_PRIVATE_HOME}/tg/tg
