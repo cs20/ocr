@@ -1402,7 +1402,10 @@ u8 ocrPolicyMsgUnMarshallMsg(u8* mainBuffer, u8* addlBuffer,
             }
 
             while(count) {
-                if (!(ocrGuidIsNull(guids->guid))) {
+                if (!(ocrGuidIsNull(guids->guid) || ocrGuidIsError(guids->guid) || ocrGuidIsUninitialized(guids->guid))) {
+                    // GUID error is related to labeled GUID implementation checking
+                    // whether or not a GUID object has already been created
+                    // GUID uninit could be coming from unpacking any message for which an uninitialized guid is a valid value
                     // Determine if GUID is local
                     //BUG #581: what we should really do is compare the PD location and the guid's one
                     // but the overhead going through the current api sounds unreasonnable.
