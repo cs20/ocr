@@ -65,3 +65,9 @@ Script Instructions:
         -Contains records for each time a worker begins seeking, and when it finds work.
          In seeking records, the total number of EDTs available at that point in time is also included.
 
+        Column A: Policy Domain ID
+        Column B: Worker ID (deque owner)
+        Column C: Deque Action (Worker requesting EDT | Worker taking EDT)
+        Column D: Timestamp of deque action
+        Column E: Number of EDTs available after action is taken.
+
