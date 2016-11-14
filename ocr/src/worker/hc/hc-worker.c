@@ -282,7 +282,7 @@ static void workerLoop(ocrWorker_t * worker) {
 #endif
         ocrEdtCreate(&edtGuid, edtTemplateGuid, EDT_PARAM_DEF, /* paramv = */ NULL,
                      /* depc = */ EDT_PARAM_DEF, /* depv = */ &dbGuid,
-                     GUID_PROP_TORECORD, &edtHint, NULL);
+                     EDT_PROP_NONE, &edtHint, NULL);
         // Once mainEdt is created, its template is no longer needed
         ocrEdtTemplateDestroy(edtTemplateGuid);
     }

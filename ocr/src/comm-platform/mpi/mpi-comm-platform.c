@@ -1341,28 +1341,39 @@ static u8 MPICommSwitchRunlevel(ocrCommPlatform_t *self, ocrPolicyDomain_t *PD, 
             MPI_Barrier(MPI_COMM_WORLD);
         }
         if ((properties & RL_TEAR_DOWN) && RL_IS_FIRST_PHASE_DOWN(self->pd, RL_GUID_OK, phase)) {
-            if (mpiComm->sendPoolSz != 0) {
-                // There might still be one-way messages in flight that are
-                // in terms of the DAG are 'sticking out' of the EDT that
-                // called shutdownEdt. This can happen when the call has
-                // been issued from a hierarchy of finish EDTs.
-                u32 i = 0, ub = mpiComm->sendPoolSz;
-                while(i < ub) {
-                    mpiCommHandle_t * dh = &(mpiComm->sendHdlPool[i]);
-                    ocrPolicyMsg_t * msg = dh->base.msg;
+            // There might still be one-way messages in flight that are
+            // in terms of the DAG are 'sticking out' of the EDT that
+            // called shutdownEdt. This can happen when the call has
+            // been issued from a hierarchy of finish EDTs.
+            u32 i = 0, ub = mpiComm->sendPoolSz;
+            while(i < ub) {
+                mpiCommHandle_t * dh = &(mpiComm->sendHdlPool[i]);
+                ocrPolicyMsg_t * msg = dh->base.msg;
 #ifdef OCR_ASSERT
-                    if ((msg->type & PD_MSG_TYPE_ONLY) != PD_MSG_DEP_SATISFY) {
-                        DPRINTF(DEBUG_LVL_WARN, "Shutdown: message of type %"PRIx32" has not been drained\n", (u32) (msg->type & PD_MSG_TYPE_ONLY));
-                    }
+                DPRINTF(DEBUG_LVL_WARN, "Shutdown: message of type %"PRIx32" has not been drained\n", (u32) (msg->type & PD_MSG_TYPE_ONLY));
 #endif
-                    self->pd->fcts.pdFree(self->pd, msg);
-                    i++;
-                }
-                mpiComm->sendPoolSz = 0;
+                self->pd->fcts.pdFree(self->pd, msg);
+                i++;
             }
+            mpiComm->sendPoolSz = 0;
+
+            // Cancel pre-post fxd pool irecvs
+            i = 0;
+            ub = mpiComm->recvFxdPoolSz;
+            while(i < ub) {
+                mpiCommHandle_t * dh = &(mpiComm->recvFxdHdlPool[i]);
+                ocrPolicyMsg_t * msg = dh->base.msg;
+                DPRINTF(DEBUG_LVL_VERB, "Canceling request\n");
+                RESULT_ASSERT(MPI_Cancel(dh->base.status), ==, MPI_SUCCESS);
+                RESULT_ASSERT(MPI_Wait(dh->base.status, MPI_STATUS_IGNORE), ==, MPI_SUCCESS);
+                self->pd->fcts.pdFree(self->pd, msg);
+                i++;
+            }
+            mpiComm->recvFxdPoolSz = 0;
+
             ASSERT(mpiComm->sendPoolSz == 0);
             ASSERT(mpiComm->recvPoolSz == 0);
-            ASSERT(mpiComm->recvFxdPoolSz == 1); // Always one listen posted
+            ASSERT(mpiComm->recvFxdPoolSz == 0);
             self->pd->fcts.pdFree(self->pd, mpiComm->sendPool);
             self->pd->fcts.pdFree(self->pd, mpiComm->recvPool);
             self->pd->fcts.pdFree(self->pd, mpiComm->recvFxdPool);

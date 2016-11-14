@@ -377,10 +377,10 @@ u8 GasnetCommPollMessage(ocrCommPlatform_t *self, ocrPolicyMsg_t **msg,
     // remove all incoming tasks in the check the queue
     GASNET_Safe(gasnet_AMPoll());
 
+
     hal_lock(&gasnetComm->queueLock);
     iterator_t * incomingIt = gasnetComm->incomingIt;
     incomingIt->reset(incomingIt);
-
     if (incomingIt->hasNext(incomingIt)) {
         *msg = (ocrPolicyMsg_t *) incomingIt->next(incomingIt);
         incomingIt->removeCurrent(incomingIt);
@@ -396,10 +396,18 @@ u8 GasnetCommPollMessage(ocrCommPlatform_t *self, ocrPolicyMsg_t **msg,
     }
 
     pdLookingForWork(gasnetComm);
+    u8 retCode = POLL_NO_MESSAGE;
 
+    if (retCode == POLL_NO_MESSAGE) {
+        retCode |= POLL_NO_OUTGOING_MESSAGE; // Gasnet immediately sends so there's no queue to check
+        // This is protected by the lock so it may show up empty but doesn't mean
+        // there are no outstanding puts blocked on the lock
+        retCode |= (gasnetComm->incoming->isEmpty(gasnetComm->incoming)) ? POLL_NO_INCOMING_MESSAGE : 0;
+    }
     hal_unlock(&gasnetComm->queueLock);
 
-    return POLL_NO_MESSAGE;
+    // Message is properly un-marshalled at this point
+    return retCode;
 }
 
 /*

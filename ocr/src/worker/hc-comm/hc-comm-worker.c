@@ -293,7 +293,7 @@ static void workerLoopHcCommInternal(ocrWorker_t * worker, ocrPolicyDomain_t *pd
                 //then be 'wrapped' in an EDT and pushed to the deque for load-balancing purpose.
             }
         }
-    } while (flushOutgoingComm && !(ret & POLL_NO_OUTGOING_MESSAGE));
+    } while (flushOutgoingComm && !((ret & POLL_NO_OUTGOING_MESSAGE) == POLL_NO_OUTGOING_MESSAGE));
 }
 
 static void workShiftHcComm(ocrWorker_t * worker) {

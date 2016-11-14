@@ -1084,6 +1084,12 @@ u8 MPICommSwitchRunlevel(ocrCommPlatform_t *self, ocrPolicyDomain_t *PD, ocrRunl
 #endif
             ASSERT(mpiComm->incoming->isEmpty(mpiComm->incoming));
             mpiComm->incoming->destruct(mpiComm->incoming);
+            iterator_t * outgoingIt = mpiComm->outgoingIt;
+            outgoingIt->reset(outgoingIt);
+            if (outgoingIt->hasNext(outgoingIt)) {
+                mpiCommHandle_t * mpiHandle = (mpiCommHandle_t *) outgoingIt->next(outgoingIt);
+                DPRINTF(DEBUG_LVL_WARN, "Shutdown: message of type %"PRIx32" has not been drained\n", (u32) (mpiHandle->msg->type & PD_MSG_TYPE_ONLY));
+            }
             ASSERT(mpiComm->outgoing->isEmpty(mpiComm->outgoing));
             mpiComm->outgoing->destruct(mpiComm->outgoing);
             mpiComm->incomingIt->destruct(mpiComm->incomingIt);
