@@ -506,8 +506,8 @@ typedef volatile u32 lock_t;
  * This is used by CE to put an XE core in its block to sleep
  * @warning 'id' is the agent ID (ID_AGENT_XE0 ... ID_AGENT_XE7)
  */
-#define hal_sleep(id) do {                                              \
-        *(u64 *)(BR_MSR_BASE(id) + POWER_GATE_RESET*sizeof(u64)) |= 0x1ULL; \
+#define hal_sleep(id) do {                                                     \
+        *((volatile u8*)(BR_XE_CONTROL(id - ID_AGENT_XE0))) = XE_CTL_CLK_GATE; \
     } while(0)
 
 /**
@@ -516,8 +516,8 @@ typedef volatile u32 lock_t;
  * This is used by CE to wake an XE core in its block from sleep
  * @warning 'id' is the agent ID (ID_AGENT_XE0 ... ID_AGENT_XE7)
  */
-#define hal_wake(id) do {                                                    \
-        *(u64 *)(BR_MSR_BASE(id) + POWER_GATE_RESET*sizeof(u64)) &= ~(0x1ULL); \
+#define hal_wake(id) do {                                             \
+          *((volatile u8*)(BR_XE_CONTROL(id - ID_AGENT_XE0))) = 0x00; \
     } while(0)
 
 /**

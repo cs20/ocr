@@ -88,10 +88,10 @@ static void releaseXE(u32 i) {
     DPRINTF(DEBUG_LVL_VERB, "Ungating XE %"PRIu32"\n", i);
     // Bug #820: This was a MMIO LD call and should be replaced by one when they become available
     // The XE should be clock-gated already because we don't process its message before it is
-    ASSERT(*((volatile u64*)(BR_MSR_BASE((i+ID_AGENT_XE0)) + (POWER_GATE_RESET * sizeof(u64)))) & 0x1ULL);
+    ASSERT(*((volatile u8*)(BR_XE_CONTROL(i))) & XE_CTL_CLK_GATE);
 
     // Bug #820: Further, this was a MMIO operation
-    *((u64*)(BR_MSR_BASE((i+ID_AGENT_XE0)) + (POWER_GATE_RESET * sizeof(u64)))) &= ~(0x1ULL);
+    *((volatile u8*)(BR_XE_CONTROL(i))) = 0x00;
     DPRINTF(DEBUG_LVL_VERB, "XE %"PRIu32" ungated\n", i);
 }
 
