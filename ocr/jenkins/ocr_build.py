@@ -35,7 +35,7 @@ jobtype_ocr_build_tg = {
     'run-cmd': '${JJOB_INITDIR_OCR}/ocr/jenkins/scripts/build.sh',
     'param-cmd': '${JJOB_INITDIR_OCR}/jenkins/scripts/empty-cmd.sh',
     'keywords': ('ocr', 'percommit'),
-    'timeout': 180,
+    'timeout': 240,
     'sandbox': ('local', 'shared', 'shareOK'),
     'req-repos': ('ocr', 'tg'),
     'env-vars': {'TG_INSTALL': '${JJOB_ENVDIR}',
