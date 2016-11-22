@@ -1050,7 +1050,10 @@ u8 dependenceResolvedTaskHc(ocrTask_t * self, ocrGuid_t dbGuid, void * localDbPt
 u8 satisfyTaskHcWithMode(ocrTask_t * base, ocrFatGuid_t data, u32 slot, ocrDbAccessMode_t mode) {
     ASSERT (((!ocrGuidIsNull(data.guid)) ? (mode != -1) : 1) && "Mode should alway be provided");
     ASSERT(!ocrGuidIsUninitialized(data.guid) && !ocrGuidIsError(data.guid));
-    ASSERT((slot >= 0) && (slot < base->depc));
+    // Check slot is in bounds
+    ASSERT_BLOCK_BEGIN((slot >= 0) && (slot < base->depc))
+    DPRINTF(DEBUG_LVL_WARN, "error: EDT "GUIDF" is satisfied on slot=%"PRIu32" but depc is %"PRIu32"\n", GUIDA(base->guid), slot, base->depc);
+    ASSERT_BLOCK_END
     ocrTaskHc_t * self = (ocrTaskHc_t *) base;
     self->signalers[slot].guid = data.guid;
     self->signalers[slot].mode = mode;
@@ -1097,6 +1100,10 @@ u8 satisfyTaskHc(ocrTask_t * base, ocrFatGuid_t data, u32 slot) {
     //  - it can be a data-block being added (causing an immediate satisfy)
 
     ocrTaskHc_t * self = (ocrTaskHc_t *) base;
+    // Check slot is in bounds
+    ASSERT_BLOCK_BEGIN((slot >= 0) && (slot < base->depc))
+    DPRINTF(DEBUG_LVL_WARN, "error: EDT "GUIDF" is satisfied on slot=%"PRIu32" but depc is %"PRIu32"\n", GUIDA(base->guid), slot, base->depc);
+    ASSERT_BLOCK_END
 
     // Replace the signaler's guid by the data guid, this is to avoid
     // further references to the event's guid, which is good in general
