@@ -118,6 +118,8 @@ static u8 takeFromSchedulerAndSend(ocrWorker_t * worker, ocrPolicyDomain_t * pd)
     // We expect the PD to fill-in the guids pointer with an ocrMsgHandle_t pointer
     // to be processed by the communication worker or NULL.
     //PERF: could request 'n' for internal comm load balancing (outgoing vs pending vs incoming).
+    {
+    START_PROFILE(wo_hccomm_getWork);
 #define PD_MSG (&msgCommTake)
 #define PD_TYPE PD_MSG_SCHED_GET_WORK
     msgCommTake.type = PD_MSG_SCHED_GET_WORK | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
@@ -125,6 +127,8 @@ static u8 takeFromSchedulerAndSend(ocrWorker_t * worker, ocrPolicyDomain_t * pd)
     PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_COMM).guids = &handlerGuid;
     PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_COMM).guidCount = 1;
     ret = pd->fcts.processMessage(pd, &msgCommTake, true);
+    EXIT_PROFILE
+    }
     if (!ret && (PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_COMM).guidCount != 0)) {
         ASSERT(PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_COMM).guidCount == 1); //LIMITATION: single guid returned by comm take
         ocrFatGuid_t handlerGuid = PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_COMM).guids[0];
@@ -133,6 +137,7 @@ static u8 takeFromSchedulerAndSend(ocrWorker_t * worker, ocrPolicyDomain_t * pd)
 #undef PD_MSG
 #undef PD_TYPE
         if (outgoingHandle != NULL) {
+            START_PROFILE(wo_hccomm_sendMessage);
             // This code handles the pd's outgoing messages. They can be requests or responses.
             DPRINTF(DEBUG_LVL_VVERB,"hc-comm-worker: outgoing handle comm take successful handle=%p, msg=%p type=0x%"PRIx32"\n",
                     outgoingHandle, outgoingHandle->msg, outgoingHandle->msg->type);
@@ -164,6 +169,7 @@ static u8 takeFromSchedulerAndSend(ocrWorker_t * worker, ocrPolicyDomain_t * pd)
             if (sendHandle == NULL) {
                 outgoingHandle->destruct(outgoingHandle);
             }
+            EXIT_PROFILE;
 
             //Communication is posted. If TWOWAY, subsequent calls to poll may return the response
             //to be processed
@@ -183,10 +189,13 @@ static void workerLoopHcCommInternal(ocrWorker_t * worker, ocrPolicyDomain_t *pd
     // - Poll to receive an incoming communication
     u8 ret;
     do {
+        START_PROFILE(wo_hccomm_takeFromSchedulerAndSend);
         ret = takeFromSchedulerAndSend(worker, pd);
+        EXIT_PROFILE;
     } while (flushOutgoingComm && (ret == POLL_MORE_MESSAGE));
 
     do {
+        START_PROFILE(wo_hccomm_poll);
         ocrMsgHandle_t * handle = NULL;
         ret = pd->fcts.pollMessage(pd, &handle);
         if (ret == POLL_MORE_MESSAGE) {
@@ -293,6 +302,7 @@ static void workerLoopHcCommInternal(ocrWorker_t * worker, ocrPolicyDomain_t *pd
                 //then be 'wrapped' in an EDT and pushed to the deque for load-balancing purpose.
             }
         }
+        EXIT_PROFILE;
     } while (flushOutgoingComm && !((ret & POLL_NO_OUTGOING_MESSAGE) == POLL_NO_OUTGOING_MESSAGE));
 }
 
@@ -302,6 +312,7 @@ static void workShiftHcComm(ocrWorker_t * worker) {
 }
 
 static void workerLoopHcComm(ocrWorker_t * worker) {
+    START_PROFILE(hc_worker_comm);
     u8 continueLoop = true;
     // At this stage, we are in the USER_OK runlevel
     ASSERT(worker->curState == GET_STATE(RL_USER_OK, (RL_GET_PHASE_COUNT_DOWN(worker->pd, RL_USER_OK))));
@@ -387,7 +398,9 @@ static void workerLoopHcComm(ocrWorker_t * worker) {
         if ((phase == PHASE_RUN) ||
             (phase == PHASE_COMP_QUIESCE)) {
             while(worker->curState == worker->desiredState) {
+                START_PROFILE(wo_hccomm_workerLoop);
                 worker->fcts.workShift(worker);
+                EXIT_PROFILE;
             }
         } else if (phase == PHASE_COMM_QUIESCE) {
             // All workers in this PD are not executing user EDTs anymore.
@@ -498,6 +511,7 @@ static void workerLoopHcComm(ocrWorker_t * worker) {
         }
     } while(continueLoop);
     DPRINTF(DEBUG_LVL_VERB, "Finished comm worker loop ... waiting to be reapped\n");
+    EXIT_PROFILE;
 }
 
 u8 hcCommWorkerSwitchRunlevel(ocrWorker_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_t runlevel,

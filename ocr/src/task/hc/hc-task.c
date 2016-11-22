@@ -1685,7 +1685,9 @@ u8 taskExecute(ocrTask_t* base) {
 #endif
 #ifdef ENABLE_POLICY_DOMAIN_HC_DIST
         if(base->funcPtr == &processRequestEdt) {
+            START_PROFILE(procIncMsg);
             retGuid = base->funcPtr(paramc, paramv, depc, depv);
+            EXIT_PROFILE;
         } else {
             START_PROFILE(userCode);
             retGuid = base->funcPtr(paramc, paramv, depc, depv);

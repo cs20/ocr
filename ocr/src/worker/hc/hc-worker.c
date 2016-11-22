@@ -62,7 +62,7 @@ static void hcWorkShift(ocrWorker_t * worker) {
 #endif
     u8 retCode = 0;
     {
-        START_PROFILE(wo_hc_getWork);
+    START_PROFILE(wo_hc_getWork);
 #define PD_MSG (&msg)
 #define PD_TYPE PD_MSG_SCHED_GET_WORK
     msg.type = PD_MSG_SCHED_GET_WORK | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
@@ -85,12 +85,12 @@ static void hcWorkShift(ocrWorker_t * worker) {
         if(!(ocrGuidIsNull(taskGuid.guid))){
             ocrTask_t * curTask = (ocrTask_t*)taskGuid.metaDataPtr;
 #ifdef OCR_ASSERT
-        if (GET_STATE_PHASE(worker->curState) < (RL_GET_PHASE_COUNT_DOWN(pd, RL_USER_OK)-1)) {
-            if (curTask->funcPtr != processRequestEdt) {
-                DPRINTF(DEBUG_LVL_WARN, "user-error: task with funcPtr=%p scheduled after ocrShutdown\n", curTask->funcPtr);
-                ASSERT(false);
+            if (GET_STATE_PHASE(worker->curState) < (RL_GET_PHASE_COUNT_DOWN(pd, RL_USER_OK)-1)) {
+                if (curTask->funcPtr != processRequestEdt) {
+                    DPRINTF(DEBUG_LVL_WARN, "user-error: task with funcPtr=%p scheduled after ocrShutdown\n", curTask->funcPtr);
+                    ASSERT(false);
+                }
             }
-        }
 #endif
 #ifdef ENABLE_EXTENSION_BLOCKING_SUPPORT
             if (((curTask->flags & OCR_TASK_FLAG_LONG) != 0) && (((ocrWorkerHc_t *) worker)->isHelping)) {
@@ -190,7 +190,6 @@ static void hcWorkShift(ocrWorker_t * worker) {
             // Important for this to be the last
             worker->curTask = NULL;
         }
-
     } else {
         ASSERT(0); //Handle error code
     }
@@ -274,9 +273,9 @@ static void workerLoop(ocrWorker_t * worker) {
         ocrHint_t edtHint;
         ocrHintInit( &edtHint, OCR_HINT_EDT_T );
 #if GUID_BIT_COUNT == 64
-            ocrSetHintValue( & edtHint, OCR_HINT_EDT_AFFINITY, affinityMasterPD.guid );
+        ocrSetHintValue( & edtHint, OCR_HINT_EDT_AFFINITY, affinityMasterPD.guid );
 #elif GUID_BIT_COUNT == 128
-            ocrSetHintValue( & edtHint, OCR_HINT_EDT_AFFINITY, affinityMasterPD.lower );
+        ocrSetHintValue( & edtHint, OCR_HINT_EDT_AFFINITY, affinityMasterPD.lower );
 #else
 #error Unknown GUID type
 #endif

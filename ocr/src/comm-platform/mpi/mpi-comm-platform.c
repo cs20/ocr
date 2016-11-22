@@ -486,7 +486,7 @@ static u8 MPICommPollMessageInternal(ocrCommPlatform_t *self, ocrPolicyMsg_t **m
     // Checking unknown size recv completions
     u8 res = POLL_NO_MESSAGE;
     {
-    START_PROFILE(commplt_MPICommPollMessageInternal_progress_probe_awaited);
+    START_PROFILE(commplt_MPICommPollMessageInternal_progress_probe_awaitedFxd);
     u32 i;
     mpiCommHandle_t * recvHdlPool = mpiComm->recvHdlPool;
     for (i=0; i < mpiComm->recvPoolSz;) { // Do not cache upper bound as the pool is dynamically resized
