@@ -171,7 +171,7 @@ endif
 #
 # Extrae header and library flags
 # CFLAGS += -I$(EXTRAE_HOME)/include
-# LDFLAGS += -L$(EXTRAE_HOME)/lib -lpttrace
+# LDFLAGS := -L$(EXTRAE_HOME)/lib -lpttrace $(LDFLAGS)
 #
 # Select events to be instrumented
 # 'HWC' version of the flag reads
