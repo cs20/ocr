@@ -22,11 +22,14 @@ APPS_LIBS_INSTALL_ROOT ?= ../../../../apps/apps/libs/install
 ARCH ?= tg-xe
 APPS_LIBS_INSTALL := ${APPS_LIBS_INSTALL_ROOT}/${ARCH}
 
-# Check that this path exists
+# Check that this path exists, but only if we are building something
 _T := $(APPS_LIBS_INSTALL)
 APPS_LIBS_INSTALL := $(realpath $(_T))
 ifeq (,$(APPS_LIBS_INSTALL))
-  $(error APPS_LIBS_INSTALL is not a valid path: $(_T))
+ifeq ($(filter squeaky clean uninstall,$(MAKECMDGOALS)), )
+IGNORE := $(shell ARCH=$(ARCH) make -C $(APPS_LIBS_INSTALL_ROOT)/../src/newlib)
+APPS_LIBS_INSTALL := $(realpath $(_T))
+endif
 endif
 
 TG_INSTALL ?= ../../../../tg/tg/install
