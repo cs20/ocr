@@ -42,15 +42,25 @@ def ExtractValues(infilename):
     m1 = config.get('BlockGlobal', 'sl1_size').strip(' ').split(' ')[0]
     m1 = int(''.join(itertools.takewhile(lambda s: s.isdigit(), m1)))
     m1 = m1 * 1024
+
     m2 = config.get('BlockGlobal', 'sl2_size').strip(' ').split(' ')[0]
     m2 = int(''.join(itertools.takewhile(lambda s: s.isdigit(), m2)))
     m2 = m2 * 1024
+
     # m3 == sl3 which is omitted for now
+
     m4 = config.get('SocketGlobal', 'ipm_size').strip(' ').split(' ')[0]
     m4 = int(''.join(itertools.takewhile(lambda s: s.isdigit(), m4)))
     m4 = m4 * 1024 * 1024
-    m4 = m4 - 0x2000000   # 8*0x400000 = 0x2000000 is for stack
-    m4 = m4 - 0xc00000    # used by tgkrnl & rodat
+
+    if config.has_option('TricksGlobal', 'xe_ipm_stack'):
+        xe_ipm_stack = config.get('TricksGlobal', 'xe_ipm_stack').strip(' ').split(' ')[0]
+        xe_ipm_stack = int(''.join(itertools.takewhile(lambda s: s.isdigit(), xe_ipm_stack)))
+        xe_ipm_stack = xe_ipm_stack * 1024 # This is for each XE
+        xe_ipm_stack = xe_ipm_stack * xc * bc * cc # This is for all XEs
+        assert m4 > xe_ipm_stack, "IPM size %lx insufficient for XE stacks %lx" % (m4, xe_ipm_stack)
+        m4 = m4 - xe_ipm_stack
+
     m5 = config.get('SocketGlobal', 'dram_size').strip(' ').split(' ')[0]
     m5 = int(''.join(itertools.takewhile(lambda s: s.isdigit(), m5)))
     m5 = m5 * 1024 * 1024
