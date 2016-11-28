@@ -2313,11 +2313,11 @@ u8 cePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
                          self->schedulers[0], (ocrSchedulerOpArgs_t*)workArgs, (ocrRuntimeHint_t*)msg);
 
             if (retVal == 0) {
-                DPRINTF(DEBUG_LVL_VERB, "Successfully got work!\n");
+                DPRINTF(DEBUG_LVL_VVERB, "Successfully got work!\n");
                 PD_MSG_FIELD_O(returnDetail) = 0;
                 returnCode = ceProcessResponse(self, msg, 0);
             } else {
-                DPRINTF(DEBUG_LVL_VERB, "No work found\n");
+                DPRINTF(DEBUG_LVL_VVERB, "No work found\n");
             }
         } else {
             ASSERT(msg->type & PD_MSG_RESPONSE);
@@ -2330,17 +2330,16 @@ u8 cePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
                         msg->srcLocation, GUIDA(fguid.guid));
                 localDeguidify(self, &fguid, NULL);
                 ASSERT(fguid.metaDataPtr);
-                ocrSchedulerOpNotifyArgs_t notifyArgs;
-                notifyArgs.base.location = msg->srcLocation;
-                notifyArgs.kind = OCR_SCHED_NOTIFY_EDT_READY;
-                notifyArgs.OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_EDT_READY).guid = fguid;
-                returnCode = self->schedulers[0]->fcts.op[OCR_SCHEDULER_OP_NOTIFY].invoke(
-                        self->schedulers[0], (ocrSchedulerOpArgs_t*)(&notifyArgs), NULL);
             } else {
-                DPRINTF(DEBUG_LVL_VERB, "Got NULL work from 0x%"PRIx64" -- ignoring\n",
+                DPRINTF(DEBUG_LVL_VERB, "Got NULL work from 0x%"PRIx64" -- passing on\n",
                         msg->srcLocation);
-                // ASSERT(0); //HACK: We are probably in shutdown. Ignore!
             }
+            ocrSchedulerOpNotifyArgs_t notifyArgs;
+            notifyArgs.base.location = msg->srcLocation;
+            notifyArgs.kind = OCR_SCHED_NOTIFY_EDT_READY;
+            notifyArgs.OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_EDT_READY).guid = fguid;
+            returnCode = self->schedulers[0]->fcts.op[OCR_SCHEDULER_OP_NOTIFY].invoke(
+                self->schedulers[0], (ocrSchedulerOpArgs_t*)(&notifyArgs), NULL);
         }
 #undef PD_MSG
 #undef PD_TYPE

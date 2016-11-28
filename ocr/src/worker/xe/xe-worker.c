@@ -55,8 +55,9 @@ static void workerLoop(ocrWorker_t * worker) {
     salPerfInit(xeWorker->perfCtrs);
 #endif
 
+    bool requestIsAffinitized = true;
     while(worker->fcts.isRunning(worker)) {
-    DPRINTF(DEBUG_LVL_VVERB, "XE %"PRIx64" REQUESTING WORK\n", pd->myLocation);
+        DPRINTF(DEBUG_LVL_VVERB, "XE %"PRIx64" REQUESTING WORK\n", pd->myLocation);
 #if 1 //This is disabled until we move TAKE heuristic in CE policy domain to inside scheduler
 #define PD_MSG (&msg)
 #define PD_TYPE PD_MSG_SCHED_GET_WORK
@@ -64,11 +65,13 @@ static void workerLoop(ocrWorker_t * worker) {
         PD_MSG_FIELD_IO(schedArgs).kind = OCR_SCHED_WORK_EDT_USER;
         PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).edt.guid = NULL_GUID;
         PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).edt.metaDataPtr = NULL;
+        PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).discardAffinity = !requestIsAffinitized;
         PD_MSG_FIELD_I(properties) = 0;
         if(pd->fcts.processMessage(pd, &msg, true) == 0) {
             // We got a response
             ocrFatGuid_t taskGuid = PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).edt;
             if(!(ocrGuidIsNull(taskGuid.guid))) {
+                requestIsAffinitized = true; // We will make the next request in an affinitized manner
                 DPRINTF(DEBUG_LVL_VVERB, "XE %"PRIx64" EXECUTING TASK "GUIDF"\n", pd->myLocation, GUIDA(taskGuid.guid));
                 // Task sanity checks
                 ASSERT(taskGuid.metaDataPtr != NULL);
@@ -143,6 +146,9 @@ static void workerLoop(ocrWorker_t * worker) {
                 // Important for this to be the last
                 worker->curTask = NULL;
             } else {
+                requestIsAffinitized = false; // Next time around, we should try in a general manner.
+                // Note that we only get here if the request was affinitized (and there is no affinitized work)
+                // OR if a shutdown occured.
                 DPRINTF(DEBUG_LVL_VVERB, "XE %"PRIx64" NULL RESPONSE from CE\n", pd->myLocation);
             }
         }

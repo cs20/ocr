@@ -75,6 +75,7 @@
 
 // Scheduler Heuristic
 #define ENABLE_SCHEDULER_HEURISTIC_CE
+#define ENABLE_SCHEDULER_HEURISTIC_CE_AFF
 
 // Scheduler Objects
 #define ENABLE_SCHEDULER_OBJECT_WST

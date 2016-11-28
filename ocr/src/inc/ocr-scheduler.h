@@ -74,6 +74,7 @@ typedef enum {
 typedef union _ocrSchedWorkData_t {
     struct {
         ocrFatGuid_t edt;                           /* For user EDTs, count is always 1 */
+        bool discardAffinity;                       /* If true, the request is for any work, not just work affinitized for me */
     } OCR_SCHED_ARG_NAME(OCR_SCHED_WORK_EDT_USER);
     struct {
         ocrFatGuid_t *guids;

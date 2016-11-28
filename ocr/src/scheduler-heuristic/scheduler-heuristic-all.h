@@ -29,6 +29,9 @@
 #ifdef ENABLE_SCHEDULER_HEURISTIC_CE
 #include "scheduler-heuristic/ce/ce-scheduler-heuristic.h"
 #endif
+#ifdef ENABLE_SCHEDULER_HEURISTIC_CE_AFF
+#include "scheduler-heuristic/ce-affinitized/ce-aff-scheduler-heuristic.h"
+#endif
 #ifdef ENABLE_SCHEDULER_HEURISTIC_PRIORITY
 #include "scheduler-heuristic/priority/priority-scheduler-heuristic.h"
 #endif
@@ -54,6 +57,9 @@ typedef enum _schedulerHeuristicType_t {
 #endif
 #ifdef ENABLE_SCHEDULER_HEURISTIC_CE
     schedulerHeuristicCe_id,
+#endif
+#ifdef ENABLE_SCHEDULER_HEURISTIC_CE_AFF
+    schedulerHeuristicCeAff_id,
 #endif
 #ifdef ENABLE_SCHEDULER_HEURISTIC_PRIORITY
     schedulerHeuristicPriority_id,
