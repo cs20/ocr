@@ -14,6 +14,7 @@
 #include "ocr-types.h"
 #include "ocr-guid.h"
 #include "utils/hashtable.h"
+#include "guid/guid-bitmap.h"
 
 /**
  * @brief GUID provider that supports using labels for GUIDs.
@@ -32,14 +33,16 @@
 typedef struct {
     ocrGuidProvider_t base;
     hashtable_t * guidImplTable;
+    // Counter for the reserved part of the GUIDs
+    u64 guidReservedCounter;
 #ifdef GUID_PROVIDER_WID_INGUID
-    u64 guidCounters[(((u64)1)<<GUID_WID_SIZE)*GUID_WID_CACHE_SIZE];
+    u64 guidCounters[MAX_VAL(LOCWID)*GUID_WID_CACHE_SIZE];
+    //TODO could store this guid in counters because of the cache line
+    u64 guidReservedCounters[MAX_VAL(LOCWID)*GUID_WID_CACHE_SIZE];
 #else
     // GUID 'id' counter, atomically incr when a new GUID is requested
     u64 guidCounter;
 #endif
-    // Counter for the reserved part of the GUIDs
-    u64 guidReservedCounter;
 } ocrGuidProviderLabeled_t;
 
 typedef struct {

@@ -115,6 +115,7 @@ typedef struct _ocrGuidProviderFcts_t {
      */
     u8 (*switchRunlevel)(struct _ocrGuidProvider_t* self, struct _ocrPolicyDomain_t *PD, ocrRunlevel_t runlevel,
                          phase_t phase, u32 properties, void (*callback)(struct _ocrPolicyDomain_t*, u64), u64 val);
+
     /**
      * @brief Reserves a GUID range to be used by a user mapping function
      *
@@ -123,7 +124,8 @@ typedef struct _ocrGuidProviderFcts_t {
      * @param[out] skipGuid        Returns the "step" between valid GUIDs in the range
      * @param[in] numberGuids      Number of GUIDs to reserve
      * @param[in] guidType         Type of GUIDs this range will be used to store
-     * @param[in] properties       Properties
+     * @param[in] properties       Properties. For instance, indicates whether or not the
+     *                             reservation is for reserved labeled or regular GUIDs
      * @return 0 on success a non-zero error code
      */
     u8 (*guidReserve)(struct _ocrGuidProvider_t *self, ocrGuid_t *startGuid, u64* skipGuid,

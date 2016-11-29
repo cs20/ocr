@@ -29,7 +29,6 @@
 #define DEBUG_TYPE GUID
 
 #define ENABLE_GUID_BITMAP_BASED 1
-#include "guid/guid-bitmap.h"
 
 // Default hashtable's number of buckets
 //PERF: This parameter heavily impacts the GUID provider scalability !
@@ -88,7 +87,12 @@ void countedMapHashmapEntryDestructChecker(void * key, void * value, void * deal
 #endif
 }
 
-#endif
+#endif /*GUID_PROVIDER_DESTRUCT_CHECK*/
+
+
+void countedMapDestruct(ocrGuidProvider_t* self) {
+    runtimeChunkFree((u64)self, PERSISTENT_CHUNK);
+}
 
 
 u8 countedMapSwitchRunlevel(ocrGuidProvider_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_t runlevel,
@@ -129,6 +133,7 @@ u8 countedMapSwitchRunlevel(ocrGuidProvider_t *self, ocrPolicyDomain_t *PD, ocrR
 #ifdef GUID_PROVIDER_WID_INGUID
             ocrGuidProviderCountedMap_t *rself = (ocrGuidProviderCountedMap_t*)self;
             u32 i = 0, ub = PD->workerCount;
+            ASSERT(ub <= MAX_VAL(LOCWID));
             u64 max = MAX_VAL(COUNTER);
             u64 incr = (max/ub);
             while (i < ub) {
@@ -199,10 +204,6 @@ u8 countedMapSwitchRunlevel(ocrGuidProvider_t *self, ocrPolicyDomain_t *PD, ocrR
     return toReturn;
 }
 
-void countedMapDestruct(ocrGuidProvider_t* self) {
-    runtimeChunkFree((u64)self, PERSISTENT_CHUNK);
-}
-
 u8 countedMapGuidReserve(ocrGuidProvider_t *self, ocrGuid_t* startGuid, u64* skipGuid,
                          u64 numberGuids, ocrGuidKind guidKind, u32 properties) {
     RSELF_TYPE * rself = (RSELF_TYPE *) self;
@@ -238,9 +239,7 @@ u8 countedMapGuidReserve(ocrGuidProvider_t *self, ocrGuid_t* startGuid, u64* ski
 
 u8 countedMapGuidUnreserve(ocrGuidProvider_t *self, ocrGuid_t startGuid, u64 skipGuid,
                            u64 numberGuids) {
-    // Not supported; use labeled provider
-    DPRINTF(DEBUG_LVL_WARN, "error: Must use labeled GUID provider for labeled GUID support, current is counted-map\n");
-    ASSERT(false);
+    // We do not do anything (we don't reclaim right now)
     return OCR_ENOTSUP;
 }
 
@@ -248,17 +247,26 @@ u8 countedMapGuidUnreserve(ocrGuidProvider_t *self, ocrGuid_t startGuid, u64 ski
  * @brief Generate a guid for 'val' by increasing the guid counter.
  */
 static u8 countedMapGetGuid(ocrGuidProvider_t* self, ocrGuid_t* guid, u64 val, ocrGuidKind kind, ocrLocation_t targetLoc, u32 properties) {
-    // Here no need to allocate
-    //TODO WID_INGUID: fix when merging with labeled
     RSELF_TYPE * rself = (RSELF_TYPE *) self;
-    u64 newGuid = generateNextGuid(self, kind, targetLoc, 1,  &(rself->guidCounter));
+#ifdef GUID_PROVIDER_WID_INGUID
+    ocrWorker_t * worker = NULL;
+    getCurrentEnv(NULL, &worker, NULL, NULL);
+    // GUIDs are generated before the current worker is setup.
+    u64 wid = ((worker == NULL) ? 0 : worker->id);
+    u64 shWid = LSHIFT(LOCWID, wid);
+    u64 * counter = &(rself->guidCounters[wid*GUID_WID_CACHE_SIZE]);
+#else
+    u64 * counter = &(rself->guidCounter);
+#endif
+    u64 newGuid = generateNextGuid(self, kind, targetLoc, 1, counter);
+#ifdef GUID_PROVIDER_WID_INGUID
+    newGuid |= shWid;
+#endif
     // See BUG #928 on GUID issues
 #if GUID_BIT_COUNT == 64
     ocrGuid_t tempGuid = {.guid = newGuid};
-    *guid = tempGuid;
 #elif GUID_BIT_COUNT == 128
     ocrGuid_t tempGuid = {.lower = (u64)newGuid, .upper = 0x0};
-    *guid = tempGuid;
 #else
 #error Unknown type of GUID
 #endif
@@ -267,7 +275,7 @@ static u8 countedMapGetGuid(ocrGuidProvider_t* self, ocrGuid_t* guid, u64 val, o
         DPRINTF(DEBUG_LVL_VVERB,"Recording %"PRIx64" @ %"PRIx64"\n", newGuid, val);
         // Inject proxy for foreign guids. Stems from pushing OCR objects to other PDs
         void * toPut = (void *) val;
-        if (!isLocalGuidCheck(self, *guid)) {
+        if (!isLocalGuidCheck(self, tempGuid)) {
             ocrPolicyDomain_t * pd = self->pd;
             MdProxy_t * mdProxy = (MdProxy_t *) pd->fcts.pdMalloc(pd, sizeof(MdProxy_t));
 #ifdef ENABLE_RESILIENCY
@@ -282,6 +290,14 @@ static u8 countedMapGetGuid(ocrGuidProvider_t* self, ocrGuid_t* guid, u64 val, o
         GP_HASHTABLE_PUT(((ocrGuidProviderCountedMap_t *) self)->guidImplTable, (void *) newGuid, (void *) toPut);
     }
     // See BUG #928 on GUID issues
+#if GUID_BIT_COUNT == 64
+    guid->guid =  newGuid;
+#elif GUID_BIT_COUNT == 128
+    guid->lower = newGuid;
+    guid->upper = 0x0;
+#else
+#error Unknown GUID type
+#endif
     return 0;
 }
 
@@ -290,9 +306,7 @@ static u8 countedMapGetGuid(ocrGuidProvider_t* self, ocrGuid_t* guid, u64 val, o
  * the guid and some meta-data payload behind it
  * fatGuid's metaDataPtr will point to.
  */
-
 u8 countedMapCreateGuid(ocrGuidProvider_t* self, ocrFatGuid_t *fguid, u64 size, ocrGuidKind kind, ocrLocation_t targetLoc, u32 properties) {
-    //TODO-MD-IOGUID get consensus on a property flag to not ignore the GUID
     if(properties & GUID_PROP_IS_LABELED) {
         // Not supported; use labeled provider
         DPRINTF(DEBUG_LVL_WARN, "error: Must use labeled GUID provider for labeled GUID support, current is counted-map\n");
@@ -310,7 +324,6 @@ u8 countedMapCreateGuid(ocrGuidProvider_t* self, ocrFatGuid_t *fguid, u64 size, 
     PD_MSG_FIELD_I(type) = GUID_MEMTYPE;
 
     RESULT_PROPAGATE(policy->fcts.processMessage(policy, &msg, true));
-
     void * ptr = (void *)PD_MSG_FIELD_O(ptr);
     // Two cases, with MD the guid may already be known and we just need to allocate space for the clone
     // else this is a brand new creation, we need to generate a guid and update the fatGuid.
@@ -362,6 +375,7 @@ u8 countedMapCreateGuid(ocrGuidProvider_t* self, ocrFatGuid_t *fguid, u64 size, 
  * a local metadata represent for a foreign GUID.
  */
 u8 countedMapRegisterGuid(ocrGuidProvider_t* self, ocrGuid_t guid, u64 val) {
+    ocrGuidProviderCountedMap_t * dself = (ocrGuidProviderCountedMap_t *) self;
 #if GUID_BIT_COUNT == 64
         void * rguid = (void *) guid.guid;
 #elif GUID_BIT_COUNT == 128
@@ -372,10 +386,10 @@ u8 countedMapRegisterGuid(ocrGuidProvider_t* self, ocrGuid_t guid, u64 val) {
     int oth = (int) locIdtoLocation(extractLocIdFromGuid(guid));
     if (isLocalGuidCheck(self, guid)) {
         // See BUG #928 on GUID issues
-        GP_HASHTABLE_PUT(((ocrGuidProviderCountedMap_t *) self)->guidImplTable, (void *) rguid, (void *) val);
+        GP_HASHTABLE_PUT(dself->guidImplTable, (void *) rguid, (void *) val);
         ASSERT(oth == self->pd->myLocation);
     } else {
-        MdProxy_t * mdProxy = (MdProxy_t *) GP_HASHTABLE_GET(((ocrGuidProviderCountedMap_t *) self)->guidImplTable, rguid);
+        MdProxy_t * mdProxy = (MdProxy_t *) GP_HASHTABLE_GET(dself->guidImplTable, rguid);
         // Must have setup a mdProxy before being able to register.
         ASSERT(mdProxy != NULL);
         mdProxy->ptr = val;
@@ -438,19 +452,20 @@ static u8 countedMapGetVal(ocrGuidProvider_t* self, ocrGuid_t guid, u64* val, oc
     }
 
     // See BUG #928 on GUID issues
-    #if GUID_BIT_COUNT == 64
-        void * rguid = (void *) guid.guid;
-    #elif GUID_BIT_COUNT == 128
-        void * rguid = (void *) guid.lower;
-    #else
-    #error Unknown type of GUID
-    #endif
+#if GUID_BIT_COUNT == 64
+    void * rguid = (void *) guid.guid;
+#elif GUID_BIT_COUNT == 128
+    void * rguid = (void *) guid.lower;
+#else
+#error Unknown type of GUID
+#endif
+
     if (isLocalGuidCheck(self, guid)) {
-        *val = (u64) GP_HASHTABLE_GET(((ocrGuidProviderCountedMap_t *) self)->guidImplTable, rguid);
+        *val = (u64) GP_HASHTABLE_GET(dself->guidImplTable, rguid);
     } else {
         // The GUID is remote, check if we have a local representent or need to fetch
         *val = 0; // Important for return code to be set properly
-        MdProxy_t * mdProxy = (MdProxy_t *) GP_HASHTABLE_GET(((ocrGuidProviderCountedMap_t *) self)->guidImplTable, rguid);
+        MdProxy_t * mdProxy = (MdProxy_t *) GP_HASHTABLE_GET(dself->guidImplTable, rguid);
         if (mdProxy == NULL) {
             if (mode == MD_LOCAL) {
                 return 0;
@@ -470,7 +485,6 @@ static u8 countedMapGetVal(ocrGuidProvider_t* self, ocrGuid_t guid, u64* val, oc
             hal_fence(); // I think the lock in try put should make the writes visible
             MdProxy_t * oldMdProxy = (MdProxy_t *) hashtableConcBucketLockedTryPut(dself->guidImplTable, rguid, mdProxy);
             if (oldMdProxy == mdProxy) { // won
-                // Concurrent callers will get the MdProxy and have to spin on it
                 if (mode == MD_PROXY) {
                     *proxy = oldMdProxy;
                     return 0;
@@ -542,7 +556,7 @@ static u8 countedMapGetVal(ocrGuidProvider_t* self, ocrGuid_t guid, u64* val, oc
                 }
                 mdProxy = oldMdProxy;
             }
-        } else {
+        } else { // mdProxy not NULL
             // Implementation limitation. For now DB relies on the proxy mecanism in hc-dist-policy
             *val = (u64) mdProxy->ptr;
         }
@@ -553,7 +567,7 @@ static u8 countedMapGetVal(ocrGuidProvider_t* self, ocrGuid_t guid, u64* val, oc
         } else {
             ASSERT(proxy == NULL);
         }
-    }
+    } // end GUID is not local
     return (*val) ? 0 : OCR_EPEND;
 }
 
@@ -577,12 +591,13 @@ u8 countedMapReleaseGuid(ocrGuidProvider_t *self, ocrFatGuid_t fatGuid, bool rel
     ocrGuidProviderCountedMap_t * derived = (ocrGuidProviderCountedMap_t *) self;
     // See BUG #928 on GUID issues
 #if GUID_BIT_COUNT == 64
-    GP_HASHTABLE_DEL(derived->guidImplTable, (void *)guid.guid, NULL);
+    void * lguid = (void *) guid.guid;
 #elif GUID_BIT_COUNT == 128
-    GP_HASHTABLE_DEL(derived->guidImplTable, (void *)guid.lower, NULL);
+    void * lguid = (void *) guid.lower;
 #else
-#error Unknown type of GUID
+#error Unknown GUID type
 #endif
+    RESULT_ASSERT(GP_HASHTABLE_DEL(derived->guidImplTable, lguid, NULL), ==, true);
     // If there's metaData associated with guid we need to deallocate memory
     if(releaseVal && (fatGuid.metaDataPtr != NULL)) {
         PD_MSG_STACK(msg);
@@ -1295,7 +1310,7 @@ static ocrGuidProvider_t* newGuidProviderCountedMap(ocrGuidProviderFactory_t *fa
 #ifdef GUID_PROVIDER_WID_INGUID
     {
         u32 i = 0;
-        for(; i < ((u64)1<<GUID_WID_SIZE)*GUID_WID_CACHE_SIZE; ++i) {
+        for(; i < (MAX_VAL(LOCWID)*GUID_WID_CACHE_SIZE); ++i) {
             rself->guidCounters[0] = 0;
         }
     }

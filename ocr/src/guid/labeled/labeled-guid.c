@@ -17,10 +17,17 @@
 #include "xstg-map.h"
 #endif
 
+/*
+ Implementation doc:
+    - A hashtable stores (key, values) pairs of (GUIDs, MdProxy *)
+    - A MdProxy is the representent for the actual metadata stored inside
+    - Callers can be queued up on the MdProxy. For instance to handle multiple
+      concurrent operations.
+*/
+
 #define DEBUG_TYPE GUID
 
 #define ENABLE_GUID_BITMAP_BASED 1
-#include "guid/guid-bitmap.h"
 
 // Default hashtable's number of buckets
 //PERF: This parameter heavily impacts the GUID provider scalability !
@@ -28,7 +35,7 @@
 #define GUID_PROVIDER_NB_BUCKETS 10000
 #endif
 
-// Guid is composed of : (1/0 LOCID KIND COUNTER)
+// Guid is composed of : (1/0 | LOCATIONS | KIND | COUNTER)
 #define GUID_RESERVED_SIZE  (1)
 #define GUID_COUNTER_SIZE   (GUID_BIT_COUNT-(GUID_RESERVED_SIZE+GUID_LOCID_SIZE+GUID_KIND_SIZE))
 
@@ -56,6 +63,7 @@
 #define GP_HASHTABLE_DESTRUCT(hashtable, key, entryDealloc, deallocParam) destructHashtableBucketLocked(hashtable, entryDealloc, deallocParam)
 #define GP_HASHTABLE_GET(hashtable, key) hashtableConcBucketLockedGet(GP_RESOLVE_HASHTABLE(hashtable,key), key)
 #define GP_HASHTABLE_PUT(hashtable, key, value) hashtableConcBucketLockedPut(GP_RESOLVE_HASHTABLE(hashtable,key), key, value)
+#define GP_HASHTABLE_TRYPUT(hashtable, key, value) hashtableConcBucketLockedTryPut(GP_RESOLVE_HASHTABLE(hashtable,key), key, value);
 #define GP_HASHTABLE_DEL(hashtable, key, valueBack) hashtableConcBucketLockedRemove(GP_RESOLVE_HASHTABLE(hashtable,key), key, valueBack)
 #endif
 
@@ -83,7 +91,7 @@ void labeledGuidHashmapEntryDestructChecker(void * key, void * value, void * dea
     DPRINTF(DEBUG_LVL_WARN, "Remnant GUID "GUIDF" of kind %s still registered on GUID provider\n", GUIDA(guid), ocrGuidKindToChar(getKindFromGuid(guid)));
 #endif
 }
-#endif
+#endif /*GUID_PROVIDER_DESTRUCT_CHECK*/
 
 void labeledGuidDestruct(ocrGuidProvider_t* self) {
     runtimeChunkFree((u64)self, PERSISTENT_CHUNK);
@@ -127,7 +135,8 @@ u8 labeledGuidSwitchRunlevel(ocrGuidProvider_t *self, ocrPolicyDomain_t *PD, ocr
 #ifdef GUID_PROVIDER_WID_INGUID
             ocrGuidProviderLabeled_t *rself = (ocrGuidProviderLabeled_t*)self;
             u32 i = 0, ub = PD->workerCount;
-            u64 max = MAX_VAL(COUNTER)
+            ASSERT(ub <= MAX_VAL(LOCWID));
+            u64 max = MAX_VAL(COUNTER);
             u64 incr = (max/ub);
             while (i < ub) {
                 // Initialize to 'i' to distribute the count over the buckets. Helps with scalability.
@@ -177,8 +186,6 @@ u8 labeledGuidSwitchRunlevel(ocrGuidProvider_t *self, ocrPolicyDomain_t *PD, ocr
         break;
     case RL_GUID_OK:
         if((properties & RL_BRING_UP) && RL_IS_LAST_PHASE_UP(PD, RL_GUID_OK, phase)) {
-            // //TODO clean-up when isLocalGuid is used. Just to keep compiler happy with unused
-            // bool res __attribute__((unused)) = isLocalGuidCheck(self, NULL_GUID);
             //Initialize the map now that we have an assigned policy domain
             ocrGuidProviderLabeled_t * derived = (ocrGuidProviderLabeled_t *) self;
             derived->guidImplTable = GP_HASHTABLE_CREATE_MODULO(PD, GUID_PROVIDER_NB_BUCKETS, hashGuidCounterModulo);
@@ -203,6 +210,11 @@ u8 labeledGuidSwitchRunlevel(ocrGuidProvider_t *self, ocrPolicyDomain_t *PD, ocr
 // application side or just a regular GUID reservation issued by a PD
 u8 labeledGuidReserve(ocrGuidProvider_t *self, ocrGuid_t *startGuid, u64* skipGuid,
                       u64 numberGuids, ocrGuidKind guidKind, u32 properties) {
+    //This call is used in two cases. The labeled guid reservation
+    //where the GUID must be marked as reserved and come from the guidReservedCounter
+    //or the GUID creation on behalf of another node where the call is used by a PD to
+    //reserve, or more precisely 'get' a number of GUIDs. For instance, when an OCR
+    //object creation is done 'remotely' through hints.
     RSELF_TYPE * rself = (RSELF_TYPE *) self;
 #ifdef GUID_PROVIDER_WID_INGUID
     ocrWorker_t * worker = NULL;
@@ -210,9 +222,9 @@ u8 labeledGuidReserve(ocrGuidProvider_t *self, ocrGuid_t *startGuid, u64* skipGu
     // GUIDs are generated before the current worker is setup.
     u64 wid = ((worker == NULL) ? 0 : worker->id);
     u64 shWid = LSHIFT(LOCWID, wid);
-    u64 * counter = &(rself->guidCounters[wid*GUID_WID_CACHE_SIZE]);
+    u64 * counter = (properties & GUID_PROP_IS_LABELED) ? &(rself->guidReservedCounters[wid*GUID_WID_CACHE_SIZE]) : &(rself->guidCounters[wid*GUID_WID_CACHE_SIZE]);
 #else
-    u64 * counter = &(rself->guidReservedCounter);
+    u64 * counter = (properties & GUID_PROP_IS_LABELED) ? &(rself->guidReservedCounter) : &(rself->guidCounter);
 #endif
     *skipGuid = 1; // Each GUID will just increment by 1
     // Mark the GUID as being reserved
@@ -245,13 +257,23 @@ u8 labeledGuidUnreserve(ocrGuidProvider_t *self, ocrGuid_t startGuid, u64 skipGu
  * @brief Generate a guid for 'val' by increasing the guid counter.
  */
 u8 labeledGuidGetGuid(ocrGuidProvider_t* self, ocrGuid_t* guid, u64 val, ocrGuidKind kind, ocrLocation_t targetLoc, u32 properties) {
-    // Here no need to allocate
-    //TODO WID_INGUID: fix when merging with counted
     RSELF_TYPE * rself = (RSELF_TYPE *) self;
-    u64 newGuid = generateNextGuid(self, kind, targetLoc, 1, &(rself->guidCounter));
-
+#ifdef GUID_PROVIDER_WID_INGUID
+    ocrWorker_t * worker = NULL;
+    getCurrentEnv(NULL, &worker, NULL, NULL);
+    // GUIDs are generated before the current worker is setup.
+    u64 wid = ((worker == NULL) ? 0 : worker->id);
+    u64 shWid = LSHIFT(LOCWID, wid);
+    u64 * counter = &(rself->guidCounters[wid*GUID_WID_CACHE_SIZE]);
+#else
+    u64 * counter = &(rself->guidCounter);
+#endif
+    u64 newGuid = generateNextGuid(self, kind, targetLoc, 1, counter);
+#ifdef GUID_PROVIDER_WID_INGUID
+    newGuid |= shWid;
+#endif
     DPRINTF(DEBUG_LVL_VERB, "LabeledGUID: insert into hash table 0x%"PRIx64" -> 0x%"PRIx64"\n", newGuid, val);
-
+    // See BUG #928 on GUID issues
 #if GUID_BIT_COUNT == 64
     ocrGuid_t tempGuid = {.guid = newGuid};
 #elif GUID_BIT_COUNT == 128
@@ -290,8 +312,8 @@ u8 labeledGuidGetGuid(ocrGuidProvider_t* self, ocrGuid_t* guid, u64 val, ocrGuid
  * and some meta-data payload behind it fatGuid's metaDataPtr will point to.
  */
 u8 labeledGuidCreateGuid(ocrGuidProvider_t* self, ocrFatGuid_t *fguid, u64 size, ocrGuidKind kind, ocrLocation_t targetLoc, u32 properties) {
-
     ocrGuidProviderLabeled_t *rself = (ocrGuidProviderLabeled_t*)self;
+    //TODO-MERGE double check if we need this for labeled GUIDs
     if(properties & GUID_PROP_IS_LABELED) {
         // We need to use the GUID provided; make sure it is non null and reserved
         ASSERT((!(ocrGuidIsNull(fguid->guid))) && (IS_RESERVED_GUID(fguid->guid)));
@@ -307,13 +329,26 @@ u8 labeledGuidCreateGuid(ocrGuidProvider_t* self, ocrFatGuid_t *fguid, u64 size,
         ASSERT(getKindFromGuid(fguid->guid) == kind); // Kind properly encoded
         // See BUG #928 on GUID issues
 #if GUID_BIT_COUNT == 64
-        ASSERT((RSHIFT(COUNTER, fguid->guid.guid)) < rself->guidReservedCounter); // Range actually reserved
+        u64 count = (RSHIFT(COUNTER, fguid->guid.guid));
 #elif GUID_BIT_COUNT == 128
-        ASSERT((RSHIFT(COUNTER, fguid->guid.lower)) < rself->guidReservedCounter); // Range actually reserved
+        u64 count = (RSHIFT(COUNTER, fguid->guid.lower));
+#endif
+#ifdef OCR_ASSERT
+#ifdef GUID_PROVIDER_WID_INGUID
+        // GUIDs are generated before the current worker is setup.
+#if GUID_BIT_COUNT == 64
+        u64 wid = (RSHIFT(LOCWID, fguid->guid.guid));
+#elif GUID_BIT_COUNT == 128
+        u64 wid = (RSHIFT(LOCWID, fguid->guid.lower));
+#endif
+        ASSERT(count < rself->guidReservedCounters[wid*GUID_WID_CACHE_SIZE]); // Range actually reserved
+#else
+        ASSERT(count < rself->guidReservedCounter); // Range actually reserved
+#endif
 #endif
     }
-    ocrPolicyDomain_t *policy = NULL;
     PD_MSG_STACK(msg);
+    ocrPolicyDomain_t *policy = NULL;
     getCurrentEnv(&policy, NULL, NULL, &msg);
 #define PD_MSG (&msg)
 #define PD_TYPE PD_MSG_MEM_ALLOC
@@ -322,7 +357,7 @@ u8 labeledGuidCreateGuid(ocrGuidProvider_t* self, ocrFatGuid_t *fguid, u64 size,
     PD_MSG_FIELD_I(properties) = 0;
     PD_MSG_FIELD_I(type) = GUID_MEMTYPE;
 
-    RESULT_PROPAGATE(policy->fcts.processMessage (policy, &msg, true));
+    RESULT_PROPAGATE(policy->fcts.processMessage(policy, &msg, true));
     void * ptr = (void *)PD_MSG_FIELD_O(ptr);
 
     // Update the fat GUID's metaDataPtr
@@ -340,14 +375,11 @@ u8 labeledGuidCreateGuid(ocrGuidProvider_t* self, ocrFatGuid_t *fguid, u64 size,
             DPRINTF(DEBUG_LVL_VERB, "LabeledGUID: try insert into hash table "GUIDF" -> %p\n", GUIDA(fguid->guid), ptr);
             // See BUG #928 on GUID issues
 #if GUID_BIT_COUNT == 64
-            void *value = hashtableConcBucketLockedTryPut(
-                ((ocrGuidProviderLabeled_t*)self)->guidImplTable,
-                (void*)(fguid->guid.guid), ptr);
+            void * lguid = (void*)(fguid->guid.guid);
 #elif GUID_BIT_COUNT == 128
-            void *value = hashtableConcBucketLockedTryPut(
-                ((ocrGuidProviderLabeled_t*)self)->guidImplTable,
-                (void*)(fguid->guid.lower), ptr);
+            void * lguid = (void*)(fguid->guid.lower);
 #endif
+            void *value = GP_HASHTABLE_TRYPUT(rself->guidImplTable, lguid, ptr);
             if(value != ptr) {
                 DPRINTF(DEBUG_LVL_VVERB, "LabeledGUID: FAILED to insert (got %p instead of %p)\n",
                         value, ptr);
@@ -388,33 +420,24 @@ u8 labeledGuidCreateGuid(ocrGuidProvider_t* self, ocrFatGuid_t *fguid, u64 size,
             void* value = NULL;
             DPRINTF(DEBUG_LVL_VERB, "LabeledGUID: force insert into hash table "GUIDF" -> %p\n", GUIDA(fguid->guid), ptr);
             do {
-
 // See BUG #928 on GUID issues
 #if GUID_BIT_COUNT == 64
-                value = hashtableConcBucketLockedTryPut(
-                    ((ocrGuidProviderLabeled_t*)self)->guidImplTable,
-                    (void*)(fguid->guid.guid), ptr);
+                void * lguid = (void*)(fguid->guid.guid);
 #elif GUID_BIT_COUNT == 128
-                value = hashtableConcBucketLockedTryPut(
-                    ((ocrGuidProviderLabeled_t*)self)->guidImplTable,
-                    (void*)(fguid->guid.lower), ptr);
+                void * lguid = (void*)(fguid->guid.guid);
 #endif
-
+                value = GP_HASHTABLE_TRYPUT(rself->guidImplTable, lguid, ptr);
             } while(value != ptr);
         } else {
             // "Trust me" mode. We insert into the hashtable
             DPRINTF(DEBUG_LVL_VERB, "LabeledGUID: trust insert into hash table "GUIDF" -> %p\n", GUIDA(fguid->guid), ptr);
-
-            // See BUG #928 on GUID issues
+// See BUG #928 on GUID issues
 #if GUID_BIT_COUNT == 64
-            GP_HASHTABLE_PUT(((ocrGuidProviderLabeled_t*)self)->guidImplTable,
-                             (void*)(fguid->guid.guid), ptr);
+            void * lguid = (void*)(fguid->guid.guid);
 #elif GUID_BIT_COUNT == 128
-            GP_HASHTABLE_PUT(((ocrGuidProviderLabeled_t*)self)->guidImplTable,
-                             (void*)(fguid->guid.lower), ptr);
-#else
-#error Unknown GUID type
+            void * lguid = (void*)(fguid->guid.guid);
 #endif
+            GP_HASHTABLE_PUT(rself->guidImplTable, lguid, ptr);
         }
     } else { // Not labeled
         // Two cases, with MD the guid may already be known and we just need to allocate space for the clone
@@ -422,13 +445,13 @@ u8 labeledGuidCreateGuid(ocrGuidProvider_t* self, ocrFatGuid_t *fguid, u64 size,
         if (properties & GUID_PROP_ISVALID) {
             if (properties & GUID_PROP_TORECORD) {
                 DPRINTF(DEBUG_LVL_VVERB, "Recording "GUIDF" @ %p\n", GUIDA(fguid->guid), ptr);
-    #if GUID_BIT_COUNT == 64
+#if GUID_BIT_COUNT == 64
                 u64 guid = fguid->guid.guid;
-    #elif GUID_BIT_COUNT == 128
+#elif GUID_BIT_COUNT == 128
                 u64 guid = fguid->guid.lower;
-    #else
-    #error Unknown type of GUID
-    #endif
+#else
+#error Unknown type of GUID
+#endif
                 void * toPut = ptr;
                 // Inject proxy for foreign guids. Stems from pushing OCR objects to other PDs
                 if (!isLocalGuidCheck(self, fguid->guid)) {
@@ -440,11 +463,10 @@ u8 labeledGuidCreateGuid(ocrGuidProvider_t* self, ocrFatGuid_t *fguid, u64 size,
                     mdProxy->queueHead = REG_CLOSED;
                     toPut = (void *) mdProxy;
                 }
-                GP_HASHTABLE_PUT(((ocrGuidProviderLabeled_t*) self)->guidImplTable, (void *) guid, (void *) toPut);
+                GP_HASHTABLE_PUT(((ocrGuidProviderLabeled_t *) self)->guidImplTable, (void *) guid, (void *) toPut);
             }
         } else {
             // Generate and record the GUID
-            DPRINTF(DEBUG_LVL_VVERB, "Generating GUID "GUIDF"\n", GUIDA(fguid->guid));
             labeledGuidGetGuid(self, &(fguid->guid), (u64) (fguid->metaDataPtr), kind, targetLoc, (properties & GUID_PROP_TORECORD));
         }
         ASSERT(!ocrGuidIsNull(fguid->guid) && !ocrGuidIsUninitialized(fguid->guid));
@@ -472,10 +494,10 @@ u8 labeledGuidRegisterGuid(ocrGuidProvider_t* self, ocrGuid_t guid, u64 val) {
     int oth = (int) locIdtoLocation(extractLocIdFromGuid(guid));
     if (isLocalGuidCheck(self, guid)) {
         // See BUG #928 on GUID issues
-        GP_HASHTABLE_PUT(((ocrGuidProviderLabeled_t *) self)->guidImplTable, (void *) rguid, (void *) val);
+        GP_HASHTABLE_PUT(dself->guidImplTable, (void *) rguid, (void *) val);
         ASSERT(oth == self->pd->myLocation);
     } else {
-        MdProxy_t * mdProxy = (MdProxy_t *) hashtableConcBucketLockedGet(dself->guidImplTable, (void *) rguid);
+        MdProxy_t * mdProxy = (MdProxy_t *) GP_HASHTABLE_GET(dself->guidImplTable, (void *) rguid);
         // Must have setup a mdProxy before being able to register.
         ASSERT(mdProxy != NULL);
         mdProxy->ptr = val;
@@ -524,16 +546,17 @@ u8 labeledGuidRegisterGuid(ocrGuidProvider_t* self, ocrGuid_t guid, u64 val) {
  * @brief Returns the value associated with a guid and its kind if requested.
  */
 u8 labeledGuidGetVal(ocrGuidProvider_t* self, ocrGuid_t guid, u64* val, ocrGuidKind* kind, u32 mode, MdProxy_t ** proxy) {
+    ASSERT(!ocrGuidIsNull(guid) && !ocrGuidIsError(guid) && !ocrGuidIsUninitialized(guid));
     ocrGuidProviderLabeled_t * dself = (ocrGuidProviderLabeled_t *) self;
-    if (kind) {
-        *kind = getKindFromGuid(guid);
-    }
     if (IS_RESERVED_GUID(guid)) {
         // Current limitations for labeled GUID
         // Only affinity and templates for now
         if (mode == MD_FETCH) {
             return OCR_EPERM;
         }
+    }
+    if (kind) {
+        *kind = getKindFromGuid(guid);
     }
     // See BUG #928 on GUID issues
     #if GUID_BIT_COUNT == 64
@@ -543,10 +566,11 @@ u8 labeledGuidGetVal(ocrGuidProvider_t* self, ocrGuid_t guid, u64* val, ocrGuidK
     #else
     #error Unknown type of GUID
     #endif
+
     if (isLocalGuidCheck(self, guid)) {
         *val = (u64) GP_HASHTABLE_GET(dself->guidImplTable, rguid);
         DPRINTF(DEBUG_LVL_VERB, "LabeledGUID: got val for GUID "GUIDF": 0x%"PRIx64"\n", GUIDA(guid), *val);
-        if ((*val != (u64)NULL) && IS_RESERVED_GUID(guid)) {
+        if ((*val != 0) && IS_RESERVED_GUID(guid)) {
             // Bug #627: We do not return until the GUID is valid. We test this
             // by looking at the first field of ptr and waiting for it to be the GUID value (meaning the
             // object has been initialized
@@ -564,6 +588,7 @@ u8 labeledGuidGetVal(ocrGuidProvider_t* self, ocrGuid_t guid, u64* val, ocrGuidK
 #elif GUID_BIT_COUNT == 128
             while((*(volatile u64*)(adjustedPtr)) != guid.lower);
 #endif
+            //Note: we do not cache label GUIDs because of race conditions on GUID_PROP_BLOCK
             hal_fence(); // May be overkill but there is a race that I don't get
         } // else val is not set and fall-through
     } else {
@@ -585,10 +610,9 @@ u8 labeledGuidGetVal(ocrGuidProvider_t* self, ocrGuid_t guid, u64* val, ocrGuidK
             mdProxy->queueHead = (void *) REG_OPEN; // sentinel value
             mdProxy->ptr = 0;
             hal_fence(); // I think the lock in try put should make the writes visible
-            MdProxy_t * oldMdProxy = (MdProxy_t *) hashtableConcBucketLockedTryPut(dself->guidImplTable, rguid, mdProxy);
-
+            MdProxy_t * oldMdProxy = (MdProxy_t *) GP_HASHTABLE_TRYPUT(dself->guidImplTable, rguid, mdProxy);
             if (oldMdProxy == mdProxy) { // won
-                if (mode == MD_PROXY) {
+                if (mode == MD_PROXY) { //TODO-STUFF: double check what this is again ??????
                     *proxy = oldMdProxy;
                     return 0;
                 }
@@ -649,30 +673,29 @@ u8 labeledGuidGetVal(ocrGuidProvider_t* self, ocrGuid_t guid, u64* val, ocrGuidK
                 // This is a racy check but it's ok, the caller would have to enqueue itself
                 // on the proxy and the race is addressed there.
                 *val = (u64) oldMdProxy->ptr;
-                if (*val == 0) {
-                    // MD is still being fetch, multiple options:
-                    // - Opt 1: Continuation
-                    //          WAIT_FOR(oldMdProxy);
-                    //          When resumed, the metadata is available locally
-                    // - Opt 2: Return a 'proxy' runtime event for caller to register on
-                    // For now return OCR_EPEND and let the caller deal with it
-                }
+                // if *val is zero then MD is still being fetch, multiple options:
+                // - Opt 1: Continuation
+                //          WAIT_FOR(oldMdProxy);
+                //          When resumed, the metadata is available locally
+                // - Opt 2: Return a 'proxy' runtime event for caller to register on
+                //          => For now return OCR_EPEND and let the caller deal with it
                 mdProxy = oldMdProxy;
             }
-        } else {
+        } else { // mdProxy not NULL
             //For labeled, currently delegating directly to the remote location that owns the reserved GUID
             //For reserved DBs, the unmarshalling code actually calls a getVal.
             ASSERT((!IS_RESERVED_GUID(guid) || (getKindFromGuid(guid) == OCR_GUID_DB)) && "Labeled Limitation");
             *val = (u64) mdProxy->ptr;
         }
+        //TODO-STUFF here we need to cache the mdProxy for subsequent lookups
         if (mode == MD_FETCH) {
             ASSERT(proxy != NULL);
             *proxy = mdProxy;
-            DPRINTF(DEBUG_LVL_VVERB, "MD_FETCH for "GUIDF"\n", GUIDA(guid));
+            //TODO Cache store
         } else {
             ASSERT(proxy == NULL);
         }
-    }
+    } // end GUID is not local
     return (*val) ? 0 : OCR_EPEND;
 }
 
@@ -683,12 +706,13 @@ u8 labeledGuidUnregisterGuid(ocrGuidProvider_t* self, ocrGuid_t guid, u64 ** val
     DPRINTF(DEBUG_LVL_VERB, "LabeledGUID: 1release GUID "GUIDF"\n", GUIDA(guid));
     // See BUG #928 on GUID issues
 #if GUID_BIT_COUNT == 64
-    GP_HASHTABLE_DEL(((ocrGuidProviderLabeled_t *) self)->guidImplTable, (void *) guid.guid, (void **) val);
+    void * lguid = (void *) guid.guid;
 #elif GUID_BIT_COUNT == 128
-    GP_HASHTABLE_DEL(((ocrGuidProviderLabeled_t *) self)->guidImplTable, (void *) guid.lower, (void **) val);
+    void * lguid = (void *) guid.lower;
 #else
 #error Unknown GUID type
 #endif
+    GP_HASHTABLE_DEL(((ocrGuidProviderLabeled_t *) self)->guidImplTable, lguid, (void **) val);
     return 0;
 }
 
@@ -760,14 +784,17 @@ static ocrGuidProvider_t* newGuidProviderLabeled(ocrGuidProviderFactory_t *facto
 #ifdef GUID_PROVIDER_WID_INGUID
     {
         u32 i = 0;
-        for(; i < ((u64)1<<GUID_WID_SIZE)*GUID_WID_CACHE_SIZE; ++i) {
-            rself->guidCounters[0] = 0;
+        for(; i < (MAX_VAL(LOCWID)*GUID_WID_CACHE_SIZE); ++i) {
+            rself->guidCounters[i] = 0;
+        }
+        for(i = 0; i < (MAX_VAL(LOCWID)*GUID_WID_CACHE_SIZE); ++i) {
+            rself->guidReservedCounters[i] = 0;
         }
     }
 #else
     rself->guidCounter = 0;
-#endif
     rself->guidReservedCounter = 0;
+#endif
     return base;
 }
 

@@ -78,12 +78,12 @@ static u64 generateNextGuid(ocrGuidProvider_t* self, ocrGuidKind kind, ocrLocati
 #endif
 
 #ifdef GUID_PROVIDER_WID_INGUID
+    u64 newCount = counterPtr[0];
     counterPtr[0]+=card;
 #else
     u64 newCount = hal_xadd64(counterPtr, card);
 #endif
     // double check if we overflow the guid's counter size
-    //TODO this doesn't check properly now
     ASSERT(((newCount + card) < MAX_VAL(COUNTER)) && "GUID counter overflows");
     guid |= newCount;
     return guid;

@@ -87,9 +87,9 @@ CFLAGS += -DCACHE_LINE_SZB=64
 # - Controls how many bits in the GUID are used for PD location
 CFLAGS += -DGUID_PROVIDER_LOCID_SIZE=10
 
-# - Per worker GUID generation: GUID_WID_SIZE is the maximum
-#   number of workers supported per PD
-# CFLAGS += -DGUID_PROVIDER_WID_INGUID += -DGUID_WID_SIZE=4
+# - Per worker GUID generation: 2^GUID_PROVIDER_WID_SIZE is the
+#   maximum number of workers supported per PD
+# CFLAGS += -DGUID_PROVIDER_WID_INGUID -DGUID_PROVIDER_WID_SIZE=6
 
 # - Activate a different hashmap implementation
 #   Warning: Necessitates an additional -D activating the alternate implementation

@@ -772,7 +772,7 @@ typedef struct _ocrPolicyMsg_t {
                 struct {
                     u64 numberGuids;      /**< In: Number of GUIDs being reserved */
                     ocrGuidKind guidKind; /**< In: GUID type for the GUIDs being reserved */
-                    u32 properties;         /**< In: Whether or not it is labeled */
+                    u32 properties;         /**< In: Whether or not it is reserved labeled or simple guid reservation */
                 } in;
                 struct {
                     ocrGuid_t startGuid;  /**< Out: First GUID usable in the reserved range */

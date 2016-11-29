@@ -99,6 +99,8 @@ u8 resolveRemoteMetaData(ocrPolicyDomain_t * pd, ocrFatGuid_t * fatGuid,
     //getVal - resolve
     u8 res = pd->guidProviders[0]->fcts.getVal(pd->guidProviders[0], fatGuid->guid, &val, NULL, MD_FETCH, &mdProxy);
     if (val == 0) {
+        //TODO-STUFF getVal could return EPERM and val!=0
+        //Should look at BT see who's depending on that EPERM
         if (res == OCR_EPERM) {
             return OCR_EPERM;
         }

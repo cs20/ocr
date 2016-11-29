@@ -35,14 +35,10 @@
 
 // 3) Worker ID location
 // - This has to be able to accomodate the max number of workers per location
-#ifdef GUID_PROVIDER_WID_INGUID
 #ifndef GUID_PROVIDER_WID_SIZE
-#define GUID_LOCWID_SIZE    4
+#define GUID_LOCWID_SIZE    0
 #else
 #define GUID_LOCWID_SIZE    GUID_PROVIDER_WID_SIZE
-#endif
-#else
-#define GUID_LOCWID_SIZE    0
 #endif
 
 // Sizes for each field

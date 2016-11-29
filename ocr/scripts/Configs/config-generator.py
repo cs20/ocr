@@ -394,6 +394,8 @@ def GenerateConfig(filehandle, guid, platform, target, threads, binding, syswork
             print 'error: target ', target, ' only supports counted-map guid provider; received ', guid
             os.unlink(filehandle.name)
             raise
+        if (guid == 'COUNTED_MAP'):
+            guid = 'LABELED'
         pdtype="HCDist"
         GeneratePd(filehandle, pdtype, dbtype, threads)
         #Intentionally use "HC" here
