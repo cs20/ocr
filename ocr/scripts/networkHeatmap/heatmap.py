@@ -7,19 +7,21 @@ import argparse
 import Tkinter as tk
 from operator import itemgetter
 
-TTYPE_INDEX = 14
-SRC_INDEX = 20
-DST_INDEX = 23
-SIZE_INDEX = 26
-MAR_TIME_INDEX = 29
-SEND_TIME_INDEX = 32
-RCV_TIME_INDEX = 35
-UMAR_TIME_INDEX = 38
+TTYPE_INDEX = 17
+TACTION_INDEX = 20
+SRC_INDEX = 23
+DST_INDEX = 26
+SIZE_INDEX = 29
+MAR_TIME_INDEX = 32
+SEND_TIME_INDEX = 35
+RCV_TIME_INDEX = 38
+UMAR_TIME_INDEX = 41
 PD_INDEX = 5
-MSG_TYPE_INDEX = 41
+MSG_TYPE_INDEX = 44
 
-TK_WIN_WIDTH  = 1200
+TK_WIN_WIDTH  = 1000
 TK_WIN_HEIGHT = 900
+MAX_TEXT_DIM = 64
 
 FIRST_PASS = 0
 RESET = 1
@@ -118,6 +120,7 @@ userDefMsgTypes = []
 msgTypeDict = [[]]
 #Message counts to be displayed in matrix
 msgCounts = [[]]
+maxMsgCountDigits = 0
 
 def calculateHeatColor(minV, maxV, val):
     ratio = 2*(val-(float(minV))) / (float(maxV) - float(minV))
@@ -235,13 +238,22 @@ class memMap(object):
                     if(row == 0 and column == 0):
                         self.text[row,column] = self.canvas.create_text((x2+x1)/2, (y2+y1)/2, text="", tags = "text")
                     elif(row == 0 and column != 0):
-                        self.text[row,column] = self.canvas.create_text((x2+x1)/2, (y2+y1)/2, text="PD:0x"+str(column-1), tags = "text")
+                        if len(networkNodes) >= MAX_TEXT_DIM:
+                            self.text[row,column] = self.canvas.create_text((x2+x1)/2, (y2+y1)/2, text='', tags = "text")
+                        else:
+                            self.text[row,column] = self.canvas.create_text((x2+x1)/2, (y2+y1)/2, text="PD:0x"+str(column-1), tags = "text")
                     else:
-                        self.text[row,column] = self.canvas.create_text((x2+x1)/2, (y2+y1)/2, text="PD:0x"+str(row-1), tags = "text")
+                        if len(networkNodes) >= MAX_TEXT_DIM:
+                            self.text[row,column] = self.canvas.create_text((x2+x1)/2, (y2+y1)/2, text='', tags = "text")
+                        else:
+                            self.text[row,column] = self.canvas.create_text((x2+x1)/2, (y2+y1)/2, text="PD:0x"+str(row-1), tags = "text")
                 else:
                     if(row == column):
                         self.rect[row,column] = self.canvas.create_rectangle(x1,y1,x2,y2, fill="grey", tags="rectMax")
-                        self.text[row,column] = self.canvas.create_text((x2+x1)/2, (y2+y1)/2, text=self.getCount(row-1,column-1), tags = "text")
+                        if len(networkNodes) >= MAX_TEXT_DIM:
+                            self.text[row,column] = self.canvas.create_text((x2+x1)/2, (y2+y1)/2, text='', tags = "text")
+                        else:
+                            self.text[row,column] = self.canvas.create_text((x2+x1)/2, (y2+y1)/2, text=self.getCount(row-1,column-1), tags = "text")
                     else:
                         if(msgCounts[row-1][column-1] == 0):
                             heatColor = 'grey'
@@ -253,7 +265,10 @@ class memMap(object):
                             self.rect[row,column] = self.canvas.create_rectangle(x1,y1,x2,y2, fill=heatColor, tags="rectMin")
                         else:
                             self.rect[row,column] = self.canvas.create_rectangle(x1,y1,x2,y2, fill=heatColor, tags="rect2")
-                        self.text[row,column] = self.canvas.create_text((x2+x1)/2, (y2+y1)/2, text=self.getCount(row-1, column-1), tags = "text")
+                        if len(networkNodes) >= MAX_TEXT_DIM:
+                            self.text[row,column] = self.canvas.create_text((x2+x1)/2, (y2+y1)/2, text='', tags = "text")
+                        else:
+                            self.text[row,column] = self.canvas.create_text((x2+x1)/2, (y2+y1)/2, text=self.getCount(row-1, column-1), tags = "text")
 
     def populateChecked(self, idx):
         #Populate list checkboxed message types.
@@ -321,7 +336,7 @@ def strip(dbgLog):
     filtered = []
 
     for i in dbgLog:
-        if len(i.split()) == 42 and i.split()[TTYPE_INDEX] == "MESSAGE":
+        if i.split()[TACTION_INDEX] == "END_TO_END" and i.split()[TTYPE_INDEX] == "MESSAGE":
             filtered.append(i)
 
     return filtered
@@ -449,6 +464,21 @@ def messageNetwork(log, nodes, flag):
 
     return
 
+def writeMsgCountCSV():
+    f = open('msg_count_grid.csv', 'w')
+    f.write(',')
+    for i in range(len(networkNodes)):
+        f.write(str(i)+',')
+    f.write('\n')
+
+    for i in range(len(networkNodes)):
+        for j in range(len(networkNodes)):
+            if j == 0:
+                f.write(str(i)+',')
+            f.write(str(msgCounts[i][j])+',')
+
+        f.write('\n')
+
 #==================== MAIN =========================
 
 
@@ -499,6 +529,9 @@ def main():
     #Arrange sender/reciever counters among Policy domains.
     messageNetwork(filtered, list(pds), FIRST_PASS)
     print "Constructing message network"
+
+    if len(networkNodes) >= MAX_TEXT_DIM:
+        writeMsgCountCSV()
 
     #Setup Tkinter and enter main loop for GUI
     root = tk.Tk()
