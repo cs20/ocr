@@ -792,7 +792,7 @@ u8 pdMarkReadyEvent(ocrPolicyDomain_t *pd, pdEvent_t *evt) {
                 ASSERT(hal_islocked(&(curNode->lock)));
                 // We flipped nodeReady from 0 to 1; to up until we see a 1
                 // We flipped nodeNeedsProcessing from 0 to 1; same as above
-                u8 tNpIdx = npIdx[0]?(npIdx[0]-1):0;
+                u8 tNpIdx __attribute__((unused)) = npIdx[0]?(npIdx[0]-1):0;
                 if(npIdx[1]) {
                     DPRINTF(DEBUG_LVL_VVERB, "WARNING: The below status of propagation will not print all NP vectors affected\n");
                 }
@@ -913,7 +913,7 @@ u8 pdMarkWaitEvent(ocrPolicyDomain_t *pd, pdEvent_t *evt) {
                 ASSERT(hal_islocked(&(curNode->lock)));
                 // We flipped nodeReady from 1 to 0; to up until we see a sibbling
                 // We flipped nodeNeedsProcessing from 1 to 0; same as above
-                u8 tNpIdx = npIdx[0]?(npIdx[0]-1):0;
+                u8 tNpIdx __attribute__((unused)) = npIdx[0]?(npIdx[0]-1):0;
                 if(npIdx[1]) {
                     DPRINTF(DEBUG_LVL_VVERB, "WARNING: The below status of propagation will not print all NP vectors affected\n");
                 }
@@ -1613,7 +1613,7 @@ u8 pdEnqueueActions(ocrPolicyDomain_t *pd, pdStrand_t* strand, u32 actionCount,
             // In this case, we flipped:
             // NP from 0 to 1 (stop when we see a 1)
             // Ready from 1 to 0 (stop when sibblings have ready nodes)
-            u8 tNpIdx = npIdx[0]?(npIdx[0]-1):0;
+            u8 tNpIdx __attribute__((unused)) = npIdx[0]?(npIdx[0]-1):0;
             if(npIdx[1]) {
                 DPRINTF(DEBUG_LVL_VVERB, "WARNING: The below status of propagation will not print all NP vectors affected\n");
             }
@@ -1900,7 +1900,7 @@ u32 _pdProcessNStrands(ocrPolicyDomain_t *pd, u32 processType, u32 count, u32 pr
                     pdStrandTableNode_t *t = curNode;
                     pdStrandTableNode_t *parent = curNode->parent;
 
-                    u8 tNpIdx = npIdx[0]?(npIdx[0]-1):0;
+                    u8 tNpIdx __attribute__((unused)) = npIdx[0]?(npIdx[0]-1):0;
                     if(npIdx[1]) {
                         DPRINTF(DEBUG_LVL_VVERB, "WARNING: The below status of propagation will not print all NP vectors affected\n");
                     }
@@ -2076,7 +2076,7 @@ u32 _pdProcessNStrands(ocrPolicyDomain_t *pd, u32 processType, u32 count, u32 pr
                     ASSERT(hal_islocked(&(curNode->lock)));
                     // We flip nodeReady from 0 to 1; to up until we see a 1
                     // We flip nodeNeedsProcessing from 0 to 1; same as above
-                    u8 tNpIdx = npIdx[0]?(npIdx[0]-1):0;
+                    u8 tNpIdx __attribute__((unused)) = npIdx[0]?(npIdx[0]-1):0;
                     if(npIdx[1]) {
                         DPRINTF(DEBUG_LVL_VVERB, "WARNING: The below status of propagation will not print all NP vectors affected\n");
                     }
@@ -2278,7 +2278,7 @@ u8 pdProcessResolveEvents(ocrPolicyDomain_t *pd, u32 processType, u32 count, pdE
                         // we have no more nodes to process due to the strand we are currently
                         // processing
                         pdStrandTableNode_t *parentNode = curNode->parent;
-                        u8 tNpIdx = npIdx[0]?(npIdx[0]-1):0;
+                        u8 tNpIdx __attribute__((unused)) = npIdx[0]?(npIdx[0]-1):0;
                         if(npIdx[1]) {
                             DPRINTF(DEBUG_LVL_VVERB, "WARNING: The below status of propagation will not print all NP vectors affected\n");
                         }
@@ -2443,7 +2443,7 @@ u8 pdProcessResolveEvents(ocrPolicyDomain_t *pd, u32 processType, u32 count, pdE
 
                             pdStrandTableNode_t *parent = curNode->parent;
                             ASSERT(hal_islocked(&(curNode->lock)));
-                            u8 tNpIdx = npIdx[0]?(npIdx[0]-1):0;
+                            u8 tNpIdx __attribute__((unused)) = npIdx[0]?(npIdx[0]-1):0;
                             if(npIdx[1]) {
                                 DPRINTF(DEBUG_LVL_VVERB, "WARNING: The below status of propagation will not print all NP vectors affected\n");
                             }
@@ -2972,7 +2972,7 @@ static u8 _pdSetStrandNodeAtIdx(ocrPolicyDomain_t *pd, pdStrandTableNode_t *pare
     // NP bits: we flipped from 0 to 1, see if this makes others 1 (stop when see 1)
 
     // If we have the lock on curNode, we should *not* release it.
-    u8 tNpIdx = npIdx[0]?(npIdx[0]-1):0; // If we don't have propagateNP, we don't want the print to fail
+    u8 tNpIdx __attribute__((unused)) = npIdx[0]?(npIdx[0]-1):0; // If we don't have propagateNP, we don't want the print to fail
     if(npIdx[1]) {
         DPRINTF(DEBUG_LVL_VVERB, "WARNING: The below status of propagation will not print all NP vectors affected\n");
     }
