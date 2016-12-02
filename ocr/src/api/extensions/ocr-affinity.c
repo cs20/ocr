@@ -29,8 +29,8 @@
 // and data to each guid.
 
 u8 ocrAffinityCount(ocrAffinityKind kind, u64 * count) {
-#if defined(TG_CE_TARGET) || defined(TG_XE_TARGET)
-    // Temporary "no-op" hack for TG
+#if defined(TG_CE_TARGET)
+    // CE should not ask anything
     *count = 0;
     return 0;
 #endif
@@ -61,8 +61,8 @@ u8 ocrAffinityCount(ocrAffinityKind kind, u64 * count) {
 }
 
 u8 ocrAffinityQuery(ocrGuid_t guid, u64 * count, ocrGuid_t * affinities) {
-#if defined(TG_CE_TARGET) || defined(TG_XE_TARGET)
-    // Temporary "no-op" hack for TG
+#if defined(TG_CE_TARGET)
+    // CE should not ask anything
     if(count)
         *count = 0;
     affinities[0] = NULL_GUID;
@@ -96,8 +96,14 @@ u8 ocrAffinityQuery(ocrGuid_t guid, u64 * count, ocrGuid_t * affinities) {
         //So we resolve the affinity of the GUID by looking up its
         //location and use that to index into the affinity array.
         //NOTE: Shortcoming is that it assumes location are integers.
+#ifdef TG_XE_TARGET
+        u32 loc2 = locationToIdx(loc);
+        ASSERT((loc2) < platformModel->pdLocAffinitiesSize);
+        affinities[0] = platformModel->pdLocAffinities[loc2];
+#else
         ASSERT(((u32)loc) < platformModel->pdLocAffinitiesSize);
         affinities[0] = platformModel->pdLocAffinities[(u32)loc];
+#endif
     }
     RETURN_PROFILE(0);
 }
@@ -105,8 +111,8 @@ u8 ocrAffinityQuery(ocrGuid_t guid, u64 * count, ocrGuid_t * affinities) {
 
 //BUG #606/#VV4 Neighbors/affinities:  This call returns affinities with identical mapping across PDs.
 u8 ocrAffinityGet(ocrAffinityKind kind, u64 * count, ocrGuid_t * affinities) {
-#if defined(TG_CE_TARGET) || defined(TG_XE_TARGET)
-    // Temporary "no-op" hack for TG
+#if defined(TG_CE_TARGET)
+    // CE should not ask anything
     ASSERT(count && (*count) == 0);
     return 0;
 #endif
@@ -140,8 +146,8 @@ u8 ocrAffinityGet(ocrAffinityKind kind, u64 * count, ocrGuid_t * affinities) {
 }
 
 u8 ocrAffinityGetAt(ocrAffinityKind kind, u64 idx, ocrGuid_t * affinity) {
-#if defined(TG_CE_TARGET) || defined(TG_XE_TARGET)
-    // Temporary "no-op" hack for TG
+#if defined(TG_CE_TARGET)
+    // CE should not ask anything
     *affinity = NULL_GUID;
     return 0;
 #endif
@@ -173,8 +179,8 @@ u8 ocrAffinityGetAt(ocrAffinityKind kind, u64 idx, ocrGuid_t * affinity) {
 }
 
 u8 ocrAffinityGetCurrent(ocrGuid_t * affinity) {
-#if defined(TG_CE_TARGET) || defined(TG_XE_TARGET)
-    // Temporary "no-op" hack for TG
+#if defined(TG_CE_TARGET)
+    // CE should not ask anything
     *affinity = NULL_GUID;
     return 0;
 #endif
