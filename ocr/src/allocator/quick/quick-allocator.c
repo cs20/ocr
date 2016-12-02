@@ -1953,7 +1953,7 @@ void* quickAllocate(
 
     void *ret;
 #ifdef PER_AGENT_CACHE
-    s32 type_id = (s32)size;
+    s64 type_id = (s64)size;
     if (type_id < 0) {         // negative size is interpreted as type_id for slab allocation request
         type_id = -type_id;
         ASSERT(type_id > 0 && type_id < MAX_SLABS_NAMED );

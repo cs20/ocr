@@ -155,7 +155,7 @@ void* mallocProxyAllocate(
     u64 hints)              // Allocator-dependent hints; not used for malloc. (Not used, but exists to match other allocators)
 {
     // mallocproxy doesn't support slab allocation, so just fall back to mallocproxy by fixing size
-    s32 type_id = (s32)size;
+    s64 type_id = (s64)size;
     if (type_id < 0) {         // negative size is interpreted as type_id for slab allocation request
         type_id = -type_id;
         if (!(type_id > 0 && type_id < MAX_SLABS_NAMED )) {
