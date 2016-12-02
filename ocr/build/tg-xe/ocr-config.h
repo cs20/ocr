@@ -19,9 +19,6 @@
 
 #define TG_XE_TARGET
 
-// See bug #556
-#define EDT_DEPV_DELAYED
-
 // Allocator
 #define ENABLE_ALLOCATOR_SIMPLE
 #define ENABLE_ALLOCATOR_QUICK

@@ -22,9 +22,6 @@
 // Bug #694 Better handling of GUID metadata across PDs
 #define TG_X86_TARGET
 
-// Bug #556
-#define EDT_DEPV_DELAYED
-
 // Allocator
 #define ENABLE_ALLOCATOR_TLSF
 #define ENABLE_ALLOCATOR_SIMPLE

@@ -1583,6 +1583,7 @@ u8 cePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
 
     case PD_MSG_WORK_CREATE: {
         START_PROFILE(pd_ce_WorkCreate);
+        u8 returnCode = 0;
 #define PD_MSG msg
 #define PD_TYPE PD_MSG_WORK_CREATE
         localDeguidify(self, &(PD_MSG_FIELD_I(templateGuid)), NULL);
@@ -1592,19 +1593,77 @@ u8 cePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         ocrTask_t *curEdt = PD_MSG_FIELD_I(currentEdt).metaDataPtr;
         if(curEdt) curEdt->swPerfCtrs[PERF_EDT_CREATES - PERF_HW_MAX]++;
 #endif
+        u32 depc = PD_MSG_FIELD_IO(depc);
+        ocrFatGuid_t *depv = PD_MSG_FIELD_I(depv);
         ASSERT((PD_MSG_FIELD_I(workType) == EDT_USER_WORKTYPE) || (PD_MSG_FIELD_I(workType) == EDT_RT_WORKTYPE));
         DPRINTF(DEBUG_LVL_VERB, "Processing WORK_CREATE request\n");
         PD_MSG_FIELD_I(properties) |= GUID_PROP_TORECORD;
-        PD_MSG_FIELD_O(returnDetail) = ceCreateEdt(
+        returnCode = ceCreateEdt(
             self, &(PD_MSG_FIELD_IO(guid)), PD_MSG_FIELD_I(templateGuid),
             &PD_MSG_FIELD_IO(paramc), PD_MSG_FIELD_I(paramv), &PD_MSG_FIELD_IO(depc),
             PD_MSG_FIELD_I(properties), PD_MSG_FIELD_I(hint), &PD_MSG_FIELD_IO(outputEvent),
             (ocrTask_t*)(PD_MSG_FIELD_I(currentEdt).metaDataPtr), PD_MSG_FIELD_I(parentLatch));
         DPRINTF(DEBUG_LVL_VERB, "WORK_CREATE response: GUID: "GUIDF"\n",
                 GUIDA(PD_MSG_FIELD_IO(guid.guid)));
-        returnCode = ceProcessResponse(self, msg, 0);
+        if(msg->type & PD_MSG_REQ_RESPONSE)
+            PD_MSG_FIELD_O(returnDetail) = returnCode;
+        ASSERT(returnCode == 0 || returnCode == OCR_EGUIDEXISTS);
+#ifndef EDT_DEPV_DELAYED
+        if ((depv != NULL)) {
+            ASSERT(returnCode == 0);
+            ASSERT(depc != EDT_PARAM_DEF);
+            ocrGuid_t destination = PD_MSG_FIELD_IO(guid).guid;
+            u32 i = 0;
+            ocrTask_t * curEdt = NULL;
+            getCurrentEnv(NULL, NULL, &curEdt, NULL);
+            ocrFatGuid_t curEdtFatGuid = {.guid = curEdt ? curEdt->guid : NULL_GUID, .metaDataPtr = curEdt};
+            while(i < depc) {
+                if(!(ocrGuidIsUninitialized(depv[i].guid))) {
+                    // We only add dependences that are not UNINITIALIZED_GUID
+                    PD_MSG_STACK(msgAddDep);
+                    getCurrentEnv(NULL, NULL, NULL, &msgAddDep);
 #undef PD_MSG
 #undef PD_TYPE
+                    //NOTE: Could systematically call DEP_ADD but it's faster to disambiguate
+                    //      NULL_GUID here instead of having DEP_ADD find out and do a satisfy.
+                    if(!(ocrGuidIsNull(depv[i].guid))) {
+#define PD_MSG (&msgAddDep)
+#define PD_TYPE PD_MSG_DEP_ADD
+                        msgAddDep.type = PD_MSG_DEP_ADD | PD_MSG_REQUEST;
+                        PD_MSG_FIELD_I(source.guid) = depv[i].guid;
+                        PD_MSG_FIELD_I(source.metaDataPtr) = NULL;
+                        PD_MSG_FIELD_I(dest.guid) = destination;
+                        PD_MSG_FIELD_I(dest.metaDataPtr) = NULL;
+                        PD_MSG_FIELD_I(slot) = i;
+                        PD_MSG_FIELD_IO(properties) = DB_DEFAULT_MODE;
+                        PD_MSG_FIELD_I(currentEdt) = curEdtFatGuid;
+#undef PD_MSG
+#undef PD_TYPE
+                    } else {
+                      //Handle 'NULL_GUID' case here to avoid overhead of
+                      //going through dep_add and end-up doing the same thing.
+#define PD_MSG (&msgAddDep)
+#define PD_TYPE PD_MSG_DEP_SATISFY
+                        msgAddDep.type = PD_MSG_DEP_SATISFY | PD_MSG_REQUEST;
+                        PD_MSG_FIELD_I(satisfierGuid.guid) = curEdtFatGuid.guid;
+                        PD_MSG_FIELD_I(guid.guid) = destination;
+                        PD_MSG_FIELD_I(guid.metaDataPtr) = NULL;
+                        PD_MSG_FIELD_I(payload.guid) = NULL_GUID;
+                        PD_MSG_FIELD_I(payload.metaDataPtr) = NULL;
+                        PD_MSG_FIELD_I(slot) = i;
+                        PD_MSG_FIELD_I(properties) = 0;
+                        PD_MSG_FIELD_I(currentEdt) = curEdtFatGuid;
+#undef PD_MSG
+#undef PD_TYPE
+                    }
+                    u8 toReturn __attribute__((unused)) = self->fcts.processMessage(self, &msgAddDep, true);
+                    ASSERT(!toReturn);
+                }
+                ++i;
+            }
+        }
+#endif
+        returnCode = ceProcessResponse(self, msg, 0);
         EXIT_PROFILE;
         break;
     }
