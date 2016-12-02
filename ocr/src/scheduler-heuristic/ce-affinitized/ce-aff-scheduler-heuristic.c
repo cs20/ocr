@@ -212,7 +212,7 @@ ocrSchedulerHeuristicContext_t* ceSchedulerHeuristicGetContextAff(ocrSchedulerHe
 static u8 ceWorkStealingGetAff(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicContext_t *context, ocrFatGuid_t *fguid,
     bool discardAffinity) {
 
-    DPRINTF(DEBUG_LVL_VERB, "GET WORK from 0x%"PRIx64"; discardAffinity: %"PRIu32"\n",
+    DPRINTF(DEBUG_LVL_INFO, "Location 0x%"PRIx64" attempting to GET WORK; discardAffinity:%"PRIu32"\n",
         (u64)context->location, (u32)discardAffinity);
 
     ASSERT(ocrGuidIsNull(fguid->guid));
@@ -238,6 +238,8 @@ static u8 ceWorkStealingGetAff(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuris
     ASSERT(schedObj);
     ocrSchedulerObjectFactory_t *fact = self->scheduler->pd->schedulerObjectFactories[schedObj->fctId];
     u8 retVal = fact->fcts.remove(fact, schedObj, OCR_SCHEDULER_OBJECT_EDT, 1, &edtObj, NULL, SCHEDULER_OBJECT_REMOVE_TAIL);
+    ocrLocation_t foundLocation __attribute__((unused)) = context->location;
+    bool nonAffWork __attribute__((unused)) = false;
 
 #if 1 //Turn off to disable stealing (serialize execution)
     //If pop fails, then try to steal from other deques
@@ -256,6 +258,7 @@ static u8 ceWorkStealingGetAff(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuris
             DPRINTF(DEBUG_LVL_VVERB, "Attempting steal in last successful place: 0x%"PRIx64"\n", self->contexts[ceContext->stealSchedulerContextIndex]->location);
             ASSERT(stealSchedulerObject->fctId == schedObj->fctId);
             retVal = fact->fcts.remove(fact, stealSchedulerObject, OCR_SCHEDULER_OBJECT_EDT, 1, &edtObj, NULL, SCHEDULER_OBJECT_REMOVE_HEAD); //try cached deque first
+            foundLocation = self->contexts[ceContext->stealSchedulerContextIndex]->location;
         }
 
         if(ocrGuidIsNull(edtObj.guid.guid)) {
@@ -270,18 +273,21 @@ static u8 ceWorkStealingGetAff(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuris
                     DPRINTF(DEBUG_LVL_VVERB, "Attempting steal from XE: 0x%"PRIx64"\n", self->contexts[ceContext->stealSchedulerContextIndex]->location);
                     ASSERT(stealSchedulerObject->fctId == schedObj->fctId);
                     retVal = fact->fcts.remove(fact, stealSchedulerObject, OCR_SCHEDULER_OBJECT_EDT, 1, &edtObj, NULL, SCHEDULER_OBJECT_REMOVE_HEAD);
+                    foundLocation = self->contexts[ceContext->stealSchedulerContextIndex]->location;
                 }
                 if(ocrGuidIsNull(edtObj.guid.guid)) {
                     // We failed to find something in all XEs in our block
                     DPRINTF(DEBUG_LVL_VVERB, "XE found no XE work.\n");
                     if(discardAffinity) {
                         // We now loop around the CEs but we don't change the stealSchedulerContextIndex
+                        nonAffWork = true;
                         for(i = derived->xeCount; ocrGuidIsNull(edtObj.guid.guid) && i < self->contextCount; ++i) {
                             ocrSchedulerHeuristicContextCeAff_t *otherCtx = (ocrSchedulerHeuristicContextCeAff_t*)self->contexts[i];
                             stealSchedulerObject = otherCtx->mySchedulerObject;
                             DPRINTF(DEBUG_LVL_VVERB, "Attempting steal from CE: 0x%"PRIx64"\n", self->contexts[i]->location);
                             ASSERT(stealSchedulerObject->fctId == schedObj->fctId);
                             retVal = fact->fcts.remove(fact, stealSchedulerObject, OCR_SCHEDULER_OBJECT_EDT, 1, &edtObj, NULL, SCHEDULER_OBJECT_REMOVE_HEAD);
+                            foundLocation = self->contexts[i]->location;
                         }
                     } else {
                         DPRINTF(DEBUG_LVL_VVERB, "XE affinitized steal -- not stealing from CEs\n");
@@ -289,6 +295,7 @@ static u8 ceWorkStealingGetAff(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuris
                     }
                 }
             } else {
+                nonAffWork = true;
                 // We are a CE and we know that discardAffinity is true, first loop around the other CEs
                 ASSERT(discardAffinity);
                 u32 i;
@@ -302,6 +309,7 @@ static u8 ceWorkStealingGetAff(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuris
                     DPRINTF(DEBUG_LVL_VVERB, "Attempting steal from neighbor CE: 0x%"PRIx64"\n", self->contexts[ceContext->stealSchedulerContextIndex]->location);
                     ASSERT(stealSchedulerObject->fctId == schedObj->fctId);
                     retVal = fact->fcts.remove(fact, stealSchedulerObject, OCR_SCHEDULER_OBJECT_EDT, 1, &edtObj, NULL, SCHEDULER_OBJECT_REMOVE_HEAD);
+                    foundLocation = self->contexts[ceContext->stealSchedulerContextIndex]->location;
                 }
 
                 // If this did not work, we then go steal from XEs but don't update stealSchedulerContextIndex
@@ -311,6 +319,7 @@ static u8 ceWorkStealingGetAff(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuris
                     DPRINTF(DEBUG_LVL_VVERB, "Attempting steal from internal XE: 0x%"PRIx64"\n", self->contexts[i]->location);
                     ASSERT(stealSchedulerObject->fctId == schedObj->fctId);
                     retVal = fact->fcts.remove(fact, stealSchedulerObject, OCR_SCHEDULER_OBJECT_EDT, 1, &edtObj, NULL, SCHEDULER_OBJECT_REMOVE_HEAD);
+                    foundLocation = self->contexts[i]->location;
                 }
             }
         }
@@ -323,7 +332,8 @@ static u8 ceWorkStealingGetAff(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuris
         ASSERT(retVal == 0);
         *fguid = edtObj.guid;
         derived->workCount--;
-        DPRINTF(DEBUG_LVL_VVERB, "Found work: "GUIDF"\n", GUIDA(edtObj.guid.guid));
+        DPRINTF(DEBUG_LVL_INFO, "Found work: "GUIDF" from 0x%"PRIx64" (nonAffinitized: %"PRIu32"\n", GUIDA(edtObj.guid.guid),
+            (u64)foundLocation, (u32)nonAffWork);
     } else {
         ASSERT(retVal != 0);
         ASSERT(0); //Check done early
@@ -419,10 +429,12 @@ static u8 ceSchedulerHeuristicNotifyEdtReadyInvokeAff(ocrSchedulerHeuristic_t *s
     // We should definitely not have EDTs becoming ready after the shutdown is called
     // Maybe if the shutdown is not the last EDT but even then...
     ASSERT(!derived->shutdownMode);
-    DPRINTF(DEBUG_LVL_VVERB, "GIVE WORK INVOKE from %"PRIx64"\n", opArgs->location);
     ocrSchedulerOpNotifyArgs_t *notifyArgs = (ocrSchedulerOpNotifyArgs_t*)opArgs;
     ocrPolicyDomain_t *pd = self->scheduler->pd;
     ocrFatGuid_t fguid = notifyArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_EDT_READY).guid;
+
+    DPRINTF(DEBUG_LVL_INFO, "Location %"PRIx64" GIVE WORK "GUIDF"\n", (u64)opArgs->location,
+        GUIDA(fguid.guid));
 
     if (ocrGuidIsNull(fguid.guid)) {
         return handleEmptyResponseAff(self, context);
@@ -487,11 +499,11 @@ static u8 ceSchedulerHeuristicNotifyEdtReadyInvokeAff(ocrSchedulerHeuristic_t *s
             // This is "my block"
             if(fromXE) {
                 // Do nothing, this will use the context we got on entry
-                DPRINTF(DEBUG_LVL_VVERB, "EDT will be local (on XE context 0x%"PRIx64")\n", context->location);
+                DPRINTF(DEBUG_LVL_INFO, "EDT local to XE (on XE 0x%"PRIx64")\n", context->location);
             } else {
                 // Figure out the next context to use in a RR fashion
                 insertContext = self->contexts[derived->rrXE];
-                DPRINTF(DEBUG_LVL_VVERB, "EDT will be local (on XE RR context 0x%"PRIx64")\n", insertContext->location);
+                DPRINTF(DEBUG_LVL_INFO, "EDT will stay local to block (on XE 0x%"PRIx64")\n", insertContext->location);
                 derived->rrXE = (derived->rrXE + 1) % derived->xeCount;
             }
         } else {
@@ -518,7 +530,7 @@ static u8 ceSchedulerHeuristicNotifyEdtReadyInvokeAff(ocrSchedulerHeuristic_t *s
             }
             // If this fails, it means we somehow don't have the right neighbors
             ASSERT(found);
-            DPRINTF(DEBUG_LVL_VVERB, "EDT will be remote (pushed to context 0x%"PRIx64")\n", context->location);
+            DPRINTF(DEBUG_LVL_INFO, "EDT will be affinitized to 0x%"PRIx64"\n", context->location);
         }
     } else if (ocrGetHintValue(&edtHint, OCR_HINT_EDT_SLOT_MAX_ACCESS, &affinitySlot) == 0) {
         // If there is no affinity information directly, we see if we can get something from the data-block
