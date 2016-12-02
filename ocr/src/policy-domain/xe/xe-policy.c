@@ -20,6 +20,7 @@
 #include "ocr-statistics.h"
 #endif
 
+#include "experimental/ocr-platform-model.h"
 #include "extensions/ocr-hints.h"
 #include "policy-domain/xe/xe-policy.h"
 
@@ -395,6 +396,9 @@ u8 xePdSwitchRunlevel(ocrPolicyDomain_t *policy, ocrRunlevel_t runlevel, u32 pro
                 if(toReturn) break;
                 if(RL_IS_FIRST_PHASE_UP(policy, RL_COMPUTE_OK, i)) {
                     guidify(policy, (u64)policy, &(policy->fguid), OCR_GUID_POLICY);
+#ifdef TG_XE_TARGET
+                    policy->platformModel = createPlatformModelAffinityXE(policy);
+#endif
                     policy->placer = NULL; // No placer for TG
                 }
                 toReturn |= helperSwitchInert(policy, runlevel, i, masterWorkerProperties);
@@ -417,6 +421,9 @@ u8 xePdSwitchRunlevel(ocrPolicyDomain_t *policy, ocrRunlevel_t runlevel, u32 pro
             for(i = phaseCount; i >= 0; --i) {
                 if(toReturn) break;
                 if(RL_IS_LAST_PHASE_DOWN(policy, RL_COMPUTE_OK, i)) {
+#ifdef TG_XE_TARGET
+                    destroyPlatformModelAffinity(policy);
+#endif
                     // We need to deguidify ourself here
                     PD_MSG_STACK(msg);
                     getCurrentEnv(NULL, NULL, NULL, &msg);

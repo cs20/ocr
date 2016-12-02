@@ -36,6 +36,13 @@ struct _ocrPolicyDomain_t;
 
 u8 affinityToLocation(ocrLocation_t* result, ocrGuid_t affinityGuid);
 ocrPlatformModel_t * createPlatformModelAffinity(struct _ocrPolicyDomain_t * pd);
+#ifdef TG_XE_TARGET
+ocrPlatformModel_t * createPlatformModelAffinityXE(struct _ocrPolicyDomain_t * pd);
+#endif
 void destroyPlatformModelAffinity(struct _ocrPolicyDomain_t * pd);
+
+#ifdef TG_XE_TARGET
+u32 locationToIdx(ocrLocation_t location);
+#endif
 
 #endif /* __OCR_PLATFORM_MODEL_H__ */
