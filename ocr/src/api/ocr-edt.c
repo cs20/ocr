@@ -297,9 +297,7 @@ u8 ocrEdtCreate(ocrGuid_t* edtGuidPtr, ocrGuid_t templateGuid,
             reqResponse = true;
         }
     }
-    if (reqResponse) {
-        msg.type |= PD_MSG_REQ_RESPONSE;
-    }
+
     ocrFatGuid_t * depvFatGuids = NULL;
     // EDT_DEPV_DELAYED allows to use the older implementation
     // where dependences were always added by the caller instead
@@ -313,7 +311,14 @@ u8 ocrEdtCreate(ocrGuid_t* edtGuidPtr, ocrGuid_t templateGuid,
         depvArray[i].guid = depv[i];
         depvArray[i].metaDataPtr = NULL;
     }
+#else
+    // If we need to add dependences now, we will need a response
+    reqResponse |= (depv != NULL);
 #endif
+
+    if (reqResponse) {
+        msg.type |= PD_MSG_REQ_RESPONSE;
+    }
 
     //Copy the hints so that the runtime modifications
     //are not reflected back to the user
