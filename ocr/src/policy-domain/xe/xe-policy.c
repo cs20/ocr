@@ -1209,6 +1209,7 @@ void initializePolicyDomainXe(ocrPolicyDomainFactory_t * factory, ocrPolicyDomai
     derived->rlSwitch.barrierRL = RL_GUID_OK;
     derived->rlSwitch.barrierState = RL_BARRIER_STATE_UNINIT;
     derived->rlSwitch.pdStatus = 0;
+    self->neighborCount = ((paramListPolicyDomainXeInst_t*)perInstance)->neighborCount;
 }
 
 static void destructPolicyDomainFactoryXe(ocrPolicyDomainFactory_t * factory) {

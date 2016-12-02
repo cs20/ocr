@@ -20,6 +20,8 @@ parser.add_argument('--binstart', dest='binstart', default='0x0',
                    help='Binary file start address (default: 0x0)')
 parser.add_argument('--binend', dest='binend', default='0x0',
                    help='Binary file end address (default: 0x0)')
+parser.add_argument('--fsimcfg', dest='fsimcfg', default='config.cfg',
+                   help='FSim config file to use (default: config.cfg)')
 parser.add_argument('--ocrcfg', dest='ocrcfg', default='default.cfg',
                    help='OCR config file to use (will be overwritten)')
 
@@ -28,6 +30,7 @@ binstart = args.binstart
 binend = args.binend
 binsize = long(binend, 16) - long(binstart, 16)
 ocrcfg = args.ocrcfg
+fsimcfg = args.fsimcfg
 print "Size is 0x%lx" % (binsize,)
 
 def ExtractValues(infilename):
@@ -44,8 +47,18 @@ def ExtractValues(infilename):
     allocsize = config.get('AllocatorInst0', 'size').strip(' ').split(' ')[0]
     allocsize = ''.join(itertools.takewhile(lambda s: s.isalnum(), allocsize))
 
+def ExtractValuesFsim(infilename):
+    config = ConfigParser.SafeConfigParser(allow_no_value=True)
+    config.readfp(infilename)
+    global neighborcount
+    cc = config.get('SocketGlobal', 'cluster_count').strip(' ').split(' ')[0]
+    cc = int(''.join(itertools.takewhile(lambda s: s.isdigit(), cc)))
+    bc = config.get('ClusterGlobal', 'block_count').strip(' ').split(' ')[0]
+    bc = int(''.join(itertools.takewhile(lambda s: s.isdigit(), bc)))
+    neighborcount = bc*cc
+
 def RewriteConfig(cfg):
-    global platsize, tgtsize, allocsize
+    global platsize, tgtsize, allocsize, neighborcount
 
     with open(cfg, 'r+') as fp:
         lines = fp.readlines()
@@ -59,6 +72,8 @@ def RewriteConfig(cfg):
                 section = 2
             if 'AllocatorInst0' in line:
                 section = 3
+            if 'PolicydomainInst0' in line:
+                section = 4
             if section == 1 and 'start' in line:
                 line = '   start = \t' + hex(long(platstart,16)+binsize) + '\n'
             if section == 1 and 'size' in line:
@@ -69,6 +84,9 @@ def RewriteConfig(cfg):
                 section = 0
             if section == 3 and 'size' in line:
                 line = '   size =\t' + hex(long(allocsize,16)-binsize-0x100) + '\n'
+                section = 0
+            if section == 4 and 'neighborcount' in line:
+                line = '   neighborcount = \t' + str(neighborcount-1) + '\n'
                 section = 0
 
             fp.write(line)
@@ -85,6 +103,13 @@ if os.path.isfile(ocrcfg):
         StripLeadingWhitespace(ocrcfg, temphandle)
         temphandle.seek(0)
         ExtractValues(temphandle)
+    if os.path.isfile(fsimcfg):
+        with tempfile.TemporaryFile() as temphandle:
+            StripLeadingWhitespace(fsimcfg, temphandle)
+            temphandle.seek(0)
+            ExtractValuesFsim(temphandle)
+    else:
+        print 'Unable to find FSim config file ', fsimcfg
     RewriteConfig(ocrcfg)
 else:
     print 'Unable to find OCR config file ', ocrcfg

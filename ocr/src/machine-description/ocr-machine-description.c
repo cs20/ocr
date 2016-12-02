@@ -1070,6 +1070,18 @@ s32 populate_inst(ocrParamList_t **inst_param, int inst_param_size, void **insta
             }
             break;
 #endif
+#ifdef ENABLE_POLICY_DOMAIN_XE
+            case policyDomainXe_id: {
+                ALLOC_PARAM_LIST(inst_param[j], paramListPolicyDomainXeInst_t);
+                if (key_exists(dict, secname, "neighborcount")) {
+                    value = get_key_value(dict, secname, "neighborcount", j-low);
+                    ((paramListPolicyDomainXeInst_t *)inst_param[j])->neighborCount = (u32)value;
+                } else {
+                    ((paramListPolicyDomainXeInst_t *)inst_param[j])->neighborCount = (u32)0;
+                }
+            }
+            break;
+#endif
             default:
                 ALLOC_PARAM_LIST(inst_param[j], paramListPolicyDomainInst_t);
                 break;
