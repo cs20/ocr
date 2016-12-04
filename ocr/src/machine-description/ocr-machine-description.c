@@ -868,7 +868,33 @@ s32 populate_inst(ocrParamList_t **inst_param, int inst_param_size, void **insta
         break;
     case schedulerHeuristic_type:
         for (j = low; j<=high; j++) {
-            ALLOC_PARAM_LIST(inst_param[j], paramListSchedulerHeuristic_t);
+            schedulerHeuristicType_t mytype = -1;
+            TO_ENUM (mytype, inststr, schedulerHeuristicType_t, schedulerHeuristic_types, schedulerHeuristicMax_id);
+            switch(mytype) {
+#if defined(ENABLE_SCHEDULER_HEURISTIC_CE_AFF)
+                case schedulerHeuristicCeAff_id: {
+                    ALLOC_PARAM_LIST(inst_param[j], paramListSchedulerHeuristicCeAff_t);
+                    if(key_exists(dict, secname, "enforceaffinity")) {
+                        char *valuestr = NULL;
+                        snprintf(key, MAX_KEY_SZ, "%s:%s", secname, "enforceaffinity");
+                        INI_GET_STR(key, valuestr, "no");
+                        if(strcmp(valuestr, "yes") == 0) {
+                            ((paramListSchedulerHeuristicCeAff_t*)inst_param[j])->enforceAffinity = true;
+                        } else {
+                            u32 t = strcmp(valuestr, "no");
+                            ASSERT(t == 0 && "enforceaffinity should be 'yes' or 'no'");
+                            ((paramListSchedulerHeuristicCeAff_t*)inst_param[j])->enforceAffinity = false;
+                        }
+                    } else {
+                        ((paramListSchedulerHeuristicCeAff_t*)inst_param[j])->enforceAffinity = false;
+                    }
+                    break;
+                }
+#endif
+                default: {
+                    ALLOC_PARAM_LIST(inst_param[j], paramListSchedulerHeuristic_t);
+                }
+            }
             ((paramListSchedulerHeuristic_t*)inst_param[j])->isMaster = false;
             if (key_exists(dict, secname, "kind")) {
                 char *valuestr = NULL;

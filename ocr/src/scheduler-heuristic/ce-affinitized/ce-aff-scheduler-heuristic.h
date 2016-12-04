@@ -54,7 +54,12 @@ typedef struct _ocrSchedulerHeuristicCeAff_t {
                                                 // @ idx 1: victims available in non-affinitized mode
     u32 rrXE;                                   // Index of the XE that we push an incoming work to.
     u32 xeCount;                                // Cached value of the number of XEs
+    u32 rrInsert;                               // Which neighbor/child to use to insert non-affinitized work
+                                                // if affinity is strictly enforced. This allows work to be
+                                                // spread out even if there are no affinities
     bool shutdownMode;                          // This indicates whether PD is shutting down or not
+    bool enforceAffinity;                       // If true, affinity will be strongly enforced
+                                                // and affinitized work will not be stolen
 } ocrSchedulerHeuristicCeAff_t;
 
 /****************************************************/
@@ -63,6 +68,7 @@ typedef struct _ocrSchedulerHeuristicCeAff_t {
 
 typedef struct _paramListSchedulerHeuristicCeAff_t {
     paramListSchedulerHeuristic_t base;
+    bool enforceAffinity;
 } paramListSchedulerHeuristicCeAff_t;
 
 typedef struct _ocrSchedulerHeuristicFactoryCeAff_t {

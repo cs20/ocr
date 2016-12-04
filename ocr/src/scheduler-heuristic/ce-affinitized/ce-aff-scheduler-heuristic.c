@@ -54,6 +54,7 @@ ocrSchedulerHeuristic_t* newSchedulerHeuristicCeAff(ocrSchedulerHeuristicFactory
     derived->pendingXeCount = 0;
     derived->outWorkVictimsAvailable[0] = derived->outWorkVictimsAvailable[1] = 0;
     derived->shutdownMode = false;
+    derived->enforceAffinity = ((paramListSchedulerHeuristicCeAff_t*)perInstance)->enforceAffinity;
     return self;
 }
 
@@ -130,6 +131,7 @@ u8 ceSchedulerHeuristicSwitchRunlevelAff(ocrSchedulerHeuristic_t *self, ocrPolic
             ocrSchedulerHeuristicCeAff_t *derived = (ocrSchedulerHeuristicCeAff_t*)self;
             derived->outWorkVictimsAvailable[0] = PD->neighborCount; // Initially, we can ask all neighbors for affinitized work
             derived->rrXE = 0;
+            derived->rrInsert = 0;
             derived->xeCount = ((ocrPolicyDomainCe_t*)PD)->xeCount;
         }
         if((properties & RL_TEAR_DOWN) && RL_IS_LAST_PHASE_DOWN(PD, RL_MEMORY_OK, phase)) {
@@ -332,7 +334,7 @@ static u8 ceWorkStealingGetAff(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuris
         ASSERT(retVal == 0);
         *fguid = edtObj.guid;
         derived->workCount--;
-        DPRINTF(DEBUG_LVL_INFO, "Found work: "GUIDF" from 0x%"PRIx64" (nonAffinitized: %"PRIu32"\n", GUIDA(edtObj.guid.guid),
+        DPRINTF(DEBUG_LVL_INFO, "Found work: "GUIDF" from 0x%"PRIx64" (nonAffinitized: %"PRIu32")\n", GUIDA(edtObj.guid.guid),
             (u64)foundLocation, (u32)nonAffWork);
     } else {
         ASSERT(retVal != 0);
@@ -356,6 +358,12 @@ static u8 ceSchedulerHeuristicWorkEdtUserInvokeAff(ocrSchedulerHeuristic_t *self
     ocrSchedulerOpWorkArgs_t *taskArgs = (ocrSchedulerOpWorkArgs_t*)opArgs;
     ocrFatGuid_t *fguid = &(taskArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).edt);
     bool discardAffinity = taskArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).discardAffinity;
+    if(derived->enforceAffinity) {
+        if(discardAffinity) {
+            DPRINTF(DEBUG_LVL_VERB, "Overriding discardAffinity -- setting to false since affinity enforcement is true\n");
+        }
+        discardAffinity = false;
+    }
     u8 retVal = ceWorkStealingGetAff(self, context, fguid, discardAffinity);
     if (retVal) {
         ocrSchedulerHeuristicContextCeAff_t *ceContext = (ocrSchedulerHeuristicContextCeAff_t*)context;
@@ -363,7 +371,7 @@ static u8 ceSchedulerHeuristicWorkEdtUserInvokeAff(ocrSchedulerHeuristic_t *self
         ASSERT(!ceContext->inWorkRequestPending);
         DPRINTF(DEBUG_LVL_VVERB, "TAKE_WORK_INVOKE from %"PRIx64" (pending)\n", context->location);
         // If this is a non-affinitized request, we won't respond until we do get work
-        if(discardAffinity) {
+        if(discardAffinity || derived->enforceAffinity) {
             // If the receiver is an XE, put it to sleep
             u64 agentId = AGENT_FROM_ID(context->location);
             if ((agentId >= ID_AGENT_XE0) && (agentId <= ID_AGENT_XE7)) {
@@ -433,7 +441,7 @@ static u8 ceSchedulerHeuristicNotifyEdtReadyInvokeAff(ocrSchedulerHeuristic_t *s
     ocrPolicyDomain_t *pd = self->scheduler->pd;
     ocrFatGuid_t fguid = notifyArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_EDT_READY).guid;
 
-    DPRINTF(DEBUG_LVL_INFO, "Location %"PRIx64" GIVE WORK "GUIDF"\n", (u64)opArgs->location,
+    DPRINTF(DEBUG_LVL_INFO, "Location 0x%"PRIx64" GIVE WORK "GUIDF"\n", (u64)opArgs->location,
         GUIDA(fguid.guid));
 
     if (ocrGuidIsNull(fguid.guid)) {
@@ -466,8 +474,9 @@ static u8 ceSchedulerHeuristicNotifyEdtReadyInvokeAff(ocrSchedulerHeuristic_t *s
     ocrHint_t edtHint;
     ocrHintInit(&edtHint, OCR_HINT_EDT_T);
     RESULT_ASSERT(ocrGetHint(task->guid, &edtHint), ==, 0);
+    bool isHintedLocation = false;
     if(ocrGetHintValue(&edtHint, OCR_HINT_EDT_AFFINITY, &affinitySlot) == 0) {
-
+        isHintedLocation = true;
         // There is an affinity, check the source and the affinity destination
         ocrLocation_t myLoc = pd->myLocation;
         ocrLocation_t affLoc;
@@ -503,7 +512,7 @@ static u8 ceSchedulerHeuristicNotifyEdtReadyInvokeAff(ocrSchedulerHeuristic_t *s
             } else {
                 // Figure out the next context to use in a RR fashion
                 insertContext = self->contexts[derived->rrXE];
-                DPRINTF(DEBUG_LVL_INFO, "EDT will stay local to block (on XE 0x%"PRIx64")\n", insertContext->location);
+                DPRINTF(DEBUG_LVL_INFO, "EDT distributed locally to block (on XE 0x%"PRIx64")\n", insertContext->location);
                 derived->rrXE = (derived->rrXE + 1) % derived->xeCount;
             }
         } else {
@@ -530,7 +539,8 @@ static u8 ceSchedulerHeuristicNotifyEdtReadyInvokeAff(ocrSchedulerHeuristic_t *s
             }
             // If this fails, it means we somehow don't have the right neighbors
             ASSERT(found);
-            DPRINTF(DEBUG_LVL_INFO, "EDT will be affinitized to 0x%"PRIx64"\n", context->location);
+            DPRINTF(DEBUG_LVL_INFO, "EDT will be affinitized to remote 0x%"PRIx64" for final affinity 0x%"PRIx64"\n",
+                insertContext->location, affinityLoc);
         }
     } else if (ocrGetHintValue(&edtHint, OCR_HINT_EDT_SLOT_MAX_ACCESS, &affinitySlot) == 0) {
         // If there is no affinity information directly, we see if we can get something from the data-block
@@ -546,6 +556,7 @@ static u8 ceSchedulerHeuristicNotifyEdtReadyInvokeAff(ocrSchedulerHeuristic_t *s
         ocrHintInit(&dbHint, OCR_HINT_DB_T);
         RESULT_ASSERT(ocrGetHint(dbGuid, &dbHint), ==, 0);
         if (ocrGetHintValue(&dbHint, OCR_HINT_DB_AFFINITY, &dbMemAffinity) == 0) {
+            isHintedLocation = true;
             ocrLocation_t myLoc = pd->myLocation;
             ocrLocation_t dbLoc = dbMemAffinity;
             ocrLocation_t affinityLoc = dbLoc;
@@ -568,6 +579,13 @@ static u8 ceSchedulerHeuristicNotifyEdtReadyInvokeAff(ocrSchedulerHeuristic_t *s
             }
             ASSERT(found);
         }
+    }
+
+    if(derived->enforceAffinity && !isHintedLocation) {
+        // We select a round robin-context so that we spread work out a bit
+        insertContext = self->contexts[derived->rrInsert];
+        DPRINTF(DEBUG_LVL_INFO, "Non-affinitized work RR to location 0x%"PRIx64")\n", insertContext->location);
+        derived->rrInsert = (derived->rrInsert + 1) % self->contextCount;
     }
 
     ocrSchedulerHeuristicContextCeAff_t *ceInsertContext = (ocrSchedulerHeuristicContextCeAff_t*)insertContext;
@@ -815,13 +833,15 @@ u8 ceSchedulerHeuristicUpdateAff(ocrSchedulerHeuristic_t *self, u32 properties) 
                 ocrSchedulerHeuristicContext_t *context = self->contexts[i];
                 ocrSchedulerHeuristicContextCeAff_t *ceContext = (ocrSchedulerHeuristicContextCeAff_t*)context;
                 if (ceContext->inWorkRequestPending &&                   /*We have a pending context, and ...*/
-                    ((derived->workCount > derived->pendingXeCount) ||   /*either we have enough work to serve anyone, ...*/
-                     (AGENT_FROM_ID(context->location) != ID_AGENT_CE))) /*we have very little and we want to serve the XEs first*/
+                     ((derived->enforceAffinity) ||                      /*either we enforce affinity (so there is no stealing risk) */
+                     (derived->workCount > derived->pendingXeCount) ||   /*or we have enough work to serve anyone, ...*/
+                     (AGENT_FROM_ID(context->location) != ID_AGENT_CE))) /*or we have very little and we want to serve the XEs first*/
                 {
                     fguid.guid = NULL_GUID;
                     fguid.metaDataPtr = NULL;
                     // If things are pending, this means this is the second request
-                    if (ceWorkStealingGetAff(self, context, &fguid, true) == 0) {
+                    // If enforce affinity, we do not discard affinity. Otherwise, we do.
+                    if (ceWorkStealingGetAff(self, context, &fguid, !derived->enforceAffinity) == 0) {
                         respondWorkRequestAff(self, context, &fguid);
                     }
                 }
