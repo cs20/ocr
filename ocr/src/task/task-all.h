@@ -50,7 +50,7 @@ const char * taskTemplate_types [] = {
 
 // Add other tasks using the same pattern as above
 
-inline ocrTaskFactory_t *newTaskFactory(taskType_t type, ocrParamList_t *typeArg) {
+static inline ocrTaskFactory_t *newTaskFactory(taskType_t type, ocrParamList_t *typeArg) {
     switch(type) {
 #ifdef ENABLE_TASK_HC
     case taskHc_id:
@@ -62,7 +62,7 @@ inline ocrTaskFactory_t *newTaskFactory(taskType_t type, ocrParamList_t *typeArg
     return NULL;
 }
 
-inline ocrTaskTemplateFactory_t *newTaskTemplateFactory(taskTemplateType_t type, ocrParamList_t *typeArg) {
+static inline ocrTaskTemplateFactory_t *newTaskTemplateFactory(taskTemplateType_t type, ocrParamList_t *typeArg) {
     switch(type) {
 #ifdef ENABLE_TASKTEMPLATE_HC
     case taskTemplateHc_id:
