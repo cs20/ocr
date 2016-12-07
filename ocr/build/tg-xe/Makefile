@@ -26,10 +26,9 @@ APPS_LIBS_INSTALL := ${APPS_LIBS_INSTALL_ROOT}/${ARCH}
 _T := $(APPS_LIBS_INSTALL)
 APPS_LIBS_INSTALL := $(realpath $(_T))
 ifeq (,$(APPS_LIBS_INSTALL))
-ifeq ($(filter squeaky clean uninstall,$(MAKECMDGOALS)), )
-IGNORE := $(shell ARCH=$(ARCH) make -C $(APPS_LIBS_INSTALL_ROOT)/../src/newlib)
-APPS_LIBS_INSTALL := $(realpath $(_T))
-endif
+  $(info Creating APPS_LIBS_INSTALL: $(_T))
+  $(shell mkdir -p "$(_T)")
+  APPS_LIBS_INSTALL := $(realpath $(_T))
 endif
 
 TG_INSTALL ?= ../../../../tg/tg/install
