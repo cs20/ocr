@@ -266,6 +266,9 @@ else
   OPT_LEVEL=-O3
 endif
 
+# Turns on critical asserts that are always checked
+#CFLAGS += -DOCR_ASSERT_CRITICAL
+
 # Define level
 CFLAGS += -DOCR_DEBUG_LVL=DEBUG_LVL_WARN
 # CFLAGS += -DOCR_DEBUG_LVL=DEBUG_LVL_INFO

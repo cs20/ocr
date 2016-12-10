@@ -660,6 +660,14 @@ extern void doTrace(u64 location, u64 wrkr, ocrGuid_t taskGuid, ...);
 #define ASSERT_BLOCK_END }
 #endif /* OCR_ASSERT */
 
+// Some asserts we really should report and abort, overflows etc...
+#ifdef OCR_ASSERT_CRITICAL
+#define ASSERT_CRITICAL(a) do { sal_assert((bool)((a) != 0), __FILE__, __LINE__); } while(0);
+#else
+#define ASSERT_CRITICAL(a) ASSERT(a)
+#endif
+
+
 #ifndef VERIFY
 #define VERIFY(cond, format, ...)                                       \
     do {                                                                \

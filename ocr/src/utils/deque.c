@@ -149,10 +149,8 @@ void nonConcDequePushTailOverwrite(deque_t* self, void* entry, u8 doTry) {
 void nonConcDequePushTail(deque_t* self, void* entry, u8 doTry) {
     u32 head = self->head;
     u32 tail = self->tail;
-    if (tail == INIT_DEQUE_CAPACITY + head) { /* deque looks full */
-        /* may not grow the deque if some interleaving steal occur */
-        ASSERT("DEQUE full, increase deque's size" && 0);
-    }
+    /* deque looks full - may not grow the deque if some interleaving steal occur */
+    ASSERT_CRITICAL("DEQUE full, increase deque's size" && !(tail == INIT_DEQUE_CAPACITY + head));
     u32 n = (self->tail) % INIT_DEQUE_CAPACITY;
     self->data[n] = entry;
     ++(self->tail);
@@ -192,10 +190,8 @@ void * nonConcDequePopHead(deque_t * self, u8 doTry) {
 void wstDequePushTail(deque_t* self, void* entry, u8 doTry) {
     s32 head = self->head;
     s32 tail = self->tail;
-    if (tail == INIT_DEQUE_CAPACITY + head) { /* deque looks full */
-        /* may not grow the deque if some interleaving steal occur */
-        ASSERT("DEQUE full, increase deque's size" && 0);
-    }
+    /* deque looks full - may not grow the deque if some interleaving steal occur */
+    ASSERT_CRITICAL("DEQUE full, increase deque's size" && !(tail == INIT_DEQUE_CAPACITY + head));
     s32 n = (self->tail) % INIT_DEQUE_CAPACITY;
     self->data[n] = entry;
     DPRINTF(DEBUG_LVL_VERB, "Pushing h:%"PRId32" t:%"PRId32" deq[%"PRId32"] elt:0x%p into conc deque @ 0x%p\n",
@@ -281,10 +277,8 @@ void lockedDequePushTail(deque_t* self, void* entry, u8 doTry) {
     hal_lock(&dself->lock);
     u32 head = self->head;
     u32 tail = self->tail;
-    if (tail == INIT_DEQUE_CAPACITY + head) { /* deque looks full */
-        /* may not grow the deque if some interleaving steal occur */
-        ASSERT("DEQUE full, increase deque's size" && 0);
-    }
+    /* deque looks full - may not grow the deque if some interleaving steal occur */
+    ASSERT_CRITICAL("DEQUE full, increase deque's size" && !(tail == INIT_DEQUE_CAPACITY + head));
     u32 n = (self->tail) % INIT_DEQUE_CAPACITY;
     self->data[n] = entry;
     ++(self->tail);
@@ -318,10 +312,8 @@ void lockedDequePushHead(deque_t* self, void* entry, u8 doTry) {
     hal_lock(&dself->lock);
     u32 head = self->head;
     u32 tail = self->tail;
-    if (tail == INIT_DEQUE_CAPACITY + head) { /* deque looks full */
-        /* may not grow the deque if some interleaving steal occur */
-        ASSERT("DEQUE full, increase deque's size" && 0);
-    }
+    /* deque looks full - may not grow the deque if some interleaving steal occur */
+    ASSERT_CRITICAL("DEQUE full, increase deque's size" && !(tail == INIT_DEQUE_CAPACITY + head));
     // Not full so I must be able to write
     u32 n;
     if (head == tail) { // empty
@@ -370,9 +362,7 @@ void lockedDequePushTailSemiConc(deque_t* self, void* entry, u8 doTry) {
     u32 head = self->head;
     u32 tail = ((u32)self->tail);
     u32 ptail = (tail == (INIT_DEQUE_CAPACITY-1)) ? 0 : tail+1;
-    if (ptail == head) {
-        ASSERT("DEQUE full, increase deque's size" && 0);
-    }
+    ASSERT_CRITICAL("DEQUE full, increase deque's size" && !(ptail == head));
     self->data[tail] = entry;
     // The fence ensures a concurrent head pop cannot see
     // self->tail increased without seeing the entry being written
