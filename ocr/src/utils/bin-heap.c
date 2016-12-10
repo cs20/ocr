@@ -37,7 +37,7 @@ void binHeapDestroy(ocrPolicyDomain_t *pd, binHeap_t* heap) {
 static void _baseBinHeapInit(binHeap_t* heap, ocrPolicyDomain_t *pd) {
     heap->count = 0;
     heap->data = NULL;
-    heap->data = pd->fcts.pdMalloc(pd, sizeof(void*)*INIT_BIN_HEAP_CAPACITY);
+    heap->data = pd->fcts.pdMalloc(pd, sizeof(ocrBinHeapEntry_t)*INIT_BIN_HEAP_CAPACITY);
     ASSERT(heap->data != NULL);
     heap->destruct = binHeapDestroy;
     // Set by derived implementation
