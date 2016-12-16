@@ -1,0 +1,34 @@
+#!/bin/bash
+
+# This file is subject to the license agreement located in the file LICENSE
+# and cannot be distributed without it. This notice cannot be
+# removed or modified.
+
+# OCR must be compiled with debug level set to DEBUG_LVL_INFO (file ocr/build/common.mk)
+# Usage:
+# 1. Dump OCR log messages into a text file `log_file'.
+# 2. Either...
+#  2.a Dump diagram to an intermediate dot file:
+#    $ path/to/this/script log_file > diagram.dot
+#    $ dot -T svg -o diagram.svg diagram.dot
+#  2.b Pipe result and generate diagram directly:
+#    $ path/to/this/script log_file | dot -T svg -o diagram.svg
+# Note: the script can read the log information via standard input if - (hyphen) is set
+#       as argument.
+
+# Declare graph
+echo "digraph OCR_diagram_$$ {"
+# Generate list of EDT nodes
+grep "EDT(INFO)" $1 | sed 'y/:[]()/     /' | awk '{print $8}' | sort -u | awk '{print "\"" $0 "\" [shape=polygon,sides=4,style=filled,color=navyblue,fontcolor=white];" }'
+# Generate EDT creation edges
+grep -e "EDT(INFO).*Create" $1 | sed 'y/:[]()/     /' | awk '{print "\"" $8 "\" -> \"" $10 "\" [style=dotted];" }' | sort -u
+# Generate list of Datablock nodes and creation edges
+grep -e "ocrDbCreate.*GUID" $1 | sed 'y/:;()[]/      /' | awk '{ print "\"" $14 "\" [shape=Mrecord,style=filled,color=purple,fontcolor=white];\n\"" $8 "\" -> \"" $14 "\"[style=dotted];" }'
+# Generate event nodes and creation edges
+grep -e "EVT(INFO).*Create" $1 | sed 'y/:[]()/     /' | awk '{ print "\"" $11 "\" [shape=diamond,style=filled,color=lightblue,fontcolor=black];\n\"" $8 "\" -> \"" $11 "\"[style=dotted];"}' | sort -u
+# Generate dependence edges between EDTs and events that are explicitly satisfied
+grep "EVT(INFO).*Satisfy .*" $1 | grep -e "incr" -e "decr" -e "with" | sed 'y/,:=()[]/       /' | awk '{print "\"" $8 "\" -> \"" $11 "\" [style=solid];" }' | sort -u
+# Generate remaining dependence edges
+grep "Dependence added" $1 | sed 'y/:,[]()/      /' | awk '{print "\"" $12 "\" -> \"" $14 "\" [style=solid];" }' | sort -u
+# Close graph
+echo "}"

@@ -1,0 +1,25 @@
+
+ generate_graph - generates a Dot diagram from OCR INFO log and prints to standard output
+
+SYNOPSYS
+   generate_graph LOGFILE
+
+DESCRIPTION
+   OCR must be compiled with debug level set to DEBUG_LVL_INFO (file ocr/build/common.mk)
+
+   If - is specified as LOGFILE, standard input is read instead.
+
+   The generated dot graph is written to standard output. Then, the graph it can either
+be saved into a file or directly sent to 'dot' via a pipe.
+
+EXAMPLE
+   Store the graph representation into a file, then generate an image:
+   $  generate_graph LOGFILE > graph.dot
+   $  dot -Tsvg -o graph.svg graph.dot
+
+   Directly generate an image:
+   $ generate_graph LOGFILE | dot -Tsvg -o graph.svg
+
+   Read from standard input and generate image:
+   $ /ocr/application | generate_graph - | dot -Tsvg -o graph.svg
+
