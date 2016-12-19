@@ -100,6 +100,8 @@ static u8 ceCommSendMessageToCE(ocrCommPlatform_t *self, ocrLocation_t target,
                                 ocrPolicyMsg_t *message, u64 *id,
                                 u32 properties, u32 mask) {
 
+    DPRINTF(DEBUG_LVL_VERB, "Sending message %p to CE target 0x%"PRIx64"\n",
+        message, target);
     u32 i;
     u64 retval, msgAbsAddr;
     u64* rmbox;
@@ -146,6 +148,8 @@ static u8 ceCommSendMessageToCE(ocrCommPlatform_t *self, ocrLocation_t target,
     msgAbsAddr = SR_L1_BASE(CLUSTER_FROM_ID(self->location), BLOCK_FROM_ID(self->location),
                             AGENT_FROM_ID(self->location))
         + ((u64)(sendBuf) - AR_L1_BASE);
+
+    DPRINTF(DEBUG_LVL_VERB, "Will send to address 0x%"PRIx64"\n", msgAbsAddr);
 
     // We now check to see if the message requires a response, if so, we will reserve
     // the response slot
@@ -271,6 +275,7 @@ static u8 ceCommCheckCEMessage(ocrCommPlatform_t *self, ocrPolicyMsg_t **msg) {
             return 0;
         }
     }
+    //DPRINTF(DEBUG_LVL_VERB, "Found no incoming CE message\n");
     *msg = NULL;
     return POLL_NO_MESSAGE;
 }
@@ -543,12 +548,15 @@ u8 ceCommWaitMessage(ocrCommPlatform_t *self,  ocrPolicyMsg_t **msg,
         // Note that a timer alarm wakes us up periodically
         if(i==j) {
             // Check again for a CE message just in case
-            if(!ceCommCheckCEMessage(self, msg))
+            if(!ceCommCheckCEMessage(self, msg)) {
+                //DPRINTF(DEBUG_LVL_VVERB, "Found CE message\n");
                 return 0;
+            }
             __asm__ __volatile__("hlt\n\t");
         }
     }
 
+    //DPRINTF(DEBUG_LVL_VVERB, "Found XE message\n");
     // If we found a message it means that cp->lq[i][0] should be 2
     // We now rely on the XeIrqReq vector to tell us if we have a message
     // but we should still look to make sure we actually have a message

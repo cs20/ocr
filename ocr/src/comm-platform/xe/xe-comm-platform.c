@@ -24,7 +24,6 @@
 #define DEBUG_TYPE COMM_PLATFORM
 
 
-//
 // Hgh-Level Theory of Operation / Design
 //
 // Communication will always involve one local->remote copy of
@@ -174,6 +173,7 @@ u8 xeCommSendMessage(ocrCommPlatform_t *self, ocrLocation_t target,
     // We are also going to marshall things locally so that the CE only
     // needs to copy things over once
     ocrPolicyMsg_t *tmsg = NULL;
+    bool needTmsgFree = false;
     if(message->bufferSize >= baseSize + marshalledSize) {
         DPRINTF(DEBUG_LVL_VVERB, "Message @ %p is large enough -- marshalling in it\n", message);
         // We marshall the message in-place
@@ -194,12 +194,27 @@ u8 xeCommSendMessage(ocrCommPlatform_t *self, ocrLocation_t target,
         }
     } else {
         // Here, we create a buffer that is large enough and we marshall everything in it
-        tmsg = (ocrPolicyMsg_t*)self->pd->fcts.pdMalloc(self->pd, baseSize + marshalledSize);
+        if(baseSize + marshalledSize < XE_HACK_BUFFER_SIZE) {
+            DPRINTF(DEBUG_LVL_VVERB, "Message %p is too small -- using outbuffer\n", message);
+            tmsg = &(cp->outBuffer[0]);
+            tmsg->bufferSize = XE_HACK_BUFFER_SIZE;
+            u64 taddr = (u64)tmsg;
+            ASSERT(taddr & _AR_LEAD_ONE);
+            taddr = BR_L1_BASE(cp->N + ID_AGENT_XE0) + taddr - AR_L1_BASE;
+            tmsg = (ocrPolicyMsg_t*)taddr;
+        } else {
+            DPRINTF(DEBUG_LVL_WARN, "POSSIBLE DEADLOCK: Message @ %p is too small -- creating additional buffer of size 0x%"PRIu64"\n",
+                message, baseSize + marshalledSize);
+            tmsg = (ocrPolicyMsg_t*)self->pd->fcts.pdMalloc(self->pd, baseSize + marshalledSize);
+            tmsg->bufferSize = baseSize + marshalledSize;
+            DPRINTF(DEBUG_LVL_WARN, "Created message @ %p\n", tmsg);
+            needTmsgFree = true;
+        }
+
         getCurrentEnv(NULL, NULL, NULL, tmsg);
-        tmsg->bufferSize = baseSize + marshalledSize;
-        DPRINTF(DEBUG_LVL_VVERB, "Message @ %p is too small -- creating additional buffer @ %p of size 0x%"PRIu64"\n",
-            message, tmsg, baseSize + marshalledSize);
         ocrPolicyMsgMarshallMsg(message, baseSize, (u8*)tmsg, MARSHALL_FULL_COPY);
+        DPRINTF(DEBUG_LVL_VERB, "Message marshalled @ %p with usefulsize %"PRIu64" and buffersize %"PRIu64"\n",
+            tmsg, tmsg->usefulSize, tmsg->bufferSize);
         cp->rq->addr = tmsg;
     }
     hal_fence(); // Let's be safe.
@@ -212,7 +227,7 @@ u8 xeCommSendMessage(ocrCommPlatform_t *self, ocrLocation_t target,
     // check but does not trigger the CE)
     __asm__ __volatile__("alarm %0\n\t" : : "L" (XE_MSG_READY));
     DPRINTF(DEBUG_LVL_VERB, "RELEASED\n");
-    if(tmsg) {
+    if(needTmsgFree) {
         DPRINTF(DEBUG_LVL_VERB, "Freeing temporary buffer @ %p\n", tmsg);
         self->pd->fcts.pdFree(self->pd, tmsg);
     }
@@ -227,6 +242,7 @@ u8 xeCommPollMessage(ocrCommPlatform_t *self, ocrPolicyMsg_t **msg,
     ASSERT(self != NULL);
     ASSERT(msg != NULL);
 
+    ocrCommPlatformXe_t *cp = (ocrCommPlatformXe_t*)self;
     // Local stage is at well-known address
     fsimCommSlot_t * lq = (fsimCommSlot_t*)(AR_L1_BASE + MSG_QUEUE_OFFT);
 
@@ -237,9 +253,24 @@ u8 xeCommPollMessage(ocrCommPlatform_t *self, ocrPolicyMsg_t **msg,
 
     // We check the size of the message and create an appropriate sized one here
     u64 totalSize = lq->size<sizeof(ocrPolicyMsg_t)?sizeof(ocrPolicyMsg_t):lq->size;
-    *msg = (ocrPolicyMsg_t*)self->pd->fcts.pdMalloc(self->pd, totalSize);
-    DPRINTF(DEBUG_LVL_VERB, "Poll: Created local receive buffer of size %"PRIu64" [msg size: %"PRIu64"] @ %p to receive %p\n",
-        totalSize, lq->size, *msg, lq->addr);
+    bool doAlloc = false;
+    if(!cp->inBufferFree) {
+        DPRINTF(DEBUG_LVL_WARN, "WTC: I should not be receiving more than 2 messages at once -- falling back to possible deadlock version\n");
+        doAlloc = true;
+    }
+    if(totalSize > XE_HACK_BUFFER_SIZE) {
+        DPRINTF(DEBUG_LVL_WARN, "POSSIBLE DEADLOCK: Incoming message is too large (%"PRIu64") -- falling back to possible deadlock version\n",
+            totalSize);
+        doAlloc = true;
+    }
+    if(doAlloc) {
+        *msg = (ocrPolicyMsg_t*)self->pd->fcts.pdMalloc(self->pd, totalSize);
+        DPRINTF(DEBUG_LVL_VERB, "Poll: Created local receive buffer of size %"PRIu64" [msg size: %"PRIu64"] @ %p to receive %p\n",
+            totalSize, lq->size, *msg, lq->addr);
+    } else {
+        *msg = &(cp->inBuffer[0]);
+        cp->inBufferFree = false;
+    }
 
     // Copy the message fully into our buffer
     hal_memCopy(*msg, lq->addr, totalSize, false);
@@ -263,6 +294,8 @@ u8 xeCommWaitMessage(ocrCommPlatform_t *self,  ocrPolicyMsg_t **msg,
     ASSERT(self != NULL);
     ASSERT(msg != NULL);
 
+    ocrCommPlatformXe_t *cp = (ocrCommPlatformXe_t*)self;
+
     // Local stage is at well-known address
     fsimCommSlot_t* lq = (fsimCommSlot_t*)(AR_L1_BASE + MSG_QUEUE_OFFT);
 
@@ -273,9 +306,25 @@ u8 xeCommWaitMessage(ocrCommPlatform_t *self,  ocrPolicyMsg_t **msg,
 
     // We check the size of the message and create an appropriate sized one here
     u64 totalSize = lq->size<sizeof(ocrPolicyMsg_t)?sizeof(ocrPolicyMsg_t):lq->size;
-    *msg = (ocrPolicyMsg_t*)self->pd->fcts.pdMalloc(self->pd, totalSize);
-    DPRINTF(DEBUG_LVL_VERB, "Wait: Created local receive buffer of size %"PRIu64" [msg size: %"PRIu64"] @ %p to receive %p\n",
-        totalSize, lq->size, *msg, lq->addr);
+
+    bool doAlloc = false;
+    if(!cp->inBufferFree) {
+        DPRINTF(DEBUG_LVL_WARN, "WTC: I should not be receiving more than 2 messages at once -- falling back to possible deadlock version\n");
+        doAlloc = true;
+    }
+    if(totalSize > XE_HACK_BUFFER_SIZE) {
+        DPRINTF(DEBUG_LVL_WARN, "POSSIBLE DEADLOCK: Incoming message is too large (%"PRIu64") -- falling back to possible deadlock version\n",
+            totalSize);
+        doAlloc = true;
+    }
+    if(doAlloc) {
+        *msg = (ocrPolicyMsg_t*)self->pd->fcts.pdMalloc(self->pd, totalSize);
+        DPRINTF(DEBUG_LVL_VERB, "Poll: Created local receive buffer of size %"PRIu64" [msg size: %"PRIu64"] @ %p to receive %p\n",
+            totalSize, lq->size, *msg, lq->addr);
+    } else {
+        *msg = &(cp->inBuffer[0]);
+        cp->inBufferFree = false;
+    }
 
     // Copy the message fully into our buffer
     hal_memCopy(*msg, lq->addr, totalSize, false);
@@ -303,10 +352,17 @@ u8 xeCommDestructMessage(ocrCommPlatform_t *self, ocrPolicyMsg_t *msg) {
     ASSERT(msg != NULL);
     DPRINTF(DEBUG_LVL_VERB, "Resetting incomming message buffer, freeing %p\n", msg);
 #ifndef ENABLE_BUILDER_ONLY
+    ocrCommPlatformXe_t *cp = (ocrCommPlatformXe_t*)self;
     // Local stage is at well-known address
     fsimCommSlot_t *lq = (fsimCommSlot_t*)(AR_L1_BASE + MSG_QUEUE_OFFT);
     ASSERT(msg == lq->laddr); // We should only be destroying the message we received
-    self->pd->fcts.pdFree(self->pd, msg);
+    if(lq->laddr != &(cp->inBuffer[0])) {
+        self->pd->fcts.pdFree(self->pd, msg);
+    } else {
+        ASSERT(!cp->inBufferFree);
+        cp->inBufferFree = true;
+    }
+
     lq->laddr = NULL;
     // Atomically test & set local stage to "clean-up". Error if prev not Full.
     // This will inform the CE that it needs to potentially free its local copy of the message
@@ -325,6 +381,7 @@ ocrCommPlatform_t* newCommPlatformXe(ocrCommPlatformFactory_t *factory,
                                            runtimeChunkAlloc(sizeof(ocrCommPlatformXe_t), PERSISTENT_CHUNK);
     ocrCommPlatform_t * base = (ocrCommPlatform_t *) commPlatformXe;
     factory->initialize(factory, base, perInstance);
+    commPlatformXe->inBufferFree = true;
     return base;
 }
 
