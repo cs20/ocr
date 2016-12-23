@@ -50,15 +50,22 @@ def ExtractValues(infilename):
 def ExtractValuesFsim(infilename):
     config = ConfigParser.SafeConfigParser(allow_no_value=True)
     config.readfp(infilename)
-    global neighborcount
+    global neighborcount, stackadd
     cc = config.get('SocketGlobal', 'cluster_count').strip(' ').split(' ')[0]
     cc = int(''.join(itertools.takewhile(lambda s: s.isdigit(), cc)))
     bc = config.get('ClusterGlobal', 'block_count').strip(' ').split(' ')[0]
     bc = int(''.join(itertools.takewhile(lambda s: s.isdigit(), bc)))
     neighborcount = bc*cc
+    stackadd = 0
+    # If stack is in IPM, we can reclaim that space (0x7000) in L1
+    if config.has_option('TricksGlobal', 'xe_ipm_stack'):
+        xe_ipm_stack = config.get('TricksGlobal', 'xe_ipm_stack').strip(' ').split(' ')[0]
+        xe_ipm_stack = int(''.join(itertools.takewhile(lambda s: s.isdigit(), xe_ipm_stack)))
+        if xe_ipm_stack > 0:
+            stackadd = 0x7000
 
 def RewriteConfig(cfg):
-    global platsize, tgtsize, allocsize, neighborcount
+    global platsize, tgtsize, allocsize, neighborcount, stackadd
 
     with open(cfg, 'r+') as fp:
         lines = fp.readlines()
@@ -77,13 +84,13 @@ def RewriteConfig(cfg):
             if section == 1 and 'start' in line:
                 line = '   start = \t' + hex(long(platstart,16)+binsize) + '\n'
             if section == 1 and 'size' in line:
-                line = '   size =\t' + hex(long(platsize,16)-binsize-0x100) + '\n'
+                line = '   size =\t' + hex(long(platsize,16)-binsize+stackadd-0x100) + '\n'
                 section = 0
             if section == 2 and 'size' in line:
-                line = '   size =\t' + hex(long(tgtsize,16)-binsize-0x100) + '\n'
+                line = '   size =\t' + hex(long(tgtsize,16)-binsize+stackadd-0x100) + '\n'
                 section = 0
             if section == 3 and 'size' in line:
-                line = '   size =\t' + hex(long(allocsize,16)-binsize-0x100) + '\n'
+                line = '   size =\t' + hex(long(allocsize,16)-binsize+stackadd-0x100) + '\n'
                 section = 0
             if section == 4 and 'neighborcount' in line:
                 line = '   neighborcount = \t' + str(neighborcount-1) + '\n'
