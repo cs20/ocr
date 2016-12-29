@@ -1,6 +1,5 @@
 % This is an included file. See the master file for more information.
 %
-
 \section{OCR core types and macros}
 \index{OCR types and macros}
 \label{sec:OCRtypesmacros}
@@ -65,9 +64,9 @@ inside \code{ocr.h}:
 \item \code{\#define TRUE 1};
 \item \code{\#define false 0};
 \item \code{\#define FALSE 0};
-\item \code{\#define NULL\_HINT}: A NULL pointer to ocrHint\_t.
+\item \code{\#define NULL\_HINT}: A NULL pointer to an ocrHint\_t.
 \item \code{\#define NULL\_GUID}: A reserved GUID value, used to indicate the absence of an OCR object.
-This value is roughly analogous to a null pointer; however, it cannot be assumed to be equal to zero.
+This value is roughly analogous to a NULL pointer; however, it cannot be assumed to be equal to zero.
 \item \code{\#define UNINITIALIZED\_GUID}: A reserved GUID value, used as a placeholder to indicate
 that a value is uninitialized.
 \item \code{\#define ERROR\_GUID}: A reserved GUID value, used to indicate that an error has occurred.
@@ -202,7 +201,7 @@ and \hyperlink{func_ocrGetArgv}{\code{ocrGetArgv()}}.
 \begin{DoxyParams}[1]{Parameters}
 \mbox{\tt in} & \code{paramc} & Parameters count will always be 0.\\
 \hline
-\mbox{\tt in} & \code{paramv} & Parameter version will always be NULL.\\
+\mbox{\tt in} & \code{paramv} & Parameter vector will always be NULL.\\
 \hline
 \mbox{\tt in} & \code{depc} & Dependence count will always be 1.\\
 \hline
@@ -287,7 +286,7 @@ Program behavior after this call is undefined. Specifically:
 Although most programs will choose to call \code{ocrShutdown()} in the ``last'' EDT,
 OCR specifically allows another EDT to call \code{ocrShutdown()} to support, for
 example, a computation of the type ``find-first-of''; in such a computation, the
-program can successfully complete even if all EDTs have not executed.
+program can successfully complete even if not all EDTs have executed.
 \end{DoxyNote}
 %
 % ocrAbort
@@ -304,7 +303,8 @@ program can successfully complete even if all EDTs have not executed.
 This function is very similar to \hyperlink{func_ocrShutdown}{\code{ocrShutdown()}}
 except that it allows for the return of a non-zero value. This
 function also does not guarantee that the runtime will properly shut
-itself down. This call should only be used to indicate an abnormal termination.
+itself down and some implementations may choose to crash out to provide, for
+example, a core dump for debugging. This call should only be used to indicate an abnormal termination.
 
 The abort error code is passed back to the runtime and its handling is
 implementation dependent
@@ -363,7 +363,7 @@ program:
 )}}
 \label{func_ocrGetArgv}
 
-Returns the $index^{th}$ argument passed to the OCR program.
+Returns the 0-based $index^{th}$ argument passed to the OCR program.
 The value is extracted from the unique data block passed to \hyperlink{func_mainEdt}{\code{mainEdt}}.
 
 \begin{DoxyParams}[1]{Parameters}
@@ -430,7 +430,7 @@ and supports the following format specifiers:
 \end{itemize}
 
 \begin{DoxyNote}{Note}
-A conformant implementation may limit the number of characters in the
+A conforming implementation may limit the number of characters in the
 output string.
 \end{DoxyNote}
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -479,7 +479,7 @@ manipulate GUIDs.
             {\code{ocrGuidIsLt}}(\hyperlink{type_ocrGuid_t}{ocr\-Guid\-\_\-t} guid1,
     \hyperlink{type_ocrGuid_t}{ocr\-Guid\-\_\-t} guid2)
     \begin{DoxyCompactList}
-      \small\item \emph{Checks if guid1 is less than guid2.}
+      \small\item \emph{Checks if guid1 is less than guid2 (useful to implement a total order on GUIDs)}
     \end{DoxyCompactList}
 \end{DoxyCompactItemize}
 
@@ -656,7 +656,7 @@ by the \code{GUIDF} macro.
 \label{sec:OCRDataBlockManagement}
 
 Data blocks are the only form of non-\/ephemeral storage and are therefore
-the only way to ``share'' data between E\-D\-Ts. Conceptually, data blocks
+the only way to ``share'' data between EDTs. Conceptually, data blocks
 are contiguous chunks of memory that have a start address and a size.
 They also have the following characteristics\-:
 \begin{itemize}
@@ -665,8 +665,8 @@ They also have the following characteristics\-:
   uniquely and totally address the entire data-\/block);
 \item a data block is non-\/overlapping with other distinct data blocks
 \item the pointer to the start of a data block is only valid between the start
-of the E\-D\-T (or the data block creation) and the corresponding \code{ocrDbRelease}
-(or the end of the E\-D\-T).
+of the EDT (or the data block creation) and the corresponding \code{ocrDbRelease}
+(or the end of the EDT).
 \end{itemize}
 
 The following macros and enums are used with OCR data blocks.

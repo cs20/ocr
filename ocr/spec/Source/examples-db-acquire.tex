@@ -86,10 +86,11 @@ ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
 \subsubsection{Details}
 
 The mainEdt creates two data blocks ({\tt db0Guid} and {\tt db1Guid}).
-It then sets the content of {\tt db0Guid} to be an user-define value,
+It then sets the content of {\tt db0Guid} to be an user-defined value,
 while the content of {\tt db1Guid} is set to be the GUID value of {\tt db0Guid}.
 The runtime then creates an EDT ({\tt exampleEdtGuid}) that takes one input dependence.
-It creates another EDT ({\tt awaitingEdtGuid}) and makes it dependent on the satisfaction of the {\tt exampleEdtGuid}'s output event ({\tt exampleEventGuid}).
+It creates another EDT ({\tt awaitingEdtGuid}) and makes it dependent on the
+satisfaction of the {\tt exampleEdtGuid}'s output event ({\tt exampleEventGuid}).
 Finally, mainEdt satisfies the dependence of {\tt exampleEdtGuid} with the data block {\tt db1Guid}.
 
 Once {\tt exampleEdtGuid} starts executing function ``exampleEdt'', the contents of {\tt db1Guid} are read.

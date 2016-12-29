@@ -85,12 +85,12 @@ The \texttt{mainEdt} creates three templates (Lines~\ref{line:FJ_edtTemplt1}, ~\
 and ~\ref{line:FJ_edtTemplt3}), respectively for three different EDTs
 (Lines~\ref{line:FJ_edt1}, ~\ref{line:FJ_edt2} and ~\ref{line:FJ_edt3}).
 An EDT is created as an instance of an EDT template.
-This template stores metadata about EDT,
+This template stores metadata about the EDTs created from it,
 optionally defines the number of dependences and parameters used when
 creating an instance of an EDT, and is a container for the function
-that will be executed by an EDT. This function is called the EDT function.
-For the EDTs, \texttt{edt1}, \texttt{edt2} and \texttt{edt3}, the EDT functions
-are, \texttt{fun1}, \texttt{fun2} and \texttt{shutdownEdt}, respectively.
+that will be executed by an EDT (called the EDT function).
+For the EDTs \texttt{edt1}, \texttt{edt2} and \texttt{edt3}, the EDT functions
+are, respectively, \texttt{fun1}, \texttt{fun2} and \texttt{shutdownEdt}.
 The last parameter to \texttt{ocrEdtTemplateCreate} is the total number of
 data blocks on which the EDTs depends. The signature of EDT creation API,
 \texttt{ocrEdtCreate}, is shown in Lines~\ref{line:FJ_edt1}, ~\ref{line:FJ_edt2}
@@ -98,13 +98,13 @@ and ~\ref{line:FJ_edt3}. When \texttt{edt1} and \texttt{edt2} will complete,
 they will satisfy the output events \texttt{outputEvent1} and \texttt{outputEvent2} repectively.
 This is not required for \texttt{edt3}. However, \texttt{edt3} should execute only
 when the events \texttt{outputEvent1} and \texttt{outputEvent2} are satisfied.
-This is done by setting up dependencies on \texttt{edt3} by using the API \texttt{ocrAddDependence},
+This is done by setting up dependences on \texttt{edt3} by using the API \texttt{ocrAddDependence},
 as shown in Lines~\ref{line:FJ_edt3Dep1} and ~\ref{line:FJ_edt3Dep2}.
 This spawns \texttt{edt3} but it will not execute until both the events
 are satisfied. Finally, the EDTs \texttt{edt1} and \texttt{edt2} are
 spawned in Lines~\ref{line:FJ_edt1start} and ~\ref{line:FJ_edt2start} respectively.
-As they do not have any dependencies, they execute the associated EDT functions
-in parallel. These functions (\texttt{fun1} and \texttt{fun2}) creates
+As they do not have any dependences, they execute the associated EDT functions
+in parallel. These functions (\texttt{fun1} and \texttt{fun2}) create
 data blocks using the API \texttt{ocrDbCreate} (Lines~\ref{line:FJ_db1} and ~\ref{line:FJ_db2}).
 The data is written to the data blocks and the GUID is returned (Lines~\ref{line:FJ_retDB1}
 and ~\ref{line:FJ_retDB2}). This will satisfy the events on which the \texttt{edt3}

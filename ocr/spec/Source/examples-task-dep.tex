@@ -47,8 +47,8 @@ ocrGuid_t shutdownEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
 
     ocrAssert(*data0 == 3ULL);
     ocrAssert(*data1 == 4ULL);
-    ocrPrintf("Got a DB (GUID "GUIDF") containing %"PRId32" on slot 0\n", GUIDA(depv[0].guid), *data0);
-    ocrPrintf("Got a DB (GUID "GUIDF") containing %"PRId32" on slot 1\n", GUIDA(depv[1].guid), *data1);
+    ocrPrintf("Got a DB (GUID "GUIDF") containing %"PRIu64" on slot 0\n", GUIDA(depv[0].guid), *data0);
+    ocrPrintf("Got a DB (GUID "GUIDF") containing %"PRIu64" on slot 1\n", GUIDA(depv[1].guid), *data1);
 
     // Free the data blocks that were passed in
     ocrDbDestroy(depv[0].guid);
@@ -134,7 +134,6 @@ ocrGuid_t stage2b(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
 
 ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
 
-    // Create the shutdown EDT
     ocrGuid_t stage1aTemplateGuid = NULL_GUID, stage1bTemplateGuid = NULL_GUID,
         stage2aTemplateGuid = NULL_GUID, stage2bTemplateGuid = NULL_GUID,
         shutdownEdtTemplateGuid = NULL_GUID;
@@ -143,6 +142,7 @@ ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
         evtGuid = NULL_GUID, stage1aOut = NULL_GUID, stage1bOut = NULL_GUID,
         stage2bOut = NULL_GUID;
 
+    // Create the shutdown EDT
     ocrEdtTemplateCreate(&shutdownEdtTemplateGuid, shutdownEdt, 0, 2);
     ocrEdtCreate(&shutdownEdtGuid, shutdownEdtTemplateGuid, 0, NULL, EDT_PARAM_DEF, NULL,
                  EDT_PROP_NONE, NULL_HINT, NULL);

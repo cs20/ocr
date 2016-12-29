@@ -120,7 +120,7 @@ event ({\tt exampleEventGuid1} and {\tt exampleEventGuid2}). The
 satisfaction of these output events will trigger the execution of an
 awaiting EDT ({\tt awaitingEdtGuid}) that will verify the correctness
 of the computation performed by the concurrent EDTs. {\tt
-awaitingEdtGuid} has three input dependences. {\tt dbGuid} is passed
+awaitingEdtGuid} has three input dependences: {\tt dbGuid} is passed
 into the first input, while the other two would be satisfied by {\tt
 exampleEventGuid1} and {\tt exampleEventGuid2}. Once {\tt
 awaitingEdtGuid}'s dependences have been setup, the {\tt mainEdt}
