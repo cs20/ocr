@@ -26,19 +26,20 @@ The following parameters are available for latch events:
 \begin{itemize}
 \item \code{EVENT\_LATCH}:
 \begin{itemize}
-\item \code{counter}: Initial value of the latch counter.
+\item \code{{\bf u64} counter}: Initial value of the latch counter.
 \end{itemize}
 \end{itemize}
 
 \subsection*{Functions}
 \begin{DoxyCompactItemize}
 \item
-\hyperlink{type_u8}{u8} \hyperlink{func_ocrGuidMapCreate}
+\hyperlink{type_u8}{u8} \hyperlink{func_ocrEventCreateParams}
 {\code{ocrEventCreateParams}}(\hyperlink{type_ocrGuid_t}{ocr\-Guid\-\_\-t}
 $\ast$ guid,
 \hyperlink{type_ocrEventTypes_t}{ocrEventTypes\_t} eventType,
 \hyperlink{type_u16}{u16} properties,
-\hyperlink{type_ocrEventParams_t}{ocrEventParams\_t} params)
+const \hyperlink{type_ocrHint_t}{ocr\-Hint\-\_\-t} $\ast$hint,
+const \hyperlink{type_ocrEventParams_t}{ocrEventParams\_t} $\ast$params)
 \begin{DoxyCompactList}
   \small \item \emph{DOC TODO}
 \end{DoxyCompactList}
@@ -54,7 +55,8 @@ $\ast$ guid,
 \item[{{\bf ocr\-Guid\-\_\-t} $\ast$}]{guid, }
 \item[{{\bf ocr\-Event\-Types\-\_\-t}}]{event\-Type, }
 \item[{\bf u16}]{flags, }
-\item[{{\bf ocr\-Event\-Params\-\_\-t $\ast$}}]{params}
+\item[{{\bf const ocr\-Hint\_t} $\ast$}]{hint, }
+\item[{{\bf const ocr\-Event\-Params\-\_\-t} $\ast$}]{params}
 \end{DoxyParamCaption}
 )}}
 \label{func_ocrEventCreateParams}
@@ -69,9 +71,9 @@ immediately usable.
 event. If the call fails, the returned value is undefined.\\
 \hline
 \mbox{\tt in}  & \code{eventType} & The type of event to create.
-See \hyperlink{type_ocrEventTypes_t}.\\
+See \hyperlink{type_ocrEventTypes_t}{enum ocrEventTypes\_t}.\\
 \hline
-\mbox{\tt in}  & {\em flags} & Flags impacting the creation of the event. Currently,
+\mbox{\tt in}  & \code{flags} & Flags impacting the creation of the event. Currently,
 the following flags are supported:
 \begin{DoxyItemize}
 \item EVT\_PROP\_NONE: Default behavior
@@ -79,17 +81,19 @@ the following flags are supported:
   carry a data block on satisfaction.
 \end{DoxyItemize}\\
 \hline
-\mbox{\tt in}  & \code{params$\ast$} & Parameters to initialized the event with.\\
+\mbox{\tt in}  & \code{hint} & Reserved for future use. This parameter
+should be NULL\_HINT. \\
+\hline
+\mbox{\tt in}  & \code{params} & Parameters to initialized the event with.\\
 \hline
 
 \end{DoxyParams}
 
 \returns
-A status code:
+0 if no immediate error was detected or the following error codes:
 \begin{DoxyItemize}
-\item 0\-: successful
-\item OCR\_ENOMEM: The runtime could not create the event due to insufficient memory
-\item OCR\_EINVAL: The \code{eventType} argument is invalid or incompatible
+\item OCR\_ENOMEM ({\bf deferred}): The runtime could not create the event due to insufficient memory
+\item OCR\_EINVAL ({\bf immediate}): The \code{eventType} argument is invalid or incompatible
   with \code{flags}
 \end{DoxyItemize}
 
@@ -123,7 +127,7 @@ count of expected dependences is reached.
 \subsection{API}
 
 Counted events extend the
-\hypertarget{type_ocrEventTypes_t}{\code{enum ocrEventTypes\_t}} type
+\hyperlink{type_ocrEventTypes_t}{\code{enum ocrEventTypes\_t}} type
 with a OCR\_EVENT\_COUNTED\_T declaration. Counted events rely on the
 parameterized event creation extension (see
 Section~\ref{sec:paramEvents} to allow the programmer to
@@ -135,7 +139,7 @@ The following parameters are available for counted events:
 \begin{itemize}
 \item \code{EVENT\_COUNTED}:
 \begin{itemize}
-\item \code{nbDeps}: Expected number of dependences to be added to the event.
+\item \code{{\bf u64} nbDeps}: Expected number of dependences to be added to the event.
 \end{itemize}
 \end{itemize}
 
@@ -187,7 +191,7 @@ satisfy the neighbors' upcoming EDT iteration instances.
 \subsection{API}
 
 Channel events extend the
-\hypertarget{type_ocrEventTypes_t}{\code{enum ocrEventTypes\_t}} type
+\hyperlink{type_ocrEventTypes_t}{\code{enum ocrEventTypes\_t}} type
 with an OCR\_EVENT\_CHANNEL\_T declaration. Channel events also rely
 on the parameterized event creation extension to allow the programmer
 to customize the type of channel event. A channel event's parameters are
@@ -199,10 +203,10 @@ The following parameters are available for channel events:
 \begin{itemize}
 \item \code{EVENT\_CHANNEL}:
 \begin{itemize}
-\item \code{maxGen}: The maximum number of generations the event can buffer.
-\item \code{nbSat}: The number of satisfy required to trigger. This
-  must currently be set to 1.
-\item \code{nbDeps}: The number of dependences required to
-  trigger. This must currently be set to 1.
+\item \code{{\bf u32} maxGen}: The maximum number of generations the event can buffer.
+\item \code{{\bf u32} nbSat}: The number of satisfy required to trigger.
+  Currently must be set to 1.
+\item \code{{\bf u32} nbDeps}: The number of dependences required to
+  trigger. Currently must be set to 1.
 \end{itemize}
 \end{itemize}

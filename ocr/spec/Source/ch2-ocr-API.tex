@@ -1,8 +1,7 @@
 % This is an included file. See the master file for more information.
 %
-
-\section{OCR core types, macros, and error codes}
-\index{OCR types, macros, and error codes}
+\section{OCR core types and macros}
+\index{OCR types and macros}
 \label{sec:OCRtypesmacros}
 
 The OCR Application Programming Interface (API) is defined in terms of a
@@ -65,34 +64,51 @@ inside \code{ocr.h}:
 \item \code{\#define TRUE 1};
 \item \code{\#define false 0};
 \item \code{\#define FALSE 0};
-\item \code{\#define NULL\_HINT}: A NULL pointer to ocrHint\_t. This value cannot
-  be assumed to be equal to zero.
-\item \code{\#define NULL\_GUID}: A NULL ocrGuid\_t. This value cannot
-  be assumed to be equal to zero.
-\item \code{\#define UNINITIALIZED\_GUID}: An Unitialized GUID (ie: never set);
-\item \code{\#define ERROR\_GUID}: An invalid GUID.
+\item \code{\#define NULL\_HINT}: A NULL pointer to an ocrHint\_t.
+\item \code{\#define NULL\_GUID}: A reserved GUID value, used to indicate the absence of an OCR object.
+This value is roughly analogous to a NULL pointer; however, it cannot be assumed to be equal to zero.
+\item \code{\#define UNINITIALIZED\_GUID}: A reserved GUID value, used as a placeholder to indicate
+that a value is uninitialized.
+\item \code{\#define ERROR\_GUID}: A reserved GUID value, used to indicate that an error has occurred.
 \end{itemize}
-%%
-\paragraph*{OCR error codes}
+%%%%%
+\section{OCR API conventions}
+\index{OCR API conventions}
+In OCR, most APIs are allowed to be \emph{deferred} or \emph{executed asynchronously} by the runtime implementation
+but all implementations guarantee that the effects of the execution of the API calls by the runtime will be
+identical to the non-deferred and sequential execution of the calls as specified by the user. Note that for
+APIs that return a value to the user (for example a GUID, a pointer, etc.), all runtime implementations guarantee
+that the values returned are valid; in other words, a portion of the call may be deferred but the user can
+rely on the returned values.
+%%%%
+\subsection{Conventions}
+In this chapter, the OCR APIs are discussed in detail. API calls not related to support functions
+(Section~\ref{sec:supportFuncs}) or GUID management (Section~\ref{sec:OCRGuidManagement}) all
+follow certain conventions described below
+%
+\paragraph*{API names}
+All API names start with ``ocr'' followed by the type of object the call refers to
+\footnote{\hyperlink{func_ocrAddDependence}{\code{ocrAddDependence()}} being the lone exception to this naming
+convention.} such as ``Edt'', ``Db'' or ``Event'' followed by the action on that event.
+%
+\paragraph*{Arguments}
+Arguments that are used as ``out'' or ``in/out'' arguments, if any, are listed first in the calls. ``Out'' or
+``in/out'' arguments are always pointers. ``In'' arguments are either values or pointers to constants.
+%
+\paragraph*{Error codes}
+All API calls return an error code with the convention that 0 means the call was successful. Error codes are discussed
+in more detail in Section~\ref{sec:errorCodes}.
+%%%%
+\subsection{OCR error codes}
+\label{sec:errorCodes}
 The OCR error codes are derived from standard error codes. They are defined
-internally to limit OCR's dependence on standard libraries. Most functions in the
-OCR API will return a status code where 0 signifies successful completion. A non-zero
-return code will be one of the following error codes. These codes are found
+internally to limit OCR's dependence on standard libraries. OCR uses the convention that a function's
+return value is its error code where a code of zero signifies successful completion. It is, however,
+important to note that given the potential deferred and asynchronous nature of OCR API calls, not all errors
+will be reported at the site of the call. This distinction is discussed later in this section.
+The error codes returned are found
 in the \code{ocr-errors.h} include file and described in
 Table~\ref{tab:errorcodes}.
-
-Since OCR aims to be as asynchronous as possible, it may not always be
-possible to immediately identify an error and return the appropriate
-error code. In general, providing incorrect parameters to an OCR API
-call results in undefined behavior. If, however, the OCR
-implementation returns an error code, it will correctly reflect the
-cause of the error. In other words, if an API call returns an error
-code, that error code will accurately describe the error that happened
-(for example, OCR\_ENOMEM will always indicate that the runtime ran out
-of memory). Future revisions of this specification will detail OCR
-runtime modes which will either {\bf a)} guarantee a certain level of
-error detection (potentially at a cost) or {\bf b)} immediately abort
-upon the detection of an error.
 \tablefirsthead{%
 \hline
 \textsf{\textbf{Error code}} & \textsf{\textbf{Generic Interpretation}}\\
@@ -137,6 +153,33 @@ upon the detection of an error.
 \plc{OCR\_EPEND} & Operation is pending\\
 \plc{OCR\_ECANCELED} & Operation canceled\\
 \end{supertabular}
+%
+\paragraph*{Immediate versus deferred error}
+Since the OCR APIs can be deferred or executed asynchronously by the underlying
+implementation, not all error codes can be reported immediately at the API call-site. In the
+API description in the following sections, the error codes returned are separated into
+two categories: {\bf a)} the \emph{immediate} error codes that are guaranteed to be returned at the call-site and
+{\bf b)} the \emph{deferred} error codes that \emph{may} be returned either at the call-site but also
+later (see the following paragraph for more detail).
+
+Immediate errors are typically errors that result from incorrect arguments. Deferred errors are
+either returned at the call-site or reported later, depending on the implementation. In other words,
+if the return code of an API call is zero, this means that either the function completed without any
+errors or that one of the deferred errors may occur later.
+%
+\paragraph*{Reporting of deferred errors}
+Currently, if an error occurs in a deferred manner, implementations are allowed to crash but will
+report the API call that caused the crash (deferred error) by reporting to the user at least the following
+information:
+\begin{itemize}
+  \item{File and line-number of the API call that caused the error;}
+  \item{Error code;}
+  \item{GUIDs of both the EDT in which the error occurred and the target object for the
+        error (typically the first argument of the API call).
+  }
+\end{itemize}
+Future revisions of this specification will provide a handler mechanism which would allow a user
+to determine if an error is fatal or if it can be recovered from.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% The OCR Main EDT
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -148,8 +191,8 @@ An OCR program's single point of entry is the user-defined main EDT (\code{mainE
 This EDT has a function prototype that is identical to any other EDT; its parameters
 and dependences are however special: the main EDT has no parameters and has a single
 input data block that encodes the arguments passed to the program from the
-command line. The arguments can be accessed using \hyperlink{func_getArgc}{\code{getArgc()}}
-and \hyperlink{func_getArgv}{\code{getArgv()}}.
+command line. The arguments can be accessed using \hyperlink{func_ocrGetArgc}{\code{ocrGetArgc()}}
+and \hyperlink{func_ocrGetArgv}{\code{ocrGetArgv()}}.
 
 \begin{boxedcode}
 \plc{ocrGuid\_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep\_t depv[])}
@@ -158,7 +201,7 @@ and \hyperlink{func_getArgv}{\code{getArgv()}}.
 \begin{DoxyParams}[1]{Parameters}
 \mbox{\tt in} & \code{paramc} & Parameters count will always be 0.\\
 \hline
-\mbox{\tt in} & \code{paramv} & Parameter version will always be NULL.\\
+\mbox{\tt in} & \code{paramv} & Parameter vector will always be NULL.\\
 \hline
 \mbox{\tt in} & \code{depc} & Dependence count will always be 1.\\
 \hline
@@ -195,20 +238,20 @@ handled through the following functions.
       \small\item \emph{Called by an EDT to indicate an abnormal end of an OCR program.}
     \end{DoxyCompactList}
 \item
-  \hyperlink{type_u64}{u64} \hyperlink{func_getArgc}{\code{getArgc}}(void $\ast$dbPtr)
+  \hyperlink{type_u64}{u64} \hyperlink{func_ocrGetArgc}{\code{ocrGetArgc}}(void $\ast$dbPtr)
     \begin{DoxyCompactList}
       \small\item \emph{Retrieves the traditional `argc' value from
         \hyperlink{func_mainEdt}{\code{mainEdt()}}'s input data block.}
     \end{DoxyCompactList}
 \item
-  char $\ast$ \hyperlink{func_getArgv}{\code{getArgv}}(void $\ast$dbPtr,
+  char $\ast$ \hyperlink{func_ocrGetArgv}{\code{ocrGetArgv}}(void $\ast$dbPtr,
   \hyperlink{type_u64}{u64} index)
     \begin{DoxyCompactList}
       \small\item \emph{Retrieves the $index^{th}$ argument from
         \hyperlink{func_mainEdt}{\code{mainEdt()}}'s input data block.}
     \end{DoxyCompactList}
 \item
-  \hyperlink{type_u32}{u32} \hyperlink{func_PRINTF}{\code{PRINTF}}(const char $\ast$format, ...)
+  \hyperlink{type_u32}{u32} \hyperlink{func_ocrPrintf}{\code{ocrPrintf}}(const char $\ast$format, ...)
     \begin{DoxyCompactList}
       \small\item \emph{\code{printf()} equivalent for OCR.}
     \end{DoxyCompactList}
@@ -243,7 +286,7 @@ Program behavior after this call is undefined. Specifically:
 Although most programs will choose to call \code{ocrShutdown()} in the ``last'' EDT,
 OCR specifically allows another EDT to call \code{ocrShutdown()} to support, for
 example, a computation of the type ``find-first-of''; in such a computation, the
-program can successfully complete even if all EDTs have not executed.
+program can successfully complete even if not all EDTs have executed.
 \end{DoxyNote}
 %
 % ocrAbort
@@ -260,7 +303,8 @@ program can successfully complete even if all EDTs have not executed.
 This function is very similar to \hyperlink{func_ocrShutdown}{\code{ocrShutdown()}}
 except that it allows for the return of a non-zero value. This
 function also does not guarantee that the runtime will properly shut
-itself down. This call should only be used to indicate an abnormal termination.
+itself down and some implementations may choose to crash out to provide, for
+example, a core dump for debugging. This call should only be used to indicate an abnormal termination.
 
 The abort error code is passed back to the runtime and its handling is
 implementation dependent
@@ -273,16 +317,16 @@ implementation dependent
 \descr
 See notes in Section~\ref{func_ocrShutdown}.
 %
-% getArgc
+% ocrGetArgc
 %
-\hypertarget{func_getArgc}{
+\hypertarget{func_ocrGetArgc}{
   \index{Supporting functions@{Supporting function}!get\-Argc@{get\-Argc}}
   \subsection[{get\-Argc}]{\setlength{\rightskip}{0pt plus 5cm}{\bf u64} get\-Argc(
 \begin{DoxyParamCaption}
 \item[{void $\ast$}]{db\-Ptr}
 \end{DoxyParamCaption}
 )}}
-\label{func_getArgc}
+\label{func_ocrGetArgc}
 
 Returns the number of arguments (traditionally called `argc') passed to the OCR program.
 The value is extracted from the unique data block passed to \hyperlink{func_mainEdt}{\code{mainEdt}}.
@@ -307,9 +351,9 @@ program:
   character arrays.
 \end{DoxyItemize}
 %
-% getArgv
+% ocrGetArgv
 %
-\hypertarget{func_getArgv}{
+\hypertarget{func_ocrGetArgv}{
   \index{Supporting functions@{Supporting function}!get\-Argv@{get\-Argv}}
   \subsection[{get\-Argv}]{\setlength{\rightskip}{0pt plus 5cm}{\bf char $\ast$} get\-Argv(
 \begin{DoxyParamCaption}
@@ -317,9 +361,9 @@ program:
 \item[{{\bf u64}}]{index}
 \end{DoxyParamCaption}
 )}}
-\label{func_getArgv}
+\label{func_ocrGetArgv}
 
-Returns the $index^{th}$ argument passed to the OCR program.
+Returns the 0-based $index^{th}$ argument passed to the OCR program.
 The value is extracted from the unique data block passed to \hyperlink{func_mainEdt}{\code{mainEdt}}.
 
 \begin{DoxyParams}[1]{Parameters}
@@ -333,24 +377,24 @@ The value is extracted from the unique data block passed to \hyperlink{func_main
 A NULL terminated string corresponding to \code{argv[index]}.
 
 \descr
-See Section~\ref{func_getArgc} for details.
+See Section~\ref{func_ocrGetArgc} for details.
 \begin{DoxyNote}{Note}
 Attempting to extract an argument with \code{index} greater or equal to the value
-returned by \hyperlink{func_getArgc}{\code{getArgc}} will result in undefined
+returned by \hyperlink{func_ocrGetArgc}{\code{ocrGetArgc}} will result in undefined
 behavior.
 \end{DoxyNote}
 %
-% PRINTF
+% ocrPrintf
 %
-\hypertarget{func_PRINTF}{
-  \index{Supporting functions@{Supporting function}!PRINTF@{PRINTF}}
-  \subsection[{PRINTF}]{\setlength{\rightskip}{0pt plus 5cm}{\bf u32} PRINTF(
+\hypertarget{func_ocrPrintf}{
+  \index{Supporting functions@{Supporting function}!ocrPrintf@{ocrPrintf}}
+  \subsection[{ocrPrintf}]{\setlength{\rightskip}{0pt plus 5cm}{\bf u32} ocrPrintf(
 \begin{DoxyParamCaption}
 \item[{const char $\ast$}]{fmt}
 \item[{}]{...}
 \end{DoxyParamCaption}
 )}}
-\label{func_PRINTF}
+\label{func_ocrPrintf}
 
 A platform independent limited \code{printf} functionality.
 
@@ -386,7 +430,7 @@ and supports the following format specifiers:
 \end{itemize}
 
 \begin{DoxyNote}{Note}
-A conformant implementation may limit the number of characters in the
+A conforming implementation may limit the number of characters in the
 output string.
 \end{DoxyNote}
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -435,7 +479,7 @@ manipulate GUIDs.
             {\code{ocrGuidIsLt}}(\hyperlink{type_ocrGuid_t}{ocr\-Guid\-\_\-t} guid1,
     \hyperlink{type_ocrGuid_t}{ocr\-Guid\-\_\-t} guid2)
     \begin{DoxyCompactList}
-      \small\item \emph{Checks if guid1 is less than guid2.}
+      \small\item \emph{Checks if guid1 is less than guid2 (useful to implement a total order on GUIDs)}
     \end{DoxyCompactList}
 \end{DoxyCompactItemize}
 
@@ -596,7 +640,7 @@ properly print GUIDs.
 
 The following snippet shows how to print a GUID:
 \begin{ocrsnip}
-PRINTF("DB Guid "GUIDF" acquired by "GUIDF"\n", GUIDA(db.guid), GUIDA(edt.guid));
+ocrPrintf("DB Guid "GUIDF" acquired by "GUIDF"\n", GUIDA(db.guid), GUIDA(edt.guid));
 \end{ocrsnip}
 
 Note that the \code{GUIDF} format placeholder macro may actually expand into
@@ -612,7 +656,7 @@ by the \code{GUIDF} macro.
 \label{sec:OCRDataBlockManagement}
 
 Data blocks are the only form of non-\/ephemeral storage and are therefore
-the only way to ``share'' data between E\-D\-Ts. Conceptually, data blocks
+the only way to ``share'' data between EDTs. Conceptually, data blocks
 are contiguous chunks of memory that have a start address and a size.
 They also have the following characteristics\-:
 \begin{itemize}
@@ -621,8 +665,8 @@ They also have the following characteristics\-:
   uniquely and totally address the entire data-\/block);
 \item a data block is non-\/overlapping with other distinct data blocks
 \item the pointer to the start of a data block is only valid between the start
-of the E\-D\-T (or the data block creation) and the corresponding \code{ocrDbRelease}
-(or the end of the E\-D\-T).
+of the EDT (or the data block creation) and the corresponding \code{ocrDbRelease}
+(or the end of the EDT).
 \end{itemize}
 
 The following macros and enums are used with OCR data blocks.
@@ -639,6 +683,7 @@ The following macros and enums are used with OCR data blocks.
     \item \code{DB\_MODE\_EW}
     \item \code{DB\_MODE\_RO}
     \item \code{DB\_MODE\_CONST}
+    \item \code{DB\_MODE\_NULL}
   \end{itemize}
 \item \code{DB\_DEFAULT\_MODE} which is an alias of \code{DB\_MODE\_RW}
 \item \code{DB\_PROP\_NONE} which specifies no special properties on the data block
@@ -679,7 +724,7 @@ The following macros and enums are used with OCR data blocks.
   \hyperlink{type_u8}{u8} \hyperlink{func_ocrDbCreate}
             {\code{ocrDbCreate}}(\hyperlink{type_ocrGuid_t}{ocr\-Guid\-\_\-t} $\ast$db,
     void $\ast$$\ast$addr, \hyperlink{type_u64}{u64} len, \hyperlink{type_u16}{u16} flags,
-    \hyperlink{type_ocrHint_t}{ocr\-Hint\-\_\-t} $\ast$hint,
+    const \hyperlink{type_ocrHint_t}{ocr\-Hint\-\_\-t} $\ast$hint,
     \hyperlink{type_ocrInDbAllocator_t}{ocr\-In\-Db\-Allocator\-\_\-t} allocator)
     \begin{DoxyCompactList}
       \small\item \emph{Request the creation of a data block.}
@@ -697,6 +742,13 @@ The following macros and enums are used with OCR data blocks.
       \small\item \emph{Release the data block indicating the end of its use by
         the EDT.}
     \end{DoxyCompactList}
+\item
+  \hyperlink{type_u8}{u8} \hyperlink{func_ocrDbDowngradeRelease}
+            {\code{ocrDbDowngradeRelease}}(\hyperlink{type_ocrGuid_t}{ocr\-Guid\-\_\-t} db)
+    \begin{DoxyCompactList}
+      \small\item \emph{Release updates made to a writable data block
+        while retaining read-only access to the data block.}
+    \end{DoxyCompactList}
 \end{DoxyCompactItemize}
 %
 %  ocrDbCreate
@@ -709,7 +761,7 @@ The following macros and enums are used with OCR data blocks.
 \item[{void $\ast$$\ast$}]{addr, }
 \item[{{\bf u64}}]{len, }
 \item[{{\bf u16}}]{flags, }
-\item[{{\bf ocr\-Hint\-\_\-t} $\ast$}]{hint, }
+\item[{{\bf const ocr\-Hint\-\_\-t} $\ast$}]{hint, }
 \item[{{\bf ocr\-In\-Db\-Allocator\-\_\-t}}]{allocator}
 \end{DoxyParamCaption}
 )}}
@@ -731,7 +783,7 @@ If DB\_PROP\_NO\_ACQUIRE is specified in \code{flags}, the
 value returned will be NULL. If the call fails, the returned value is
 undefined \\
 \hline
-\mbox{\tt in}  & \code{len} & Size, in bytes, of the data block to create \\
+\mbox{\tt in}  & \code{len} & Non-zero size, in bytes, of the data block to create \\
 \hline
 \mbox{\tt in}  & \code{flags} & Flags controlling the behavior of the
 data block creation. The supported flags are:
@@ -760,14 +812,14 @@ by \hyperlink{type_ocrInDbAllocator_t}{ocrInDbAllocator\_t}.\\
 \end{DoxyParams}
 
 \returns
-A status code:
+0 if no immediate error was detected or the following error codes:
 \begin{DoxyItemize}
-\item 0: Successful
-\item OCR\_ENOMEM: The runtime could not provide a data block of size
-  'len' due to insufficient memory
-\item OCR\_EINVAL: The arguments passed (flags, allocator, etc.) were
+\item OCR\_EINVAL ({\bf immediate}): The arguments passed (flags, allocator, etc.) were
   not valid
-\item OCR\_EBUSY: A resource required for this call was busy. A retry
+\item 0: Successful
+\item OCR\_ENOMEM ({\bf deferred}): The runtime could not provide a data block of size
+  'len' due to insufficient memory
+\item OCR\_EBUSY ({\bf deferred}): A resource required for this call was busy. A retry
   is possible
 \end{DoxyItemize}
 
@@ -823,11 +875,10 @@ destroyed when no longer needed to reclaim the space they utilize.
 \end{DoxyParams}
 
 \returns
-A status code:
+0 if no immediate error was detected or the following error codes:
 \begin{DoxyItemize}
-\item 0: successful
-\item OCR\_EPERM: The data block was already destroyed
-\item OCR\_EINVAL: The GUID passed as argument does not refer to
+\item OCR\_EPERM ({\bf deferred}): The data block was already destroyed
+\item OCR\_EINVAL ({\bf deferred}): The GUID passed as argument does not refer to
   a valid data block
 \end{DoxyItemize}
 
@@ -876,12 +927,11 @@ enables other EDTs to ``see'' the eventual changes to the data block (release co
 \end{DoxyParams}
 
 \returns
-A status code:
+0 if no immediate error was detected or the following error codes:
 \begin{DoxyItemize}
-\item 0: successful
-\item OCR\_EINVAL: The GUID passed as argument does not refer to a
+\item OCR\_EINVAL ({\bf immediate}): The GUID passed as argument does not refer to a
   valid data block
-\item OCR\_EACCESS: The calling EDT has not acquired the data block
+\item OCR\_EACCESS ({\bf immediate}): The calling EDT has not acquired the data block
   and therefore cannot release it
 \end{DoxyItemize}
 
@@ -898,6 +948,64 @@ pointer it had to it should be considered invalid). Violating this rule will
 result in undefined behavior. A consequence of this is that a data block can
 only be released at most once by an EDT.
 \end{DoxyNote}
+
+%
+% ocrDbDowngradeRelease
+%
+\hypertarget{func_ocrDbDowngradeRelease}{
+  \index{Data block management@{Data-\/block management}!ocr\-Db\-Downgrade\-Release@{ocr\-Db\-Downgrade\-Release}}
+  \subsection[{ocr\-Db\-Downgrade\-Release}]{\setlength{\rightskip}{0pt plus 5cm}{\bf u8} ocr\-Db\-Downgrade\-Release(
+\begin{DoxyParamCaption}
+\item[{{\bf ocr\-Guid\-\_\-t}}]{db}
+\end{DoxyParamCaption}
+)}}
+\label{func_ocrDbDowngradeRelease}
+
+This function allows for any writes made to a data block in the current EDT
+to be \textit{released} (in terms of OCR's release consistency memory model)
+while still allowing the data block to be read later in the current EDT.
+In contrast, a call to \hyperlink{func_ocrDbRelease}{\code{ocrDbRelease()}}
+indicates the end of both write and read access to the target data block
+within the current EDT.
+
+\begin{DoxyParams}[1]{Parameters}
+\mbox{\tt in}  & \code{db} & GUID of the data block to downgrade/release\\
+\hline
+\end{DoxyParams}
+
+\returns
+0 if no immediate error was detected or the following error codes:
+\begin{DoxyItemize}
+\item OCR\_EINVAL ({\bf deferred}): The GUID passed as argument does not refer to a
+  valid data block
+\item OCR\_EACCESS ({\bf immediate}): The calling EDT has not acquired the data block
+  and therefore cannot downgrade/release it
+\end{DoxyItemize}
+
+\descr
+OCR's release-consistency memory model requires a \textit{release}
+operation on a data block for synchronization, ensuring that writes to that data block
+are visible to all EDTs ordered after the \textit{release} operation.
+For a data block that is acquired in a writable mode by the current EDT,
+this function performs a \textit{release} operation
+(making all preceding writes visible in terms of the memory model);
+however, the current EDT retains read-only access to the data block
+by \textit{downgrading} the data block's access mode to a read-only
+access mode (i.e., \code{DB\_MODE\_RO} or \code{DB\_MODE\_CONST}).
+The user should assume that the mode for the downgraded data block
+is \code{DB\_MODE\_RO} but conformant implementations may downgrade
+certain data blocks to \code{DB\_MODE\_CONST}.
+If the target data block is already in a read-only access mode,
+then this function does nothing.
+
+\begin{DoxyNote}{Note}
+Unlike \hyperlink{func_ocrDbRelease}{\code{ocrDbRelease()}},
+it is safe to call this function multiple times with the same target data block
+within a single EDT. The target data block can later be fully released via
+a call to \hyperlink{func_ocrDbRelease}{\code{ocrDbRelease()}},
+otherwise it will be released implicitly at the end of the current EDT.
+\end{DoxyNote}
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Event Management
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -933,13 +1041,13 @@ meaning of these event types is given in Section~\ref{sec:Event}:
 %% When both counters are equal (and non-zero), the post-slot of the latch event is triggered.
 %% Any data block passed along its pre-slots is ignored. A LATCH event is similarly persistent
 %% as a ONCE event and is automatically destroyed when its post-slot is triggered.
-\item \code{enum ocrLatchEventSlots\_t} containing constants to identify the two
-pre-slots of the latch event type:
+\item \hypertarget{type_ocrLatchEventSlots}{\code{enum ocrLatchEventSlots\_t}} containing constants to
+identify the two pre-slots of the latch event type:
   \begin{itemize}
     \item \code{OCR\_EVENT\_LATCH\_DECR\_SLOT} identifying the decrement slot of
-      the latch event
+      the latch event. The numeric equivalent of this value is $0$.
     \item \code{OCR\_EVENT\_LATCH\_INCR\_SLOT} identifying the increment slot of
-      the latch event
+      the latch event. The numeric equivalent of this value is $1$.
   \end{itemize}
 \end{itemize}
 
@@ -973,7 +1081,8 @@ pre-slots of the latch event type:
     \hyperlink{type_ocrGuid_t}{ocr\-Guid\-\_\-t} data\-Guid, \hyperlink{type_u32}{u32} slot)
     \begin{DoxyCompactList}
       \small\item \emph{Satisfy the specified pre-slot of an event and optionally
-        pass a data block to the event.}
+        pass a data block to the event. Note that, in the case of a latch event, the slot
+        parameter is of type \hyperlink{type_ocrLatchEventSlots}{enum\ ocrLatchEventSlots\_t}}
     \end{DoxyCompactList}
 \end{DoxyCompactItemize}
 %
@@ -1004,19 +1113,21 @@ event. If the call fails, the returned value is undefined.\\
 the following flags are supported:
 \begin{DoxyItemize}
 \item EVT\_PROP\_NONE: Default behavior
-\item EVT\_PROP\_TAKES\_ARG: The created event will potentially
-  carry a data block on satisfaction.
+\item EVT\_PROP\_TAKES\_ARG: If this flag is {\bf not} set, the event will ignore any data block
+  passed to it when it is satisfied. The satisfaction call will raise a deferred error if a data block
+  is passed in the satisfy call. If the flag is set, the event can take a data block or NULL\_GUID when
+  it is satisfied. In other words, EVT\_PROP\_TAKES\_ARG, if set, only tells the runtime that the event
+  {\bf may} take a data block on satisfaction but does not force it to.
 \end{DoxyItemize}\\
 \hline
 \end{DoxyParams}
 
 \returns
-A status code:
+0 if no immediate error was detected or the following error codes:
 \begin{DoxyItemize}
-\item 0\-: successful
-\item OCR\_ENOMEM: The runtime could not create the event due to insufficient memory
-\item OCR\_EINVAL: The \code{eventType} argument is invalid or incompatible
+\item OCR\_EINVAL ({\bf immediate}): The \code{eventType} argument is invalid or incompatible
   with \code{flags}
+\item OCR\_ENOMEM ({\bf deferred}): The runtime could not create the event due to insufficient memory
 \end{DoxyItemize}
 
 \descr
@@ -1045,10 +1156,10 @@ destroy these events when they are no longer needed.
 \end{DoxyParams}
 
 \returns
-A status code:
+0 if no immediate error was detected or the following error codes:
 \begin{DoxyItemize}
 \item 0: Successful
-\item OCR\_EINVAL: The GUID passed as argument does not refer to a
+\item OCR\_EINVAL ({\bf deferred}): The GUID passed as argument does not refer to a
   valid event
 \end{DoxyItemize}
 
@@ -1091,14 +1202,15 @@ NULL\_GUID if this event does not take any data blocks (pure control dependence)
 \end{DoxyParams}
 
 \returns
-A status code
+0 if no immediate error was detected or the following error codes:
 \begin{DoxyItemize}
-\item 0\-: successful
-\item OCR\_ENOMEM: The runtime could not satisfy the event due to insufficent
+\item OCR\_ENOMEM ({\bf deferred}): The runtime could not satisfy the event due to insufficient
   memory
-\item OCR\_EINVAL: \code{eventGuid} or \code{dataGuid} do not refer
+\item OCR\_EINVAL ({\bf deferred}): \code{eventGuid} or \code{dataGuid} do not refer
   to valid event or data block GUIDs respectively
-\item OCR\_EPERM: The event has already been satisfied and does not support
+\item OCR\_EACCES ({\bf deferred}): a non NULL\_GUID was passed as \code{dataGuid} when the
+  event does not take an argument
+\item OCR\_EPERM ({\bf deferred}): The event has already been satisfied and does not support
   multiple satisfactions or a data block was passed to an event which does
   not take arguments
 \end{DoxyItemize}
@@ -1134,14 +1246,13 @@ NULL\_GUID if this event does not take any data blocks (pure control dependence)
 \end{DoxyParams}
 
 \returns
-A status code
+0 if no immediate error was detected or the following error codes:
 \begin{DoxyItemize}
-\item 0\-: successful
-\item OCR\_ENOMEM: The runtime could not satisfy the event due to insufficent
+\item OCR\_ENOMEM ({\bf deferred}): The runtime could not satisfy the event due to insufficent
   memory
-\item OCR\_EINVAL: \code{eventGuid} or \code{dataGuid} do not refer
+\item OCR\_EINVAL ({\bf deferred}): \code{eventGuid} or \code{dataGuid} do not refer
   to valid event or data block GUIDs respectively
-\item OCR\_EPERM: The event has already been satisfied and does not support
+\item OCR\_EPERM ({\bf deferred}): The event has already been satisfied and does not support
   multiple satisfactions or a data block was passed to an event which does
   not take arguments
 \end{DoxyItemize}
@@ -1193,10 +1304,12 @@ The following macros and enums are used with OCR tasks.
   for the creation of an EDT
 \item \code{EDT\_PROP\_FINISH} which specifies that the created EDT
   is a \emph{finish} EDT
+\item \code{EDT\_PROP\_OEVT\_VALID} which specifies that the output event
+  passed when creating an EDT is a valid event
 \item \code{EDT\_PARAM\_UNK} which specifies that the number of
-  parameters or dependences to an EDT template is unknown at this time
-\item \code{EDT\_PARAM\_DEF} which specifies that the number of parameters
-  or dependences to an EDT is the same as the one specified in its template
+  parameters or dependences to an EDT template is unknown and each EDT will
+  specify the number of parameters or dependences. This allows a single template
+  to be created for EDTs that can take a varying number of parameters or dependences.
 \end{itemize}
 
 The prototype of an EDT function is given by
@@ -1210,7 +1323,7 @@ The prototype of an EDT function is given by
 \begin{DoxyCompactItemize}
 \item
   \hyperlink{type_u8}{u8} \hyperlink{func_ocrEdtTemplateCreate}
-            {\code{ocrEdtTemplateCreate}}(\hyperlink{type_ocrGuid_t}{ocr\-Guid\-\_\-t} guid,
+            {\code{ocrEdtTemplateCreate}}(\hyperlink{type_ocrGuid_t}{ocr\-Guid\-\_\-t} $\ast$guid,
     ocrEdt\_t funcPtr, \hyperlink{type_u32}{u32} paramc, \hyperlink{type_u32}{u32} depc)
     \begin{DoxyCompactList}
       \small\item \emph{Request the creation of an EDT template.}
@@ -1225,9 +1338,9 @@ The prototype of an EDT function is given by
   \hyperlink{type_u8}{u8} \hyperlink{func_ocrEdtCreate}
             {\code{ocrEdtCreate}}(\hyperlink{type_ocrGuid_t}{ocr\-Guid\-\_\-t} $\ast$guid,
     \hyperlink{type_ocrGuid_t}{ocr\-Guid\-\_\-t} template\-Guid,
-    \hyperlink{type_u32}{u32} paramc, \hyperlink{type_u64}{u64} $\ast$paramv,
-    \hyperlink{type_u32}{u32} depc, \hyperlink{type_ocrGuid_t}{ocr\-Guid\-\_\-t} $\ast$depv,
-    \hyperlink{type_u16}{u16} flags, \hyperlink{type_ocrHint_t}{ocr\-Hint\-\_\-t} $\ast$hint,
+    \hyperlink{type_u32}{u32} paramc, const \hyperlink{type_u64}{u64} $\ast$paramv,
+    \hyperlink{type_u32}{u32} depc, const \hyperlink{type_ocrGuid_t}{ocr\-Guid\-\_\-t} $\ast$depv,
+    \hyperlink{type_u16}{u16} flags, const \hyperlink{type_ocrHint_t}{ocr\-Hint\-\_\-t} $\ast$hint,
     \hyperlink{type_ocrGuid_t}{ocr\-Guid\-\_\-t} $\ast$output\-Event)
     \begin{DoxyCompactList}
       \small\item \emph{Request the creation of an EDT instance using
@@ -1276,10 +1389,9 @@ number of arguments, the constant EDT\_PARAM\_UNK can be used.\\
 \end{DoxyParams}
 
 \returns
-A status code:
+0 if no immediate error was detected or the following error codes:
 \begin{DoxyItemize}
-\item 0: Successful
-\item OCR\_ENOMEM: The runtime could not allocate the template
+\item OCR\_ENOMEM ({\bf deferred}): The runtime could not allocate the template
 \end{DoxyItemize}
 
 \descr
@@ -1313,10 +1425,9 @@ Destroy an EDT template.
 \end{DoxyParams}
 
 \returns
-A status code:
+0 if no immediate error was detected or the following error codes:
 \begin{DoxyItemize}
-\item 0: Successful
-\item OCR\_EINVAL: The GUID passed as argument does not refer to a valid
+\item OCR\_EINVAL ({\bf deferred}): The GUID passed as argument does not refer to a valid
   EDT template
 \end{DoxyItemize}
 
@@ -1338,11 +1449,11 @@ however, be used to create new EDTs once it has been destroyed.
 \item[{{\bf ocr\-Guid\-\_\-t} $\ast$}]{guid, }
 \item[{{\bf ocr\-Guid\-\_\-t}}]{template\-Guid, }
 \item[{{\bf u32}}]{paramc, }
-\item[{{\bf u64} $\ast$}]{paramv, }
+\item[{{\bf const u64} $\ast$}]{paramv, }
 \item[{{\bf u32}}]{depc, }
-\item[{{\bf ocr\-Guid\-\_\-t} $\ast$}]{depv, }
+\item[{{\bf const ocr\-Guid\-\_\-t} $\ast$}]{depv, }
 \item[{{\bf u16}}]{flags, }
-\item[{{\bf ocr\-Hint\-\_\-t} $\ast$}]{hint, }
+\item[{{\bf const ocr\-Hint\-\_\-t} $\ast$}]{hint, }
 \item[{{\bf ocr\-Guid\-\_\-t} $\ast$}]{output\-Event}
 \end{DoxyParamCaption}
 )}}
@@ -1360,16 +1471,14 @@ EDT. If the call fails, the returned value is undefined.\\
 create the EDT.\\
 \hline
 \mbox{\tt in}  & \code{paramc} & Number of parameters (64-bit values) contained
-in the \code{paramv} array. Use \code{EDT\_PARAM\_DEF} to use the value specified
-for the EDT template.\\
+in the \code{paramv} array.\\
 \hline
 \mbox{\tt in}  & \code{paramv} & Pointer to an array of \code{paramc}
 \hyperlink{type_u64}{u64} values. The values are copied in and can therefore be
 freed/reused after this call returns. If \code{paramc} is 0, this parameter must be
 set to NULL.\\
 \hline
-\mbox{\tt in}  & \code{depc} & Number of pre-slots for this EDT. Use
-\code{EDT\_PARAM\_DEF} to use the value specified for the EDT template.\\
+\mbox{\tt in}  & \code{depc} & Number of pre-slots for this EDT.\\
 \hline
 \mbox{\tt in}  & \code{depv} & Pointer to an array of \code{depc}
 \hyperlink{type_ocrGuid_t}{ocrGuid\_t} values or NULL. All pre-slots specified
@@ -1383,46 +1492,63 @@ The supported flags are:
 \begin{DoxyItemize}
 \item EDT\_PROP\_NONE: Regular EDT
 \item EDT\_PROP\_FINISH: Create a \emph{finish} EDT
+\item EDT\_PROP\_OEVT\_VALID: The output event's (last argument) value
+  is a valid event to use as an output event
 \end{DoxyItemize}\\
 \hline
 \mbox{\tt in}  & \code{hint} & Reserved for future use. Set
 to NULL\_HINT.\\
 \hline
-\mbox{\tt in,out}  & \code{outputEvent} & If non-NULL on input, on successful creation,
-contains the GUID of the event associated with the post-slot of the EDT. For a
-\emph{finish} EDT, the post-slot of this event will be satisfied when the EDT
-and all of its descendent EDTs (the closure of all EDTs created in this EDT and
-its children) have completed execution. For a non finish EDT, the post-slot of
+\mbox{\tt in,out}  & \code{outputEvent} & The meaning of this field is controlled
+by the value of the `flags' argument. If EDT\_PROP\_OEVT\_VALID is specified in
+the flags, outputEvent must be non-NULL and point to the GUID of a valid
+user created event. Note that if the event given as an argument is a latch event,
+only the OCR\_EVENT\_LATCH\_DECR\_SLOT is satisfied.
+If EDT\_PROP\_OEVT\_VALID is not specified in the flags:
+if non-NULL on input, on successful creation,
+contains the GUID of the event associated with the post-slot of the EDT; if NULL,
+no output event will be returned. When the event is automatically created by the
+runtime (if EDT\_PROP\_OEVT\_VALID is not specified), the event returned will be
+automatically destroyed on satisfaction. It is therefore crucial to ensure that
+all waiters on this event are set up properly \emph{before} the EDT transitions to the
+\emph{runnable} state. If this behavior is undesirable, the EDT\_PROP\_OEVT\_VALID allows
+you to override the event that will be used as the output event and the programmer can
+provide a sticky event which will not be destroyed on satisfaction.
+In all cases, the post-slot of the output event
+(either specified by the user or created by the runtime) will be satisfied:
+{\bf a)} for a \emph{finish} EDT, when the EDT
+and all of its descendant EDTs (the closure of all EDTs created in this EDT and
+its children) have completed execution or {\bf b)} for a non finish EDT, the post-slot of
 this event will be satisfied when the EDT completes execution and will carry the
-data block returned by the EDT. If NULL, no event will be associated with the
-EDT's post-slot. Note that in all cases, the event returned is an event that
-is automatically destroyed on satisfaction. It is therefore crucial to ensure that all
-waiters on this event are set up properly \emph{before} the EDT transitions to the
-\emph{runnable} state.\\
+data block returned by the EDT.\\
 \hline
 \end{DoxyParams}
 
 \returns
-A status code:
+0 if no immediate error was detected or the following error codes:
 \begin{DoxyItemize}
-\item 0: Successful
-\item OCR\_ENOMEM: The runtime could not create the EDT
-\item OCR\_EINVAL: The GUID specifying the template is invalid or the number
-  of parameters or pre-slots are invalid
+\item OCR\_ENOMEM ({\bf deferred}): The runtime could not create the EDT
+\item OCR\_EINVAL ({\bf deferred}): The GUID specifying the template is invalid or the number
+  of parameters or pre-slots are invalid or the combination of flags and other parameter values
+  is invalid
 \end{DoxyItemize}
 
 \descr
 The EDT is created based on the function provided during the creation of its template.
 It is required that the number of parameters (\code{paramc}) and number of
-pre-slots (\code{depc}) be resolved at this time. In other words, if
-\code{EDT\_PARAM\_UNK} was specified for either \code{paramc} or \code{depc} when
-creating the template, this function may not specify \code{EDT\_PARAM\_DEF}.
+pre-slots (\code{depc}) be resolved at this time. In other words, the number of
+parameters and dependences must be explicitly specified at this time. If the
+EDT template used for this EDT specified specific numbers of parameters or dependences,
+the values for \code{paramc} and \code{depc} must match those specified for
+the template.
 \begin{DoxyNote}{Note}
 If the EDT is created with all its pre-slots specified and resolved, it may execute
-immediately which means that the GUIDs returned (\code{guid} and \code{outputEvent})
-may be invalid by the time this function returns. It is the responsability of
-the programmer to ensure, if he needs to use these returned values, that the EDT
-cannot start until a later time (by inserting a ``fake'' pre-slot for example).
+immediately, which means that the GUIDs returned (\code{guid} and \code{outputEvent}, if
+created by the runtime)
+may be invalid by the time this function returns. It is the responsibility of
+the programmer -- if these returned values are needed -- to ensure that the EDT
+cannot start until a later time (e.g., by inserting an extra pre-slot
+that is satisfied only after setting up all dependences on the output event).
 \end{DoxyNote}
 %
 % ocrEdtDestroy
@@ -1449,7 +1575,10 @@ will never become \emph{runnable}.
 Most programmers will not have use for this function as OCR implicitly destroys all
 EDTs that execute. There are some cases, however, where an EDT is created and the
 programmer later realizes that the task will never execute. This function allows the
-programmer to reclaim the memory used by the EDT
+programmer to reclaim the memory used by the EDT. If the destroyed EDT is a
+descendant of a finish EDT, the destruction preserves the finish EDT's property --
+i.e., its latch event is updated so that the finish EDT is allowed to trigger
+its post-slot as if the destroyed EDT was not part of its finish scope.
 \begin{DoxyNote}{Note}
 Destroying an EDT that is in the \emph{runnable} state or later will result in
 undefined behavior.
@@ -1459,10 +1588,7 @@ destroyed.
 \end{DoxyNote}
 
 \returns
-A status code
-\begin{DoxyItemize}
-\item 0: Successful
-\end{DoxyItemize}
+0 if no immediate error was detected. There are no error codes for this function.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% OCR Dependences
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -1522,11 +1648,10 @@ value is ignored.\\
 \end{DoxyParams}
 
 \returns
-A status code
+0 if no immediate error was detected or the following error codes:
 \begin{DoxyItemize}
-\item 0\-: successful
-\item OCR\_EINVAL: \code{slot} is invalid
-\item OCR\_ENOPERM: \code{source} and \code{destination} cannot be linked with
+\item OCR\_EINVAL ({\bf deferred}): \code{slot} is invalid
+\item OCR\_ENOPERM ({\bf deferred}): \code{source} and \code{destination} cannot be linked with
   a dependence (for example, if \code{destination} is a data block)
 \end{DoxyItemize}
 
@@ -1541,9 +1666,12 @@ The following dependences can be added:
   pre-slot will be satisfied. When the runtime transitions the EDT from the
   \emph{runnable} to \emph{ready} state, the data block associated with the
   post-slot of the event will be acquired using the \code{mode} specified.
-\item Data block to event: Equivalent to \hyperlink{func_ocrEventSatisfySlot}{
-  \code{ocrEventSatisfySlot}}; \code{ocrAddDependence(db, evt, slot, mode)} is
-  equivalent to \code{ocrEventSatisfySlot(evt, db, slot)}.
+\item Data block to event: Adding a dependence between a data block and an
+  event will result in the eventual satisfaction of the event with the data block;
+  i.e., \code{ocrAddDependence(db, evt, slot, mode)} is
+  similar to \hyperlink{func_ocrEventSatisfySlot}{
+  \code{ocrEventSatisfySlot}}\code{(evt, db, slot)},
+  but the satisfaction of the target event is not guaranteed to happen synchronously.
 \item Data block to EDT: This represents a pure data dependence. Adding a
   dependence between a data block and an EDT immediately satisfies the pre-slot
   of the EDT. When the runtime transitions the EDT from the \emph{runnable}

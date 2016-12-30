@@ -2,7 +2,7 @@
 GUIDs are used to identify OCR objects and are opaque to the
 programmer. A consequence of this opacity is that if two EDTs need to
 use a common object, they both need to have a-priori knowledge of the
-GUID for this object. If the object was created much earlier in the
+GUID for that object. If the object was created much earlier in the
 execution flow, both EDTs therefore need to have the GUID passed down
 either through data blocks or parameters. This is inconvenient and can
 lead to a glut of parameters and data blocks solely dedicated to
@@ -10,13 +10,13 @@ passing down GUIDs.
 
 Labeled GUIDs provide a mechanism by which a programmer can
 reason about GUIDs; an API is provided to ``translate'' a programmer
-defined tuple space into GUIDs. The transformation is such that all
+defined index range into GUIDs. The transformation is such that all
 EDTs invoking this API with the same input will get the same resulting
 GUID. In effect, EDTs no longer need to agree on an opaque GUID (which
-requires a-priori knowledge) but only on a common tuple which can be
+requires a-priori knowledge) but only on a common index which can be
 achieved only through semantic knowledge of the
 application. Concretely, this is the difference between ``the
-'neighbor' EDT you need to communicate with has GUID X'' and
+`neighbor' EDT you need to communicate with has GUID X'' and
 ``give me X, the GUID of my neighbor Y''.
 %%%%
 \subsection{Usage scenarios}
@@ -26,8 +26,8 @@ design.
 %%%
 \subsubsection{Referring to a previously created OCR object}
 In this scenario, a root EDT \texttt{R} creates a sink EDT \texttt{S}
-(for example a reduction EDT) and then spawns off a whole bunch of
-EDTs which will lead to EDTs which will satisfy a slot of
+(for example a reduction EDT) and then spawns multiple child
+EDTs which will in turn spawn EDTs which will satisfy a slot of
 \texttt{S}. Without labeled GUIDs, \texttt{S}'s GUID would need to be
 passed down to each and every producer. Labeled GUIDs allow the
 producers to ask the runtime for \texttt{S}'s GUID.
@@ -75,69 +75,35 @@ containing:
   event.
 \end{itemize}
 
-The primary functions supporting labeled GUIDs are listed below. Since
-this is an experimental API, there are two ways in which to use
-labeled GUIDs: {\bf a)} by providing an explicit mapping function
-between a tuple space and a space of GUIDs and {\bf b)} by effectively
-linearizing the tuple space in user code and providing the runtime
-with an index.
+The primary functions supporting labeled GUIDs are listed below.
+These functions allow the user to reserve a flat range of GUIDs,
+and then retrieve a particular GUID by its index in that range.
+The user may decide to map an N-dimensional tuple space
+onto the flat index space for a labeled GUID range.
 \begin{DoxyCompactItemize}
-\item
-  \hyperlink{type_u8}{u8} \hyperlink{func_ocrGuidMapCreate}
-  {\code{ocrGuidMapCreate}}(\hyperlink{type_ocrGuid_t}{ocr\-Guid\-\_\-t}
-  $\ast$ mapGuid,
-  \hyperlink{type_u32}{u32} numParams,
-  \hyperlink{type_ocrGuid_t}{ocr\-Guid\-\_\-t}
-  ($\ast$mapFunc)(\hyperlink{type_ocrGuid_t}{ocr\-Guid\-\_\-t}
-  startGuid, \hyperlink{type_u64}{u64} skipGuid,
-  \hyperlink{type_s64}{s64} $\ast$params, \hyperlink{type_s64}{s64}
-  $\ast$tuple), \hyperlink{type_s64}{s64} $\ast$params,
-  \hyperlink{type_u64}{u64} numberGuid,
-  \hyperlink{type_ocrGuidUserKind}{ocrGuidUserKind} kind)
-  \begin{DoxyCompactList}
-    \small \item \emph{Reserves a range of GUIDs to be used by the
-      labeling mechanism. This is one of two ways to reserve a range
-      of GUIDs. Here, the runtime will invoke the mapping function
-      given to map tuples to GUIDs in the created range whereas for
-      \hyperlink{func_ocrGuidRangeCreate}{ocrGuidRangeCreate}, the mapping is left up to
-      the programmer.}
-  \end{DoxyCompactList}
 \item
   \hyperlink{type_u8}{u8}
   \hyperlink{func_ocrGuidRangeCreate}{\code{ocrGuidRangeCreate}}(
   \hyperlink{type_ocrGuid_t}{ocr\-Guid\-\_\-t} $\ast$rangeGuid,
-  \hyperlink{type_u64}{u64} numberGuid,
+  \hyperlink{type_u64}{u64} guidCount,
   \hyperlink{type_ocrGuidUserKind}{ocrGuidUserKind} kind)
   \begin{DoxyCompactList}
-    \small \item \emph{Similar to \hyperlink{func_ocrGuidMapCreate}{ocrGuidMapCreate},
-      this reserves a range of GUIDs to be used by the labeling
-      mechanism.}
+    \small \item \emph{Reserves a range of GUIDs to be used by the
+      labeling mechanism.}
   \end{DoxyCompactList}
 \item
   \hyperlink{type_u8}{u8}
-  \hyperlink{func_ocrGuidMapDestroy}{\code{ocrGuidMapDestroy}}(
-  \hyperlink{type_ocrGuid_t}{ocr\-Guid\-\_\-t} mapGuid)
+  \hyperlink{func_ocrGuidRangeDestroy}{\code{ocrGuidRangeDestroy}}(
+  \hyperlink{type_ocrGuid_t}{ocr\-Guid\-\_\-t} rangeGuid)
   \begin{DoxyCompactList}
-    \small \item \emph{Destroy a GUID map or range as created by
-      \hyperlink{func_ocrGuidRangeCreate}{ocrGuidRangeCreate} or
-      \hyperlink{func_ocrGuidMapCreate}{ocrGuidMapCreate}.}
-  \end{DoxyCompactList}
-\item
-  \hyperlink{type_u8}{u8}
-  \hyperlink{func_ocrGuidFromLabel}{\code{ocrGuidFromLabel}}(
-  \hyperlink{type_ocrGuid_t}{ocr\-Guid\-\_\-t} $\ast$outGuid,
-  \hyperlink{type_ocrGuid_t}{ocr\-Guid\-\_\-t} mapGuid,
-  \hyperlink{type_s64}{s64} $\ast$tuple)
-  \begin{DoxyCompactList}
-    \small \item \emph{Converts a tuple into a GUID. This function is
-      used with maps created using
-      \hyperlink{func_ocrGuidMapCreate}{ocrGuidMapCreate}.}
+    \small \item \emph{Destroy a GUID range as created by
+      \hyperlink{func_ocrGuidRangeCreate}{ocrGuidRangeCreate}.}
   \end{DoxyCompactList}
 \item
   \hyperlink{type_u8}{u8}
   \hyperlink{func_ocrGuidFromIndex}{\code{ocrGuidFromIndex}}(
   \hyperlink{type_ocrGuid_t}{ocr\-Guid\-\_\-t} $\ast$outGuid,
-  \hyperlink{type_ocrGuid_t}{ocr\-Guid\-\_\-t} mapGuid,
+  \hyperlink{type_ocrGuid_t}{ocr\-Guid\-\_\-t} rangeGuid,
   \hyperlink{type_u64}{u64} idx)
   \begin{DoxyCompactList}
     \small \item \emph{Converts an index into a GUID. This function is
@@ -155,178 +121,69 @@ with an index.
   \end{DoxyCompactList}
 \end{DoxyCompactItemize}
 %
-% ocrGuidMapCreate
-%
-\hypertarget{func_ocrGuidMapCreate}{
-  \index{Labeled GUID extension@{Labeled GUID extension}!ocr\-Guid\-Map\-Create@{ocr\-Guid\-Map\-Create}}
-  \subsubsection[{ocr\-Guid\-Map\-Create}]{\setlength{\rightskip}{0pt plus 5cm}{\bf u8} ocr\-Guid\-Map\-Create(
-\begin{DoxyParamCaption}
-\item[{{\bf ocr\-Guid\-\_\-t} $\ast$}]{mapGuid, }
-\item[{{\bf u32}}]{numParams, }
-\item[{{\bf ocr\-Guid\-\_\-t (*)(ocr\-Guid\-\_\-t, u64,
-      s64*)}}]{mapFunc, }
-\item[{{\bf s64} $\ast$}]{params, }
-\item[{{\bf u64}}]{numberGuid, }
-\item[{{\bf ocrGuidUserKind}}]{kind}
-\end{DoxyParamCaption}
-)}}
-\label{func_ocrGuidMapCreate}
-
-Creates a new instance of a GUID map which can be used to map tuples
-to GUIDs. This function requires that the user provide an explicit
-mapping function \code{mapFunc} that the runtime will invoke on every
-conversion between a tuple and a GUID.
-
-\begin{DoxyParams}[1]{Parameters}
-\mbox{\tt out}  & \code{mapGuid} & On successful creation, contains
-the GUID of the map created. This GUID should be used with
-\code{ocrGuidFromLabel}. If the call fails, the returned value is
-undefined.\\
-\hline
-\mbox{\tt in} & \code{numParams} & Number of values in \code{params}.\\
-\hline
-\mbox{\tt in}  & \code{map\-Func} & Mapping function provided by the
-user. This function should be bijective from the input tuple space to
-the GUID space defined by \code{startGuid} and \code{skipGuid}. This
-function takes as input: the first GUID in the reserved range
-(provided by the runtime), the value of between two valid GUIDs in the
-range (provided by the runtime), user-defined parameters (a sort of
-memoization) and its input tuple. It is expected to return a valid
-GUID in the range defined.\\
-\hline
-\mbox{\tt in} & \code{params} & Parameters for the map function
-(memoized).\\
-\hline
-\mbox{\tt in} & \code{numberGuid} & The number of GUIDs to reserve in
-this map.\\
-\mbox{\tt in} & \code{kind} & Kind of the GUIDs stored in this map.\\
-\hline
-\end{DoxyParams}
-
-\returns
-A status code:
-\begin{DoxyItemize}
-\item 0: Successful
-\item Other codes are reserved right now
-\end{DoxyItemize}
-
-\descr
-The \code{mapGuid} returned by this function should be used with
-\hyperlink{func_ocrGuidFromLabel}{ocrGuidFromLabel}. This function
-will reserve a range of GUIDs (at least \code{numberGuid} of them) and
-will identify them with both a starting GUID (the first valid GUID) as
-well as a value to add to a valid GUID value to get the next one (\code{skipGuid}).
-%
 % ocrGuidRangeCreate
 %
 \hypertarget{func_ocrGuidRangeCreate}{
   \index{Labeled GUID extension@{Labeled GUID extension}!ocr\-Guid\-Range\-Create@{ocr\-Guid\-Range\-Create}}
   \subsubsection[{ocr\-Guid\-Range\-Create}]{\setlength{\rightskip}{0pt plus 5cm}{\bf u8} ocr\-Guid\-Range\-Create(
 \begin{DoxyParamCaption}
-\item[{{\bf ocr\-Guid\-\_\-t} $\ast$}]{mapGuid, }
-\item[{{\bf u64}}]{numberGuid, }
+\item[{{\bf ocr\-Guid\-\_\-t} $\ast$}]{rangeGuid, }
+\item[{{\bf u64}}]{guidCount, }
 \item[{{\bf ocrGuidUserKind}}]{kind}
 \end{DoxyParamCaption}
 )}}
 \label{func_ocrGuidRangeCreate}
 
 Creates a new instance of a GUID range which can be used to map
-indices (from $0$ to \code{numberGuid}) to GUIDs.
+indices (from $0$ to \code{guidCount}) to GUIDs.
 
 \begin{DoxyParams}[1]{Parameters}
-\mbox{\tt out}  & \code{mapGuid} & On successful creation, contains
-the GUID of the map created. This GUID should be used with
+\mbox{\tt out}  & \code{rangeGuid} & On successful creation, contains
+the GUID of the range created. This GUID should be used with
 \code{ocrGuidFromIndex}. If the call fails, the returned value is
 undefined.\\
 \hline
-\mbox{\tt in} & \code{numberGuid} & The number of GUIDs to reserve in
-this map.\\
-\mbox{\tt in} & \code{kind} & Kind of the GUIDs stored in this map.\\
+\mbox{\tt in} & \code{guidCount} & The number of GUIDs to reserve in
+this range.\\
+\hline
+\mbox{\tt in} & \code{kind} & Kind of the GUIDs stored in this range.\\
 \hline
 \end{DoxyParams}
 
 \returns
-A status code:
-\begin{DoxyItemize}
-\item 0: Successful
-\item Other codes are reserved right now
-\end{DoxyItemize}
+0 if no immediate error was detected. There are no other defined error codes for this call.
 
 \descr
-The \code{mapGuid} returned by this function should be used with
+The \code{rangeGuid} returned by this function should be used with
 \hyperlink{func_ocrGuidFromIndex}{ocrGuidFromIndex}.
 %
-% ocrGuidMapDestroy
+% ocrGuidRangeDestroy
 %
-\hypertarget{func_ocrGuidMapDestroy}{
-  \index{Labeled GUID extension@{Labeled GUID extension}!ocr\-Guid\-Map\-Destroy@{ocr\-Guid\-Map\-Destroy}}
-  \subsubsection[{ocr\-Guid\-Range\-Create}]{\setlength{\rightskip}{0pt plus 5cm}{\bf u8} ocr\-Guid\-Map\-Destroy(
+\hypertarget{func_ocrGuidRangeDestroy}{
+  \index{Labeled GUID extension@{Labeled GUID extension}!ocr\-Guid\-Range\-Destroy@{ocr\-Guid\-Range\-Destroy}}
+  \subsubsection[{ocr\-Guid\-Range\-Create}]{\setlength{\rightskip}{0pt plus 5cm}{\bf u8} ocr\-Guid\-Range\-Destroy(
 \begin{DoxyParamCaption}
-\item[{{\bf ocr\-Guid\-\_\-t} $\ast$}]{mapGuid}
+\item[{{\bf ocr\-Guid\-\_\-t} $\ast$}]{rangeGuid}
 \end{DoxyParamCaption}
 )}}
-\label{func_ocrGuidMapDestroy}
+\label{func_ocrGuidRangeDestroy}
 
-Destroys a map created by
-\hyperlink{func_ocrGuidMapCreate}{ocrGuidMapCreate} or a range created by
+Destroys a range created by
 \hyperlink{func_ocrGuidRangeCreate}{ocrGuidRangeCreate}.
 
 \begin{DoxyParams}[1]{Parameters}
-\mbox{\tt in}  & \code{mapGuid} & GUID of the map to destroy.\\
+\mbox{\tt in}  & \code{rangeGuid} & GUID of the range to destroy.\\
 \hline
 \end{DoxyParams}
 
 \returns
-A status code:
-\begin{DoxyItemize}
-\item 0: Successful
-\item Other codes are reserved right now
-\end{DoxyItemize}
+0 if no immediate error was detected. There are no other defined error codes for this call.
 
 \descr
-This function causes the map function to be destroyed but does not
-affect any of the GUIDs that have already been created with the map or
-in the range. It does, however, un-reserve all the ones taht have been
+This function does not
+affect any of the GUIDs that have already been created with the range or
+in the range. It does, however, un-reserve all the ones that have been
 reserved but not used.
-%
-% ocrGuidFromLabel
-%
-\hypertarget{func_ocrGuidFromLabel}{
-  \index{Labeled GUID extension@{Labeled GUID extension}!ocr\-Guid\-From\-Label@{ocr\-Guid\-From\-Label}}
-  \subsubsection[{ocr\-Guid\-From\-Label}]{\setlength{\rightskip}{0pt plus 5cm}{\bf u8} ocr\-Guid\-From\-Label(
-\begin{DoxyParamCaption}
-\item[{{\bf ocr\-Guid\-\_\-t} $\ast$}]{outGuid, }
-\item[{{\bf ocr\-Guid\-\_\-t}}]{mapGuid, }
-\item[{{\bf s64} $\ast$}]{tuple}
-\end{DoxyParamCaption}
-)}}
-\label{func_ocrGuidFromLabel}
-
-Uses the map created using
-\hyperlink{func_ocrGuidMapCreate}{ocrGuidMapCreate} and referenced by
-\code{mapGuid} to convert \code{tuple} into a GUID.
-
-\begin{DoxyParams}[1]{Parameters}
-\mbox{\tt out} & \code{outGuid} & GUID corresponding to the tuple.\\
-\hline
-\mbox{\tt in}  & \code{mapGuid} & GUID of the map to use.\\
-\hline
-\mbox{\tt in} & \code{tuple} & Tuple to convert to a GUID.\\
-\hline
-\end{DoxyParams}
-
-\returns
-A status code:
-\begin{DoxyItemize}
-\item 0: Successful
-\item Other codes are reserved right now
-\end{DoxyItemize}
-
-\descr
-This function will invoke the user provided map function (provided
-when the map was created) to convert the input tuple to a GUID. The
-user is responsible for ensuring the the map function always returns
-the same GUID for a given input.
 %
 % ocrGuidFromIndex
 %
@@ -335,7 +192,7 @@ the same GUID for a given input.
   \subsubsection[{ocr\-Guid\-From\-Index}]{\setlength{\rightskip}{0pt plus 5cm}{\bf u8} ocr\-Guid\-From\-Index(
 \begin{DoxyParamCaption}
 \item[{{\bf ocr\-Guid\-\_\-t} $\ast$}]{outGuid, }
-\item[{{\bf ocr\-Guid\-\_\-t}}]{mapGuid, }
+\item[{{\bf ocr\-Guid\-\_\-t}}]{rangeGuid, }
 \item[{{\bf u64}}]{idx}
 \end{DoxyParamCaption}
 )}}
@@ -343,27 +200,24 @@ the same GUID for a given input.
 
 Uses the range created using
 \hyperlink{func_ocrGuidRangeCreate}{ocrGuidRangeCreate} and referenced by
-\code{mapGuid} to convert \code{idx} into a GUID.
+\code{rangeGuid} to convert \code{idx} into a GUID.
 
 \begin{DoxyParams}[1]{Parameters}
 \mbox{\tt out} & \code{outGuid} & GUID corresponding to the index.\\
 \hline
-\mbox{\tt in}  & \code{mapGuid} & GUID of the map to use.\\
+\mbox{\tt in}  & \code{rangeGuid} & GUID of the range to use.\\
 \hline
 \mbox{\tt in} & \code{idx} & Index to convert to a GUID.\\
 \hline
 \end{DoxyParams}
 
 \returns
-A status code:
-\begin{DoxyItemize}
-\item 0: Successful
-\item Other codes are reserved right now
-\end{DoxyItemize}
+0 if no immediate error was detected. There are no other defined error codes for this call.
 
 \descr
-This function assumes that the programmer has already converted the
-tuple to an index. This index is then used to index into the GUID
+This function assumes that the programmer has already calculated
+the target index in the GUID range.
+This index is then used to index into the GUID
 space reserved by the
 \hyperlink{func_ocrGuidRangeCreate}{ocrGuidRangeCreate} call.
 %
@@ -392,12 +246,8 @@ invalid.
 \end{DoxyParams}
 
 \returns
-A status code:
-\begin{DoxyItemize}
-\item 0: Successful. Note that returning \code{OCR\_GUID\_NONE} is
-  considered a successful execution.
-\item Other codes are reserved right now
-\end{DoxyItemize}
+0 if no immediate error was detected. There are no other defined error codes for this call.
+Note that returning \code{OCR\_GUID\_NONE} is considered a successful execution.
 
 \descr
 With labeled GUIDs, having a GUID does not necessarily mean that it
@@ -408,12 +258,17 @@ of the object is happening.
 %%%%
 \subsection{Other API changes}
 The creation calls are all modified to allow them to accept a GUID as
-input (as opposed to just output). In the current implementation, only
-events can be labeled but this restriction will be lifted. To use
+input (as opposed to just output). In the current implementation, events, EDTs
+and data blocks can be labeled. There are some restrictions on using labeled EDTs,
+namely: {\bf a)} labeled EDTs cannot have dependences listed in the create call,
+{\bf b)} labeled EDTs cannot request an output event and {\bf c)} if an
+instance of a labeled EDT
+is created within a finish scope, that instance will only be registered in
+one of the finish scopes if the instance is created in multiple places. To use
 labeled GUIDs, the programmer should pass in the GUID returned by
-either \hyperlink{func_ocrGuidFromLabel}{ocrGuidFromLabel} or
-\hyperlink{func_ocrGuidFromIndex}{ocrGuidFromIndex} and also add an
-additional flag to the properties field:
+\hyperlink{func_ocrGuidFromIndex}{ocrGuidFromIndex} as the first argument of
+an \code{ocrXXCreate} call and also add an
+additional flag to the properties field of that call:
 \begin{itemize}
 \item \code{GUID\_PROP\_IS\_LABELED} The input GUID to the call should
   be used as the GUID for the created object. Note that with this
@@ -433,12 +288,9 @@ additional flag to the properties field:
 \end{itemize}
 %%%%
 \subsection{Other considerations}
-This extension is a work in progress. For example, two methods
-currently exist to use labeled GUIDs (with an index or with a
-tuple). Going forward, we will pick the one that makes the most sense
-to the community at large.
-
-Another issue with this proposal (and with many of the other creation
+This extension is a work in progress.
+For example,
+one issue with this proposal (and with many of the other creation
 calls) is that the creation of the GUID may be delayed and require
 communication. This is particularly true with labeled GUIDs as the
 runtime is constrained in the GUID is can use to create an object. One
@@ -446,3 +298,21 @@ proposal is to have the notion of a local identifier which could only
 be used inside an EDT. This would allow creation calls to return
 immediately and allow the runtime to defer all long-latency calls till
 after the EDT finishes.
+
+Normally, the exact definition of the point in time that an object is
+destroyed is not necessary. The object cannot be used after the
+destroy call was made or after it was supposed to be destroyed
+automatically. It is up to the runtime to determine the right time to
+reclaim the object's resources. However, if the object is created using
+a labeled GUID, it is possible to re-use the GUID to create another
+object. When the create call is made with \code{GUID\_PROP\_CHECK},
+the outcome depends on the state of the object. A new object is only
+created if an object with the same GUID was not created elsewhere
+or if any such object was already destroyed. It's therefore necessary
+to establish a clear relation between the destruction of the object
+and the create call. For the purpose of labeled GUIDs, all objects are
+considered to be completely destroyed by a call to the appropriate
+destroy function or at the moment they should be automatically
+destroyed. EDTs are exception to this rule. An EDT releases its
+labeled GUID for re-use at some point after it becomes ready, but
+before it starts running.

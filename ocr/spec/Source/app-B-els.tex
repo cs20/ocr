@@ -1,0 +1,37 @@
+\section{EDT Local Storage}
+\label{sec:els}
+This extension provides a dedicated portion of fixed-size pre-allocated
+memory made available to each EDT for its private use, analogous to
+TLS (Thread Local Storage). They are typically used by user-level
+libraries and high-level language translators to maintain per-EDT state
+in a uniform manner.
+
+The extension proposes the use of the following API:
+
+%
+% ocrEdtLocalStorageGet
+%
+\hypertarget{func_ocrEdtLocalStorageGet}{
+  \index{ELS get@{ELS get}!ocr\-Edt\-Local\-Storage\-Get{ocr\-Edt\-Local\-Storage\-Get}}
+  \subsection[{ocr\-Edt\-Local\-Storage\-Get}]{\setlength{\rightskip}{0pt plus 5cm}{\bf u8} ocr\-Edt\-Local\-Storage\-Get(
+\begin{DoxyParamCaption}
+\item[{{\bf void} $\ast$$\ast$}]{ptr, }
+\item[{{\bf u64} $\ast$}]{elsSize}
+\end{DoxyParamCaption}
+)}}
+\label{func_ocrEdtLocalStorageGet}
+
+Exposes the local data-store associated with the current EDT and its size.
+
+\begin{DoxyParams}[1]{Parameters}
+\mbox{\tt out}  & \code{ptr} & Pointer to the local data-store.\\
+\hline
+\mbox{\tt out}  & \code{elsSize} & Size of the local data-store\\
+\hline
+\end{DoxyParams}
+
+\returns
+0 if no immediate error was detected or the following error codes:
+\begin{DoxyItemize}
+\item OCR\_EINVAL ({\bf immediate}): If the pointer is invalid.
+\end{DoxyItemize}

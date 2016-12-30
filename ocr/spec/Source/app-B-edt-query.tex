@@ -1,0 +1,57 @@
+\section{EDT Query}
+\label{sec:edtquery}
+The extension provides interfaces to allow the application code in EDTs to query
+themselves. These are currently used for application's diagnostics and debugging.
+
+This extension provides two API calls as detailed below.
+
+%
+% ocrCurrentEdtGet
+%
+\hypertarget{func_ocrCurrentEdtGet}{
+  \index{ocrCurrentEdtGet@{ocrCurrentEdtGet}!ocr\-Current\-Edt\-Get{ocr\-Current\-Edt\-Get}}
+  \subsection[{ocr\-Current\-Edt\-Get}]{\setlength{\rightskip}{0pt plus 5cm}{\bf u8} ocr\-Current\-Edt\-Get(
+\begin{DoxyParamCaption}
+\item[{{\bf void} $\ast$}]{curEdt}
+\end{DoxyParamCaption}
+)}}
+\label{func_ocrCurrentEdtGet}
+
+Exposes the GUID of the executing EDT from which this function is called.
+
+\begin{DoxyParams}[1]{Parameters}
+\mbox{\tt out}  & \code{curEdt} & GUID of the executing EDT.\\
+\hline
+\end{DoxyParams}
+
+\returns
+0 if no immediate error was detected or the following error codes:
+\begin{DoxyItemize}
+\item 0: Successful
+\item OCR\_EINVAL ({\bf immediate}): If the pointer is invalid.
+\end{DoxyItemize}
+
+%
+% ocrCurrentEdtOutputGet
+%
+\hypertarget{func_ocrCurrentEdtOutputGet}{
+  \index{ocrCurrentEdtOutputGet@{ocrCurrentEdtOutputGet}!ocr\-Current\-Edt\-Output\-Get{ocr\-Current\-Edt\-Output\-Get}}
+  \subsection[{ocr\-Current\-Edt\-Output\-Get}]{\setlength{\rightskip}{0pt plus 5cm}{\bf u8} ocr\-Current\-Edt\-Output\-Get(
+\begin{DoxyParamCaption}
+\item[{{\bf void} $\ast$}]{outputEvent}
+\end{DoxyParamCaption}
+)}}
+\label{func_ocrCurrentEdtOutputGet}
+
+Exposes the GUID of the output event of the executing EDT from which this function is called.
+
+\begin{DoxyParams}[1]{Parameters}
+\mbox{\tt out}  & \code{outputEvent} & GUID of the executing EDT's output event.\\
+\hline
+\end{DoxyParams}
+
+\returns
+0 if no immediate error was detected or the following error codes:
+\begin{DoxyItemize}
+\item OCR\_EINVAL ({\bf immediate}): If the pointer is invalid.
+\end{DoxyItemize}
