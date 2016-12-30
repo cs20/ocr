@@ -1304,6 +1304,8 @@ The following macros and enums are used with OCR tasks.
   for the creation of an EDT
 \item \code{EDT\_PROP\_FINISH} which specifies that the created EDT
   is a \emph{finish} EDT
+\item \code{EDT\_PROP\_OEVT\_VALID} which specifies that the output event
+  passed when creating an EDT is a valid event
 \item \code{EDT\_PARAM\_UNK} which specifies that the number of
   parameters or dependences to an EDT template is unknown and each EDT will
   specify the number of parameters or dependences. This allows a single template
@@ -1490,22 +1492,35 @@ The supported flags are:
 \begin{DoxyItemize}
 \item EDT\_PROP\_NONE: Regular EDT
 \item EDT\_PROP\_FINISH: Create a \emph{finish} EDT
+\item EDT\_PROP\_OEVT\_VALID: The output event's (last argument) value
+  is a valid event to use as an output event
 \end{DoxyItemize}\\
 \hline
 \mbox{\tt in}  & \code{hint} & Reserved for future use. Set
 to NULL\_HINT.\\
 \hline
-\mbox{\tt in,out}  & \code{outputEvent} & If non-NULL on input, on successful creation,
-contains the GUID of the event associated with the post-slot of the EDT. For a
-\emph{finish} EDT, the post-slot of this event will be satisfied when the EDT
-and all of its descendent EDTs (the closure of all EDTs created in this EDT and
-its children) have completed execution. For a non finish EDT, the post-slot of
+\mbox{\tt in,out}  & \code{outputEvent} & The meaning of this field is controlled
+by the value of the `flags' argument. If EDT\_PROP\_OEVT\_VALID is specified in
+the flags, outputEvent must be non-NULL and point to the GUID of a valid
+user created event. Note that if the event given as an argument is a latch event,
+only the OCR\_EVENT\_LATCH\_DECR\_SLOT is satisfied.
+If EDT\_PROP\_OEVT\_VALID is not specified in the flags:
+if non-NULL on input, on successful creation,
+contains the GUID of the event associated with the post-slot of the EDT; if NULL,
+no output event will be returned. When the event is automatically created by the
+runtime (if EDT\_PROP\_OEVT\_VALID is not specified), the event returned will be
+automatically destroyed on satisfaction. It is therefore crucial to ensure that
+all waiters on this event are set up properly \emph{before} the EDT transitions to the
+\emph{runnable} state. If this behavior is undesirable, the EDT\_PROP\_OEVT\_VALID allows
+you to override the event that will be used as the output event and the programmer can
+provide a sticky event which will not be destroyed on satisfaction.
+In all cases, the post-slot of the output event
+(either specified by the user or created by the runtime) will be satisfied:
+{\bf a)} for a \emph{finish} EDT, when the EDT
+and all of its descendant EDTs (the closure of all EDTs created in this EDT and
+its children) have completed execution or {\bf b)} for a non finish EDT, the post-slot of
 this event will be satisfied when the EDT completes execution and will carry the
-data block returned by the EDT. If NULL, no event will be associated with the
-EDT's post-slot. Note that in all cases, the event returned is an event that
-is automatically destroyed on satisfaction. It is therefore crucial to ensure that all
-waiters on this event are set up properly \emph{before} the EDT transitions to the
-\emph{runnable} state.\\
+data block returned by the EDT.\\
 \hline
 \end{DoxyParams}
 
@@ -1514,7 +1529,8 @@ waiters on this event are set up properly \emph{before} the EDT transitions to t
 \begin{DoxyItemize}
 \item OCR\_ENOMEM ({\bf deferred}): The runtime could not create the EDT
 \item OCR\_EINVAL ({\bf deferred}): The GUID specifying the template is invalid or the number
-  of parameters or pre-slots are invalid
+  of parameters or pre-slots are invalid or the combination of flags and other parameter values
+  is invalid
 \end{DoxyItemize}
 
 \descr
@@ -1527,7 +1543,8 @@ the values for \code{paramc} and \code{depc} must match those specified for
 the template.
 \begin{DoxyNote}{Note}
 If the EDT is created with all its pre-slots specified and resolved, it may execute
-immediately, which means that the GUIDs returned (\code{guid} and \code{outputEvent})
+immediately, which means that the GUIDs returned (\code{guid} and \code{outputEvent}, if
+created by the runtime)
 may be invalid by the time this function returns. It is the responsibility of
 the programmer -- if these returned values are needed -- to ensure that the EDT
 cannot start until a later time (e.g., by inserting an extra pre-slot
