@@ -1,5 +1,3 @@
-#!/usr/bin/env python
-
 from pprint import pprint
 
 import sys
@@ -12,19 +10,13 @@ import subprocess
 import Tkinter as tk
 
 all_traffic = []
+blockwiseTraffic = []
 
 TOTAL_EP   = 0
 STATIC_EP  = 1
 DYNAMIC_EP = 2
 NETWORK_EP = 3
 MEMORY_EP  = 4
-
-DRAM_ACCESS_COST = 6.0 #pJ
-IPM_ACCESS_COST  = 6.0 #pJ
-#TODO Add these when we get SL1 and SL2 mem costs
-SL2_ACCESS_COST  = 1.0 #pJ
-SL1_ACCESS_COST  = 1.0 #pJ
-
 
 XES_PER_BLOCK = 8
 
@@ -44,6 +36,12 @@ INV_DEST_TAGS = { val: key for key, val in DEST_TAGS.iteritems() }
 
 SRC_TAGS = { 0 : "CE", 1 : "XE0", 2 : "XE1", 3 : "XE2", 4 : "XE3", 5 : "XE4", 6 : "XE5",  7 : "XE6", 8 : "XE7", 9 : "NLNI"}
 INV_SRC_TAGS = { val: key for key, val in SRC_TAGS.iteritems() }
+
+BLOCK_SRC_TAGS = {0 : "CE", 1 : "XE" }
+INV_BLOCK_SRC_TAGS = { val: key for key, val in BLOCK_SRC_TAGS.iteritems() }
+
+BLOCK_DEST_TAGS = {0 : "LOCAL SL1", 1 : "REMOTE SL1", 2 : "SL2"}
+INV_BLOCK_DEST_TAGS = { val: key for key, val in BLOCK_DEST_TAGS.iteritems() }
 
 
 BLOCK_TAGS = { 0 : "SL2", 1 : "CE", 2 : "XE0", 3 : "XE1", 4 : "XE2", 5 : "XE3", 6 : "XE4", 7 : "XE5", 8 : "XE6", 9 : "XE7", 10 : "NLNI"}
@@ -391,6 +389,27 @@ def getNetworkAgents(netObj, srcTag, dstTag):
     else:
         return INV_SRC_TAGS[srcTag], INV_DEST_TAGS[dstTag]
 
+
+def getNetworkAgentsBlockwise(netObj, srcTag, dstTag):
+
+    if "XE" in srcTag or "CE" in srcTag:
+        if "XE" in srcTag:
+            srcIdx = INV_BLOCK_SRC_TAGS["XE"]
+        else:
+            srcIdx = INV_BLOCK_SRC_TAGS["CE"]
+        if srcTag == dstTag:
+            dstIdx = INV_BLOCK_DEST_TAGS["LOCAL SL1"]
+        elif "XE" in dstTag or "CE" in dstTag:
+            dstIdx = INV_BLOCK_DEST_TAGS["REMOTE SL1"]
+        elif dstTag == "SL2":
+            dstIdx = INV_BLOCK_DEST_TAGS["SL2"]
+        else:
+            return -1, -1
+        return srcIdx, dstIdx
+
+    return -1, -1
+
+
 #Get string identifying the instructions type associated with network grid
 def extractNetGridID(gridString):
     #Sanity check - Make sure we are parsing the right log record
@@ -404,7 +423,6 @@ def processEnergyStats(cmdPath, energy_files):
 
     #Totals done, Calculate power per agent.
     powerObjects = []
-    global allTraffic
 
     for f in energy_files:
         if f[-3] == "swp":
@@ -439,38 +457,11 @@ def processEnergyStats(cmdPath, energy_files):
                     elif 'simulated time'   in lines[j]:
                         obj.time = float(subRec[3])
                     elif 'energy usage'     in lines[j]:
-                        if curTag == "DRAM":
-                            dram = 0
-                            for i in range(len(allTraffic)):
-                                for j in range(len(allTraffic[i])):
-                                    if DEST_TAGS[j] == "DRAM":
-                                        dram += allTraffic[i][j]
-                            memory = float(dram)*DRAM_ACCESS_COST
-                            static  = float(subRec[6])
-                            dynamic = float(subRec[9])
-                            network = float(subRec[12])
-                            total = memory+static+dynamic+network
-
-                        elif curTag == "IPM":
-                            ipm = 0
-                            for i in range(len(allTraffic)):
-                                for j in range(len(allTraffic[i])):
-                                    if DEST_TAGS[j] == "IPM":
-                                        ipm += allTraffic[i][j]
-                            memory = float(ipm)*IPM_ACCESS_COST
-                            static  = float(subRec[6])
-                            dynamic = float(subRec[9])
-                            network = float(subRec[12])
-                            total = memory+static+dynamic+network
-#                        TODO Add this when we get SL1 and SL2 mem costs
-#                        elif curTag == "XE":
-#                        elif curTag == "SL2":
-                        else:
-                            total   = float(subRec[3])
-                            static  = float(subRec[6])
-                            dynamic = float(subRec[9])
-                            network = float(subRec[12])
-                            memory  = float(subRec[15])
+                        total   = float(subRec[3])
+                        static  = float(subRec[6])
+                        dynamic = float(subRec[9])
+                        network = float(subRec[12])
+                        memory  = float(subRec[15])
                         obj.energy = [total, static, dynamic, network, memory]
                     elif 'power usage'      in lines[j]:
                         total   = float(subRec[4])
@@ -716,7 +707,7 @@ def processXeStats(XE_files):
         fp = open(f, 'r')
         lines = fp.readlines()
         fp.close()
-        #TODO get rack, cube, socket, cluster, IDs as well
+
         ID = getComponentId("XE", f)
         block = getComponentBlockNumber("XE", f)
         curXE = XE(ID, block, 0, 0, 0, 0, 0, 0, 0, 0, 0)
@@ -786,11 +777,8 @@ def processNetworkStats(network_files):
                         populateNetworkGrid(netObj, lines, (j+1), (j+dim+3))
                         network_stat_objs.append(netObj)
 
-    #TODO: Unused for now, but ready to go if we need to differentiate L/S/A
     totalLoads   = initTrafficGrid(len(SRC_TAGS)-1, len(DEST_TAGS)-1)
-    #TODO: Unused for now, but ready to go if we need to differentiate L/S/A
     totalStores  = initTrafficGrid(len(SRC_TAGS)-1, len(DEST_TAGS)-1)
-    #TODO: Unused for now, but ready to go if we need to differentiate L/S/A
     totalAtomics = initTrafficGrid(len(SRC_TAGS)-1, len(DEST_TAGS)-1)
 
     cumulative   = initTrafficGrid(len(SRC_TAGS)-1, len(DEST_TAGS)-1)
@@ -862,6 +850,86 @@ def processNetworkStats(network_files):
     allTraffic = cumulative
 
     return network_stat_objs
+
+def processNetworkStatsBlockwise(network_files):
+    global blockwiseTraffic
+    network_stat_objs = []
+    blockIds = []
+
+    for f in network_files:
+        machLevel = getNetworkMachineLevel(f)
+        if machLevel == None:
+            continue
+        if machLevel == "BLOCK":
+            blockId = getComponentBlockNumber("NETWORK", f)
+            blockIds.append(int(blockId))
+        else:
+            blockId = None
+
+        fp = open(f, 'r')
+        lines = fp.readlines()
+        fp.close
+
+        for i in range(0, len(lines)):
+            if lines[i] == "Network results for traffic grid\n":
+                for j in range(i, len(lines)):
+                    if "Message Grid Counts\n" in lines[j]:
+                        ID = extractNetGridID(lines[j])
+                        dim = maxInt(lines[j+1])
+                        grid = init2dGrid(dim)
+
+                        netObj = NETWORK(ID, blockId, machLevel, grid)
+
+                        populateNetworkGrid(netObj, lines, (j+1), (j+dim+3))
+                        network_stat_objs.append(netObj)
+
+    blockObjs = [[] for i in blockIds]
+
+
+    for blk in blockIds:
+        totalLoads   = initTrafficGrid(len(BLOCK_SRC_TAGS)-1, len(BLOCK_DEST_TAGS)-1)
+        totalStores  = initTrafficGrid(len(BLOCK_SRC_TAGS)-1, len(BLOCK_DEST_TAGS)-1)
+        totalAtomics = initTrafficGrid(len(BLOCK_SRC_TAGS)-1, len(BLOCK_DEST_TAGS)-1)
+
+        cumulative   = initTrafficGrid(len(BLOCK_SRC_TAGS)-1, len(BLOCK_DEST_TAGS)-1)
+
+        for i in network_stat_objs:
+            #Blockwise analysis only concerned with CE/XE -> mem structures for now
+            if i.blockId == None:
+                continue
+
+            if int(i.blockId) != int(blk):
+                continue
+
+            for j in range(len(i.grid)):
+                for k in range(len(i.grid)):
+
+                    accessCount = int(i.grid[j][k])
+
+                    if i.level == "BLOCK":
+                        srcTag = BLOCK_TAGS[j]
+                        dstTag = BLOCK_TAGS[k]
+                        srcIdx, dstIdx = getNetworkAgentsBlockwise(i, srcTag, dstTag)
+                        if srcIdx == -1:
+                            continue
+                        if i.ID in LOADS:
+                            totalLoads[srcIdx][dstIdx]+=accessCount
+                        elif i.ID in STORES:
+                            totalStores[srcIdx][dstIdx]+=accessCount
+                        elif i.ID in ATOMICS:
+                            totalAtomics[srcIdx][dstIdx]+=accessCount
+
+        for i in range(len(BLOCK_SRC_TAGS)):
+            for j in range(len(BLOCK_DEST_TAGS)):
+                cumulative[i][j] += (totalStores[i][j] + totalLoads[i][j] + 2*totalAtomics[i][j])
+
+        blockObjs[int(blk)] = cumulative
+
+    blockwiseTraffic = blockObjs
+
+    return network_stat_objs
+
+
 
 
 #Calculate instructions/XE, and percentage totals per category
@@ -957,7 +1025,8 @@ def writeInstructionCsv(per_xe_instruction_stats):
 
 
 #Write L/S traffic grid to csv
-def writeTrafficCsv():
+def writeTrafficCsv(xe_stats):
+    global allTraffic
     fp = open(os.getcwd()+'/results/net_traffic.csv', 'w')
     fp.write(',')
     for i in range(len(DEST_TAGS)):
@@ -968,9 +1037,42 @@ def writeTrafficCsv():
         for j in range(len(allTraffic[i])):
             if j == 0:
                 fp.write(SRC_TAGS[i]+',')
+            if "XE" in SRC_TAGS[i] and DEST_TAGS[j] == "LOCAL SL1":
+                xeId = int(SRC_TAGS[i][2:])
+                localCount = 0
+                for xe in xe_stats:
+                    if int(xe.ID) == xeId:
+                        localCount += (xe.localReads+xe.localWrites+(2*xe.localAtomics))
+                #replacing the numbers reported in the network grid with PMU counters
+                allTraffic[i][j] = localCount
             fp.write(str(allTraffic[i][j])+',')
         fp.write('\n')
     fp.close()
+
+
+def writeTrafficCsvBlockwise(xe_stats):
+    fp = open(os.getcwd()+'/results/blockwise_net_traffic.csv', 'w')
+    fp.write(',')
+    for i in range(len(BLOCK_DEST_TAGS)):
+        fp.write(BLOCK_DEST_TAGS[i]+',')
+    fp.write('\n')
+
+    for i in range(len(blockwiseTraffic)):
+        for j in range(len(blockwiseTraffic[i])):
+            for k in range(len(blockwiseTraffic[i][j])):
+                if "XE" in BLOCK_SRC_TAGS[j] and BLOCK_DEST_TAGS[k] == "LOCAL SL1":
+                    localCount = 0
+                    for xe in xe_stats:
+                        if int(xe.block) == i:
+                            localCount += (xe.localReads+xe.localWrites+(2*xe.localAtomics))
+                    #replacing the numbers reported by fsim with PMU counters
+                    blockwiseTraffic[i][j][k] = localCount
+                if k == 0:
+                    fp.write('BLOCK'+str(i)+'-'+str(BLOCK_SRC_TAGS[j])+',')
+                fp.write(str(blockwiseTraffic[i][j][k])+',')
+            fp.write('\n')
+    fp.close()
+
 
 
 #Write PMU counters, and energy totals
@@ -1102,7 +1204,6 @@ def calcPPW(blocks, power_objects, xe_stats, energy_stats, instruction_stats):
 #============ MAIN ==============
 def main():
 
-    #TODO arg parser - decide on user options. Just reading/dumping everything right now
     if len(sys.argv) == 2:
         tgLogPath = sys.argv[1]
         drawGrid = False
@@ -1136,8 +1237,10 @@ def main():
             if filename[-7:] == "network":
                 network_files.append(tgLogPath+filename)
 
+
     #Gather agent to agent traffic data
     net_stats = processNetworkStats(network_files)
+    net_stats_blockwise = processNetworkStatsBlockwise(network_files)
 
     #Gather XE PMU counters
     xe_stats = processXeStats(XE_files)
@@ -1162,13 +1265,13 @@ def main():
     instruction_stats, per_xe_instruction_stats = processInstructionCounts(blocks, XE_files)
     writeInstructionCsv(per_xe_instruction_stats)
 
-
     #Aggregate data and create output files
     writeAggregateData(blocks, xe_stats, energy_stats, instruction_stats)
 
     calcPPW(blocks, power_objects, xe_stats, energy_stats, per_xe_instruction_stats)
 
-    writeTrafficCsv()
+    writeTrafficCsv(xe_stats)
+    writeTrafficCsvBlockwise(xe_stats)
 
     if drawGrid == True:
         print "Loading network heatmap..."
