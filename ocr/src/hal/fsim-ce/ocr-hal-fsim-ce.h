@@ -578,52 +578,52 @@ typedef volatile u32 lock_t;
  *                        decremented upon completion of this chain.
  * @return id of allotted chain.
  */
-#define hal_chain_start(decaddr, interrupt, decrement)                          \
-    ({                                                                  \
-        u64 __cid = tg_mmio_chain_init(decaddr , interrupt , decrement);  \
-        __cid;\
-    })
+#define hal_chain_start(decaddr, interrupt, decrement)                  \
+      ({                                                                \
+          u64 __cid = tg_chain_init(decaddr, interrupt, decrement);     \
+          __cid;                                                        \
+      })
 
 /**
  * @brief End current chain
  */
-#define hal_chain_end()                          \
+#define hal_chain_end()                                                 \
     ({                                                                  \
-        tg_mmio_chain_end();  \
+        tg_chain_end();                                                 \
     })
 
 /**
  * @brief Wait on a chain whose id matches with supplied hwid.
- * If no match found , call returns.
+ * If no match found, call returns.
  * @param hwid[in]      u64 chain id to wait upon.
  */
-#define hal_chain_wait(hwid)                          \
+#define hal_chain_wait(hwid)                                            \
     ({                                                                  \
-        tg_mmio_chain_wait(hwid);  \
+        tg_chain_wait(hwid);                                            \
     })
 
 /**
  * @brief Poll chain whose id matches with supplied hwid.
- * If no match found , call returns.
+ * If no match found, call returns.
  * @param hwid[in]      u64 chain id to wait upon.
  *
  * @return u64 status of the chain.
  */
-#define hal_chain_poll(hwid)                          \
+#define hal_chain_poll(hwid)                                            \
     ({                                                                  \
-        u64 __status = tg_mmio_chain_poll(hwid);  \
-        __status;\
+        u64 __status = tg_chain_poll(hwid);                             \
+        __status;                                                       \
     })
 
 /**
  * @brief Kill chain whose id matches with supplied hwid.
- * If no match found , call returns.
+ * If no match found, call returns.
  * @param hwid[in]      u64 chain id of chain to kill.
  *
  */
-#define hal_chain_kill(hwid)                          \
+#define hal_chain_kill(hwid)                                            \
     ({                                                                  \
-        tg_mmio_chain_kill(hwid);  \
+        tg_chain_kill(hwid);                                            \
     })
 
 /**
@@ -636,9 +636,9 @@ typedef volatile u32 lock_t;
  * @param size[in]     TG_SIZE_{64/32/16/8}BIT indicates size of item.
  *
  */
-#define hal_q_add1_blocking(item, qbuff, ht, size)                          \
+#define hal_q_add1_blocking(item, qbuff, ht, size)                      \
     ({                                                                  \
-        tg_mmio_qmaadd1w(u64 item , u64 qbuff , u8 ht, u64 size);\
+        tg_qmaadd1w(u64 item, u64 qbuff, u8 ht, u64 size);              \
     })
 
 
@@ -652,10 +652,10 @@ typedef volatile u32 lock_t;
  *
  * @return u64 element popped from queue. Cast it to size you desire.
  */
-#define hal_q_rem1_blocking(qbuff, ht, size)                          \
+#define hal_q_rem1_blocking(qbuff, ht, size)                            \
     ({                                                                  \
-        u64 __item = tg_mmio_qmarem1w(qbuff, ht, size);\
-        __item;\
+        u64 __item = tg_qmarem1w(qbuff, ht, size);                      \
+        __item;                                                         \
     })
 
 /**
@@ -670,9 +670,9 @@ typedef volatile u32 lock_t;
  * @param size[in]     TG_SIZE_{64/32/16/8}BIT indicates size of item.
  *
  */
-#define hal_q_addx_blocking(qbuff, daddr, dnum, ht, size)                      \
+#define hal_q_addx_blocking(qbuff, daddr, dnum, ht, size)               \
     ({                                                                  \
-        tg_mmio_qmaaddXw(daddr , qbuff , dnum , ht, size);              \
+        tg_qmaaddXw(daddr, qbuff, dnum, ht, size);                      \
     })
 
 /**
@@ -687,10 +687,10 @@ typedef volatile u32 lock_t;
  * @param size[in]     TG_SIZE_{64/32/16/8}BIT indicates size of item.
  *
  */
-#define hal_q_remx_blocking(qbuff, daddr, dnum, ht, size)                          \
-    ({                                                                  \
-        tg_mmio_qmaremXw(u64 daddr , u64 qbuff , u64 dnum , u8 ht, u64 size);\
-    })
+#define hal_q_remx_blocking(qbuff, daddr, dnum, ht, size)               \
+      ({                                                                \
+          tg_qmaremXw(u64 daddr, u64 qbuff, u64 dnum, u8 ht, u64 size); \
+      })
 
 
 #endif /* __OCR_HAL_FSIM_CE_H__ */
