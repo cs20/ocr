@@ -118,6 +118,8 @@ CFLAGS += -DGUID_PROVIDER_LOCID_SIZE=10
 #   - For MPI_PROBE impl, push new operations at
 #     the tail of incoming and outgoing queues
 # CFLAGS += -DMPI_COMM_PUSH_AT_TAIL
+#   - Forces to allocate MPI requests instead of using pool
+# CFLAGS += -DMPI_ALLOC_REQ
 
 # **** EDTs parameters ****
 
