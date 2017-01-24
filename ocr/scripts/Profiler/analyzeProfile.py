@@ -70,13 +70,14 @@ class EnsembleStatistics(object):
         else:
             assert(0)
 
-    def addThreadStatistics(self, thread):
-        if self.gatheringThread is None:
-            self.gatheringThread = ThreadStatistics(thread)
-            self.gatheringThread.fileName = "_gatherthread_node_%s" % (self.nodeName)
-            self.gatheringThread.threadName = "Node %s" % (self.nodeName)
-        else:
-            self.gatheringThread.addInstance(thread)
+    def addThreadStatistics(self, thread, addToGather = True):
+        if addToGather:
+            if self.gatheringThread is None:
+                self.gatheringThread = ThreadStatistics(thread)
+                self.gatheringThread.fileName = "_gatherthread_node_%s" % (self.nodeName)
+                self.gatheringThread.threadName = "Node %s" % (self.nodeName)
+            else:
+                self.gatheringThread.addInstance(thread)
         self.allThreads.append(thread)
 
     def calculateStatistics(self):
@@ -89,6 +90,7 @@ class ThreadStatistics(object):
         if len(args) == 1 and type(args[0]) == type(self):
             # "Copy" constructor
             other = args[0]
+            self.isIgnored = other.isIgnored
             self.fileName = other.fileName
             self.threadName = other.threadName
             for k, v in other.funcEntries.iteritems():
@@ -99,6 +101,7 @@ class ThreadStatistics(object):
             self.fileName = args[0]
             self.threadName = args[1]
             self.instanceCount = 1
+            self.isIgnored = False
         else:
             assert(0)
 
@@ -685,10 +688,11 @@ def main(argv=None):
     doExtendedStats = False
     doRecurseStats = False
     baseFiles = []
+    ignoreFuncs = []
 
     try:
         try:
-            opts, args = getopt.getopt(argv[1:], "hb:t:n:sr", ["help", "base-file=", "thread=", "node=", "stats", "recurse"])
+            opts, args = getopt.getopt(argv[1:], "hb:t:n:e:sr", ["help", "base-file=", "thread=", "node=", "exclude=", "stats", "recurse"])
         except getopt.error, err:
             raise Usage(err)
         for o, a in opts:
@@ -711,6 +715,10 @@ def main(argv=None):
                       - Can be a comma separated list of values
                       - It can also be '*' to look for all files beginning with '<base-file><node>-'
                     Defaults to '0:4'
+    -e,--exclude:   (optional) Comma separated list of function names causing threads to be excluded
+                    from the total (per node or total total). If all functions in a file are a subset
+                    of the functions here, this thread will be marked as "ignored" and will be
+                    printed but not counted in the total aggregation
     -s,--stats:     (optional) If specified, will print out additional information
                     about the averages and standard deviations of values reported
                     for a node or for all threads.
@@ -735,6 +743,8 @@ def main(argv=None):
                     nodes = range(int(start), int(end))
                 else:
                     nodes = re.split(",", a)
+            elif o in ("-e", "--exclude"):
+                ignoreFuncs = re.split(',', a)
             elif o in ("-s", "--stats"):
                 doExtendedStats = True
             elif o in ("-r", "--recurse"):
@@ -753,11 +763,14 @@ def main(argv=None):
         baseFiles.append((baseFile, ''))
     else:
         if nodes == []:
+            exists = set()
             texp = re.compile('^%s([^-]*)-' % (baseFile))
             for file in os.listdir('.'):
                 m = texp.match(file)
                 if m is not None:
-                    baseFiles.append((baseFile + m.group(1) + '-', m.group(1)))
+                    if not (m.group(1) in exists):
+                        baseFiles.append((baseFile + m.group(1) + '-', m.group(1)))
+                        exists.add(m.group(1))
             # end for
         else:
             baseFiles = [(baseFile + str(i) + '-', str(i)) for i in nodes]
@@ -788,7 +801,7 @@ def main(argv=None):
             allThreads[fileName] = myStats
 
             fileHandle = open(fileName, "r")
-
+            validEntries = 0
             for line in fileHandle:
                 matchOb = lineDef_re.match(line)
                 if matchOb is not None:
@@ -813,6 +826,8 @@ def main(argv=None):
                     # Self-node, we create a FuncEntry
                     assert(sumChild_s is None and sumChildSq_s is None)
                     pFuncEntry.set(count, sum, sumSq)
+                    if not (funcNames[parentId] in ignoreFuncs):
+                        validEntries += 1
                 else:
                     # Here we have a childEntry
                     assert(sumChild_s is not None and sumChildSq_s is not None)
@@ -824,7 +839,11 @@ def main(argv=None):
 
             fileHandle.close()
             for e in ensemblesToUpdate:
-                e.addThreadStatistics(myStats)
+                e.addThreadStatistics(myStats, validEntries != 0)
+            if validEntries == 0:
+                print "File will be ignored in totals."
+                myStats.isIgnored = True
+
     print "Done processing all files, computing all statistics..."
 
     for entry in allThreads.values():
@@ -851,7 +870,7 @@ def main(argv=None):
                 e.rank = count+1 # Start at 1
 
             sortedEntries = iter(sorted(threadStat.funcEntries.values(), key=itemgetter('totalTime'), reverse=True))
-            printThreadInfo("#### Thread %s ####" % (threadStat.threadName), totalMeasuredTime,
+            printThreadInfo("#### Thread %s %s ####" % (threadStat.threadName, "(ignored)" if threadStat.isIgnored else ""), totalMeasuredTime,
                             sortedByTotal, sortedEntries, False, doRecurseStats)
             print ""
         # End thread
