@@ -1901,6 +1901,7 @@ u8 registerWaiterEventHcChannel(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot,
 #else
 u8 registerWaiterEventHcChannel(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot, bool isDepAdd) {
 #endif
+    START_PROFILE(ev_hc_registerWaiterEventHcChannel);
     ocrEventHc_t * evt = ((ocrEventHc_t*)base);
     ocrEventHcChannel_t * devt = ((ocrEventHcChannel_t*)base);
     hal_lock(&evt->waitersLock);
@@ -1929,9 +1930,9 @@ u8 registerWaiterEventHcChannel(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot,
         DPRINTF(DEBUG_LVL_CHANNEL, "registerWaiterEventHcChannel satisfy edt with DB="GUIDF"\n",
                 GUIDA(data));
 #ifdef ALLOW_EAGER_DB
-        return commonSatisfyRegNodeEager(pd, &msg, base->guid, db, currentEdt, &regnode);
+        RETURN_PROFILE(commonSatisfyRegNodeEager(pd, &msg, base->guid, db, currentEdt, &regnode));
 #else
-        return commonSatisfyRegNode(pd, &msg, base->guid, db, currentEdt, &regnode);
+        RETURN_PROFILE(commonSatisfyRegNode(pd, &msg, base->guid, db, currentEdt, &regnode));
 #endif
     } else {
         DPRINTF(DEBUG_LVL_CHANNEL, "registerWaiterEventHcChannel "GUIDF" push dependence curSize=%"PRIu32"\n",
@@ -1942,10 +1943,11 @@ u8 registerWaiterEventHcChannel(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot,
         pushDependence(devt, &regnode);
         hal_unlock(&evt->waitersLock);
     }
-    return 0;
+    RETURN_PROFILE(0);
 }
 
 u8 satisfyEventHcChannel(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
+    START_PROFILE(ev_hc_satisfyEventHcChannel);
     ocrEventHc_t * evt = ((ocrEventHc_t*)base);
     ocrEventHcChannel_t * devt = ((ocrEventHcChannel_t*)base);
     hal_lock(&evt->waitersLock);
@@ -1966,9 +1968,9 @@ u8 satisfyEventHcChannel(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
         DPRINTF(DEBUG_LVL_CHANNEL, "satisfyEventHcChannel satisfy edt with DB="GUIDF"\n",
                 GUIDA(db.guid));
 #ifdef ALLOW_EAGER_DB
-        return commonSatisfyRegNodeEager(pd, &msg, base->guid, db, currentEdt, &regnode);
+        RETURN_PROFILE(commonSatisfyRegNodeEager(pd, &msg, base->guid, db, currentEdt, &regnode));
 #else
-        return commonSatisfyRegNode(pd, &msg, base->guid, db, currentEdt, &regnode);
+        RETURN_PROFILE(commonSatisfyRegNode(pd, &msg, base->guid, db, currentEdt, &regnode));
 #endif
     } else {
         DPRINTF(DEBUG_LVL_CHANNEL, "satisfyEventHcChannel "GUIDF" satisfy enqueued curSize=%"PRIu32"\n",
@@ -1979,7 +1981,7 @@ u8 satisfyEventHcChannel(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
         pushSatisfy(devt, db.guid);
         hal_unlock(&evt->waitersLock);
     }
-    return 0;
+    RETURN_PROFILE(0);
 }
 
 u8 unregisterWaiterEventHcChannel(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot, bool isDepRem) {

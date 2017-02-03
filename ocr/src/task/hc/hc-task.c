@@ -457,7 +457,8 @@ static u8 initTaskHcInternal(ocrTaskHc_t *task, ocrGuid_t taskGuid, ocrPolicyDom
  * Warning. 'notifyDbReleaseTaskHc' relies on this sort to be stable !
  */
  static void sortRegNode(regNode_t * array, u32 length) {
-     if (length >= 2) {
+    START_PROFILE(ta_hc_sortRegNode);
+    if (length >= 2) {
         int idx;
         int sorted = 0;
         do {
@@ -474,6 +475,7 @@ static u8 initTaskHcInternal(ocrTaskHc_t *task, ocrGuid_t taskGuid, ocrPolicyDom
             sorted++;
         } while (sorted < (length-1));
     }
+    EXIT_PROFILE;
 }
 
 /**
@@ -592,6 +594,7 @@ static u8 scheduleSatisfiedTask(ocrTask_t *self) {
  * Note: static function only meant to factorize code.
  */
 static u8 taskAllDepvSatisfied(ocrTask_t *self) {
+    START_PROFILE(ta_hc_taskAllDepvSatisfied);
     DPRINTF(DEBUG_LVL_INFO, "All dependences satisfied for task "GUIDF"\n", GUIDA(self->guid));
     OCR_TOOL_TRACE(false, OCR_TRACE_TYPE_EDT, OCR_ACTION_RUNNABLE, traceTaskRunnable, self->guid);
     // Now check if there's anything to do before scheduling
@@ -633,7 +636,7 @@ static u8 taskAllDepvSatisfied(ocrTask_t *self) {
         //move to the scheduler.
         scheduleTask(self);
     }
-    return 0;
+    RETURN_PROFILE(0);
 }
 
 /******************************************************/

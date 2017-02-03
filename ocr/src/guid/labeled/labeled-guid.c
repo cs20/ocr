@@ -257,6 +257,7 @@ u8 labeledGuidUnreserve(ocrGuidProvider_t *self, ocrGuid_t startGuid, u64 skipGu
  * @brief Generate a guid for 'val' by increasing the guid counter.
  */
 u8 labeledGuidGetGuid(ocrGuidProvider_t* self, ocrGuid_t* guid, u64 val, ocrGuidKind kind, ocrLocation_t targetLoc, u32 properties) {
+    START_PROFILE(gp_lbl_getGuid);
     RSELF_TYPE * rself = (RSELF_TYPE *) self;
 #ifdef GUID_PROVIDER_WID_INGUID
     ocrWorker_t * worker = NULL;
@@ -304,7 +305,7 @@ u8 labeledGuidGetGuid(ocrGuidProvider_t* self, ocrGuid_t* guid, u64 val, ocrGuid
 #else
 #error Unknown GUID type
 #endif
-    return 0;
+    RETURN_PROFILE(0);
 }
 
 /**
@@ -312,6 +313,7 @@ u8 labeledGuidGetGuid(ocrGuidProvider_t* self, ocrGuid_t* guid, u64 val, ocrGuid
  * and some meta-data payload behind it fatGuid's metaDataPtr will point to.
  */
 u8 labeledGuidCreateGuid(ocrGuidProvider_t* self, ocrFatGuid_t *fguid, u64 size, ocrGuidKind kind, ocrLocation_t targetLoc, u32 properties) {
+    START_PROFILE(gp_lbl_createGuid);
     ocrGuidProviderLabeled_t *rself = (ocrGuidProviderLabeled_t*)self;
     //TODO-MERGE double check if we need this for labeled GUIDs
     if(properties & GUID_PROP_IS_LABELED) {
@@ -414,7 +416,7 @@ u8 labeledGuidCreateGuid(ocrGuidProvider_t* self, ocrFatGuid_t *fguid, u64 size,
 #endif
                 }
                 hal_fence(); // May be overkill but there is a race that I don't get
-                return OCR_EGUIDEXISTS;
+                RETURN_PROFILE(OCR_EGUIDEXISTS);
             }
         } else if((properties & GUID_PROP_BLOCK) == GUID_PROP_BLOCK) {
             void* value = NULL;
@@ -473,8 +475,9 @@ u8 labeledGuidCreateGuid(ocrGuidProvider_t* self, ocrFatGuid_t *fguid, u64 size,
     }
 #undef PD_MSG
     DPRINTF(DEBUG_LVL_VERB, "LabeledGUID: create GUID: "GUIDF" -> 0x%p\n", GUIDA(fguid->guid), fguid->metaDataPtr);
-    return 0;
+    RETURN_PROFILE(0);
 }
+
 
 /**
  * @brief Associate an already existing GUID to a value.
@@ -482,6 +485,7 @@ u8 labeledGuidCreateGuid(ocrGuidProvider_t* self, ocrFatGuid_t *fguid, u64 size,
  * a local metadata represent for a foreign GUID.
  */
 u8 labeledGuidRegisterGuid(ocrGuidProvider_t* self, ocrGuid_t guid, u64 val) {
+    START_PROFILE(gp_lbl_registerGuid);
     DPRINTF(DEBUG_LVL_VERB, "LabeledGUID: register GUID "GUIDF" -> 0x%"PRIx64"\n", GUIDA(guid), val);
     ocrGuidProviderLabeled_t * dself = (ocrGuidProviderLabeled_t *) self;
 #if GUID_BIT_COUNT == 64
@@ -539,20 +543,21 @@ u8 labeledGuidRegisterGuid(ocrGuidProvider_t* self, ocrGuid_t guid, u64 val) {
             ocrEdtTemplateDestroy(processRequestTemplateGuid);
         }
     }
-    return 0;
+    RETURN_PROFILE(0);
 }
 
 /**
  * @brief Returns the value associated with a guid and its kind if requested.
  */
 u8 labeledGuidGetVal(ocrGuidProvider_t* self, ocrGuid_t guid, u64* val, ocrGuidKind* kind, u32 mode, MdProxy_t ** proxy) {
+    START_PROFILE(gp_lbl_getVal);
     ASSERT(!ocrGuidIsNull(guid) && !ocrGuidIsError(guid) && !ocrGuidIsUninitialized(guid));
     ocrGuidProviderLabeled_t * dself = (ocrGuidProviderLabeled_t *) self;
     if (IS_RESERVED_GUID(guid)) {
         // Current limitations for labeled GUID
         // Only affinity and templates for now
         if (mode == MD_FETCH) {
-            return OCR_EPERM;
+            RETURN_PROFILE(OCR_EPERM);
         }
     }
     if (kind) {
@@ -597,7 +602,7 @@ u8 labeledGuidGetVal(ocrGuidProvider_t* self, ocrGuid_t guid, u64* val, ocrGuidK
         MdProxy_t * mdProxy = (MdProxy_t *) GP_HASHTABLE_GET(dself->guidImplTable, rguid);
         if (mdProxy == NULL) {
             if (mode == MD_LOCAL) {
-                return 0;
+                RETURN_PROFILE(0);
             } // else the mode is fetch
             // This is a concurrent operation. Multiple concurrent call may try to do the fetch
             ASSERT(((mode == MD_FETCH) || (mode == MD_PROXY)) && (proxy != NULL));
@@ -614,7 +619,7 @@ u8 labeledGuidGetVal(ocrGuidProvider_t* self, ocrGuid_t guid, u64* val, ocrGuidK
             if (oldMdProxy == mdProxy) { // won
                 if (mode == MD_PROXY) { //TODO-STUFF: double check what this is again ??????
                     *proxy = oldMdProxy;
-                    return 0;
+                    RETURN_PROFILE(0);
                 }
                 // TODO two options:
                 // 1- Issue the MD cloning here and link the operation's completion to the mdProxy
@@ -696,13 +701,14 @@ u8 labeledGuidGetVal(ocrGuidProvider_t* self, ocrGuid_t guid, u64* val, ocrGuidK
             ASSERT(proxy == NULL);
         }
     } // end GUID is not local
-    return (*val) ? 0 : OCR_EPEND;
+    RETURN_PROFILE((*val) ? 0 : OCR_EPEND);
 }
 
 /**
  * @brief Remove an already existing GUID and its associated value from the provider
  */
 u8 labeledGuidUnregisterGuid(ocrGuidProvider_t* self, ocrGuid_t guid, u64 ** val) {
+    START_PROFILE(gp_lbl_unregisterGuid);
     DPRINTF(DEBUG_LVL_VERB, "LabeledGUID: 1release GUID "GUIDF"\n", GUIDA(guid));
     // See BUG #928 on GUID issues
 #if GUID_BIT_COUNT == 64
@@ -713,10 +719,11 @@ u8 labeledGuidUnregisterGuid(ocrGuidProvider_t* self, ocrGuid_t guid, u64 ** val
 #error Unknown GUID type
 #endif
     GP_HASHTABLE_DEL(((ocrGuidProviderLabeled_t *) self)->guidImplTable, lguid, (void **) val);
-    return 0;
+    RETURN_PROFILE(0);
 }
 
 u8 labeledGuidReleaseGuid(ocrGuidProvider_t *self, ocrFatGuid_t fatGuid, bool releaseVal) {
+    START_PROFILE(gp_lbl_releaseGuid);
     DPRINTF(DEBUG_LVL_VERB, "LabeledGUID: release GUID "GUIDF"\n", GUIDA(fatGuid.guid));
     ocrGuid_t guid = fatGuid.guid;
     ocrGuidProviderLabeled_t * derived = (ocrGuidProviderLabeled_t *) self;
@@ -771,7 +778,7 @@ u8 labeledGuidReleaseGuid(ocrGuidProvider_t *self, ocrFatGuid_t fatGuid, bool re
 #undef PD_TYPE
         }
     }
-    return 0;
+    RETURN_PROFILE(0);
 }
 
 static ocrGuidProvider_t* newGuidProviderLabeled(ocrGuidProviderFactory_t *factory,
