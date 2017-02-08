@@ -188,7 +188,7 @@ hashtable_t * newHashtableBucketLocked(ocrPolicyDomain_t * pd, u32 nbBuckets, ha
 }
 
 #ifdef STATS_HASHTABLE
-#define GET_STAT_OFFSET(name) ((u64) &(((hashtableBucketLockedStats_t*)0)->watermark))
+#define GET_STAT_OFFSET(name) ((u64) &(((hashtableBucketLockedStats_t*)0)->name))
 #define READ_STAT_VALUE(statEntry, offset) (*((u64*)((char *) statEntry)+offset))
 
 static void dumpStats(hashtable_t * self, char * name, u64 offset) {
@@ -209,9 +209,9 @@ static void dumpStats(hashtable_t * self, char * name, u64 offset) {
                 continue;
             } else { // Print previous if any
                 if ((i-lb) == 1) {
-                    PRINTF("[PD:0x%"PRIu64"] Bucket[%"PRId32"]: %s=%"PRIu64"\n", (u64) self->pd->myLocation, lb, name, curWm);
+                    PRINTF("[PD:0x%"PRIu64"] Bucket[%"PRIu64"]: %s=%"PRIu64"\n", (u64) self->pd->myLocation, lb, name, curWm);
                 } else {
-                    PRINTF("[PD:0x%"PRIu64"] Bucket[%"PRId32"-%"PRId32"]: %s=%"PRIu64"\n", (u64) self->pd->myLocation, lb, i-1, name, curWm);
+                    PRINTF("[PD:0x%"PRIu64"] Bucket[%"PRIu64"-%"PRId32"]: %s=%"PRIu64"\n", (u64) self->pd->myLocation, lb, i-1, name, curWm);
                 }
                 lb = i;
                 curWm = wm;
@@ -223,9 +223,9 @@ static void dumpStats(hashtable_t * self, char * name, u64 offset) {
         }
 #ifdef STATS_HASHTABLE_VERB
         if ((i-lb) == 1) {
-            PRINTF("[PD:0x%"PRIu64"] Bucket[%"PRId32"]: %s=%"PRIu64"\n", (u64) self->pd->myLocation, lb, name, curWm);
+            PRINTF("[PD:0x%"PRIu64"] Bucket[%"PRIu64"]: %s=%"PRIu64"\n", (u64) self->pd->myLocation, lb, name, curWm);
         } else {
-            PRINTF("[PD:0x%"PRIu64"] Bucket[%"PRId32"-%"PRId32"]: %s=%"PRIu64"\n", (u64) self->pd->myLocation, lb, i-1, name, curWm);
+            PRINTF("[PD:0x%"PRIu64"] Bucket[%"PRIu64"-%"PRId32"]: %s=%"PRIu64"\n", (u64) self->pd->myLocation, lb, i-1, name, curWm);
         }
 #endif
         PRINTF("[PD:0x%"PRIu64"] High %s=%"PRIu64"\n", (u64) self->pd->myLocation, name, hWm);
@@ -338,6 +338,31 @@ bool hashtableNonConcRemove(hashtable_t * hashtable, void * key, void ** value) 
     return false;
 }
 
+/**
+ * @brief Removes a key from the table and return the bucket entry
+ * If 'value' is not NULL, fill-in the pointer with the entry's value associated with 'key'.
+ * If the hashtable implementation allows for NULL values entries, check the returned value to be NULL.
+ * Returns entry.
+ */
+static void * hashtableNonConcRemoveInternal(hashtable_t * hashtable, void * key, void ** value) {
+    ocr_hashtable_entry * prev;
+    ocr_hashtable_entry * entry = hashtableFindEntryAndPrev(hashtable, key, &prev);
+    if (entry != NULL) {
+        ASSERT(prev != NULL);
+        ASSERT(key == entry->key);
+        if (entry == prev) {
+            // entry is bucket's head
+            u32 bucket = hashtable->hashing(key, hashtable->nbBuckets);
+            hashtable->table[bucket] = entry->nxt;
+        } else {
+            prev->nxt = entry->nxt;
+        }
+        if (value != NULL) {
+            *value = entry->value;
+        }
+    }
+    return entry;
+}
 
 /******************************************************/
 /* CONCURRENT HASHTABLE FUNCTIONS                     */
@@ -470,7 +495,7 @@ bool hashtableConcBucketLockedPut(hashtable_t * hashtable, void * key, void * va
     hashtableBucketLockedStats_t * stats = &rhashtable->stats[bucket];
     stats->current++;
     if (stats->current > stats->watermark) {
-        ASSERT((stats->current-1) ==stats->watermark);
+        ASSERT((stats->current-1) == stats->watermark);
         stats->watermark++;
     }
 #ifdef STATS_HASHTABLE_COLLIDE
@@ -518,10 +543,14 @@ bool hashtableConcBucketLockedRemove(hashtable_t * hashtable, void * key, void *
         if (isBusy) { stats->del++; }
 #endif
 #endif
-    bool res = hashtableNonConcRemove(hashtable, key, value);
-    //DPRINTF(DEBUG_LVL_WARN, "ht=%p For del key=%p: bucket=%"PRIu32" found value=%p *value=%p\n", hashtable, key, bucket, value, ((value) ? *value : NULL));
+    void * res = hashtableNonConcRemoveInternal(hashtable, key, value);
+    bool removed = (res != NULL);
     hal_unlock(&(rhashtable->bucketLock[GET_LOCK_IDX(bucket)]));
-    return res;
+    if (removed) {
+        hashtable->pd->fcts.pdFree(hashtable->pd, res);
+    }
+    //DPRINTF(DEBUG_LVL_WARN, "ht=%p For del key=%p: bucket=%"PRIu32" found value=%p *value=%p\n", hashtable, key, bucket, value, ((value) ? *value : NULL));
+    return removed;
 }
 
 
