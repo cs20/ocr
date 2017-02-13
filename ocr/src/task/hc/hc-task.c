@@ -2101,7 +2101,7 @@ u8 serializeTaskFactoryHc(ocrObjectFactory_t * factory, ocrGuid_t guid, ocrObjec
     ocrTaskHc_t * dself = (ocrTaskHc_t *) src;
     ASSERT(ocrGuidIsEq(guid, self->guid));
     ocrTaskHc_t * dst = (ocrTaskHc_t *) *destBuffer;
-    *dst = *dself;
+    hal_memCopy(dst, dself, sizeof(ocrTaskHc_t), false);
     dst->maxUnkDbs = dself->countUnkDbs;
     // Fixup embedded pointers and heap-allocated:
     // paramv | signalers | hintc | unkDbs | resolvedDeps
@@ -2130,7 +2130,7 @@ u8 deserializeTaskFactoryHc(ocrObjectFactory_t * pfactory, ocrGuid_t edtGuid, oc
     allocateNewTaskHc(pd, &resultGuid, NULL, dstSz, /*targetLoc*/ pd->myLocation, GUID_PROP_ISVALID | GUID_PROP_TORECORD);
     ocrTaskHc_t * dst = resultGuid.metaDataPtr;
     // Do this copy before so that all the fields are initialized
-    *dst = *src;
+    hal_memCopy(dst, src, sizeof(ocrTaskHc_t), false);
     // Copy the serialized pointers to destination
     hal_memCopy(OFF_PARAMV(dst), OFF_PARAMV(src), SZ_PARAMV(src), false);
     ((ocrTask_t*) dst)->paramv = (u64 *) OFF_PARAMV(dst);
