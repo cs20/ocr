@@ -544,8 +544,7 @@ static void quickPrintCache(void)
             if (i < MAX_SLABS_UNNAMED) {
                 DPRINTF(DEBUG_LVL_INFO, "(%"PRId32"~%"PRId32"] : malloc %"PRId32" free %"PRId32"\n", SLAB_MAX_SIZE(i-1), SLAB_MAX_SIZE(i), m, f);
             } else {
-                s32 s = slabSizeTable.size[i - MAX_SLABS_UNNAMED];
-                DPRINTF(DEBUG_LVL_INFO, "size %"PRId32" : malloc %"PRId32" free %"PRId32"\n", s, m, f);
+                DPRINTF(DEBUG_LVL_INFO, "size %"PRId32" : malloc %"PRId32" free %"PRId32"\n", (s32)(slabSizeTable.size[i - MAX_SLABS_UNNAMED]), m, f);
             }
         }
     }
