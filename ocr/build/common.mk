@@ -47,6 +47,10 @@ CFLAGS += -DCACHE_LINE_SZB=64
 
 # CFLAGS += -DENABLE_OCR_API_DEFERRABLE
 
+# **** AMT Resilience Model ****
+
+ CFLAGS += -DENABLE_AMT_RESILIENCE
+
 # **** Workpiles Parameters ****
 
 # Impl-specific for Work-stealing deques

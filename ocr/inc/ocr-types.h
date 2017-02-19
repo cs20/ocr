@@ -170,6 +170,7 @@ typedef enum {
                                                *   implemented consistently.
                                                */
 #define DB_PROP_NO_HINT       ((u16)0x40) /**< Property for a data block indicating no hints can be set on the datablock */
+#define DB_PROP_RESILIENT     ((u16)0x80) /**< Property for a data block indicating a resilient datablock */
 
 /**
  * @}
@@ -205,6 +206,7 @@ typedef struct {
 #define EDT_PROP_NO_HINT ((u16) 0x2) /**< Property bits indicating the EDT does not take hints */
 #define EDT_PROP_LONG    ((u16) 0x4) /**< Property bits indicating a long running EDT */
 #define EDT_PROP_OEVT_VALID ((u16) 0x8) /** Property bits indicating an already initialized output event */
+#define EDT_PROP_RESILIENT  ((u16) 0x10) /**< Property bits indicating resilient EDT */
 
 /**
  * @brief Constant indicating that the number of parameters or dependences

@@ -454,6 +454,7 @@ typedef struct _ocrTask_t {
 #ifdef ENABLE_EXTENSION_PERF
 #define OCR_TASK_FLAG_PERFMON_ME            0x20 /* Identifies if perfmon needs to be carried out for this task */
 #endif
+#define OCR_TASK_FLAG_RESILIENT             0x40 /* Task is identified as resilient. Hence, will allow only resilient input deps. */
 
 /****************************************************/
 /* OCR TASK FACTORY                                 */

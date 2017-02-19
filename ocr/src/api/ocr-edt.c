@@ -358,6 +358,16 @@ u8 ocrEdtCreate(ocrGuid_t* edtGuidPtr, ocrGuid_t templateGuid,
 #ifdef ENABLE_OCR_API_DEFERRABLE
     tagDeferredMsg(&msg, curEdt);
 #endif
+#ifdef ENABLE_AMT_RESILIENCE
+    if (properties & EDT_PROP_RESILIENT) {
+        //We allow resilient EDTs to escape from their parents' scopes
+        PD_MSG_FIELD_I(parentLatch.guid) = NULL_GUID;
+        PD_MSG_FIELD_I(parentLatch.metaDataPtr) = NULL;
+        //We enforce resilient EDTs to start their own finish scopes
+        properties |= EDT_PROP_FINISH;
+        PD_MSG_FIELD_I(properties) = properties;
+    }
+#endif
     returnCode = pd->fcts.processMessage(pd, &msg, true);
     if ((returnCode == 0) && (reqResponse)) {
         returnCode = PD_MSG_FIELD_O(returnDetail);

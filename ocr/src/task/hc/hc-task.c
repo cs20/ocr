@@ -958,6 +958,12 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
     }
 #endif
 
+#ifdef ENABLE_AMT_RESILIENCE
+    if (hasProperty(properties, EDT_PROP_RESILIENT)) {
+        self->flags |= OCR_TASK_FLAG_RESILIENT;
+    }
+#endif
+
     // Set up HC specific stuff
     RESULT_PROPAGATE2(initTaskHcInternal(dself, taskGuid, pd, curEdt, outputEvent, parentLatch, properties), 1);
 
