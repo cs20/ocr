@@ -266,6 +266,51 @@ u8 ocrDbRelease(ocrGuid_t db) {
     RETURN_PROFILE(returnCode);
 }
 
+#ifdef ENABLE_EXTENSION_DB_INFO
+u8 ocrDbGetSize(ocrGuid_t db, u64 *size) {
+    START_PROFILE(api_ocrDbGetSize);
+
+    if(ocrGuidIsNull(db)) RETURN_PROFILE(0);
+
+    DPRINTF(DEBUG_LVL_INFO, "ENTER ocrDbGetSize(guid="GUIDF", size=%p)\n", GUIDA(db), size);
+
+    ASSERT(!(ocrGuidIsError(db)));
+    ASSERT(!(ocrGuidIsUninitialized(db)));
+    ASSERT(size);
+
+    ocrPolicyDomain_t *pd = NULL;
+    PD_MSG_STACK(msg);
+    getCurrentEnv(&pd, NULL, NULL, &msg);
+#define PD_MSG (&msg)
+#define PD_TYPE PD_MSG_GUID_INFO
+    msg.type = PD_MSG_GUID_INFO | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
+    PD_MSG_FIELD_IO(guid.guid) = db;
+    PD_MSG_FIELD_IO(guid.metaDataPtr) = NULL;
+    PD_MSG_FIELD_I(properties) = RMETA_GUIDPROP;
+    u8 returnCode = pd->fcts.processMessage(pd, &msg, true);
+    //Warning PD_MSG_GUID_INFO returns GUID properties as 'returnDetail', not error code
+    if(returnCode != 0) {
+        RETURN_PROFILE(returnCode);
+    }
+    ocrDataBlock_t *myDb = PD_MSG_FIELD_IO(guid.metaDataPtr);
+#undef PD_TYPE
+#undef PD_MSG
+
+    if (!myDb) {
+        // Did not find meta data for the given data block guid
+        RETURN_PROFILE(OCR_EINVAL);
+    }
+
+    *size = myDb->size;
+
+    DPRINTF_COND_LVL(returnCode, DEBUG_LVL_WARN, DEBUG_LVL_INFO,
+                     "EXIT ocrDbGetSize(guid="GUIDF", size=%p[%" PRIu64 "]) -> %"PRIu32"\n",
+                     GUIDA(db), size, *size, returnCode);
+
+    RETURN_PROFILE(returnCode);
+}
+#endif /* ENABLE_EXTENSION_DB_INFO */
+
 u8 ocrDbMalloc(ocrGuid_t guid, u64 size, void** addr) {
     return OCR_EINVAL; /* not yet implemented */
 }
