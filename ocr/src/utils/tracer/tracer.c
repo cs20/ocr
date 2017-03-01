@@ -73,12 +73,12 @@ void populateTraceObject(u64 location, bool evtType, ocrTraceType_t objType, ocr
                 u64 *paramvIn = va_arg(ap, u64 *);
                 u64 paramvOut[MAX_PARAMS];
                 if(paramc > 0){
-                    memcpy(paramvOut, paramvIn, sizeof(paramvOut));
+                    hal_memCopy(paramvOut, paramvIn, sizeof(paramvOut), false);
                 }
                 TRACE_FIELD(TASK, taskCreate, tr, taskGuid) = guid;
                 TRACE_FIELD(TASK, taskCreate, tr, depc) = depc;
                 TRACE_FIELD(TASK, taskCreate, tr, paramc) = paramc;
-                memcpy(TRACE_FIELD(TASK, taskCreate, tr, paramv), paramvOut, sizeof(paramvOut));
+                hal_memCopy(TRACE_FIELD(TASK, taskCreate, tr, paramv), paramvOut, sizeof(paramvOut), false);
                 PUSH_TO_TRACE_DEQUE();
 #endif
                 break;
@@ -163,13 +163,13 @@ void populateTraceObject(u64 location, bool evtType, ocrTraceType_t objType, ocr
                 u64 *paramvIn = va_arg(ap, u64 *);
                 u64 paramvOut[MAX_PARAMS];
                 if(paramc > 0){
-                    memcpy(paramvOut, paramvIn, sizeof(paramvOut));
+                    hal_memCopy(paramvOut, paramvIn, sizeof(paramvOut), false);
                 }
                 TRACE_FIELD(TASK, taskExeBegin, tr, taskGuid) = taskGuid;
                 TRACE_FIELD(TASK, taskExeBegin, tr, funcPtr) = funcPtr;
                 TRACE_FIELD(TASK, taskExeBegin, tr, depc) = depc;
                 TRACE_FIELD(TASK, taskExeBegin, tr, paramc) = paramc;
-                memcpy(TRACE_FIELD(TASK, taskExeBegin, tr, paramv), paramvOut, sizeof(paramvOut));
+                hal_memCopy(TRACE_FIELD(TASK, taskExeBegin, tr, paramv), paramvOut, sizeof(paramvOut), false);
                 PUSH_TO_TRACE_DEQUE();
 #endif
                 break;
@@ -466,12 +466,12 @@ void populateTraceObject(u64 location, bool evtType, ocrTraceType_t objType, ocr
                 u64 *paramvIn = va_arg(ap, u64 *);
                 u64 paramvOut[MAX_PARAMS];
                 if(paramc > 0 && paramvIn != NULL){
-                    memcpy(paramvOut, paramvIn, sizeof(paramvOut));
+                    hal_memCopy(paramvOut, paramvIn, sizeof(paramvOut), false);
                 }
                 u32 depc = va_arg(ap, u32);
                 TRACE_FIELD(API_EDT, simEdtCreate, tr, templateGuid) = templateGuid;
                 TRACE_FIELD(API_EDT, simEdtCreate, tr, paramc) = paramc;
-                memcpy(TRACE_FIELD(API_EDT, simEdtCreate, tr, paramv), paramvOut, sizeof(paramvOut));
+                hal_memCopy(TRACE_FIELD(API_EDT, simEdtCreate, tr, paramv), paramvOut, sizeof(paramvOut), false);
                 TRACE_FIELD(API_EDT, simEdtCreate, tr, depc) = depc;
                 PUSH_TO_TRACE_DEQUE();
                 break;
