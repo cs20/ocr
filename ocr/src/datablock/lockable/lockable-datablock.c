@@ -1506,9 +1506,15 @@ static u8 newDataBlockLockableInternal(ocrDataBlockFactory_t *factory, ocrFatGui
             PD_MSG_FIELD_I(mode) = M_CLONE | M_DATA;
             PD_MSG_FIELD_I(sizePayload) = mdSize;
             md_push_clone_t * mdPtr = (md_push_clone_t *) &PD_MSG_FIELD_I(payload);
-            mdPtr->srcLocation = pd->myLocation;
-            mdPtr->size = result->base.size;
-            mdPtr->flags = result->base.flags;
+            // Invoke clone serialization to make sure the message is
+            // properly initialized when we will issue the release request.
+            u64 serMode = M_CLONE; // ignore M_DATA since the DB ptr is backed by the message.
+            lockableSerialize((ocrObjectFactory_t*)factory, resultGuid, (ocrObject_t *) result, &serMode, loc, (void **) &mdPtr, NULL);
+            ASSERT(mdPtr->isEager == false);
+            ASSERT(mdPtr->srcLocation == pd->myLocation);
+            ASSERT(mdPtr->size == result->base.size);
+            ASSERT(mdPtr->flags == result->base.flags);
+            mdPtr->storage.directory = 0; //TODO: this is a bug but I don't know yet why it hangs when set
 #undef PD_MSG
 #undef PD_TYPE
             result->backingPtrMsg = msg;
@@ -2530,6 +2536,7 @@ static u8 lockableDeserialize(ocrObjectFactory_t * pfactory, ocrGuid_t dbGuid, o
         u64 hintSize = 0;
         if (hasHint) {
             u64 * ptr = (u64 *) GET_STORAGE_PTR((&mdMsg->storage), HINT);
+            ASSERT(ptr != NULL);
             u64 hintMask = ptr[0];
             // hintSize = OCR_RUNTIME_HINT_GET_SIZE(hintMask);
             hintSize = OCR_HINT_COUNT_DB_LOCKABLE;
