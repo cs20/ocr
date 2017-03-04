@@ -14,6 +14,7 @@ import sys
 import os
 import datetime
 import csv
+import re
 
 # Import perftest_baseval dict which contains values
 # against which execution times will be normalized
@@ -29,7 +30,10 @@ def main():
     archiveDir = sys.argv[1]
     oFile = sys.argv[2]
     statFileList = os.listdir(archiveDir)
-    statFileList.sort()
+    #sorting from https://blog.codinghorror.com/sorting-for-humans-natural-sort-order/
+    convert = lambda text: int(text) if text.isdigit() else text
+    alphanum_key = lambda key: [ convert(c) for c in re.split('([0-9]+)', key) ]
+    statFileList.sort(key=alphanum_key)
     testdict = dict()
     for filename in statFileList:
         fd = open(os.path.join(archiveDir,filename), 'r')
@@ -56,6 +60,9 @@ def main():
     if os.path.isfile(oFile):
         os.remove(oFile)
 
+    num_points = int(os.getenv("OCR_APPS_PLOT_POINTS") or 0)
+    if (num_points <= 0):
+        num_points = 99
     fd = open(oFile, 'w')
     for key in testdict:
         buildtimeTupleList = []
@@ -64,7 +71,7 @@ def main():
         for ele in testdict[key]:
             buildList.append(ele[0])
             execTimeList.append(str(ele[1]))
-        fd.write(key + " " + ",".join(buildList) + " " + ",".join(execTimeList)+'\n')
+        fd.write(key + " " + ",".join(buildList[-num_points:]) + " " + ",".join(execTimeList[-num_points:])+'\n')
     fd.close()
 
 if __name__ == '__main__':

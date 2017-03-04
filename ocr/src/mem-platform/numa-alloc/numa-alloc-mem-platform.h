@@ -16,6 +16,7 @@
 
 #include "debug.h"
 #include "utils/rangeTracker.h"
+#include "ocr-hal.h"
 #include "ocr-mem-platform.h"
 #include "ocr-types.h"
 #include "utils/ocr-utils.h"
@@ -29,7 +30,7 @@ typedef struct {
     ocrMemPlatform_t base;
     rangeTracker_t *pRangeTracker;
     u32 numa_node;
-    u32 lock;
+    lock_t lock;
 } ocrMemPlatformNumaAlloc_t;
 
 ocrMemPlatformFactory_t* newMemPlatformFactoryNumaAlloc(ocrParamList_t *perType);

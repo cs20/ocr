@@ -12,6 +12,7 @@
 #include "ocr-runtime-types.h"
 #include "ocr-scheduler.h"
 #include "ocr-types.h"
+#include "ocr-hal.h"
 
 #ifdef OCR_ENABLE_STATISTICS
 #include "ocr-statistics.h"
@@ -122,9 +123,23 @@ typedef struct _ocrWorker_t {
 
     ocrCompTarget_t **computes; /**< Compute node(s) associated with this worker */
     u64 computeCount;           /**< Number of compute node(s) associated */
+    //TODO-DEFERRED, I don't want this to be volatile
     struct _ocrTask_t * volatile curTask; /**< Currently executing task */
 
     ocrWorkerFcts_t fcts;
+
+#ifdef OCR_MONITOR_SCHEDULER
+    bool isSeeking;
+#endif
+#ifdef ENABLE_RESILIENCY
+    volatile u32 stateOfCheckpoint;
+    volatile u32 stateOfRestart;
+    volatile u32 resiliencyMaster;
+    volatile u32 isIdle;
+    volatile u32 edtDepth;
+    volatile ocrEdtDep_t *activeDepv;
+    lock_t notifyLock;
+#endif
 } ocrWorker_t;
 
 

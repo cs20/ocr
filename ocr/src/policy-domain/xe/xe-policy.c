@@ -20,6 +20,7 @@
 #include "ocr-statistics.h"
 #endif
 
+#include "experimental/ocr-platform-model.h"
 #include "extensions/ocr-hints.h"
 #include "policy-domain/xe/xe-policy.h"
 
@@ -371,7 +372,7 @@ u8 xePdSwitchRunlevel(ocrPolicyDomain_t *policy, ocrRunlevel_t runlevel, u32 pro
 
             // At the end, we clear out the strand tables and free them.
             DPRINTF(DEBUG_LVL_VERB, "Emptying strand tables\n");
-            RESULT_ASSERT(pdProcessStrands(policy, PDSTT_EMPTYTABLES), ==, 0);
+            RESULT_ASSERT(pdProcessStrands(policy, NP_WORK, PDSTT_EMPTYTABLES), ==, 0);
             // Free the tables
             DPRINTF(DEBUG_LVL_VERB, "Freeing EVT strand table: %p\n", policy->strandTables[PDSTT_EVT-1]);
             policy->fcts.pdFree(policy, policy->strandTables[PDSTT_EVT-1]);
@@ -395,6 +396,9 @@ u8 xePdSwitchRunlevel(ocrPolicyDomain_t *policy, ocrRunlevel_t runlevel, u32 pro
                 if(toReturn) break;
                 if(RL_IS_FIRST_PHASE_UP(policy, RL_COMPUTE_OK, i)) {
                     guidify(policy, (u64)policy, &(policy->fguid), OCR_GUID_POLICY);
+#ifdef TG_XE_TARGET
+                    policy->platformModel = createPlatformModelAffinityXE(policy);
+#endif
                     policy->placer = NULL; // No placer for TG
                 }
                 toReturn |= helperSwitchInert(policy, runlevel, i, masterWorkerProperties);
@@ -417,6 +421,9 @@ u8 xePdSwitchRunlevel(ocrPolicyDomain_t *policy, ocrRunlevel_t runlevel, u32 pro
             for(i = phaseCount; i >= 0; --i) {
                 if(toReturn) break;
                 if(RL_IS_LAST_PHASE_DOWN(policy, RL_COMPUTE_OK, i)) {
+#ifdef TG_XE_TARGET
+                    destroyPlatformModelAffinity(policy);
+#endif
                     // We need to deguidify ourself here
                     PD_MSG_STACK(msg);
                     getCurrentEnv(NULL, NULL, NULL, &msg);
@@ -541,6 +548,89 @@ u8 xePdSwitchRunlevel(ocrPolicyDomain_t *policy, ocrRunlevel_t runlevel, u32 pro
 }
 
 
+// See bug #932
+// THe list of messages here are the ones that can originate from
+// the user but don't have REQ_RESPONSE set
+static void setReturnDetail(ocrPolicyMsg_t * msg, u8 returnDetail) {
+    switch(msg->type & PD_MSG_TYPE_ONLY) {
+    case PD_MSG_EVT_DESTROY:
+    {
+#define PD_MSG (msg)
+#define PD_TYPE PD_MSG_EVT_DESTROY
+        PD_MSG_FIELD_O(returnDetail) = returnDetail;
+#undef PD_MSG
+#undef PD_TYPE
+    break;
+    }
+    case PD_MSG_DEP_SATISFY:
+    {
+#define PD_MSG (msg)
+#define PD_TYPE PD_MSG_DEP_SATISFY
+        PD_MSG_FIELD_O(returnDetail) = returnDetail;
+#undef PD_MSG
+#undef PD_TYPE
+    break;
+    }
+    case PD_MSG_EDTTEMP_DESTROY:
+    {
+#define PD_MSG (msg)
+#define PD_TYPE PD_MSG_EDTTEMP_DESTROY
+        PD_MSG_FIELD_O(returnDetail) = returnDetail;
+#undef PD_MSG
+#undef PD_TYPE
+    break;
+    }
+    case PD_MSG_WORK_CREATE:
+    {
+#define PD_MSG (msg)
+#define PD_TYPE PD_MSG_WORK_CREATE
+        PD_MSG_FIELD_O(returnDetail) = returnDetail;
+#undef PD_MSG
+#undef PD_TYPE
+    break;
+    }
+    case PD_MSG_WORK_DESTROY:
+    {
+#define PD_MSG (msg)
+#define PD_TYPE PD_MSG_WORK_DESTROY
+        PD_MSG_FIELD_O(returnDetail) = returnDetail;
+#undef PD_MSG
+#undef PD_TYPE
+    break;
+    }
+    case PD_MSG_DEP_ADD:
+    {
+#define PD_MSG (msg)
+#define PD_TYPE PD_MSG_DEP_ADD
+        PD_MSG_FIELD_O(returnDetail) = returnDetail;
+#undef PD_MSG
+#undef PD_TYPE
+    break;
+    }
+    case PD_MSG_DEP_DYNADD:
+    {
+#define PD_MSG (msg)
+#define PD_TYPE PD_MSG_DEP_DYNADD
+        PD_MSG_FIELD_O(returnDetail) = returnDetail;
+#undef PD_MSG
+#undef PD_TYPE
+    break;
+    }
+    case PD_MSG_DB_FREE:
+    {
+#define PD_MSG (msg)
+#define PD_TYPE PD_MSG_DB_FREE
+        PD_MSG_FIELD_O(returnDetail) = returnDetail;
+#undef PD_MSG
+#undef PD_TYPE
+    break;
+    }
+    default:
+    ASSERT("Unhandled message type in setReturnDetail");
+    break;
+    }
+}
+
 void xePolicyDomainDestruct(ocrPolicyDomain_t * policy) {
     // Destroying instances
     u64 i = 0;
@@ -579,10 +669,7 @@ void xePolicyDomainDestruct(ocrPolicyDomain_t * policy) {
     runtimeChunkFree((u64)policy->workers, NULL);
     runtimeChunkFree((u64)policy->schedulers, NULL);
     runtimeChunkFree((u64)policy->allocators, NULL);
-    runtimeChunkFree((u64)policy->taskFactories, NULL);
-    runtimeChunkFree((u64)policy->taskTemplateFactories, NULL);
-    runtimeChunkFree((u64)policy->dbFactories, NULL);
-    runtimeChunkFree((u64)policy->eventFactories, NULL);
+    runtimeChunkFree((u64)policy->factories, NULL);
     runtimeChunkFree((u64)policy->guidProviders, NULL);
     runtimeChunkFree((u64)policy, NULL);
 }
@@ -635,15 +722,14 @@ static u8 xeAllocateDb(ocrPolicyDomain_t *self, ocrFatGuid_t *guid, void** ptr, 
     }
 
     s8 allocatorIndex = 0;
-    u64 allocatorHints = 0;
-    *ptr = self->allocators[allocatorIndex]->fcts.allocate(self->allocators[allocatorIndex], size, allocatorHints);
+    *ptr = self->allocators[allocatorIndex]->fcts.allocate(self->allocators[allocatorIndex], size, 0);
     // DPRINTF(DEBUG_LVL_WARN, "xeAllocateDb successfully returning %p\n", result);
 
     if (*ptr) {
         u8 returnValue = 0;
-        returnValue = self->dbFactories[0]->instantiate(
-            self->dbFactories[0], guid, self->allocators[idx]->fguid, self->fguid,
-            size, *ptr, hint, properties, NULL);
+        returnValue = ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->instantiate(
+            (ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]), guid, self->allocators[idx]->fguid, self->fguid,
+            size, ptr, hint, properties, NULL);
         if(returnValue != 0) {
             allocatorFreeFunction(*ptr);
         }
@@ -714,6 +800,8 @@ static u8 xeProcessCeRequest(ocrPolicyDomain_t *self, ocrPolicyMsg_t **msg) {
         }
     } else {
         returnCode = self->fcts.sendMessage(self, self->parentLocation, (*msg), NULL, 0);
+        // See Bug #932
+        setReturnDetail(*msg, returnCode);
     }
     return returnCode;
 }
@@ -726,7 +814,6 @@ u8 xePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
     DPRINTF(DEBUG_LVL_VVERB, "Going to process message of type 0x%"PRIx64"\n",
             (msg->type & PD_MSG_TYPE_ONLY));
     switch(msg->type & PD_MSG_TYPE_ONLY) {
-
     // try direct DB alloc, if fails, fallback to CE
     case PD_MSG_DB_CREATE: {
         START_PROFILE(pd_xe_DbCreate);
@@ -735,29 +822,37 @@ u8 xePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         ASSERT((PD_MSG_FIELD_I(dbType) == USER_DBTYPE) || (PD_MSG_FIELD_I(dbType) == RUNTIME_DBTYPE));
         DPRINTF(DEBUG_LVL_VVERB, "DB_CREATE request from 0x%"PRIx64" for size %"PRIu64"\n",
                 msg->srcLocation, PD_MSG_FIELD_IO(size));
+
+        // We do not acquire a data-block in two cases:
+        //  - it was created with a labeled-GUID in non "trust me" mode. This is because it would be difficult
+        //    to handle cases where both EDTs create it but only one acquires it (particularly
+        //    in distributed case
+        //  - if the user does not want to acquire the data-block (DB_PROP_NO_ACQUIRE)
+        bool doNotAcquireDb = PD_MSG_FIELD_IO(properties) & DB_PROP_NO_ACQUIRE;
+        doNotAcquireDb |= (PD_MSG_FIELD_IO(properties) & GUID_PROP_CHECK) == GUID_PROP_CHECK;
+        doNotAcquireDb |= (PD_MSG_FIELD_IO(properties) & GUID_PROP_BLOCK) == GUID_PROP_BLOCK;
 // BUG #145: The prescription needs to be derived from the affinity, and needs to default to something sensible.
         u64 engineIndex = self->myLocation & 0xF;
         // getEngineIndex(self, msg->srcLocation);
         ocrFatGuid_t edtFatGuid = {.guid = PD_MSG_FIELD_I(edt.guid), .metaDataPtr = PD_MSG_FIELD_I(edt.metaDataPtr)};
         u64 reqSize = PD_MSG_FIELD_IO(size);
-
+        void * ptr = NULL; // request memory to be allocated
         u8 ret = xeAllocateDb(
-            self, &(PD_MSG_FIELD_IO(guid)), &(PD_MSG_FIELD_O(ptr)), reqSize,
+            self, &(PD_MSG_FIELD_IO(guid)), &ptr, reqSize,
             PD_MSG_FIELD_IO(properties), engineIndex,
             PD_MSG_FIELD_I(hint), PD_MSG_FIELD_I(allocator), 0 /*PRESCRIPTION*/);
         if (ret == 0) {
             PD_MSG_FIELD_O(returnDetail) = ret;
             if(PD_MSG_FIELD_O(returnDetail) == 0) {
-                ocrDataBlock_t *db= PD_MSG_FIELD_IO(guid.metaDataPtr);
+                ocrDataBlock_t *db = PD_MSG_FIELD_IO(guid.metaDataPtr);
                 ASSERT(db);
-                if((PD_MSG_FIELD_IO(properties) & GUID_PROP_IS_LABELED) ||
-                   (PD_MSG_FIELD_IO(properties) & DB_PROP_NO_ACQUIRE)) {
-                    DPRINTF(DEBUG_LVL_INFO, "Not acquiring DB since disabled by property flags");
+                if(doNotAcquireDb) {
+                    DPRINTF(DEBUG_LVL_INFO, "Not acquiring DB since disabled by property flags\n");
                     PD_MSG_FIELD_O(ptr) = NULL;
                 } else {
-                    ASSERT(db->fctId == self->dbFactories[0]->factoryId);
-                    PD_MSG_FIELD_O(returnDetail) = self->dbFactories[0]->fcts.acquire(
-                        db, &(PD_MSG_FIELD_O(ptr)), edtFatGuid, EDT_SLOT_NONE,
+                    ASSERT(db->fctId == ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->factoryId);
+                    PD_MSG_FIELD_O(returnDetail) = ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->fcts.acquire(
+                        db, &(PD_MSG_FIELD_O(ptr)), edtFatGuid, self->myLocation, EDT_SLOT_NONE,
                         DB_MODE_RW, !!(PD_MSG_FIELD_IO(properties) & DB_PROP_RT_ACQUIRE), (u32)DB_MODE_RW);
                 }
             } else {
@@ -843,7 +938,7 @@ u8 xePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
                 DPRINTF(DEBUG_LVL_VVERB, "Received EDT ("GUIDF"; %p\n",
                         GUIDA((PD_MSG_FIELD_IO(guids))->guid), (PD_MSG_FIELD_IO(guids))->metaDataPtr);
                 // For now, we return the execute function for EDTs
-                PD_MSG_FIELD_IO(extra) = (u64)(self->taskFactories[0]->fcts.execute);
+                PD_MSG_FIELD_IO(extra) = (u64)(((ocrTaskFactory_t*)(self->factories[self->taskFactoryIdx]))->fcts.execute);
             }
 #undef PD_MSG
 #undef PD_TYPE
@@ -873,7 +968,8 @@ u8 xePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
     case PD_MSG_SAL_READ: case PD_MSG_SAL_WRITE:
     case PD_MSG_MGT_REGISTER: case PD_MSG_MGT_UNREGISTER:
     case PD_MSG_SAL_TERMINATE:
-    case PD_MSG_GUID_METADATA_CLONE: case PD_MSG_MGT_MONITOR_PROGRESS:
+    case PD_MSG_GUID_METADATA_CLONE: case PD_MSG_MGT_MONITOR_PROGRESS: case PD_MSG_METADATA_COMM:
+    case PD_MSG_RESILIENCY_NOTIFY:   case PD_MSG_RESILIENCY_MONITOR:
     {
         DPRINTF(DEBUG_LVL_WARN, "XE PD does not handle call of type 0x%"PRIx32"\n",
                 (u32)(msg->type & PD_MSG_TYPE_ONLY));
@@ -897,8 +993,8 @@ u8 xePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
 
         DPRINTF(DEBUG_LVL_VVERB, "DEP_DYNADD req/resp for GUID "GUIDF"\n",
                 GUIDA(PD_MSG_FIELD_I(db.guid)));
-        ASSERT(curTask->fctId == self->taskFactories[0]->factoryId);
-        PD_MSG_FIELD_O(returnDetail) = self->taskFactories[0]->fcts.notifyDbAcquire(curTask, PD_MSG_FIELD_I(db));
+        ASSERT(curTask->fctId == ((ocrTaskFactory_t*)(self->factories[self->taskFactoryIdx]))->factoryId);
+        PD_MSG_FIELD_O(returnDetail) = ((ocrTaskFactory_t*)(self->factories[self->taskFactoryIdx]))->fcts.notifyDbAcquire(curTask, PD_MSG_FIELD_I(db));
 #undef PD_MSG
 #undef PD_TYPE
         EXIT_PROFILE;
@@ -918,8 +1014,8 @@ u8 xePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
                ocrGuidIsEq(curTask->guid, PD_MSG_FIELD_I(edt.guid)));
         DPRINTF(DEBUG_LVL_VVERB, "DEP_DYNREMOVE req/resp for GUID "GUIDF"\n",
                 GUIDA(PD_MSG_FIELD_I(db.guid)));
-        ASSERT(curTask->fctId == self->taskFactories[0]->factoryId);
-        PD_MSG_FIELD_O(returnDetail) = self->taskFactories[0]->fcts.notifyDbRelease(curTask, PD_MSG_FIELD_I(db));
+        ASSERT(curTask->fctId == ((ocrTaskFactory_t*)(self->factories[self->taskFactoryIdx]))->factoryId);
+        PD_MSG_FIELD_O(returnDetail) = ((ocrTaskFactory_t*)(self->factories[self->taskFactoryIdx]))->fcts.notifyDbRelease(curTask, PD_MSG_FIELD_I(db));
 #undef PD_MSG
 #undef PD_TYPE
         break;
@@ -989,14 +1085,15 @@ u8 xePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
     return returnCode;
 }
 
-pdEvent_t* xePdProcessMessageMT(ocrPolicyDomain_t* self, pdEvent_t *evt, u32 idx) {
+u8 xePdProcessEvent(ocrPolicyDomain_t* self, pdEvent_t **evt, u32 idx) {
     // Simple version to test out micro tasks for now. This just executes a blocking
     // call to the regular process message and returns NULL
     ASSERT(idx == 0);
-    ASSERT((evt->properties & PDEVT_TYPE_MASK) == PDEVT_TYPE_MSG);
-    pdEventMsg_t *evtMsg = (pdEventMsg_t*)evt;
+    ASSERT(((*evt)->properties & PDEVT_TYPE_MASK) == PDEVT_TYPE_MSG);
+    pdEventMsg_t *evtMsg = (pdEventMsg_t*)*evt;
     xePolicyDomainProcessMessage(self, evtMsg->msg, true);
-    return NULL;
+    *evt = NULL;
+    return 0;
 }
 
 u8 xePdSendMessage(ocrPolicyDomain_t* self, ocrLocation_t target, ocrPolicyMsg_t *message,
@@ -1033,8 +1130,7 @@ void* xePdMalloc(ocrPolicyDomain_t *self, u64 size) {
 
     void* result;
     s8 allocatorIndex = 0;
-    u64 allocatorHints = 0;
-    result = self->allocators[allocatorIndex]->fcts.allocate(self->allocators[allocatorIndex], size, allocatorHints);
+    result = self->allocators[allocatorIndex]->fcts.allocate(self->allocators[allocatorIndex], size, OCR_ALLOC_HINT_PDMALLOC);
     if (result) {
         RETURN_PROFILE(result);
     }
@@ -1119,6 +1215,7 @@ void initializePolicyDomainXe(ocrPolicyDomainFactory_t * factory, ocrPolicyDomai
     derived->rlSwitch.barrierRL = RL_GUID_OK;
     derived->rlSwitch.barrierState = RL_BARRIER_STATE_UNINIT;
     derived->rlSwitch.pdStatus = 0;
+    self->neighborCount = ((paramListPolicyDomainXeInst_t*)perInstance)->neighborCount;
 }
 
 static void destructPolicyDomainFactoryXe(ocrPolicyDomainFactory_t * factory) {
@@ -1142,7 +1239,7 @@ ocrPolicyDomainFactory_t * newPolicyDomainFactoryXe(ocrParamList_t *perType) {
     base->policyDomainFcts.switchRunlevel = FUNC_ADDR(u8 (*)(ocrPolicyDomain_t*, ocrRunlevel_t, u32), xePdSwitchRunlevel);
     base->policyDomainFcts.destruct = FUNC_ADDR(void(*)(ocrPolicyDomain_t*), xePolicyDomainDestruct);
     base->policyDomainFcts.processMessage = FUNC_ADDR(u8(*)(ocrPolicyDomain_t*,ocrPolicyMsg_t*,u8), xePolicyDomainProcessMessage);
-    base->policyDomainFcts.processMessageMT = FUNC_ADDR(pdEvent_t* (*)(ocrPolicyDomain_t*, pdEvent_t*, u32), xePdProcessMessageMT);
+    base->policyDomainFcts.processEvent = FUNC_ADDR(u8 (*)(ocrPolicyDomain_t*, pdEvent_t**, u32), xePdProcessEvent);
     base->policyDomainFcts.sendMessage = FUNC_ADDR(u8(*)(ocrPolicyDomain_t*, ocrLocation_t, ocrPolicyMsg_t*, ocrMsgHandle_t**, u32),
                                          xePdSendMessage);
     base->policyDomainFcts.pollMessage = FUNC_ADDR(u8(*)(ocrPolicyDomain_t*, ocrMsgHandle_t**), xePdPollMessage);

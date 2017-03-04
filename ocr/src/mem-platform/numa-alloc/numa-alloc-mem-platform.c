@@ -25,9 +25,9 @@
 #include <string.h>
 
 // Poor man's basic lock
-#define INIT_LOCK(addr) do {*addr = 0;} while(0);
-#define LOCK(addr) do { hal_lock32(addr); } while(0);
-#define UNLOCK(addr) do { hal_unlock32(addr); } while(0);
+#define INIT_LOCKF(addr) do {*addr = INIT_LOCK;} while(0);
+#define LOCK(addr) do { hal_lock(addr); } while(0);
+#define UNLOCK(addr) do { hal_unlock(addr); } while(0);
 
 /******************************************************/
 /* OCR MEM PLATFORM NUMA_ALLOC IMPLEMENTATION             */
@@ -72,6 +72,8 @@ u8 numaAllocSwitchRunlevel(ocrMemPlatform_t *self, ocrPolicyDomain_t *PD, ocrRun
             ASSERT(numa_available() != -1);
             // 2. Check if the node number is reasonable
             ASSERT(rself->numa_node <= numa_max_node());
+            // 3. Use strict policy. Strict means the allocation will fail if the memory cannot be allocated on the target node.
+            numa_set_strict(1);
             self->startAddr = (u64)numa_alloc_onnode(self->size, rself->numa_node);
             // Check that the mem-platform size in config file is reasonable
             ASSERT(self->startAddr);
@@ -225,7 +227,7 @@ void initializeMemPlatformNumaAlloc(ocrMemPlatformFactory_t * factory, ocrMemPla
     initializeMemPlatformOcr(factory, result, perInstance);
     ocrMemPlatformNumaAlloc_t *rself = (ocrMemPlatformNumaAlloc_t*)result;
     rself->numa_node = ((paramListMemPlatformInst_t *)perInstance)->numa_node;
-    INIT_LOCK(&(rself->lock));
+    INIT_LOCKF(&(rself->lock));
 }
 
 /******************************************************/

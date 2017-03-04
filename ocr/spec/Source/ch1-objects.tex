@@ -1,18 +1,16 @@
 % This is an included file. See the master file for more information.
 %
-
 \section{OCR objects}
 \label{sec:OCRobjects}
-
 An OCR object is an entity managed by OCR. Every OCR
 object has a globally unique ID (GUID) used to identify the
 object. An OCR program is defined in terms of three fundamental objects:
 \begin{itemize}
-\item \emph{Event Driven Task (EDT)}: A non-blocking unit of work in an OCR
+  \item \emph{Event Driven Task (EDT)}: A non-blocking unit of work in an OCR
 program.
-\item\emph{Data block (DB)}: A contiguous block of memory managed by the
+  \item\emph{Data block (DB)}: A contiguous block of memory managed by the
 OCR runtime accessible to any OCR object to which it is linked.
-\item\emph{Event}: An object to manage dependences between OCR objects and
+  \item\emph{Event}: An object to manage dependences between OCR objects and
 to define ordering relationships (synchronization) between them.
 \end{itemize}
 
@@ -21,7 +19,7 @@ play a supporting role; making programming more convenient or
 providing information the OCR runtime can use to optimize program execution:
 %\begin{description}
 \begin{itemize}
-\item \emph{EDT Template} An OCR object used to manage the resources
+  \item \emph{EDT Template} An OCR object used to manage the resources
 required to create an EDT.
 % TODO: Required a better definition below
 %\item \emph{Affinity container} An OCR object used to influence the
@@ -30,43 +28,41 @@ required to create an EDT.
 
 Objects have two well defined states:
 \begin{enumerate}
-\item \emph{Created}: Resources associated with an object and its GUID
+  \item \emph{Created}: Resources associated with an object and its GUID
 have been created.
-\item \emph{Destroyed}: An object that is destroyed is marked for
-destruction when the destruction command executes. A destroyed object, its GUID,
+  \item \emph{Destroyed}: An object that is destroyed is marked for
+destruction when the destruction command executes. Some objects
+are destroyed automatically, when specific criteria is met. A destroyed object, its GUID,
 and any resources associated with the destroyed object are no longer
-defined. Note that destroyed objects may be destroyed and their
-resources freed at some later point. Specifically, for data blocks, a
-data block will only be freed when all EDTs that have previously
-acquired it have also released it.\footnote{As
+defined\footnote{As
 an optimization, the runtime may choose to reuse the same physical
 object for different logical objects~\cite{USBCSS12,SbKS12}. Similarly
 GUIDs may be reused for objects that have non-overlaping live ranges.}.
 % TODO: Incorporate Vivek's feedback on replacing "destroyed" with "dead" and
 % accompanying reasoning.
 \end{enumerate}
+More details regarding object creation and destruction are provided
+in Section~\ref{sec:Lifetime}.
 Furthermore, data blocks have two additional states:
 \begin{enumerate}
-\item \emph{Acquired}: the data associated with the data block is
+  \item \emph{Acquired}: the data associated with the data block is
 accessible to the acquiring OCR object.
-\item \emph{Released}: The object is no longer accessible to the OCR
+  \item \emph{Released}: The object is no longer accessible to the OCR
 object that had earlier acquired it.
 \end{enumerate}
-
-
+%%%%
 \subsection{Dependences, links and slots}
 \index{OCR links}
 \label{sec:OCRlinks}
-
 An OCR program is defined as a directed acyclic graph (DAG)
-with EDTs and events as nodes and edges that define
+with EDTs, data blocks and events as nodes and edges that define
 \emph{links}\index{Link} between objects. A link is a dependence
 between OCR objects. The links are defined in terms of
 \emph{slots} on the OCR object which define an end
 point for a dependence: the ``source'' end-point is the source object's
 \emph{post-slot} and the ``destination'' end-point is the destination
 object's \emph{pre-slot}.
-
+%%%
 \subsubsection{Slots}
 \index{Slot}
 Post and pre-slots can be in one of three states:
@@ -89,7 +85,7 @@ Post and pre-slots can be in one of three states:
 Initially, all slots are {\bf unconnected}. Note that post-slots can also
 be {\bf satisfied} but {\bf unconnected}. This happens when, for
 example, an EDT completes but no other OCR object is waiting for its completion.
-
+%%%
 \subsubsection{Dependence}
 The source of a dependence is always an OCR object's post-slot.
 Event, data blocks and EDTs each have a
@@ -102,7 +98,7 @@ EDTs and events also have an optional set of
 dependence: for an EDT, this translates to a pre-condition for its
 execution; for an event, this translates to a pre-condition for its
 satisfaction.
-%
+%%
 \paragraph{Data dependence}
 \index{Data dependence}
 When a slot is satified, it can optionally be associated with a data
@@ -122,12 +118,12 @@ associates that data block with its post-slot and changes the
 post-slot's state to ``satisfied''. This triggers the link between the
 producer and the consumer making the data block available to the
 consumer who can now safely use the data block from the producer.
-%
+%%
 \paragraph{Control dependence}
 \index{Control dependence}
 In OCR, control dependences are equivalent to data dependences where
 the data block associated with the dependence is an empty one.
-
+%%%%%
 \subsection{Event Driven Task (EDT)}
 \index{EDT}
 \label{sec:EDT}
@@ -136,7 +132,8 @@ the \emph{Event Driven Task}\index{Event Driven Task} or \emph{EDT}.
 When all pre-conditions on an EDT have been met it becomes a runnable EDT.
 Later when its input data blocks are acquired, the EDT is ready to
 execute. The OCR runtime guarantees that a runnable EDT will execute
-at some point and once running, the EDT will progress to its terminal state
+at some point\footnote{Unless the entire program is terminated while there are
+still runnable EDTs.} and once running, the EDT will progress to its terminal state
 and cannot be halted by the action of other OCR objects; hence the
 execution of an EDT is said to be \emph{non-blocking}.
 
@@ -147,7 +144,7 @@ Section~\ref{sec:OCRTaskManagement}). Briefly, an EDT function takes
 as input:
 \begin{itemize}
 \item An array of 64-bit values called parameters. These parameters
-  must be known at the time the EDT is created and are copied in at
+  must be known at the time the EDT is created and are copied by value at
   that time.
 \item A number of dependences on other OCR objects (typically events
   and data blocks).
@@ -155,6 +152,7 @@ as input:
 
 An EDT function also returns a GUID which, if non-NULL, can refer to
 another OCR object which will be used to satisfy the EDT's post-slot.
+The GUID returned by an EDT must be either a data block GUID or the NULL GUID.
 
 When the OCR API is used to create an EDT (using the \code{ocrEdtCreate()} function)
 one or two GUIDs are returned. The first (always returned) is the GUID
@@ -181,8 +179,8 @@ OCR also defines a special type of EDT; the \emph{finish
 EDT}\index{Finish EDT}. An EDT will always execute asynchronously and
 without blocking once all of its pre-conditions have been met. A
 finish EDT, however, will not trigger its post-slot until all EDTs
-launched within its scope (i.e.\ its child EDTs and EDTs created
-within its child EDTs) have completed. The finish EDT still executes
+launched within its scope (i.e.\ its child EDTs and all its transivitely
+created grand-child EDTs) have completed. The finish EDT still executes
 asynchronously and without blocking. The implied event associated with
 the post-slot of a finish EDT is a \emph{latch event}, i.e.\ it is
 connected to the post-slots of all EDTs created within its scope and
@@ -197,11 +195,10 @@ template, optionally defines the number of dependences and parameters
 used when creating an instance of an EDT, and is a container for the
 function that will be executed by an EDT. This function is called the
 \emph{EDT function}\index{EDT function}.
-
+%%%%
 \subsection{Events}
 \index{Event}
 \label{sec:Event}
-
 An event is an OCR object used to coordinate the activity of other OCR
 objects. As with any OCR object, events have a single
 post-slot. Events may also have one or more pre-slots; the actual
@@ -242,16 +239,17 @@ explicitly destroyed with a call to \code{ocrEventDestroy()}. It is
 satisfied once and subsequent attempts to satisfy (i.e.\ trigger) the
 event result in an error code being returned when trying to satisfy
 the event.
+
 \item \emph{Latch event}\index{Event, Latch}: The latch event has two
 pre-slots and triggers when the conditions defined by the latch
 trigger rule are met. The event is automatically destroyed once it
 triggers; in this regard, it is similar to a \emph{once event}.
 \end{enumerate}
-
+%%%%
 \subsubsection{Event trigger rules}
 Events ``trigger'' when the appropriate \emph{trigger
 rule}\index{Trigger rule} is met. The default trigger rule for events
-is to trigger their post-slot when ``any'' of their pre-slot becomes
+is to trigger their post-slot when any of their pre-slot becomes
 satisfied. Any data block associated with the pre-slot is also passed
 to the post-slot.
 
@@ -264,8 +262,8 @@ triggers on the pre-slots of the latch event are undefined. For
 regular events, when it is triggered with a data block, the GUID of
 that data block is passed along through the post-slot of the
 event. For a latch event, however, the GUID of a data block that
-triggers a pre-slot is ignored.
-
+triggers a pre-slot, if any, is ignored.
+%%%%
 \subsection{Data blocks}
 \index{Data block}
 \label{sec:data blocks}
@@ -291,7 +289,7 @@ that have a start address and a size. They have the following characteristics:
 \item all memory within the data block is accessible from the
 start address using an offset, meaning an EDT can manipulate the
 contents of a data block through pointers.
-\item The contents of different data blocks are guaranteed to not
+\item The contents of distinct data blocks are guaranteed to not
 overlap.
 \item The pointer to the start of a data block is only valid between
 the acquire of the data block (implicit when the EDT starts) and the
@@ -311,28 +309,35 @@ EDTs, a program may define constraints over how data
 blocks can be used. This leads to several different modes for how an
 EDT may access a data block. The mode is set when the OCR dependences
 API is used to dynamically set dependences between a data block and an
-EDT. Currently, OCR supports four modes:
+EDT. Currently, OCR supports five modes:
 \begin{enumerate}
 \item \emph{Read-Write} (default mode)\index{Data block, read-write}: The EDT may read
-  and write to the data block, but the system will not enforce exclusive
-  access. Multiple EDTs may write to the same data bock at the same
+  and write to the data block. Note that no exclusive
+  access is enforced; multiple EDTs may write to the same data bock at the same
   time. It is the responsibility of the programmer to
   ensure that when multiple writers are writing to a \emph{read-write} data block,
-  appropriate synchronization
-  is included to assure that the writes do not conflict.  Note: it is
+  appropriate synchronization (in the form of dependences)
+  is included to assure that the writes do not conflict. It is
   legal for an OCR program to contain data
   races. Section~\ref{sec:MemoryModel} contains more information.
 
 \item \emph{Exclusive write}\index{Data block, exclusive write}: The
-  EDT may read and write to the data block and the system will enforce
+  EDT may read and write to the data block and OCR will enforce
   that, at a given time, it is the only EDT writing to the data
   block. When the writing EDT releases the data block, another EDT may
   acquire it and write to it. Given the memory model described in
   Section~\ref{sec:MemoryModel}, the writes of multiple EDTs all
-  acquiring a data block in exclusive write will be sequential.
+  acquiring a data block in exclusive write will be sequential but the only
+  ordering between said EDTs is determined by the explicit dependences. In
+  other words, if both EDTs A and B are runnable and access a
+  data block D in exclusive write mode, A and B can execute in any order and
+  the only guarantee is that there will be no overlap between the two
+  following intervals: start of A to the release of D by A (or the end of A, whichever
+  comes first) and the start of B to the release of D by B (or the end of B,
+  whichever comes first).
 
 \item \emph{Read only}\index{Data block, read only}: The EDT
-  will only read from the Data block. OCR does
+  will only read from the data block. OCR does
   not restrict the ability of other EDTs to write to the data block,
   even if the writes from one EDT might overlap with reads by the EDT
   with \emph{read only} access. If an EDT writes to a data block
@@ -340,11 +345,55 @@ EDT. Currently, OCR supports four modes:
   undefined should other EDTs later acquire the same data block.
 
 \item \emph{Constant}\index{Data block, constant}: The EDT will only
-  read from the data block and OCR runtime will assure that once the
-  data block is acquired, writes from other EDTs will not be visible.
+  read from the data block and OCR will ensure that once the
+  data block is acquired, writes from other EDTs will not be visible to
+  the EDT acquiring the data block in constant mode. This is the distinction
+  between this mode and the read only mode.
   If an EDT writes to a data block it has acquired in \emph{constant} mode,
-  the results of those writes are undefined should other EDT's later
+  the results of those writes are undefined should other EDTs later
   acquire the same data block.
-\end{enumerate}
 
+\item \emph{NULL}\index{Data block, null}: The EDT will not access
+  the data block either to read or write. This mode allows the
+  user to convert a data dependence into a pure control dependence. This is
+  useful, if, for example, two EDTs A and B depend on the completion of an event
+  E but only one, A for example, caresis to let the runtime
+  know that the EDT does not care about the data passed to the EDT (through
+  an event for example) and has the effect of converting a potential data dependence
+  into a pure control dependence. Note that the GUID of the data block, if any, is
+  still passed to the EDT.
+\end{enumerate}
+%%%%
+\subsection{Object lifetime}
+\index{object lifetime}
+\label{sec:Lifetime}
+OCR objects are created by the appropriate OCR API call, for example
+\code{ocrEventCreate}. Even though the runtime may defer the actual
+creation of the object, it ensures that it appears to be valid to all
+subsequent OCR API calls. Objects are destroyed either automatically or
+using an OCR API call, such as \code{ocrEventDestroy}. Again, the runtime
+may actually destroy the object at a later point in time, but the object
+cannot be used after it has been formally destroyed.
+
+In this Section, we detail when a user can assume an object is destroyed.
+%%%
+\subsubsection{Data blocks}
+Data blocks are explicitly destroyed using the \code{ocrDbDestroy} call. The
+runtime will delay the actual destruction of the data block and associated
+resources until all EDTs that have acquired the data block prior to the
+call to \code{ocrDbDestroy} have released it. In practice, all EDTs whose
+start happens before the call to \code{ocrDbDestroy} are guaranteed to be
+able to use the data block. For example, if EDT $A$ and EDT $B$ both satisfy,
+at their beginning, two dependences that allow EDT $C$ to run, EDT $C$ can
+safely destroy any data block that $A$ and $B$ are using.
+%%%
+\subsubsection{Events}
+Once and latch events are destroyed automatically after they are triggered and
+the destruction occurs before any pre-slots connected to the event's
+post-slot are satisfied. Sticky and idempotent events are destroyed explicitly and
+the runtime guarantees that any \code{ocrAddDependence} call adding a dependence
+from the event to another object that happened before the destruction call will
+be satisfied if the event destroyed is triggered. In particular, an event
+can be safely destroyed by any EDT that depends on its satisfaction provided
+all dependences were added prior to the triggering of the event.
 % This is the end of ch1-ocr-objects.tex of the OCR specification.

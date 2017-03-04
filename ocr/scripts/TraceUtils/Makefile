@@ -12,6 +12,9 @@ traceDecode: traceDecode.c
 128: traceDecode.c
 	$(CC) -DENABLE_128_BIT_GUID $(CFLAGS) $(LDFLAGS) -o traceDecode $<
 
+sim: traceDecode.c
+	$(CC) -DOCR_ENABLE_SIMULATOR $(CFLAGS) $(LDFLAGS) -o traceDecode $<
+
 clean:
 	rm -f traceDecode
 

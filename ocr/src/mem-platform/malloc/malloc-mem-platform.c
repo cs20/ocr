@@ -25,9 +25,9 @@
 #include <string.h>
 
 // Poor man's basic lock
-#define INIT_LOCK(addr) do {*addr = 0;} while(0);
-#define LOCK(addr) do { hal_lock32(addr); } while(0);
-#define UNLOCK(addr) do { hal_unlock32(addr); } while(0);
+#define INIT_LOCKF(addr) do {*addr = INIT_LOCK;} while(0);
+#define LOCK(addr) do { hal_lock(addr); } while(0);
+#define UNLOCK(addr) do { hal_unlock(addr); } while(0);
 
 /******************************************************/
 /* OCR MEM PLATFORM MALLOC IMPLEMENTATION             */
@@ -220,7 +220,7 @@ ocrMemPlatform_t* newMemPlatformMalloc(ocrMemPlatformFactory_t * factory,
 void initializeMemPlatformMalloc(ocrMemPlatformFactory_t * factory, ocrMemPlatform_t * result, ocrParamList_t * perInstance) {
     initializeMemPlatformOcr(factory, result, perInstance);
     ocrMemPlatformMalloc_t *rself = (ocrMemPlatformMalloc_t*)result;
-    INIT_LOCK(&(rself->lock));
+    INIT_LOCKF(&(rself->lock));
 }
 
 /******************************************************/

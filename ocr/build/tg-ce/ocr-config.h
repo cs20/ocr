@@ -17,8 +17,7 @@
 // that does not contribute to building the policy domain
 //#define ENABLE_BUILDER_ONLY
 
-// Bug #556
-#define EDT_DEPV_DELAYED
+#define TG_CE_TARGET
 
 // Allocator
 #define ENABLE_ALLOCATOR_SIMPLE
@@ -48,6 +47,7 @@
 
 // GUID provider
 #define ENABLE_GUID_PTR
+#define ENABLE_GUID_LABELED
 
 // Hints
 #define ENABLE_HINTS
@@ -72,6 +72,7 @@
 
 // Scheduler Heuristic
 #define ENABLE_SCHEDULER_HEURISTIC_CE
+#define ENABLE_SCHEDULER_HEURISTIC_CE_AFF
 
 // Scheduler Objects
 #define ENABLE_SCHEDULER_OBJECT_WST
@@ -95,11 +96,28 @@
 // Workpile
 #define ENABLE_WORKPILE_CE
 
+// Extensions
+#define ENABLE_EXTENSION_LABELING
 // Enable legacy support
 //#define ENABLE_EXTENSION_LEGACY
 
 // Build pause/resume support
 // #define ENABLE_EXTENSION_PAUSE
+
+// Event creation with parameter
+#define ENABLE_EXTENSION_PARAMS_EVT
+
+//Counted Events support
+#define ENABLE_EXTENSION_COUNTED_EVT
+
+//Channel Events support
+#define ENABLE_EXTENSION_CHANNEL_EVT
+
+// Performance monitoring
+//#define ENABLE_EXTENSION_PERF
+
+// Affinity (no-op for now)
+#define ENABLE_EXTENSION_AFFINITY
 
 #endif /* __OCR_CONFIG_H__ */
 

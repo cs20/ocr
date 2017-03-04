@@ -30,10 +30,13 @@
 // but we have to stick it somewhere and the HAL and SAL are headers
 // only -- hence this placement.
 //
+
+#if !defined(ENABLE_NEWLIB_SCAFFOLD_TG)
 int memcpy(void * dst, void * src, u64 len) {
     hal_memCopy(dst, src, len, 0);
     return len;
 }
+#endif
 #endif
 
 

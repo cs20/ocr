@@ -94,15 +94,20 @@ static void wstSchedulerObjectInitialize(ocrSchedulerObjectFactory_t *fact, ocrS
     ocrSchedulerObjectWst_t* wstSchedObj = (ocrSchedulerObjectWst_t*)self;
     wstSchedObj->numDeques = 0;
     wstSchedObj->deques = NULL;
+    wstSchedObj->config = SCHEDULER_OBJECT_WST_CONFIG_REGULAR;
     paramListSchedulerObjectWst_t *paramsWst = (paramListSchedulerObjectWst_t*)perInstance;
-    wstSchedObj->config = paramsWst->config;
-    switch(paramsWst->config) {
-    case SCHEDULER_OBJECT_WST_CONFIG_REGULAR:
-    case SCHEDULER_OBJECT_WST_CONFIG_STATIC:
-        break;
-    default:
-        ASSERT(0);
-        break;
+    // There's no specific initialization for now. Default should be regular and
+    // if there's any init it should be done when paramWst is not null too.
+    if (paramsWst != NULL) {
+        wstSchedObj->config = paramsWst->config;
+        switch(paramsWst->config) {
+        case SCHEDULER_OBJECT_WST_CONFIG_REGULAR:
+        case SCHEDULER_OBJECT_WST_CONFIG_STATIC:
+            break;
+        default:
+            ASSERT(0);
+            break;
+        }
     }
 }
 
@@ -310,6 +315,20 @@ u8 wstSchedulerObjectOcrPolicyMsgUnMarshallMsg(ocrSchedulerObjectFactory_t *fact
     return OCR_ENOTSUP;
 }
 
+#ifdef ENABLE_RESILIENCY
+u8 wstSchedulerObjectReset(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObject_t *self, u32 properties) {
+    u32 i;
+    ocrSchedulerObjectWst_t *wstSchedObj = (ocrSchedulerObjectWst_t*)self;
+    ocrPolicyDomain_t *pd = fact->pd;
+    for (i = 0; i < wstSchedObj->numDeques; i++) {
+        ocrSchedulerObject_t *deque = wstSchedObj->deques[i];
+        ocrSchedulerObjectFactory_t *dequeFactory = pd->schedulerObjectFactories[deque->fctId];
+        dequeFactory->fcts.reset(dequeFactory, deque, properties);
+    }
+    return 0;
+}
+#endif
+
 /******************************************************/
 /* OCR-WST SCHEDULER_OBJECT FACTORY FUNCTIONS         */
 /******************************************************/
@@ -346,6 +365,10 @@ ocrSchedulerObjectFactory_t * newOcrSchedulerObjectFactoryWst(ocrParamList_t *pe
     schedObjFact->fcts.ocrPolicyMsgGetMsgSize = FUNC_ADDR(u8 (*)(ocrSchedulerObjectFactory_t*, ocrPolicyMsg_t*, u64*, u32), wstSchedulerObjectOcrPolicyMsgGetMsgSize);
     schedObjFact->fcts.ocrPolicyMsgMarshallMsg = FUNC_ADDR(u8 (*)(ocrSchedulerObjectFactory_t*, ocrPolicyMsg_t*, u8*, u32), wstSchedulerObjectOcrPolicyMsgMarshallMsg);
     schedObjFact->fcts.ocrPolicyMsgUnMarshallMsg = FUNC_ADDR(u8 (*)(ocrSchedulerObjectFactory_t*, ocrPolicyMsg_t*, u8*, u8*, u32), wstSchedulerObjectOcrPolicyMsgUnMarshallMsg);
+
+#ifdef ENABLE_RESILIENCY
+    schedObjFact->fcts.reset = FUNC_ADDR(u8 (*)(ocrSchedulerObjectFactory_t*, ocrSchedulerObject_t*, u32), wstSchedulerObjectReset);
+#endif
     return schedObjFact;
 }
 

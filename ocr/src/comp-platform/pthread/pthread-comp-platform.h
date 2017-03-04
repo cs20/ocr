@@ -45,15 +45,24 @@ typedef struct {
     u64 stackSize;
     s32 binding;
     u32 threadStatus; // RL_NODE_MASTER or RL_PD_MASTER or 0
+#ifdef OCR_RUNTIME_PROFILER
+    bool doProfile;
+#endif
 } ocrCompPlatformPthread_t;
 
 typedef struct {
     paramListCompPlatformInst_t base;
     u64 stackSize;
     s32 binding;
+#ifdef OCR_RUNTIME_PROFILER
+    bool doProfile;
+#endif
 } paramListCompPlatformPthread_t;
 
 extern ocrCompPlatformFactory_t* newCompPlatformFactoryPthread(ocrParamList_t *perType);
 
 #endif /* ENABLE_COMP_PLATFORM_PTHREAD */
 #endif /* __COMP_PLATFORM_PTHREAD_H__ */
+
+
+

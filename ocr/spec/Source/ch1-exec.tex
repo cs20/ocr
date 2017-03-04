@@ -1,12 +1,11 @@
 % This is an included file. See the master file for more information.
 %
-
 \section{Execution Model}
 \index{Execution Model}
 \label{sec:ExecutionModel}
 
 OCR is based on an asynchronous task model. The work of an OCR program
-is defined in terms of a collection of tasks  organized
+is defined in terms of a collection of tasks organized
 into a directed acyclic graph (DAG)\index{DAG}~\cite{TaSa11,Tasirlar11,Zuckerman:2011:UCP:2000417.2000424}.
 Task execution is managed by the availability of data (the ``data
 blocks'') and events; hence the reason the tasks are called ``Event
@@ -79,10 +78,8 @@ OCR constructs. The scheduler inside the implementation of OCR
 will then schedule the EDT for execution and the EDT
 \emph{Starts}\index{EDT state, start} to execute and
 becomes a \emph{Running}\index{EDT state, running} EDT.
-
 % TODO: Add extra transitions in the graph from certain states to destroyed state,
 % for when the user cancels the EDT
-
 \begin{figure*}
 \centering
  \includegraphics[width=0.9\textwidth]{EDT_exec}
@@ -126,19 +123,20 @@ directly to the source event’s post-slot.
 For all events but the latch event, this means that the triggering of
 the source event will trigger the destination event.
 
-\item \emph{Event to EDT}: One of the destination EDT’s pre-slot is chained
+\item \emph{Event to EDT}: One of the destination EDT’s pre-slots is chained
 directly to the source event’s post-slot. When the source event is
 triggered, this will satisfy the EDT’s pre-slot. If a data block was
 associated with the triggering of the source event, that data block
 will be made available to the EDT in the dependence array in the
-position of the pre-slot. This is a “control + data” dependence. In
+position of the pre-slot. This is a ``control and data'' dependence. In
 the other case, no data block will be made available and the
 dependence is akin to a pure control dependence.
 
-\item \emph{Data Block to Event}: Adding a dependence between a data block and an
-event is equivalent to satisfying the event with the data block.
+\item \emph{Data block to Event}: Adding a dependence between a data block and an
+event will result in the satisfaction of the event with the data block;
+however, the satisfaction of the event may be deferred and may happen asynchronously.
 
-\item \emph{Data Block to EDT}: Directly adding a dependence between a data block and
+\item \emph{Data block to EDT}: Directly adding a dependence between a data block and
 an EDT (a pure data-dependence) immediately satisfies the EDT’s
 pre-slot and makes the data block available to the EDT in the
 dependence array in the position of the pre-slot.
@@ -150,7 +148,6 @@ non-blocking). The only mechanism for synchronization within OCR is
 through the events that link OCR objects, which are explicit to the
 runtime.
 \end{itemize}
-
 % TODO: Add clarity to the following paragraph on when a programmer
 % calls ocrShutdown to terminate even when a few other EDTs haven't
 % completed execution, how much is being presumed.
@@ -172,9 +169,8 @@ among the processing elements of the computer, or to optimize memory
 and energy consumption~\cite{GZCS10,Guo10,CTBCCGYS13,SbBS14}.
 This requires that the state of an OCR program can be defined
 strictly in terms of which tasks have completed their execution
-and the history of updates to data blocks. By saving a log of updates to Data blocks
+and the history of updates to data blocks. By saving a log of updates to data blocks
 relative to the tasks that have completed execution, the system can recover
 the state of a computation should components of the system fail. This requires,
 however, that EDTs execute with transactional semantics.
-
 % This is the end of ch1-exec.tex of the OCR specification.

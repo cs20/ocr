@@ -28,6 +28,23 @@
 // FIXME TG
 //#warning HAL layer for CE needs to be reworked
 
+#ifdef OCR_TICKETLOCK
+typedef struct {
+    u32 ticket;
+    volatile u32 now;
+} lock_t;
+#define INIT_LOCK ((lock_t){0, 0})
+
+#ifndef OCR_TICKETLOCK_BACKOFF
+#define OCR_TICKETLOCK_BACKOFF 0
+#endif
+
+#else
+/* Default is a test test-and-set type of locking */
+typedef volatile u32 lock_t;
+#define INIT_LOCK 0
+#endif
+
 /**
  * @brief Perform a memory fence
  *
@@ -226,6 +243,182 @@
 #define hal_radd32(atomic, addValue) hal_xadd32(atomic, addValue)
 
 /**
+ * @brief Atomic swap (16 bit)
+ *
+ * Atomically swap:
+ *
+ * @param atomic        u16*: Pointer to the atomic value (location)
+ * @param newValue      u16: New value to set
+ *
+ * @return Old value of the atomic
+ */
+#define hal_swap16(atomic, newValue)                                    \
+    ({                                                                  \
+        u16 __tmp = tg_xchg16((u16*)atomic, newValue);                  \
+        __tmp;                                                          \
+    })
+
+/**
+ * @brief Compare and swap (16 bit)
+ *
+ * The semantics are as follows (all operations performed atomically):
+ *     - if location is cmpValue, atomically replace with
+ *       newValue and return cmpValue
+ *     - if location is *not* cmpValue, return value at location
+ *
+ * @param atomic        u16*: Pointer to the atomic value (location)
+ * @param cmpValue      u16: Expected value of the atomic
+ * @param newValue      u16: Value to set if the atomic has the expected value
+ *
+ * @return Old value of the atomic
+ */
+#define hal_cmpswap16(atomic, cmpValue, newValue)                       \
+    ({                                                                  \
+        u16 __tmp = tg_cmpxchg16((u16*)atomic, cmpValue, newValue);     \
+        __tmp;                                                          \
+    })
+
+/**
+ * @brief Atomic add (16 bit)
+ *
+ * The semantics are as follows (all operations performed atomically):
+ *     - atomically increment location by addValue
+ *     - return old value (before addition)
+ *
+ * @param atomic    u16*: Pointer to the atomic value (location)
+ * @param addValue  u16: Value to add to location
+ * @return Old value of the location
+ */
+#define hal_xadd16(atomic, addValue)                                    \
+    ({                                                                  \
+        u16 __tmp = tg_xadd16((u16*)atomic, addValue);                  \
+        __tmp;                                                          \
+    })
+
+/**
+ * @brief Remote atomic add (16 bit)
+ *
+ * The semantics are as follows (all operations performed atomically):
+ *     - atomically increment location by addValue
+ *     - no value is returned (the increment will happen "at some
+ *       point")
+ *
+ * @param atomic    u16*: Pointer to the atomic value (location)
+ * @param addValue  u16: Value to add to location
+ */
+#define hal_radd16(atomic, addValue) hal_xadd16(atomic, addValue)
+
+/**
+ * @brief Atomic swap (8 bit)
+ *
+ * Atomically swap:
+ *
+ * @param atomic        u8*: Pointer to the atomic value (location)
+ * @param newValue      u8: New value to set
+ *
+ * @return Old value of the atomic
+ */
+#define hal_swap8(atomic, newValue)                                    \
+    ({                                                                 \
+        u8 __tmp = tg_xchg8((u8*)atomic, newValue);                    \
+        __tmp;                                                         \
+    })
+
+/**
+ * @brief Compare and swap (8 bit)
+ *
+ * The semantics are as follows (all operations performed atomically):
+ *     - if location is cmpValue, atomically replace with
+ *       newValue and return cmpValue
+ *     - if location is *not* cmpValue, return value at location
+ *
+ * @param atomic        u8*: Pointer to the atomic value (location)
+ * @param cmpValue      u8: Expected value of the atomic
+ * @param newValue      u8: Value to set if the atomic has the expected value
+ *
+ * @return Old value of the atomic
+ */
+#define hal_cmpswap8(atomic, cmpValue, newValue)                       \
+    ({                                                                 \
+        u8 __tmp = tg_cmpxchg8((u8*)atomic, cmpValue, newValue);       \
+        __tmp;                                                         \
+    })
+
+/**
+ * @brief Atomic add (8 bit)
+ *
+ * The semantics are as follows (all operations performed atomically):
+ *     - atomically increment location by addValue
+ *     - return old value (before addition)
+ *
+ * @param atomic    u8*: Pointer to the atomic value (location)
+ * @param addValue  u8: Value to add to location
+ * @return Old value of the location
+ */
+#define hal_xadd8(atomic, addValue)                                    \
+    ({                                                                 \
+        u8 __tmp = tg_xadd8((u8*)atomic, addValue);                    \
+        __tmp;                                                         \
+    })
+
+/**
+ * @brief Remote atomic add (8 bit)
+ *
+ * The semantics are as follows (all operations performed atomically):
+ *     - atomically increment location by addValue
+ *     - no value is returned (the increment will happen "at some
+ *       point")
+ *
+ * @param atomic    u8*: Pointer to the atomic value (location)
+ * @param addValue  u8: Value to add to location
+ */
+#define hal_radd8(atomic, addValue) hal_xadd8(atomic, addValue)
+
+
+#ifdef OCR_TICKETLOCK
+/* We use a full memory barrier where we would only need
+ * an acquire one */
+#define hal_lock(__l)                                       \
+    do {                                                    \
+        volatile u32 _i;                                    \
+        u32 _t = hal_xadd32(&((__l)->ticket), 1);           \
+        while(true) {                                       \
+            u32 _spinTime = OCR_TICKETLOCK_BACKOFF*(_t - (__l)->now);            \
+            for(_i = 0; _i < _spinTime; ++_i)               \
+                ;                                           \
+            if(_t == (__l)->now) break;                     \
+        }                                                   \
+        __asm__ __volatile__ ("" : : : "memory");           \
+    } while(0);
+
+/* We use a full memory barrier where we would only need
+ * a release one */
+#define hal_unlock(__l)                                     \
+    do {                                                    \
+        __asm__ __volatile__ ("" : : : "memory");           \
+        /* TODO: Blocking flush with no-invalidate */       \
+        ++((__l)->now);                                     \
+    } while(0);
+
+#define hal_trylock(__l)                                    \
+    ({                                                      \
+        u8 _r = 0;                                          \
+        u32 _val = (__l)->ticket;
+        if(_val == (__l)->now) {                            \
+            u32 _old = hal_cmpswap32(&((__l)->ticket), _val, _val+1);\
+            if(_old != _val) _r = 1;                        \
+            else                                            \
+                __asm__ __volatile__ ("" : : : "memory");   \
+        } else {                                            \
+            _r = 1;                                         \
+        }                                                   \
+        _r;                                                 \
+    })
+
+#define hal_islocked(__l) ((__l)->ticket > (__l)->now)
+
+#else /* ! OCR_TICKETLOCK */
+/**
  * @brief Convenience function that basically implements a simple
  * lock
  *
@@ -234,9 +427,12 @@
  *
  * @param lock      Pointer to a 32 bit value
  */
-#define hal_lock32(lock)                                         \
-    do {                                                         \
-        while(tg_cmpxchg32((u32*)lock, 0, 1) != 0) ;             \
+#define hal_lock(__l)                               \
+    do {                                            \
+        while(tg_cmpxchg32((u32*)(__l), 0, 1) != 0) \
+            while(*(__l))                           \
+                ;                                   \
+        __asm__ __volatile__ ("" : : : "memory");   \
     } while(0)
 
 /**
@@ -245,10 +441,14 @@
  *
  * @param lock      Pointer to a 32 bit value
  */
-#define hal_unlock32(lock)                      \
-    ({                                          \
-        *(volatile u32 *)(lock) = 0;            \
-    })
+ // NOTE: We really need a release barrier here ideally but
+ // putting something to make sure things don't move up.
+#define hal_unlock(__l)                                   \
+      do {                                                \
+          __asm__ __volatile__ ("" : : : "memory");       \
+          /* TODO: Blocking flush with no-invalidate */   \
+          *(__l) = 0;                                     \
+      } while(0);
 
 /**
  * @brief Convenience function to implement a simple
@@ -258,7 +458,18 @@
  * @return 0 if the lock has been acquired and a non-zero
  * value if it cannot be acquired
  */
-#define hal_trylock32(lock) tg_cmpxchg32((u32*)lock, 0, 1)
+#define hal_trylock(__l)                                        \
+      ({                                                        \
+          u32 _r = tg_cmpxchg32((u32*)(__l), 0, 1);             \
+          if(_r == 0) {                                         \
+              __asm__ __volatile__ ("" : : : "memory");         \
+          }                                                     \
+          _r;                                                   \
+      })
+
+#define hal_islocked(__l) (*(__l) == 1)
+
+#endif
 
 /**
  * @brief Abort the runtime
@@ -295,8 +506,8 @@
  * This is used by CE to put an XE core in its block to sleep
  * @warning 'id' is the agent ID (ID_AGENT_XE0 ... ID_AGENT_XE7)
  */
-#define hal_sleep(id) do {                                              \
-        *(u64 *)(BR_MSR_BASE(id) + POWER_GATE_RESET*sizeof(u64)) |= 0x1ULL; \
+#define hal_sleep(id) do {                                                     \
+        *((volatile u8*)(BR_XE_CONTROL(id - ID_AGENT_XE0))) = XE_CTL_CLK_GATE; \
     } while(0)
 
 /**
@@ -305,8 +516,8 @@
  * This is used by CE to wake an XE core in its block from sleep
  * @warning 'id' is the agent ID (ID_AGENT_XE0 ... ID_AGENT_XE7)
  */
-#define hal_wake(id) do {                                                    \
-        *(u64 *)(BR_MSR_BASE(id) + POWER_GATE_RESET*sizeof(u64)) &= ~(0x1ULL); \
+#define hal_wake(id) do {                                             \
+          *((volatile u8*)(BR_XE_CONTROL(id - ID_AGENT_XE0))) = 0x00; \
     } while(0)
 
 /**
@@ -355,5 +566,131 @@
 
 //static inline void SET64(u64 addr, u64 value) { *((u64 *) addr) = value; }
 #define  SET64(addr, value) ({ *((u64 *) (addr)) = (value); })
+
+/**
+ * @brief Start a new chain
+ *
+ * @param decaddr[in]     u64 address of a memory location in tg to decrement
+ *                        after sucessful completion of entire chain.
+ * @param interrupt[in]   u8 0 or 1 to indicate if an interrupt is desired after
+ *                        completion of this chain.
+ * @param decrement[in]   u8 0 or 1 to indicate if a memory location is to be
+ *                        decremented upon completion of this chain.
+ * @return id of allotted chain.
+ */
+#define hal_chain_start(decaddr, interrupt, decrement)                  \
+      ({                                                                \
+          u64 __cid = tg_chain_init(decaddr, interrupt, decrement);     \
+          __cid;                                                        \
+      })
+
+/**
+ * @brief End current chain
+ */
+#define hal_chain_end()                                                 \
+    ({                                                                  \
+        tg_chain_end();                                                 \
+    })
+
+/**
+ * @brief Wait on a chain whose id matches with supplied hwid.
+ * If no match found, call returns.
+ * @param hwid[in]      u64 chain id to wait upon.
+ */
+#define hal_chain_wait(hwid)                                            \
+    ({                                                                  \
+        tg_chain_wait(hwid);                                            \
+    })
+
+/**
+ * @brief Poll chain whose id matches with supplied hwid.
+ * If no match found, call returns.
+ * @param hwid[in]      u64 chain id to wait upon.
+ *
+ * @return u64 status of the chain.
+ */
+#define hal_chain_poll(hwid)                                            \
+    ({                                                                  \
+        u64 __status = tg_chain_poll(hwid);                             \
+        __status;                                                       \
+    })
+
+/**
+ * @brief Kill chain whose id matches with supplied hwid.
+ * If no match found, call returns.
+ * @param hwid[in]      u64 chain id of chain to kill.
+ *
+ */
+#define hal_chain_kill(hwid)                                            \
+    ({                                                                  \
+        tg_chain_kill(hwid);                                            \
+    })
+
+/**
+ * @brief Add 1 item to specified queue in blocking fashion.
+ *
+ * @param item[in]     u64 item to added in queue
+ * @param qbuff[in]    u64 Target queue's qbuff
+ * @param ht[in]       u8 QUEUE_HEAD or QUEUE_TAIL to indicate operation at
+ *                     head or tail resp.
+ * @param size[in]     TG_SIZE_{64/32/16/8}BIT indicates size of item.
+ *
+ */
+#define hal_q_add1_blocking(item, qbuff, ht, size)                      \
+    ({                                                                  \
+        tg_qmaadd1w(u64 item, u64 qbuff, u8 ht, u64 size);              \
+    })
+
+
+/**
+ * @brief Remove 1 item from specified queue in blocking fashion.
+ *
+ * @param qbuff[in]    u64 Target queue's qbuff
+ * @param ht[in]       u8 QUEUE_HEAD or QUEUE_TAIL to indicate operation at
+ *                     head or tail resp.
+ * @param size[in]     TG_SIZE_{64/32/16/8}BIT indicates size of item.
+ *
+ * @return u64 element popped from queue. Cast it to size you desire.
+ */
+#define hal_q_rem1_blocking(qbuff, ht, size)                            \
+    ({                                                                  \
+        u64 __item = tg_qmarem1w(qbuff, ht, size);                      \
+        __item;                                                         \
+    })
+
+/**
+ * @brief Add n items to specified queue in blocking fashion.
+ *
+ * @param daddr[in]     u64 tg-address where elements are located
+ *                     (address of 1st element)
+ * @param dnum[in]     u64 number of elements to be read from addr.
+ * @param qbuff[in]    u64 Target queue's qbuff
+ * @param ht[in]       u8 QUEUE_HEAD or QUEUE_TAIL to indicate operation at
+ *                     head or tail resp.
+ * @param size[in]     TG_SIZE_{64/32/16/8}BIT indicates size of item.
+ *
+ */
+#define hal_q_addx_blocking(qbuff, daddr, dnum, ht, size)               \
+    ({                                                                  \
+        tg_qmaaddXw(daddr, qbuff, dnum, ht, size);                      \
+    })
+
+/**
+ * @brief Remove n items from specified queue in blocking fashion.
+ *
+ * @param daddr[in]    u64 tg-address where elements popped from queue
+ *                     will be written.
+ * @param dnum[in]     u64 number of elements to be removed from queue.
+ * @param qbuff[in]    u64 Target queue's qbuff
+ * @param ht[in]       u8 QUEUE_HEAD or QUEUE_TAIL to indicate operation at
+ *                     head or tail resp.
+ * @param size[in]     TG_SIZE_{64/32/16/8}BIT indicates size of item.
+ *
+ */
+#define hal_q_remx_blocking(qbuff, daddr, dnum, ht, size)               \
+      ({                                                                \
+          tg_qmaremXw(u64 daddr, u64 qbuff, u64 dnum, u8 ht, u64 size); \
+      })
+
 
 #endif /* __OCR_HAL_FSIM_CE_H__ */

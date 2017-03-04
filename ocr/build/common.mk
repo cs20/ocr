@@ -18,16 +18,48 @@ DEFAULT_CONFIG ?= jenkins-common-8w-lockableDB.cfg
 # User Configurable settings
 ####################################################
 
+# for jenkins testing purpose
+#CFLAGS += -DUTASK_COMM -DUTASK_COMM2
+
+# **** System-dependent values ****
+
+# Cache line size in bytes (Mostly used for padding)
+CFLAGS += -DCACHE_LINE_SZB=64
+
+# **** Lock implementation ****
+
+# By default, a test test-and-set lock is used but you
+# can also enable a ticket-lock instead. This increase space
+# requirements for each lock (from 32 bits to 64 bits)
+#CFLAGS += -DOCR_TICKETLOCK
+
+# You can optionally set a back-off for the ticket lock. This
+# is a proportional backoff and should be roughly the lenght
+# of critical sections. By default, there is no back-off (value of 0)
+#CFLAGS += -DOCR_TICKETLOCK_BACKOFF=0
+
 # **** Runtime extension parameters (ENABLE_EXTENSION_RTITF) ****
 
 # Number of elements in EDT local storage
 # CFLAGS += -DELS_USER_SIZE=0
+
+# **** Deferred Execution Model ****
+
+# CFLAGS += -DENABLE_OCR_API_DEFERRABLE
 
 # **** Workpiles Parameters ****
 
 # Impl-specific for Work-stealing deques
 # - Static size for deques used to contain EDTs
 # CFLAGS += -DINIT_DEQUE_CAPACITY=2048
+
+# **** Registration Parameters ****
+
+# Two-steps asynchronous registration
+# CFLAGS += -DREG_ASYNC
+
+# Single-steps asynchronous registration
+# CFLAGS += -DREG_ASYNC_SGL
 
 # **** Events Parameters ****
 
@@ -37,6 +69,17 @@ DEFAULT_CONFIG ?= jenkins-common-8w-lockableDB.cfg
 # Initialisation size for dynamically allocated HC event's waiter array
 # CFLAGS += -DHCEVT_WAITER_DYNAMIC_COUNT=4
 
+# Enable MetaData Cloning for events
+# CFLAGS += -DENABLE_EVENT_MDC
+
+# Enable forging event's instance when MetaData Cloning is on
+# i.e. do not communicate with the event's owner but rather
+# create a copy immediately and sync-up later.
+# CFLAGS += -DENABLE_EVENT_MDC_FORGE
+
+# [Experimental flag] Make all Channel Events non-FIFO
+# CFLAGS += -DXP_CHANNEL_EVT_NONFIFO
+
 # **** GUID-Provider Parameters ****
 
 # All impl-specific for counted-map and labeled-guid providers
@@ -44,13 +87,39 @@ DEFAULT_CONFIG ?= jenkins-common-8w-lockableDB.cfg
 # - Controls how many bits in the GUID are used for PD location
 CFLAGS += -DGUID_PROVIDER_LOCID_SIZE=10
 
-# - Per worker GUID generation: GUID_WID_SIZE is the maximum
-#   number of workers supported per PD
-# CFLAGS += -DGUID_PROVIDER_WID_INGUID += -DGUID_WID_SIZE=4
+# - Per worker GUID generation: 2^GUID_PROVIDER_WID_SIZE is the
+#   maximum number of workers supported per PD
+# CFLAGS += -DGUID_PROVIDER_WID_INGUID -DGUID_PROVIDER_WID_SIZE=6
 
 # - Activate a different hashmap implementation
 #   Warning: Necessitates an additional -D activating the alternate implementation
 # CFLAGS += -DGUID_PROVIDER_CUSTOM_MAP -D_TODO_FILL_ME_IN
+
+# **** Hashtable Parameters ****
+
+# - Distribute hashtable locks over cache lines
+# CFLAGS += -DHASHTABLE_LOCK_SPREAD
+
+# - Activates hashtable statistics
+#   - Prints high watermark on buckets
+# CFLAGS += -DSTATS_HASHTABLE
+
+# - Keeps track of bucket's lock collision
+# CFLAGS += -DSTATS_HASHTABLE_COLLIDE
+
+# - Print per bucket stats
+# CFLAGS += -DSTATS_HASHTABLE_VERB
+
+# **** Communication Platform Parameters ****
+
+# - MPI specifics
+#   - Make use of MPI-3 message
+# CFLAGS += -DMPI_MSG
+#   - For MPI_PROBE impl, push new operations at
+#     the tail of incoming and outgoing queues
+# CFLAGS += -DMPI_COMM_PUSH_AT_TAIL
+#   - Forces to allocate MPI requests instead of using pool
+# CFLAGS += -DMPI_ALLOC_REQ
 
 # **** EDTs parameters ****
 
@@ -58,6 +127,13 @@ CFLAGS += -DGUID_PROVIDER_LOCID_SIZE=10
 # can have IFF it needs to acquire the same DB on
 # multiple slots
 # CFLAGS += -DOCR_MAX_MULTI_SLOT=1
+
+# **** Datablocks (DBs) parameters ****
+
+# Enables runtime code that checks for the eager datablock hint
+# else it is systematically ignored.
+#
+CFLAGS += -DALLOW_EAGER_DB
 
 # **** Debugging parameters ****
 
@@ -90,8 +166,65 @@ CFLAGS += -DGUID_PROVIDER_LOCID_SIZE=10
 
 # Declare flags for AddressSanitizer
 # Warning: Applications must use the same flags else it will crash.
+# Declare flags for AddressSanitizer
+# Warning: Applications must use the same flags else it will crash.
 ifeq (${OCR_ASAN}, yes)
   ASAN_FLAGS := -g -fsanitize=address -fno-omit-frame-pointer
+  CFLAGS += $(ASAN_FLAGS)
+  LDFLAGS += $(ASAN_FLAGS) $(LDFLAGS)
+endif
+
+# Extrae instrumentation
+# x86 only
+#
+# Enable instrumentation
+# CFLAGS += -DEXTRAE_RUNTIME_INSTRUMENTATION
+#
+# Extrae header and library flags
+# CFLAGS += -I$(EXTRAE_HOME)/include
+# LDFLAGS := -L$(EXTRAE_HOME)/lib -lpttrace $(LDFLAGS)
+#
+# Select events to be instrumented
+# 'HWC' version of the flag reads
+# hardware counter values on event creation.
+#
+# Instrument scheduler events
+# CFLAGS += -DENABLE_EVENT_SCHED
+# CFLAGS += -DENABLE_HWC_EVENT_SCHED
+#
+# Instrument user code
+# CFLAGS += -DENABLE_EVENT_USERCODE
+# CFLAGS += -DENABLE_HWC_EVENT_USERCODE
+#
+# Instrument (wo?)
+# CFLAGS += -DENABLE_EVENT_WO
+# CFLAGS += -DENABLE_HWC_EVENT_WO
+#
+# Instrument API
+# CFLAGS += -DENABLE_EVENT_API
+# CFLAGS += -DENABLE_HWC_EVENT_API
+#
+# Instrument Policy Domain
+# CFLAGS += -DENABLE_EVENT_PD
+# CFLAGS += -DENABLE_HWC_EVENT_PD
+#
+# Instrument (cp?)
+# CFLAGS += -DENABLE_EVENT_CP
+# CFLAGS += -DENABLE_HWC_EVENT_CP
+#
+# Instrument (ta?)
+# CFLAGS += -DENABLE_EVENT_TA
+# CFLAGS += -DENABLE_HWC_EVENT_TA
+#
+#
+#
+
+ifeq (${OCR_ASAN}, leak)
+  # Not using mpicc so put the good stuff here
+  CFLAGS += -I${MPI_ROOT}/include
+  LDFLAGS += -L${MPI_ROOT}/lib -lmpi
+  # Setup ASAN for leak detection
+  ASAN_FLAGS := -g -fsanitize=leak -fno-omit-frame-pointer
   CFLAGS += $(ASAN_FLAGS)
   LDFLAGS += $(ASAN_FLAGS) $(LDFLAGS)
 endif
@@ -131,13 +264,23 @@ endif
 # focus function into an EVENT_OTHER bucket.
 # CFLAGS += -DPROFILER_COUNT_OTHER
 #
+# The following option is only relevant with PROFILER_FOCUS
+# By default, this is equal to PROFILER_FOCUS. The first level of
+# runtime calls from the PROFILER_PEEK function will be printed.
+# CFLAGS += -DPROFILER_PEEK=userCode
+#
+# The following is only relevant with PROFILER_FOCUS and PROFILER_IGNORE_RT
+# You can override what you consider to be runtime calls (and ignored by
+# PROFILER_IGNORE_RT) and user calls. By default, all runtime calls
+# are considered as runtime calls and user calls as user calls but you can
+# change that by setting PROFILER_NAME_ISRT to either 1 (to consider as
+# a runtime call) or 0 otherwise. NAME should be the name of the call, for
+# example PROFILER_userCode_ISRT. Note that by default, the calls PROFILER_FOCUS
+# and PROFILER_PEEK are always considered as user calls
+# CFLAGS += -DPROFILER_userCode_ISRT=0
+#
 # (optional) Maximum number of scope nesting for runtime profiler
 # CFLAGS += -DMAX_PROFILER_LEVEL=512
-
-# Enables the collection of EDT R/W statistics
-# x86 only
-# Requires OCR_ENABLE_EDT_NAMING
-# CFLAGS += -DOCR_ENABLE_EDT_PROFILING
 
 # Enables data collection for execution timeline visualizer
 # x86 only
@@ -147,6 +290,18 @@ endif
 # Enable custom tracing to be written to binary neglecting console output
 # (Primarily for LLNL tools inter-operability)
 # CFLAGS += -DOCR_TRACE_BINARY
+
+# Enable monitoring/logging of message traffic between policy domains
+# Requires Tracing (-DOCR_TRACE_BINARY)
+# CFLAGS += -DOCR_MONITOR_NETWORK -DOCR_TRACE_BINARY
+
+# Enable trace events for monitoring scheduling overhead activity
+# Requires OCR_TRACE_BINARY
+# CFLAGS += -DOCR_MONITOR_SCHEDULER -DOCR_TRACE_BINARY
+
+# Enable custom tracing for collecting trace data for OCR simulator
+# Requires OCR_TRACE_BINARY
+# CFLAGS += -DOCR_ENABLE_SIMULATOR -DOCR_TRACE_BINARY
 
 ####################################################
 # Experimental flags
@@ -159,11 +314,8 @@ endif
 # If this is note the case, an ASSERT will happen
 # CFLAGS += -DOCR_ENABLE_EDT_NAMING
 
-# Enable profiling data to be used by runtime. This requires EDT_NAMING
-#CFLAGS += -DOCR_ENABLE_EDT_PROFILING -DOCR_ENABLE_EDT_NAMING
-
 # Flag to test 128-bit guids.
-# CFLAGS += -DENABLE_128_BIT_GUID
+# CFLAGS += -DOCR_ENABLE_128_BIT_GUID
 
 ####################################################
 # Debug flags
@@ -179,6 +331,9 @@ ifneq (${NO_DEBUG}, yes)
 else
   OPT_LEVEL=-O3
 endif
+
+# Turns on critical asserts that are always checked
+#CFLAGS += -DOCR_ASSERT_CRITICAL
 
 # Define level
 CFLAGS += -DOCR_DEBUG_LVL=DEBUG_LVL_WARN
@@ -280,10 +435,20 @@ CFLAGS += -DOCR_TRACE_WORKPILE
 
 CFLAGS := -g -Wall $(CFLAGS) $(CFLAGS_USER)
 
+# On some machines (Edison...), having the .d files have the same
+# timestamp as the .o files causes them to be considered "newer"
+# and forces rebuilds. To prevent this, we backdate the .d file.
+# The command to do this is a bit experimental so enable with caution
+# Change to yes to enable by default or set to yes in the command line
+BACKDATE_DFILES ?= no
 ################################################################
 # END OF USER CONFIGURABLE OPTIONS                             #
 ################################################################
 
+
+# Make sure that incompletely produced files are deleted
+# on error
+.DELETE_ON_ERROR:
 
 #
 # Make sure we have absolute paths
@@ -348,6 +513,12 @@ SRCS   := $(shell find -L $(OCR_ROOT)/src -name '*.[csS]' -print)
 #
 VPATH  := $(shell find -L $(OCR_ROOT)/src -type d -print)
 
+ifneq (,$(findstring EXTRAE_RUNTIME_INSTRUMENTATION,$(CFLAGS)))
+  INSTRUMENTATION_FILE=$(OCR_BUILD)/src/instrumentationAutoGenRT.h
+  CFLAGS += -I $(OCR_BUILD)/src
+  VPATH += $(OCR_BUILD)/src
+endif
+
 ifneq (,$(findstring OCR_RUNTIME_PROFILER,$(CFLAGS)))
   SRCSORIG := $(SRCS)
   PROFILER_FILE_C=$(OCR_BUILD)/src/profilerAutoGen.c
@@ -389,7 +560,7 @@ OBJS_EXEC     := $(addprefix $(OBJDIR)/exec/, $(addsuffix .o, $(basename $(notdi
 # Update include paths
 CFLAGS := -I . -I $(OCR_ROOT)/inc -I $(OCR_ROOT)/src -I $(OCR_ROOT)/src/inc $(CFLAGS)
 
-ifeq (${NO_DEBUG},"")
+ifneq (${NO_DEBUG}, yes)
   ifeq (, $(filter-out gcc mpicc, $(CC)))
     # For gcc/mpicc versions < 4.4 disable warning as error as message pragmas are not supported
     ret := $(shell echo "`$(CC) -dumpversion | cut -d'.' -f1-2` < 4.4" | bc)
@@ -532,6 +703,10 @@ $(OCREXEC): $(OBJS_EXEC)
 #
 # Objects build rules
 #
+$(INSTRUMENTATION_FILE):
+	@echo "Generating instrumentation header file..."
+	$(AT)$(OCR_ROOT)/scripts/Profiler/generateInstrumentationFile.py -m rt -o $(OCR_BUILD)/src/instrumentationAutoGen --exclude .git --exclude profiler $(PROFILER_EXTRA_OPTS) $(OCR_ROOT)/src
+	@echo "\tDone."
 
 $(PROFILER_FILE): $(SRCSORIG) | $(OCR_BUILD)/src
 	@echo "Generating profile file..."
@@ -558,17 +733,21 @@ $(PROFILER_FILE_C): $(PROFILER_FILE)
 # Delete default rules so it makes sure to use ours
 %.o: %.c
 
-$(OBJDIR)/static/%.o: %.c Makefile ../common.mk $(PROFILER_FILE) $(OBJDIR)/static/%.d | $(OBJDIR)/static
+$(OBJDIR)/static/%.o: %.c Makefile ../common.mk $(PROFILER_FILE) $(INSTRUMENTATION_FILE) $(OBJDIR)/static/%.d | $(OBJDIR)/static
 	@echo "Compiling $<"
 	$(AT)$(CC) $(CFLAGS_STATIC) -MMD -c $< -o $@
 	$(AT)cp -f $(@:.o=.d) $(@:.o=.d.tmp)
 	$(AT)sed -e 's/.*://' -e 's/\\$$//' < $(@:.o=.d.tmp) | fmt -1 | \
 	sed -e 's/^ *//' -e 's/$$/: /' >> $(@:.o=.d)
+ifeq ($(BACKDATE_DFILES), yes)
+	$(AT)stat --format="%Y" $@ | sed 's/\([0-9]*\)/\1 60 - p/' | dc | sed 's/\([0-9]*\)/@\1/' | date -f - +"%Y%m%d%H%M.%S" | xargs touch $(@:.o=.d) -t
+else
 	$(AT)touch -r $@ $(@:.o=.d)
+endif
 	$(AT)rm -f $(@:.o=.d.tmp)
 
 
-$(OBJDIR)/shared/%.o: %.c Makefile ../common.mk $(PROFILER_FILE) $(OBJDIR)/shared/%.d | $(OBJDIR)/shared
+$(OBJDIR)/shared/%.o: %.c Makefile ../common.mk $(PROFILER_FILE) $(INSTRUMENTATION_FILE) $(OBJDIR)/shared/%.d | $(OBJDIR)/shared
 	@echo "Compiling $<"
 	$(AT)$(CC) $(CFLAGS_SHARED) -MMD -c $< -o $@
 	$(AT)cp -f $(@:.o=.d) $(@:.o=.d.tmp)
@@ -610,7 +789,34 @@ $(OBJDIR)/shared/%.o: %.S Makefile ../common.mk $(OBJDIR)/shared/%.d | $(OBJDIR)
 # Auto-generated config file containing options that
 # need to be enabled for the app if enabled in the runtime
 #
-# We always re-generate this file
+# We always attempt to re-generate this file
+# We don't change it all the time as this messes up dependence
+# checking for applications.
+OPTIONS_FILE_UPTODATE := no
+ifneq ("$(wildcard $(OCR_INSTALL)/include/ocr-options_$(OCR_TYPE).h)", "")
+  ifeq ($(shell cat $(OCR_INSTALL)/include/ocr-options_$(OCR_TYPE).h | sed '4s/.*RT CFLAGS:\(.*\)\*\//\1/; 4!d' | xargs ), $(shell echo "$(CFLAGS)" | xargs))
+    OPTIONS_FILE_UPTODATE := yes
+  endif
+endif
+
+# We do something similar with configuration options but actually dump them in a build file
+# so that we can build without installing and not have to rebuild when we install
+OPTIONS_UPTODATE := no
+ifneq ("$(wildcard $(OCR_BUILD)/cflags)", "")
+  ifeq ($(shell cat $(OCR_BUILD)/cflags | xargs), $(shell echo "$(CFLAGS)" | xargs))
+    OPTIONS_UPTODATE := yes
+  endif
+endif
+
+ifeq ($(OPTIONS_UPTODATE), no)
+  # If the options have changed, we make it so that the configuration file
+  # looks changed so that things get properly rebuilt. This could be, for
+  # example, if the CFLAGS were changed on the command line
+  $(shell touch $(OCR_BUILD)/ocr-config.h)
+  $(shell rm -f $(OCR_BUILD)/cflags)
+  $(shell echo "$(CFLAGS)" | xargs > $(OCR_BUILD)/cflags)
+endif
+ifeq ($(OPTIONS_FILE_UPTODATE), no)
 .PHONY: $(OCR_INSTALL)/include/ocr-options_$(OCR_TYPE).h
 $(OCR_INSTALL)/include/ocr-options_$(OCR_TYPE).h: | $(OCR_INSTALL)/include
 	@echo "Generating OCR build option file: $@"
@@ -618,22 +824,26 @@ $(OCR_INSTALL)/include/ocr-options_$(OCR_TYPE).h: | $(OCR_INSTALL)/include
 	$(AT)$(shell echo "#ifndef __OCR_OPTIONS_"$(subst -,_,$(OCR_TYPE))"_H__" >> $@)
 	$(AT)$(shell echo "#define __OCR_OPTIONS_"$(subst -,_,$(OCR_TYPE))"_H__" >> $@)
 	$(AT)$(shell echo "/* Generated based on RT CFLAGS: $(CFLAGS) */" >> $@)
-  ifneq (,$(findstring -DENABLE_EDT_NAMING, $(CLAGS)))
-	$(AT)$(shell echo "#ifndef ENABLE_EDT_NAMING" >> $@)
-	$(AT)$(shell echo "#define ENABLE_EDT_NAMING" >> $@)
+ifneq (,$(findstring -DOCR_ENABLE_EDT_NAMING, $(CFLAGS)))
+	$(AT)$(shell echo "#ifndef OCR_ENABLE_EDT_NAMING" >> $@)
+	$(AT)$(shell echo "#define OCR_ENABLE_EDT_NAMING" >> $@)
 	$(AT)$(shell echo "#endif" >> $@)
-  endif
-  ifneq (,$(findstring -DENABLE_128_BIT_GUID, $(CFLAGS)))
-	$(AT)$(shell echo "#ifndef ENABLE_128_BIT_GUID" >> $@)
-	$(AT)$(shell echo "#define ENABLE_128_BIT_GUID" >> $@)
+endif
+ifneq (,$(findstring -DOCR_ENABLE_128_BIT_GUID, $(CFLAGS)))
+	$(AT)$(shell echo "#ifndef OCR_ENABLE_128_BIT_GUID" >> $@)
+	$(AT)$(shell echo "#define OCR_ENABLE_128_BIT_GUID" >> $@)
 	$(AT)$(shell echo "#endif" >> $@)
-  endif
-  ifneq (,$(findstring -DOCR_ASSERT, $(CFLAGS)))
+endif
+ifneq (,$(findstring -DOCR_ASSERT, $(CFLAGS)))
 	$(AT)$(shell echo "#ifndef OCR_ASSERT" >> $@)
 	$(AT)$(shell echo "#define OCR_ASSERT" >> $@)
 	$(AT)$(shell echo "#endif" >> $@)
-  endif
-	$(AT)$(shell echo "#endif /* __OCR_OPTIONS_"$(OCR_TYPE)"_H__ */" >> $@)
+endif
+	$(AT)$(shell echo "#endif /* __OCR_OPTIONS_"$(subst -,_,$(OCR_TYPE))"_H__ */" >> $@)
+else
+$(OCR_INSTALL)/include/ocr-options_$(OCR_TYPE).h: | $(OCR_INSTALL)/include
+	;
+endif
 #
 # Include auto-generated dependence files
 # We only include the ones for the .o that we need to generate
@@ -684,7 +894,7 @@ MACHINE_CONFIGS   := $(notdir $(wildcard $(OCR_ROOT)/machine-configs/$(OCR_TYPE)
 SCRIPT_FILES      := Configs/config-generator.py
 
 ifneq (,$(findstring $(OCR_TYPE),"tg-ce tg-xe builder-xe builder-ce"))
-  SCRIPT_FILES      += $(addprefix Configs/, ce_config_fix.py combine-configs.py mem_config_fix.py tg-fsim_config_fix.py)
+  SCRIPT_FILES      += $(addprefix Configs/, ce_config_fix.py combine-configs.py xe_config_fix.py tg-fsim_config_fix.py)
   SCRIPT_FILES      += $(patsubst $(OCR_ROOT)/scripts/%,%,$(wildcard $(OCR_ROOT)/scripts/Blob/*))
 endif
 ifeq (x86-phi,$(findstring $(OCR_TYPE),x86-phi))
@@ -722,23 +932,23 @@ endif
 UNAME := $(shell uname -s)
 ifeq ($(UNAME),Darwin)
 
-  $(OCR_INSTALL)/lib/%: $(BASE_LIBS)% | $(OCR_INSTALL)/lib
+  $(OCR_INSTALL)/lib/%: $(BASE_LIBS)% | $(OCR_INSTALL)/lib grablock
 	$(AT)$(RM) -f $@
 	$(AT)install -m 0644 $< $@
 
-  $(OCR_INSTALL)/bin/%: $(BASE_EXES)% | $(OCR_INSTALL)/bin
+  $(OCR_INSTALL)/bin/%: $(BASE_EXES)% | $(OCR_INSTALL)/bin grablock
 	$(AT)$(RM) -f $@
 	$(AT)install -m 0755 $< $@
 
-  $(OCR_INSTALL)/include/%: $(OCR_ROOT)/inc/% | $(OCR_INSTALL)/include $(OCR_INSTALL)/include/extensions
+  $(OCR_INSTALL)/include/%: $(OCR_ROOT)/inc/% | $(OCR_INSTALL)/include $(OCR_INSTALL)/include/extensions grablock
 	$(AT)$(RM) -f $@
 	$(AT)install -m 0644 $< $@
 
-  $(OCR_INSTALL)/share/ocr/config/$(OCR_TYPE)/%: $(OCR_ROOT)/machine-configs/$(OCR_TYPE)/% | $(OCR_INSTALL)/share/ocr/config/$(OCR_TYPE)
+  $(OCR_INSTALL)/share/ocr/config/$(OCR_TYPE)/%: $(OCR_ROOT)/machine-configs/$(OCR_TYPE)/% | $(OCR_INSTALL)/share/ocr/config/$(OCR_TYPE) grablock
 	$(AT)$(RM) -f $@
 	$(AT)install -m 0644 $< $@
 
-  $(OCR_INSTALL)/share/ocr/scripts/%: $(OCR_ROOT)/scripts/% | $(OCR_INSTALL)/share/ocr/scripts $(OCR_INSTALL)/share/ocr/scripts/Configs
+  $(OCR_INSTALL)/share/ocr/scripts/%: $(OCR_ROOT)/scripts/% | $(OCR_INSTALL)/share/ocr/scripts $(OCR_INSTALL)/share/ocr/scripts/Configs grablock
 	$(AT)$(RM) -f $@
 	$(AT)install -m 0755 $< $@
 
@@ -753,19 +963,19 @@ ifeq ($(UNAME),Darwin)
 
 else
 
-  $(OCR_INSTALL)/lib/%: $(BASE_LIBS)%
+  $(OCR_INSTALL)/lib/%: $(BASE_LIBS)% | grablock
 	$(AT)install -D -m 0644 $< $@
 
-  $(OCR_INSTALL)/bin/%: $(BASE_EXES)%
+  $(OCR_INSTALL)/bin/%: $(BASE_EXES)% | grablock
 	$(AT)install -D -m 0755 $< $@
 
-  $(OCR_INSTALL)/include/%: $(OCR_ROOT)/inc/%
+  $(OCR_INSTALL)/include/%: $(OCR_ROOT)/inc/% | grablock
 	$(AT)install -D -m 0644 $< $@
 
-  $(OCR_INSTALL)/share/ocr/config/$(OCR_TYPE)/%: $(OCR_ROOT)/machine-configs/$(OCR_TYPE)/%
+  $(OCR_INSTALL)/share/ocr/config/$(OCR_TYPE)/%: $(OCR_ROOT)/machine-configs/$(OCR_TYPE)/% | grablock
 	$(AT)install -D -m 0644 $< $@
 
-  $(OCR_INSTALL)/share/ocr/scripts/%: $(OCR_ROOT)/scripts/%
+  $(OCR_INSTALL)/share/ocr/scripts/%: $(OCR_ROOT)/scripts/% | grablock
 	$(AT)install -D -m 0755 $< $@
 
   # Need this for the auto-generated .h file
@@ -775,6 +985,15 @@ else
 
 endif # Darwin ifeq
 
+.PHONY: grablock
+grablock: /tmp/$(subst /,_,$(OCR_INSTALL))_lock
+
+# List the lock file as intermediate so it is removed if things crash
+.INTERMEDIATE: /tmp/$(subst /,_,$(OCR_INSTALL))_lock
+/tmp/$(subst /,_,$(OCR_INSTALL))_lock:
+	@printf "\033[32m Grabbing install lock\033[0m\n"
+	$(AT)lockfile "/tmp/$(subst /,_,$(OCR_INSTALL))_lock";
+
 .PHONY: install
 install: ${INSTALL_TARGETS} ${INSTALLED_LIBS} ${INSTALLED_EXES} ${INSTALLED_INCS} \
 	${INSTALLED_CONFIGS} ${INSTALLED_SCRIPTS}
@@ -783,6 +1002,8 @@ install: ${INSTALL_TARGETS} ${INSTALLED_LIBS} ${INSTALLED_EXES} ${INSTALLED_INCS
 		$(RM) -f $(OCR_INSTALL)/share/ocr/config/$(OCR_TYPE)/default.cfg; \
 		$(LN) -sf ./$(DEFAULT_CONFIG) $(OCR_INSTALL)/share/ocr/config/$(OCR_TYPE)/default.cfg; \
 	fi
+	@printf "\033[32m Released lock\033[0m\n"
+	$(AT)rm -f "/tmp/$(subst /,_,$(OCR_INSTALL))_lock";
 
 .PHONY: uninstall
 uninstall:

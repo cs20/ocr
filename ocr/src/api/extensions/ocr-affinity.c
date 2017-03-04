@@ -7,6 +7,7 @@
 #include "ocr-config.h"
 #ifdef ENABLE_EXTENSION_AFFINITY
 
+#include "debug.h"
 #include "extensions/ocr-affinity.h"
 #include "ocr-policy-domain.h"
 #include "experimental/ocr-platform-model.h"
@@ -28,8 +29,17 @@
 // and data to each guid.
 
 u8 ocrAffinityCount(ocrAffinityKind kind, u64 * count) {
+#if defined(TG_CE_TARGET)
+    // CE should not ask anything
+    *count = 0;
+    return 0;
+#endif
+    OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_API_AFFINITY, OCR_ACTION_GET_COUNT);
+    if(kind == AFFINITY_SIM)
+        return 0;
+
     START_PROFILE(api_ocrAffinityCount)
-    ocrPolicyDomain_t * pd = NULL;
+    ocrPolicyDomain_t *pd = NULL;
     getCurrentEnv(&pd, NULL, NULL, NULL);
     // If no platformModel, we know nothing so just say that we are the only one
     if(pd->platformModel == NULL) {
@@ -51,6 +61,14 @@ u8 ocrAffinityCount(ocrAffinityKind kind, u64 * count) {
 }
 
 u8 ocrAffinityQuery(ocrGuid_t guid, u64 * count, ocrGuid_t * affinities) {
+#if defined(TG_CE_TARGET)
+    // CE should not ask anything
+    if(count)
+        *count = 0;
+    affinities[0] = NULL_GUID;
+    return 0;
+#endif
+    OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_API_AFFINITY, OCR_ACTION_QUERY);
     START_PROFILE(api_ocrAffinityQuery);
     ocrPolicyDomain_t * pd = NULL;
     getCurrentEnv(&pd, NULL, NULL, NULL);
@@ -78,8 +96,14 @@ u8 ocrAffinityQuery(ocrGuid_t guid, u64 * count, ocrGuid_t * affinities) {
         //So we resolve the affinity of the GUID by looking up its
         //location and use that to index into the affinity array.
         //NOTE: Shortcoming is that it assumes location are integers.
+#ifdef TG_XE_TARGET
+        u32 loc2 = locationToIdx(loc);
+        ASSERT((loc2) < platformModel->pdLocAffinitiesSize);
+        affinities[0] = platformModel->pdLocAffinities[loc2];
+#else
         ASSERT(((u32)loc) < platformModel->pdLocAffinitiesSize);
         affinities[0] = platformModel->pdLocAffinities[(u32)loc];
+#endif
     }
     RETURN_PROFILE(0);
 }
@@ -87,6 +111,11 @@ u8 ocrAffinityQuery(ocrGuid_t guid, u64 * count, ocrGuid_t * affinities) {
 
 //BUG #606/#VV4 Neighbors/affinities:  This call returns affinities with identical mapping across PDs.
 u8 ocrAffinityGet(ocrAffinityKind kind, u64 * count, ocrGuid_t * affinities) {
+#if defined(TG_CE_TARGET)
+    // CE should not ask anything
+    ASSERT(count && (*count) == 0);
+    return 0;
+#endif
     START_PROFILE(api_ocrAffinityGet);
     ocrPolicyDomain_t * pd = NULL;
     getCurrentEnv(&pd, NULL, NULL, NULL);
@@ -117,6 +146,12 @@ u8 ocrAffinityGet(ocrAffinityKind kind, u64 * count, ocrGuid_t * affinities) {
 }
 
 u8 ocrAffinityGetAt(ocrAffinityKind kind, u64 idx, ocrGuid_t * affinity) {
+#if defined(TG_CE_TARGET)
+    // CE should not ask anything
+    *affinity = NULL_GUID;
+    return 0;
+#endif
+    OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_API_AFFINITY, OCR_ACTION_GET_AT);
     START_PROFILE(api_ocrAffinityGetAt);
     ocrPolicyDomain_t * pd = NULL;
     getCurrentEnv(&pd, NULL, NULL, NULL);
@@ -144,6 +179,12 @@ u8 ocrAffinityGetAt(ocrAffinityKind kind, u64 idx, ocrGuid_t * affinity) {
 }
 
 u8 ocrAffinityGetCurrent(ocrGuid_t * affinity) {
+#if defined(TG_CE_TARGET)
+    // CE should not ask anything
+    *affinity = NULL_GUID;
+    return 0;
+#endif
+    OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_API_AFFINITY, OCR_ACTION_GET_CURRENT);
     u64 count = 1;
     return ocrAffinityGet(AFFINITY_CURRENT, &count, affinity);
 }
@@ -159,4 +200,3 @@ u64 ocrAffinityToHintValue(ocrGuid_t affinity) {
 }
 
 #endif /* ENABLE_EXTENSION_AFFINITY */
-

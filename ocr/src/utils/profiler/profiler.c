@@ -35,12 +35,13 @@
 
 #ifdef OCR_RUNTIME_PROFILER
 
-
 #include <stdio.h>
 #include <pthread.h>
 
 // BUG #591: Make this more platform independent
 extern pthread_key_t _profilerThreadData;
+
+// BUG #591: Statics aren't great
 
 /* _profiler functions */
 void _profilerInit(_profiler *self, u32 event, u64 prevTicks) {
@@ -51,11 +52,15 @@ void _profilerInit(_profiler *self, u32 event, u64 prevTicks) {
     self->myEvent = event;
     self->previousLastLevel = 0;
     *(u8*)(&(self->flags)) = 0;
+    self->flags.isRtCall = (_profilerEventIsRt[event/64] & (1ULL<<(event & 0x3F))) != 0ULL;
 
     self->myData = (_profilerData*)pthread_getspecific(_profilerThreadData);
     if(self->myData) {
 #ifdef PROFILER_FOCUS
 
+#ifndef PROFILER_PEEK
+#define PROFILER_PEEK PROFILER_FOCUS
+#endif
         if(self->myData->level > 0) {
 #ifdef PROFILER_COUNT_OTHER
             if(self->myData->stack[self->myData->level-1]->myEvent == EVENT_OTHER) {
@@ -81,17 +86,12 @@ void _profilerInit(_profiler *self, u32 event, u64 prevTicks) {
 #endif /* PROFILER_FOCUS_DEPTH */
 
 #ifdef PROFILER_IGNORE_RT
-            if(event != PROFILER_FOCUS && self->myData->stack[self->myData->level-1]->myEvent != PROFILER_FOCUS &&
-               self->myData->stack[self->myData->level-1]->myEvent <
-#ifdef PROFILER_W_APPS
-               MAX_EVENTS_RT
-#else
-               MAX_EVENTS
-#endif
-               ) {
+            if(event == PROFILER_FOCUS || event == PROFILER_PEEK) {
+                self->flags.isRtCall = 0; // Always consider the focus function to be user code
+            }
+            if(self->flags.isRtCall && (self->myData->stack[self->myData->level-1]->flags.isRtCall == 1)) {
+                // Call to the runtime and we shouldn't peek into the last function
                 // We already saw a call to the runtime, we return
-                // Make sure we skip the FOCUS function though (which could
-                // be 'userCode' which is < MAX_EVENTS_RT)
                 return;
             }
 #endif /* PROFILER_IGNORE_RT */
@@ -295,6 +295,7 @@ void _profilerPauseInternal(_profiler *self) {
     res = (end.tv_sec-start.tv_sec)*1000000L + (end.tv_nsec - start.tv_nsec)/1000;
 
 /* _profilerData functions */
+
 void _profilerDataInit(_profilerData *self) {
     self->level = 0;
     self->overheadTimer = 0;
@@ -323,37 +324,41 @@ void _profilerDataInit(_profilerData *self) {
 void _profilerDataDestroy(void* _self) {
     _profilerData *self = (_profilerData*)_self;
 
-    // This will dump the profile and delete everything. This can be called
-    // when the thread is exiting (and the TLS is destroyed)
-    u32 i;
-    for(i=0; i<(u32)MAX_EVENTS; ++i) {
-        fprintf(self->output, "DEF %s %"PRIu32"\n", _profilerEventNames[i], i);
-    }
+    if(self) {
+        // This will dump the profile and delete everything. This can be called
+        // when the thread is exiting (and the TLS is destroyed)
+        u32 i;
+        for(i=0; i<(u32)MAX_EVENTS; ++i) {
+            fprintf(self->output, "DEF %s %"PRIu32"\n", _profilerEventNames[i], i);
+        }
 
-    // Print out the entries
-    for(i=0; i<(u32)MAX_EVENTS; ++i) {
-        u32 j;
-        for(j=0; j<(u32)MAX_EVENTS; ++j) {
-            if(j == i) {
-                _profilerSelfEntry *entry = &(self->selfEvents[i]);
-                if(entry->count == 0) continue; // Skip entries with no content
-                fprintf(self->output, "ENTRY %"PRIu32":%"PRIu32" = count(%"PRIu64"), sum(%"PRIu64".%06"PRIu32"), sumSq(%"PRIu64".%012"PRIu64")\n",
-                        i, j, entry->count, entry->sumMs, entry->sumNs, entry->sumSqMs, entry->sumSqNs);
-            } else {
-                // Child entry
-                _profilerChildEntry *entry = &(self->childrenEvents[i][j<i?j:(j-1)]);
-                if(entry->count == 0) continue;
-                fprintf(self->output,
-                        "ENTRY %"PRIu32":%"PRIu32" = count(%"PRIu64"), sum(%"PRIu64".%06"PRIu32"), sumSq(%"PRIu64".%012"PRIu64"), sumChild(%"PRIu64".%06"PRIu32"), sumSqChild(%"PRIu64".%012"PRIu64"), sumRecurse(%"PRIu64".%06"PRIu32"), sumSqRecurse(%"PRIu64".%012"PRIu64")\n",
-                        i, j, entry->count, entry->sumMs, entry->sumNs, entry->sumSqMs,
-                        entry->sumSqNs, entry->sumInChildrenMs, entry->sumInChildrenNs,
-                        entry->sumSqInChildrenMs, entry->sumSqInChildrenNs,
-                        entry->sumRecurseMs, entry->sumRecurseNs, entry->sumSqRecurseMs,
-                        entry->sumSqRecurseNs);
+        // Print out the entries
+        for(i=0; i<(u32)MAX_EVENTS; ++i) {
+            u32 j;
+            for(j=0; j<(u32)MAX_EVENTS; ++j) {
+                if(j == i) {
+                    _profilerSelfEntry *entry = &(self->selfEvents[i]);
+                    if(entry->count == 0) continue; // Skip entries with no content
+                    fprintf(self->output, "ENTRY %"PRIu32":%"PRIu32" = count(%"PRIu64"), sum(%"PRIu64".%06"PRIu32"), sumSq(%"PRIu64".%012"PRIu64")\n",
+                            i, j, entry->count, entry->sumMs, entry->sumNs, entry->sumSqMs, entry->sumSqNs);
+                } else {
+                    // Child entry
+                    _profilerChildEntry *entry = &(self->childrenEvents[i][j<i?j:(j-1)]);
+                    if(entry->count == 0) continue;
+                    fprintf(self->output,
+                            "ENTRY %"PRIu32":%"PRIu32" = count(%"PRIu64"), sum(%"PRIu64".%06"PRIu32"), sumSq(%"PRIu64".%012"PRIu64"), sumChild(%"PRIu64".%06"PRIu32"), sumSqChild(%"PRIu64".%012"PRIu64"), sumRecurse(%"PRIu64".%06"PRIu32"), sumSqRecurse(%"PRIu64".%012"PRIu64")\n",
+                            i, j, entry->count, entry->sumMs, entry->sumNs, entry->sumSqMs,
+                            entry->sumSqNs, entry->sumInChildrenMs, entry->sumInChildrenNs,
+                            entry->sumSqInChildrenMs, entry->sumSqInChildrenNs,
+                            entry->sumRecurseMs, entry->sumRecurseNs, entry->sumSqRecurseMs,
+                            entry->sumSqRecurseNs);
+                }
             }
         }
+        fclose(self->output);
     }
-    fclose(self->output);
 }
 
 #endif /* OCR_RUNTIME_PROFILER */
+
+

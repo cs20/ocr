@@ -15,6 +15,19 @@
 #include "worker/hc/hc-worker.h"
 #include "worker/hc-comm/hc-comm-worker.h"
 #include "ocr-errors.h"
+#include "ocr-policy-domain-tasks.h"
+#ifdef ENABLE_RESILIENCY
+#include "policy-domain/hc/hc-policy.h"
+#include "comm-platform/mpi/mpi-comm-platform.h"
+#include "ocr-scheduler-heuristic.h"
+#include "ocr-scheduler-object.h"
+#include "scheduler/common/common-scheduler.h"
+#include "scheduler-heuristic/hc/hc-comm-delegate-scheduler-heuristic.h"
+#include "scheduler-object/wst/wst-scheduler-object.h"
+#include "scheduler-object/deq/deq-scheduler-object.h"
+#include "worker/hc/hc-worker.h"
+#include "utils/deque.h"
+#endif
 
 // Load the affinities
 #include "experimental/ocr-platform-model.h"
@@ -30,163 +43,39 @@
 #define PHASE_COMM_QUIESCE ((u8) 1)
 #define PHASE_DONE ((u8) 0)
 
+//BUG #989: MT opportunity
+extern ocrGuid_t processRequestEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]);
+extern u8 processIncomingMsg(ocrPolicyDomain_t * pd, ocrPolicyMsg_t * msg);
 
 /******************************************************/
 /* OCR-HC COMMUNICATION WORKER                        */
 /* Extends regular HC workers                         */
 /******************************************************/
-
-ocrGuid_t processRequestEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
-    ocrPolicyMsg_t * msg = (ocrPolicyMsg_t *) paramv[0];
-    ocrPolicyDomain_t * pd;
-    getCurrentEnv(&pd, NULL, NULL, NULL);
-    // This is meant to execute incoming request and asynchronously processed responses (two-way asynchronous)
-    // Regular responses are routed back to requesters by the scheduler and are processed by them.
-    ASSERT((msg->type & PD_MSG_REQUEST) || ((msg->type & PD_MSG_RESPONSE) &&
-                (((msg->type & PD_MSG_TYPE_ONLY) == PD_MSG_DB_ACQUIRE) ||
-                ((msg->type & PD_MSG_TYPE_ONLY) == PD_MSG_GUID_METADATA_CLONE))));
-    // Important to read this before calling processMessage. If the message requires
-    // a response, the runtime reuses the request's message to post the response.
-    // Hence there's a race between this code and the code posting the response.
-    bool processResponse __attribute__((unused)) = !!(msg->type & PD_MSG_RESPONSE); // mainly for debug
-    bool syncProcess = !((msg->type & PD_MSG_TYPE_ONLY) == PD_MSG_DB_ACQUIRE);
-    // Here we need to read because on EPEND, by the time we get to check 'res'
-    // the callback my have completed and deallocated the message.
-    u32 msgTypeOnly = (msg->type & PD_MSG_TYPE_ONLY);
-
-#ifdef ENABLE_EXTENSION_BLOCKING_SUPPORT
-    bool checkLabeled = false;
-    if (((msg->type & PD_MSG_TYPE_ONLY) == PD_MSG_EVT_CREATE) && (msg->type & PD_MSG_REQUEST)) {
-#define PD_MSG (msg)
-#define PD_TYPE PD_MSG_EVT_CREATE
-        u32 properties = PD_MSG_FIELD_I(properties);
-        ASSERT((properties & GUID_PROP_IS_LABELED)); // Only labeled guid can be remotely created
-        checkLabeled = ((properties & GUID_PROP_BLOCK) == GUID_PROP_BLOCK);
-        if (checkLabeled) { // Make the check asynchronous
-            PD_MSG_FIELD_I(properties) |= GUID_PROP_CHECK;
-        }
-        syncProcess = !checkLabeled;
-#undef PD_MSG
-#undef PD_TYPE
-    }
-#endif
-
-    // All one-way request can be freed after processing
-    bool toBeFreed = !(msg->type & PD_MSG_REQ_RESPONSE);
-    DPRINTF(DEBUG_LVL_VVERB,"hc-comm-worker: Process incoming EDT request @ %p of type 0x%"PRIx32"\n", msg, msg->type);
-    u8 res = pd->fcts.processMessage(pd, msg, syncProcess);
-    DPRINTF(DEBUG_LVL_VVERB,"hc-comm-worker: [done] Process incoming EDT @ %p request of type 0x%"PRIx32"\n", msg, msg->type);
-    //BUG #587 probably want a return code that tells if the message can be discarded or not
-
-    if (res == OCR_EPEND) {
-        if (msgTypeOnly == PD_MSG_DB_ACQUIRE) {
-            // Acquire requests are consumed and can be discarded.
-            pd->fcts.pdFree(pd, msg);
-        }
-#ifdef ENABLE_EXTENSION_BLOCKING_SUPPORT
-        else if (checkLabeled) {
-            ocrTask_t *task = NULL;
-            getCurrentEnv(NULL, NULL, &task, NULL);
-            task->state = RESCHED_EDTSTATE;
-        }
-#endif
-        else {
-            ASSERT(msgTypeOnly == PD_MSG_WORK_CREATE);
-            // Do not deallocate: Message has been enqueued for further processing.
-            // Actually, message may have been deallocated in the meanwhile because
-            // the callback has been invoked.
-        }
-    } else {
-        if (toBeFreed) {
-            // Makes sure the runtime doesn't try to reuse this message
-            // even though it was not supposed to issue a response.
-            // If that's the case, this check is racy
-            // Cannot just test (|| !(msg->type & PD_MSG_RESPONSE)) because the way things
-            // are currently setup, the various policy-domain implementations are always setting
-            // the response flag although req_response is not set but the destLocation is still local.
-            // Hence there are no race between freeing the message and sending the hypotetical response.
-            ASSERT(processResponse || (msg->destLocation == pd->myLocation));
-            DPRINTF(DEBUG_LVL_VVERB,"hc-comm-worker: Deleted incoming EDT request @ %p of type 0x%"PRIx32"\n", msg, msg->type);
-            // if request was an incoming one-way we can delete the message now.
-            pd->fcts.pdFree(pd, msg);
-        }
-    }
-    return NULL_GUID;
+#ifdef UTASK_COMM
+static u8 createUTask(ocrPolicyDomain_t * pd, ocrPolicyMsg_t * msg) {
+    pdEvent_t * pdEvent;
+    RESULT_ASSERT(pdCreateEvent(pd, &pdEvent, PDEVT_TYPE_MSG, 0), ==, 0);
+    // We don't destroy deep for now because of compatibility with the
+    // processIncomingMsg call that does the free of the message
+    pdEvent->properties |= PDEVT_GC /*| PDEVT_DESTROY_DEEP*/;
+    ((pdEventMsg_t *) pdEvent)->msg = msg;
+    DPRINTF(DEBUG_LVL_VERB, "Created micro-task from incoming comm: %p\n", pdEvent);
+    RESULT_ASSERT(pdMarkReadyEvent(pd, pdEvent), ==, 0);
+    pdStrand_t * msgStrand;
+    RESULT_ASSERT(pdGetNewStrand(pd, &msgStrand, pd->strandTables[PDSTT_COMM-1], pdEvent, 0 /*unused*/), ==, 0);
+    pdAction_t * processAction = pdGetProcessMessageAction(NP_WORK);
+    RESULT_ASSERT(pdEnqueueActions(pd, msgStrand, 1, &processAction, true/*clear hold*/), ==, 0);
+    RESULT_ASSERT(pdUnlockStrand(msgStrand), ==, 0);
+    return 0;
 }
 
-static u8 takeFromSchedulerAndSend(ocrWorker_t * worker, ocrPolicyDomain_t * pd) {
-    // When the communication-worker is not stopping only a single iteration is
-    // executed. Otherwise it is executed until the scheduler's 'take' do not
-    // return any more work.
-    ocrMsgHandle_t * outgoingHandle = NULL;
-    PD_MSG_STACK(msgCommTake);
-    u8 ret = 0;
-    getCurrentEnv(NULL, NULL, NULL, &msgCommTake);
-    ocrFatGuid_t handlerGuid = {.guid = NULL_GUID, .metaDataPtr = NULL};
-    //IMPL: MSG_SCHED_GET_WORK implementation must be consistent across PD, Scheduler and Worker.
-    // We expect the PD to fill-in the guids pointer with an ocrMsgHandle_t pointer
-    // to be processed by the communication worker or NULL.
-    //PERF: could request 'n' for internal comm load balancing (outgoing vs pending vs incoming).
-#define PD_MSG (&msgCommTake)
-#define PD_TYPE PD_MSG_SCHED_GET_WORK
-    msgCommTake.type = PD_MSG_SCHED_GET_WORK | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
-    PD_MSG_FIELD_IO(schedArgs).kind = OCR_SCHED_WORK_COMM;
-    PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_COMM).guids = &handlerGuid;
-    PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_COMM).guidCount = 1;
-    ret = pd->fcts.processMessage(pd, &msgCommTake, true);
-    if (!ret && (PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_COMM).guidCount != 0)) {
-        ASSERT(PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_COMM).guidCount == 1); //LIMITATION: single guid returned by comm take
-        ocrFatGuid_t handlerGuid = PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_COMM).guids[0];
-        ASSERT(handlerGuid.metaDataPtr != NULL);
-        outgoingHandle = (ocrMsgHandle_t *) handlerGuid.metaDataPtr;
-#undef PD_MSG
-#undef PD_TYPE
-        if (outgoingHandle != NULL) {
-            // This code handles the pd's outgoing messages. They can be requests or responses.
-            DPRINTF(DEBUG_LVL_VVERB,"hc-comm-worker: outgoing handle comm take successful handle=%p, msg=%p type=0x%"PRIx32"\n",
-                    outgoingHandle, outgoingHandle->msg, outgoingHandle->msg->type);
-            //We can never have an outgoing handle with the response ptr set because
-            //when we process an incoming request, we lose the handle by calling the
-            //pd's process message. Hence, a new handle is created for one-way response.
-            ASSERT(outgoingHandle->response == NULL);
-            u32 properties = outgoingHandle->properties;
-            ASSERT(properties & PERSIST_MSG_PROP);
-            //BUG #587 design: Not sure where to draw the line between one-way with/out ack implementation
-            //If the worker was not aware of the no-ack policy, is it ok to always give a handle
-            //and the comm-api contract is to at least set the HDL_SEND_OK flag ?
-            ocrMsgHandle_t ** sendHandle = ((properties & TWOWAY_MSG_PROP) && !(properties & ASYNC_MSG_PROP))
-                ? &outgoingHandle : NULL;
-            ASSERT((outgoingHandle->msg->srcLocation == pd->myLocation) &&
-                   (outgoingHandle->msg->destLocation != pd->myLocation));
-            //BUG #587 design: who's responsible for deallocating the handle ?
-            //If the message is two-way, the creator of the handle is responsible for deallocation
-            //If one-way, the comm-layer disposes of the handle when it is not needed anymore
-            //=> Sounds like if an ack is expected, caller is responsible for dealloc, else callee
-            pd->fcts.sendMessage(pd, outgoingHandle->msg->destLocation, outgoingHandle->msg, sendHandle, properties);
-
-            // This is contractual for now. It recycles the handler allocated in the delegate-comm-api:
-            // - Sending a request one-way or a response (always non-blocking): The delegate-comm-api
-            //   creates the handle merely to be able to give it to the scheduler. There's no use of the
-            //   handle beyond this point.
-            // - The runtime does not implement blocking one-way. Hence, the callsite of the original
-            //   send message did not ask for a handler to be returned.
-            if (sendHandle == NULL) {
-                outgoingHandle->destruct(outgoingHandle);
-            }
-
-            //Communication is posted. If TWOWAY, subsequent calls to poll may return the response
-            //to be processed
-            return POLL_MORE_MESSAGE;
-        }
-    }
-    return POLL_NO_MESSAGE;
-}
+#else
 
 static u8 createProcessRequestEdt(ocrPolicyDomain_t * pd, ocrGuid_t templateGuid, u64 * paramv) {
 
     u32 paramc = 1;
     u32 depc = 0;
-    u32 properties = 0;
+    u32 properties = GUID_PROP_TORECORD;
     ocrWorkType_t workType = EDT_RT_WORKTYPE;
 
     START_PROFILE(api_EdtCreate);
@@ -227,7 +116,151 @@ static u8 createProcessRequestEdt(ocrPolicyDomain_t * pd, ocrGuid_t templateGuid
 #undef PD_TYPE
 }
 
+#endif /* UTASK_COMM */
+
+static u8 takeFromSchedulerAndSend(ocrWorker_t * worker, ocrPolicyDomain_t * pd) {
+    // When the communication-worker is not stopping only a single iteration is
+    // executed. Otherwise it is executed until the scheduler's 'take' do not
+    // return any more work.
+    ocrMsgHandle_t * outgoingHandle = NULL;
+    PD_MSG_STACK(msgCommTake);
+    u8 ret = 0;
+    getCurrentEnv(NULL, NULL, NULL, &msgCommTake);
+    ocrFatGuid_t handlerGuid = {.guid = NULL_GUID, .metaDataPtr = NULL};
+    //IMPL: MSG_SCHED_GET_WORK implementation must be consistent across PD, Scheduler and Worker.
+    // We expect the PD to fill-in the guids pointer with an ocrMsgHandle_t pointer
+    // to be processed by the communication worker or NULL.
+    //PERF: could request 'n' for internal comm load balancing (outgoing vs pending vs incoming).
+    {
+    START_PROFILE(wo_hccomm_getWork);
+#define PD_MSG (&msgCommTake)
+#define PD_TYPE PD_MSG_SCHED_GET_WORK
+    msgCommTake.type = PD_MSG_SCHED_GET_WORK | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
+    PD_MSG_FIELD_IO(schedArgs).kind = OCR_SCHED_WORK_COMM;
+    PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_COMM).guids = &handlerGuid;
+    PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_COMM).guidCount = 1;
+    ret = pd->fcts.processMessage(pd, &msgCommTake, true);
+    EXIT_PROFILE
+    }
+    if (!ret && (PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_COMM).guidCount != 0)) {
+        ASSERT(PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_COMM).guidCount == 1); //LIMITATION: single guid returned by comm take
+        ocrFatGuid_t handlerGuid = PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_COMM).guids[0];
+        ASSERT(handlerGuid.metaDataPtr != NULL);
+        outgoingHandle = (ocrMsgHandle_t *) handlerGuid.metaDataPtr;
+#undef PD_MSG
+#undef PD_TYPE
+        if (outgoingHandle != NULL) {
+            START_PROFILE(wo_hccomm_sendMessage);
+            // This code handles the pd's outgoing messages. They can be requests or responses.
+            DPRINTF(DEBUG_LVL_VVERB,"hc-comm-worker: outgoing handle comm take successful handle=%p, msg=%p type=0x%"PRIx32"\n",
+                    outgoingHandle, outgoingHandle->msg, outgoingHandle->msg->type);
+            //We can never have an outgoing handle with the response ptr set because
+            //when we process an incoming request, we lose the handle by calling the
+            //pd's process message. Hence, a new handle is created for one-way response.
+            ASSERT(outgoingHandle->response == NULL);
+            u32 properties = outgoingHandle->properties;
+            ASSERT(properties & PERSIST_MSG_PROP);
+            //BUG #587 design: Not sure where to draw the line between one-way with/out ack implementation
+            //If the worker was not aware of the no-ack policy, is it ok to always give a handle
+            //and the comm-api contract is to at least set the HDL_SEND_OK flag ?
+            ocrMsgHandle_t ** sendHandle = ((properties & TWOWAY_MSG_PROP) && !(properties & ASYNC_MSG_PROP))
+                ? &outgoingHandle : NULL;
+            ASSERT((outgoingHandle->msg->srcLocation == pd->myLocation) &&
+                   (outgoingHandle->msg->destLocation != pd->myLocation));
+            //BUG #587 design: who's responsible for deallocating the handle ?
+            //If the message is two-way, the creator of the handle is responsible for deallocation
+            //If one-way, the comm-layer disposes of the handle when it is not needed anymore
+            //=> Sounds like if an ack is expected, caller is responsible for dealloc, else callee
+            pd->fcts.sendMessage(pd, outgoingHandle->msg->destLocation, outgoingHandle->msg, sendHandle, properties);
+
+            // This is contractual for now. It recycles the handler allocated in the delegate-comm-api:
+            // - Sending a request one-way or a response (always non-blocking): The delegate-comm-api
+            //   creates the handle merely to be able to give it to the scheduler. There's no use of the
+            //   handle beyond this point.
+            // - The runtime does not implement blocking one-way. Hence, the callsite of the original
+            //   send message did not ask for a handler to be returned.
+            if (sendHandle == NULL) {
+                outgoingHandle->destruct(outgoingHandle);
+            }
+            EXIT_PROFILE;
+
+            //Communication is posted. If TWOWAY, subsequent calls to poll may return the response
+            //to be processed
+            return POLL_MORE_MESSAGE;
+        }
+    }
+    return POLL_NO_MESSAGE;
+}
+
+#ifdef ENABLE_RESILIENCY
+static u64 pendingCommCount(ocrPolicyDomain_t *pd, bool resiliencyInProgress, bool doVerify) {
+    ocrCommPlatformMPI_t *mpiComm = (ocrCommPlatformMPI_t*)pd->commApis[0]->commPlatform;
+    ocrSchedulerHeuristicHcCommDelegate_t *heur = (ocrSchedulerHeuristicHcCommDelegate_t*)((ocrSchedulerCommon_t *)pd->schedulers[0])->schedulerHeuristics[2];
+    u32 i;
+    u32 activeCount = 0;
+    if (resiliencyInProgress) {
+        for (i = 1; i < pd->workerCount; i++) {
+            ocrWorker_t *worker = pd->workers[i];
+            if (!worker->resiliencyMaster) {
+                activeCount += !worker->isIdle;
+            }
+        }
+    }
+    hal_fence();
+    u32 inCount = 0;
+    for (i = 0; i < heur->inboxesCount; i++) {
+        deque_t *d = heur->inboxes[i];
+        inCount += d->size(d);
+    }
+    u32 outCount = 0;
+    for (i = 0; i < heur->outboxesCount; i++) {
+        deque_t *d = heur->outboxes[i];
+        outCount += d->size(d);
+    }
+    u64 sCount = pd->schedulers[0]->fcts.count(pd->schedulers[0], SCHEDULER_OBJECT_COUNT_RUNTIME_EDT);
+    hal_fence();
+    activeCount = 0;
+    if (resiliencyInProgress) {
+        for (i = 1; i < pd->workerCount; i++) {
+            ocrWorker_t *worker = pd->workers[i];
+            if (!worker->resiliencyMaster) {
+                activeCount += !worker->isIdle;
+            }
+        }
+    }
+    u64 commStateCount = sCount + inCount + outCount + activeCount +
+                         mpiComm->sendPoolSz + mpiComm->recvPoolSz;
+
+    if ((doVerify && commStateCount != activeCount) || (resiliencyInProgress && mpiComm->recvFxdPoolSz != 1)) {
+        DPRINTF(DEBUG_LVL_WARN, "COMMS [%d : %d : %d]\n", mpiComm->sendPoolSz, mpiComm->recvPoolSz, mpiComm->recvFxdPoolSz);
+        DPRINTF(DEBUG_LVL_WARN, "SCHED [%lu : %u : %u : %u]\n\n", sCount, inCount, outCount, activeCount);
+        ASSERT(0);
+    }
+    return commStateCount;
+}
+#endif
+
 static void workerLoopHcCommInternal(ocrWorker_t * worker, ocrPolicyDomain_t *pd, ocrGuid_t processRequestTemplate, bool flushOutgoingComm) {
+    u8 retmask = POLL_NO_OUTGOING_MESSAGE;
+#ifdef ENABLE_RESILIENCY
+    ASSERT(worker->id == 0); //Current assumption
+    ocrPolicyDomainHc_t *hcPolicy = (ocrPolicyDomainHc_t*)pd;
+    bool flushOutgoingCommOrig = flushOutgoingComm;
+    bool quiesceComms = false;
+    bool resiliencyInProgress = false;
+    do {
+        if (hcPolicy->quiesceComms) {
+            quiesceComms = true;
+            resiliencyInProgress = hcPolicy->resiliencyInProgress;
+            flushOutgoingComm = true;
+            retmask = (POLL_NO_OUTGOING_MESSAGE | POLL_NO_INCOMING_MESSAGE);
+        } else {
+            quiesceComms = false;
+            resiliencyInProgress = false;
+            flushOutgoingComm = flushOutgoingCommOrig;
+            retmask = POLL_NO_OUTGOING_MESSAGE;
+        }
+#endif
     // In outgoing flush mode:
     // - Send all outgoing communications
     // - Loop until pollMessage says there's no more outgoing
@@ -237,10 +270,12 @@ static void workerLoopHcCommInternal(ocrWorker_t * worker, ocrPolicyDomain_t *pd
     // - Poll to receive an incoming communication
     u8 ret;
     do {
+        START_PROFILE(wo_hccomm_takeFromSchedulerAndSend);
         ret = takeFromSchedulerAndSend(worker, pd);
+        EXIT_PROFILE;
     } while (flushOutgoingComm && (ret == POLL_MORE_MESSAGE));
-
     do {
+        START_PROFILE(wo_hccomm_poll);
         ocrMsgHandle_t * handle = NULL;
         ret = pd->fcts.pollMessage(pd, &handle);
         if (ret == POLL_MORE_MESSAGE) {
@@ -249,7 +284,6 @@ static void workerLoopHcCommInternal(ocrWorker_t * worker, ocrPolicyDomain_t *pd
             ocrPolicyMsg_t * message = (handle->status == HDL_RESPONSE_OK) ? handle->response : handle->msg;
             //To catch misuses, assert src is not self and dst is self
             ASSERT((message->srcLocation != pd->myLocation) && (message->destLocation == pd->myLocation));
-
             // Poll a response to a message we had sent.
             if ((message->type & PD_MSG_RESPONSE) && !(handle->properties & ASYNC_MSG_PROP)) {
                 DPRINTF(DEBUG_LVL_VVERB,"hc-comm-worker: Received message response for msgId: %"PRId64"\n",  message->msgId); // debug
@@ -276,28 +310,33 @@ static void workerLoopHcCommInternal(ocrWorker_t * worker, ocrPolicyDomain_t *pd
                 DPRINTF(DEBUG_LVL_VVERB,"hc-comm-worker: Received message, msgId: %"PRId64" type:0x%"PRIx32" prop:0x%"PRIx64"\n",
                                         message->msgId, message->type, handle->properties);
                 // This is an outstanding request, delegate to PD for processing
-                u64 msgParamv = (u64) message;
             #ifdef HYBRID_COMM_COMP_WORKER // Experimental see documentation
                 // Execute selected 'sterile' messages on the spot
                 if ((message->type & PD_MSG_TYPE_ONLY) == PD_MSG_DB_ACQUIRE) {
                     DPRINTF(DEBUG_LVL_VVERB,"hc-comm-worker: Execute message, msgId: %"PRId64"\n", pd->myLocation, message->msgId);
-                    processRequestEdt(1, &msgParamv, 0, NULL);
+                    processIncomingMsg(pd, message);
                 } else {
+                    #ifdef UTASK_COMM
+                    createUTask(pd, message);
+                    #else
+                    u64 msgParamv = (u64) message;
                     createProcessRequestEdt(pd, processRequestTemplate, &msgParamv);
+                    #endif
                 }
             #else
                 if ((message->type & PD_MSG_TYPE_ONLY) == PD_MSG_DB_ACQUIRE) {
-                    //BUG #190
 #define PD_MSG (message)
 #define PD_TYPE PD_MSG_DB_ACQUIRE
                     bool blockingAcquire = ((message->type & PD_MSG_RESPONSE) && (PD_MSG_FIELD_IO(edtSlot) == EDT_SLOT_NONE));
 #undef PD_MSG
 #undef PD_TYPE
+                    // This is for legacy support where the DB acquisition is a blocking two-way
                     if (blockingAcquire) {
                         // This going through the PD mecanism to deal with the incoming acquire response
                         // and dequeue EDTs that may be waiting on the acquire.
-                        // The PD will not call the acquire callback because there's none in that case.
-                        processRequestEdt(1, &msgParamv, 0, NULL);
+                        // The PD will not call the acquire callback because there's none in that case but
+                        // it has to process the message.
+                        processIncomingMsg(pd, message);
                         // This is to unblock the calling blocked on the acquire
                         ocrFatGuid_t fatGuid;
                         fatGuid.guid = NULL_GUID;
@@ -313,30 +352,102 @@ static void workerLoopHcCommInternal(ocrWorker_t * worker, ocrPolicyDomain_t *pd
                     #undef PD_MSG
                     #undef PD_TYPE
                     } else {
+                        #ifdef UTASK_COMM
+                        createUTask(pd, message);
+                        #else
+                        u64 msgParamv = (u64) message;
                         createProcessRequestEdt(pd, processRequestTemplate, &msgParamv);
+                        #endif
                         // We do not need the handle anymore
                         handle->destruct(handle);
                     }
                 } else {
-#ifdef COMMWRK_PROCESS_SATISFY // This is for benchmarking purpose to measure overhead of delegating processing
-                    if ((message->type & PD_MSG_TYPE_ONLY) == PD_MSG_DEP_SATISFY) {
-                        DPRINTF(DEBUG_LVL_VVERB,"hc-comm-worker: Process PD_MSG_DEP_SATISFY message, type=%lx msgId: %ld\n",  message->type, message->msgId);
-                        processRequestEdt(1, &msgParamv, 0, NULL);
-                    } else {
+                    bool isSyncProcess = false;
+                    // Should activate either #ifdef COMMWRK_PROCESS_MDCOMM / COMMWRK_PROCESS_SATISFY
+#ifdef COMMWRK_PROCESS_MDCOMM
+                    //TODO: Temporary until we sort out ordering issues
+                    if ((message->type & PD_MSG_TYPE_ONLY) == PD_MSG_METADATA_COMM) {
+#define PD_MSG message
+#define PD_TYPE PD_MSG_METADATA_COMM
+                        ocrGuid_t guid = PD_MSG_FIELD_I(guid);
+                        ocrGuidKind guidKind;
+                        pd->guidProviders[0]->fcts.getKind(pd->guidProviders[0], guid, &guidKind);
+                        isSyncProcess = ((guidKind == OCR_GUID_DB) && (PD_MSG_FIELD_I(direction) == MD_DIR_PUSH) && (PD_MSG_FIELD_I(mode) & 0x8));
+                    }
+#undef PD_MSG
+#undef PD_TYPE
 #endif
-                    createProcessRequestEdt(pd, processRequestTemplate, &msgParamv);
-#ifdef COMMWRK_PROCESS_SATISFY
+
+#ifdef COMMWRK_PROCESS_SATISFY // This is for benchmarking purpose to measure overhead of delegating processing
+                    // Warning: this code can deadlock when executing satisfy leads to acquiring a DB lock
+                    isSyncProcess = ((message->type & PD_MSG_TYPE_ONLY) == PD_MSG_DEP_SATISFY);
+#endif
+#ifdef ENABLE_EXTENSION_CHANNEL_EVT
+#ifdef COMMWRK_PROCESS_SATISFY_CHANNEL_ONLY
+                    if (isSyncProcess) { // Relies on the previous check
+                    //TODO: Temporary until we sort out ordering issues. Only applicable in very specific use-cases
+#define PD_MSG (message)
+#define PD_TYPE PD_MSG_DEP_SATISFY
+                    ocrGuid_t evtGuid = PD_MSG_FIELD_I(guid.guid);
+                    ocrGuidKind guidKind;
+                    RESULT_ASSERT(pd->guidProviders[0]->fcts.getKind(pd->guidProviders[0], evtGuid, &guidKind), ==, 0);
+                    isSyncProcess = (guidKind == OCR_GUID_EVENT_CHANNEL);
+#undef PD_MSG
+#undef PD_TYPE
                     }
 #endif
-                    // We do not need the handle anymore
-                    handle->destruct(handle);
+#endif
+                    if (isSyncProcess) {
+                        processIncomingMsg(pd, message);
+                    } else {
+                        #ifdef UTASK_COMM
+                        createUTask(pd, message);
+                        #else
+                        u64 msgParamv = (u64) message;
+                        createProcessRequestEdt(pd, processRequestTemplate, &msgParamv);
+                        #endif
+                    }
                 }
-            #endif
+                // We do not need the handle anymore
+                handle->destruct(handle);
                 //BUG #587: depending on comm-worker implementation, the received message could
                 //then be 'wrapped' in an EDT and pushed to the deque for load-balancing purpose.
             }
+            #endif /*!HYBRID_COMM_COMP_WORKER*/
         }
-    } while (flushOutgoingComm && !(ret & POLL_NO_OUTGOING_MESSAGE));
+        EXIT_PROFILE;
+    } while (flushOutgoingComm && !((ret & retmask) == retmask));
+
+#ifdef ENABLE_RESILIENCY
+    } while (quiesceComms != 0 && pendingCommCount(pd, resiliencyInProgress, false) > 0);
+
+    if (quiesceComms) {
+        if (resiliencyInProgress) {
+            hcPolicy->commStopped = 1;
+            hal_fence();
+
+            ASSERT(pendingCommCount(pd, true, true) == 0);
+            hal_fence();
+
+            hcPolicy->quiesceComms = 0;
+            DPRINTF(DEBUG_LVL_VERB, "...Comms quiesced!\n");
+            hal_fence();
+            //Wait until comms resume
+            while (hcPolicy->commStopped != 0)
+                ;
+            ASSERT(hcPolicy->quiesceComms == 0 && hcPolicy->commStopped == 0);
+            if (hcPolicy->stateOfRestart) {
+                ocrWorkerHcComm_t * rworker = (ocrWorkerHcComm_t *) worker;
+                ocrEdtTemplateCreate(&(rworker->processRequestTemplate), &processRequestEdt, 1, 0);
+            }
+            DPRINTF(DEBUG_LVL_VERB, "Resuming comms\n");
+        } else {
+            hal_fence();
+            hcPolicy->quiesceComms = 0;
+            DPRINTF(DEBUG_LVL_VERB, "...Comms quiesced!\n");
+        }
+    }
+#endif
 }
 
 static void workShiftHcComm(ocrWorker_t * worker) {
@@ -344,19 +455,28 @@ static void workShiftHcComm(ocrWorker_t * worker) {
     workerLoopHcCommInternal(worker, worker->pd, rworker->processRequestTemplate, rworker->flushOutgoingComm);
 }
 
+#ifdef ENABLE_RESILIENCY
+extern bool doCheckpointResume(ocrPolicyDomain_t *pd);
+#endif
+
 static void workerLoopHcComm(ocrWorker_t * worker) {
+    START_PROFILE(hc_worker_comm);
     u8 continueLoop = true;
     // At this stage, we are in the USER_OK runlevel
     ASSERT(worker->curState == GET_STATE(RL_USER_OK, (RL_GET_PHASE_COUNT_DOWN(worker->pd, RL_USER_OK))));
     ocrPolicyDomain_t *pd = worker->pd;
 
-    if (worker->amBlessed) {
+#ifdef ENABLE_RESILIENCY
+    if (worker->amBlessed && !doCheckpointResume(pd))
+#else
+    if (worker->amBlessed)
+#endif
+    {
         ocrGuid_t affinityMasterPD;
         u64 count = 0;
         // There should be a single master PD
         ASSERT(!ocrAffinityCount(AFFINITY_PD_MASTER, &count) && (count == 1));
         ocrAffinityGet(AFFINITY_PD_MASTER, &count, &affinityMasterPD);
-
         // This is all part of the mainEdt setup
         // and should be executed by the "blessed" worker.
         void * packedUserArgv = userArgsGet();
@@ -378,7 +498,7 @@ static void workerLoopHcComm(ocrWorker_t * worker) {
 #endif
 
         ocrDbCreate(&dbGuid, &dbPtr, totalLength,
-                    DB_PROP_IGNORE_WARN, &dbHint, NO_ALLOC);
+                    DB_PROP_RUNTIME | DB_PROP_IGNORE_WARN, &dbHint, NO_ALLOC);
 
         // copy packed args to DB
         hal_memCopy(dbPtr, packedUserArgv, totalLength, 0);
@@ -393,6 +513,7 @@ static void workerLoopHcComm(ocrWorker_t * worker) {
         PD_MSG_FIELD_IO(guid.metaDataPtr) = NULL;
         PD_MSG_FIELD_I(edt.guid) = NULL_GUID;
         PD_MSG_FIELD_I(edt.metaDataPtr) = NULL;
+        PD_MSG_FIELD_I(srcLoc) = pd->myLocation;
         PD_MSG_FIELD_I(ptr) = NULL;
         PD_MSG_FIELD_I(size) = 0;
         PD_MSG_FIELD_I(properties) = 0;
@@ -414,7 +535,7 @@ static void workerLoopHcComm(ocrWorker_t * worker) {
 #endif
         ocrEdtCreate(&edtGuid, edtTemplateGuid, EDT_PARAM_DEF, /* paramv = */ NULL,
                      /* depc = */ EDT_PARAM_DEF, /* depv = */ &dbGuid,
-                     EDT_PROP_NONE, &edtHint, NULL);
+                     GUID_PROP_TORECORD, &edtHint, NULL);
     }
 
     ASSERT(worker->curState == GET_STATE(RL_USER_OK, PHASE_RUN));
@@ -430,7 +551,9 @@ static void workerLoopHcComm(ocrWorker_t * worker) {
         if ((phase == PHASE_RUN) ||
             (phase == PHASE_COMP_QUIESCE)) {
             while(worker->curState == worker->desiredState) {
+                START_PROFILE(wo_hccomm_workerLoop);
                 worker->fcts.workShift(worker);
+                EXIT_PROFILE;
             }
         } else if (phase == PHASE_COMM_QUIESCE) {
             // All workers in this PD are not executing user EDTs anymore.
@@ -438,7 +561,7 @@ static void workerLoopHcComm(ocrWorker_t * worker) {
             // Two reasons for that:
             // 1- EDTs execution generated asynchronous one-way communications
             //    that need to be flushed out.
-            // 2- Other PDs are still communication with the current PD.
+            // 2- Other PDs are still communicating with the current PD.
             //    This happens mainly because some runtime work is done in
             //    EDT's epilogue. So the sink EDT has executed but some EDTs
             //    are still wrapping up.
@@ -484,7 +607,8 @@ static void workerLoopHcComm(ocrWorker_t * worker) {
             //       currently executing worker is the comm-worker (which can't
             //       happen in the current design because they do not process
             //       messages)
-            while((worker->curState) == (worker->desiredState));
+            while((worker->curState) == (worker->desiredState))
+                ;
             ASSERT(GET_STATE_RL(worker->desiredState) == RL_COMPUTE_OK);
         }
 
@@ -540,6 +664,7 @@ static void workerLoopHcComm(ocrWorker_t * worker) {
         }
     } while(continueLoop);
     DPRINTF(DEBUG_LVL_VERB, "Finished comm worker loop ... waiting to be reapped\n");
+    EXIT_PROFILE;
 }
 
 u8 hcCommWorkerSwitchRunlevel(ocrWorker_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_t runlevel,
@@ -578,9 +703,25 @@ u8 hcCommWorkerSwitchRunlevel(ocrWorker_t *self, ocrPolicyDomain_t *PD, ocrRunle
                     self->desiredState = GET_STATE(RL_USER_OK, RL_GET_PHASE_COUNT_DOWN(PD, RL_USER_OK)); // We put ourself one past
                     // so that we can then come back down when shutting down
                 } else {
+                    // // At this point, the original capable thread goes to work
+                    // self->curState = self->desiredState = GET_STATE(RL_USER_OK, RL_GET_PHASE_COUNT_DOWN(PD, RL_USER_OK));
+                    // workerLoopHcComm(self);
                     // At this point, the original capable thread goes to work
-                    self->curState = self->desiredState = GET_STATE(RL_USER_OK, RL_GET_PHASE_COUNT_DOWN(PD, RL_USER_OK));
-                    workerLoopHcComm(self);
+                    self->curState = GET_STATE(RL_USER_OK, (RL_GET_PHASE_COUNT_DOWN(PD, RL_USER_OK)));
+                    if (!((ocrWorkerHc_t*) self)->legacySecondStart) {
+                        self->desiredState = self->curState;
+                        if (properties & RL_LEGACY) {
+                            // amBlessed was set to true when the runtime is brought up in COMPUTE_OK
+                            // but it is not known whether we are in legacy mode or not at that point.
+                            // There's no blessed worker in legacy mode, flip to false so that
+                            // the master thread legacy's second start does not try to execute a mainEdt.
+                            self->amBlessed = false;
+                        }
+                        ((ocrWorkerHc_t*) self)->legacySecondStart = true;
+                    }
+                    if (!(properties & RL_LEGACY)) {
+                        workerLoopHcComm(self);
+                    }
                 }
             }
         }
@@ -591,7 +732,8 @@ u8 hcCommWorkerSwitchRunlevel(ocrWorker_t *self, ocrPolicyDomain_t *PD, ocrRunle
                 // We make sure that we actually fully booted before shutting down.
                 // Addresses a race where a worker still hasn't started but
                 // another worker has started and executes the shutdown protocol
-                while(self->curState != GET_STATE(RL_USER_OK, (phase + 1)));
+                while(self->curState != GET_STATE(RL_USER_OK, (phase + 1)))
+                    ;
                 ASSERT(self->curState == GET_STATE(RL_USER_OK, (phase + 1)));
                 ASSERT((self->curState == self->desiredState));
                 ASSERT(callback != NULL);
@@ -627,7 +769,8 @@ u8 hcCommWorkerSwitchRunlevel(ocrWorker_t *self, ocrPolicyDomain_t *PD, ocrRunle
                 // We make sure that we actually fully booted before shutting down.
                 // Addresses a race where a worker still hasn't started but
                 // another worker has started and executes the shutdown protocol
-                while(self->curState != GET_STATE(RL_USER_OK, (phase+1)));
+                while(self->curState != GET_STATE(RL_USER_OK, (phase+1)))
+                    ;
                 ASSERT(self->curState == GET_STATE(RL_USER_OK, (phase+1)));
 
                 ASSERT(GET_STATE_RL(self->curState) == RL_USER_OK);
@@ -659,7 +802,8 @@ void* runWorkerHcComm(ocrWorker_t * worker) {
     worker->curState = GET_STATE(RL_COMPUTE_OK, 0);
 
     // We wait until we transition to the next RL
-    while(worker->curState == worker->desiredState) ;
+    while(worker->curState == worker->desiredState)
+        ;
 
     // At this point, we should be going to RL_USER_OK
     ASSERT(worker->desiredState == GET_STATE(RL_USER_OK, RL_GET_PHASE_COUNT_DOWN(worker->pd, RL_USER_OK)));

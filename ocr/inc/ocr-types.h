@@ -35,7 +35,7 @@ typedef int8_t   s8;  /**< 8-bit signed integer */
 
 #define NULL_HINT ((ocrHint_t *)0x0)
 
-#ifdef ENABLE_128_BIT_GUID
+#ifdef OCR_ENABLE_128_BIT_GUID
 
 #define GUID_BIT_COUNT 128
 typedef struct {
@@ -51,6 +51,9 @@ typedef struct {
 } ocrGuid_t;
 
 #endif
+
+// See impl notes
+ocrGuid_t addValueToGuid(ocrGuid_t input, u64 value);
 
 /* Defined vals for 64-bit GUIDs */
 #if GUID_BIT_COUNT == 64
@@ -201,6 +204,7 @@ typedef struct {
 #define EDT_PROP_FINISH  ((u16) 0x1) /**< Property bits indicating a FINISH EDT */
 #define EDT_PROP_NO_HINT ((u16) 0x2) /**< Property bits indicating the EDT does not take hints */
 #define EDT_PROP_LONG    ((u16) 0x4) /**< Property bits indicating a long running EDT */
+#define EDT_PROP_OEVT_VALID ((u16) 0x8) /** Property bits indicating an already initialized output event */
 
 /**
  * @brief Constant indicating that the number of parameters or dependences
@@ -349,6 +353,10 @@ typedef enum {
     OCR_HINT_EDT_DISPERSE,                  /* [xxx] : Tells scheduler to schedule EDT away from current location */
     OCR_HINT_EDT_SPACE,                     /* [u64] : Used internally by the runtime for spatial locality of EDTs */
     OCR_HINT_EDT_TIME,                      /* [u64] : Used internally by the runtime for temporal locality of EDTs */
+    OCR_HINT_EDT_STATS_HW_CYCLES,           /* [u64] : Inform the simulator runtime of the EDT's perf stats */
+    OCR_HINT_EDT_STATS_L1_HITS,             /* [u64] : Inform the simulator runtime of the EDT's perf stats */
+    OCR_HINT_EDT_STATS_L1_MISSES,           /* [u64] : Inform the simulator runtime of the EDT's perf stats */
+    OCR_HINT_EDT_STATS_FLOAT_OPS,           /* [u64] : Inform the simulator runtime of the EDT's perf stats */
     OCR_HINT_EDT_PROP_END,                  /* This is NOT a hint. Its use is reserved for the runtime */
 
     //DB Hint Properties                    (OCR_HINT_DB_T)
@@ -358,6 +366,7 @@ typedef enum {
     OCR_HINT_DB_INTER,                      /* [u64] : Prefer intermediate memory if possible */
     OCR_HINT_DB_FAR,                        /* [u64] : Prefer far memory if possible */
     OCR_HINT_DB_HIGHBW,                     /* [u64] : Prefer high bandwidth memory if possible */
+    OCR_HINT_DB_EAGER,                      /* [u64] : Whether this DB can be eagerly pushed on satisfy */
     OCR_HINT_DB_PROP_END,                   /* This is NOT a hint. Its use is reserved for the runtime */
 
     //EVT Hint Properties                   (OCR_HINT_EVT_T)
@@ -422,8 +431,17 @@ typedef enum {
  */
 typedef enum {
     OCR_TRACE_TYPE_EDT = 1000,
-    OCR_TRACE_TYPE_EVENT = 1001,
-    OCR_TRACE_TYPE_DATABLOCK = 1002
+    OCR_TRACE_TYPE_API_EDT = 1001,
+    OCR_TRACE_TYPE_EVENT = 1002,
+    OCR_TRACE_TYPE_API_EVENT = 1003,
+    OCR_TRACE_TYPE_DATABLOCK = 1004,
+    OCR_TRACE_TYPE_API_DATABLOCK = 1005,
+    OCR_TRACE_TYPE_MESSAGE = 1006,
+    OCR_TRACE_TYPE_WORKER = 1007,
+    OCR_TRACE_TYPE_SCHEDULER = 1008,
+    OCR_TRACE_TYPE_API_AFFINITY = 1009,
+    OCR_TRACE_TYPE_API_HINT = 1010,
+    OCR_TRACE_TYPE_MAX = 1012
 } ocrTraceType_t;
 
 
@@ -435,14 +453,29 @@ typedef enum {
  */
 typedef enum {
     OCR_ACTION_CREATE,
+    OCR_ACTION_TEMPLATE_CREATE,
     OCR_ACTION_DESTROY,
     OCR_ACTION_RUNNABLE,
+    OCR_ACTION_SCHEDULED,
     OCR_ACTION_ADD_DEP,
     OCR_ACTION_SATISFY,
     OCR_ACTION_EXECUTE,
     OCR_ACTION_FINISH,
     OCR_ACTION_DATA_ACQUIRE,
     OCR_ACTION_DATA_RELEASE,
+    OCR_ACTION_END_TO_END,
+    OCR_ACTION_WORK_REQUEST,
+    OCR_ACTION_WORK_TAKEN,
+    OCR_ACTION_SCHED_MSG_SEND,
+    OCR_ACTION_SCHED_MSG_RCV,
+    OCR_ACTION_SCHED_INVOKE,
+    OCR_ACTION_GET_CURRENT,
+    OCR_ACTION_GET_AT,
+    OCR_ACTION_GET_COUNT,
+    OCR_ACTION_QUERY,
+    OCR_ACTION_INIT,
+    OCR_ACTION_SET_VAL,
+    OCR_ACTION_RANGE_CREATE,
     OCR_ACTION_MAX
 } ocrTraceAction_t;
 
@@ -472,9 +505,21 @@ typedef enum {
                                              * if so, block until it can be re-created. See
                                              * comments for #GUID_PROP_CHECK
                                              */
-#define LEGACY_PROP_NONE            ((u16)(0x0))
+
+                                                  //TODO: this sounds wrong but we need to double check with apps
+#define LEGACY_PROP_NONE            ((u16)(0x0)) /**< For ocrLegacyBlockProgress, check if the event has been
+                                                  * created. If it is local and has not been created return.
+                                                  * If it is remote ahd has not been created wait for creation.
+                                                  * In either case wait for it to be satisfied. Returns
+                                                  * immediately with OCR_EINVAL if event not created */
 #define LEGACY_PROP_WAIT_FOR_CREATE ((u16)(0x1)) /**< For ocrLegacyBlockProgress, wait for the handle to
                                                   * be created */
+#define LEGACY_PROP_WAIT_IF_CREATED ((u16)(0x2))  /**< For ocrLegacyBlockProgress, check if the event has been
+                                                  * created. If yes behaves as LEGACY_PROP_NONE, it not returns
+                                                  * immediately with OCR_EINVAL */
+#define LEGACY_PROP_CHECK           ((u16)(0x4))  /**< For ocrLegacyBlockProgress, check if the event has been
+                                                  * created. If yes check if it has been satisfied. Returns
+                                                  * immediately with OCR_EINVAL in either case */
 /**
  * @}
  */

@@ -199,6 +199,97 @@ typedef struct _ocrCommPlatformFcts_t {
                       u32 properties, u32 *mask);
 
     /**
+     * @brief Sends a message to a destination outside this PD
+     *
+     * This call sends a message to 'target' and returns up to two events depending
+     * on what the programmer wants to wait on
+     * @param[in] self           This communication platform/target
+     * @param[in] target         Target to send this message to
+     * @param[in/out] inOutEvent Event containing the message to send to the
+     *                           target (must be a PDEVT_TYPE_MSG).
+     *                           Upon successful completion of the call, will
+     *                           contain the event (and eventually policy message)
+     *                           to wait on to get the response to the message
+     *                           unless COMM_ONE_WAY is set in properties (in which case, on
+     *                           return, *inOutEvent will be NULL). Note that this
+     *                           is a pointer-to-a-pointer argument to give the freedom
+     *                           to the communication framework to return a different
+     *                           event if needed. In that case, the initial event
+     *                           will be properly freed.
+     * @param[out] statusEvent   If non-NULL when the call is made, will return an
+     *                           event that can be used to query the state of the
+     *                           communication. This event must be a PDEVT_TYPE_COMMSTATUS
+     *                           and you should specify what you want to wait for in the
+     *                           properties field of that event:
+     *                             - COMM_STATUS_SENT if the statusEvent should represent whether
+     *                               the message has been sent
+     *                             - COMM_STATUS_RECEIVED if the statusEvent should represent that
+     *                               the message was received
+     *                             - COMM_STATUS_PROCESSED if the statusEvent should represent
+     *                               that the message was received and fully processed by
+     *                               the destination. This is similar to waiting for a
+     *                               response except that the response is a single "done" value
+     * @param[in] idx            Unused for now (support for continuations later)
+     * @return 0 or an error code. Codes TBD. The code would only indicate local errors
+     *
+     * @todo: Do we need a special error code to indicate inOutEvent reuse
+     * @todo: Do we need to distinguish received by final destination and received by first
+     * intermediate destination
+     */
+    u8 (*sendMessageMT)(struct _ocrCommPlatform_t *self, struct _pdEvent_t** inOutEvent,
+                        struct _pdEvent_t* statusEvent, u32 idx);
+
+    /**
+     * @brief Non-blocking check for incoming messages
+     *
+     * This function checks for incomming message that are COMM_ONE_WAY or initial requests
+     * All responses to messages sent via sendMessageMT can be waited on using the returned
+     * inOutEvent. This call polls the communication interface for any new incomming messages;
+     * either new requests (that will require a response from us) or COMM_ONE_WAY messages.
+     *
+     * @param[in] self        Pointer to this comm-platform
+     * @param[out] outEvent   Returns a pointer to an event (subclass of PDEVT_TYPE_BASE_MSG)
+     *                        that contains or will contain the next message to
+     *                        be received by this communication platform. Note that
+     *                        the event return may not yet contain the full message (and
+     *                        therefore not be fully ready). This is useful, for example,
+     *                        to allow the message to be buffered asynchronasly.
+     *                        If no message is available, this will be set to NULL.
+     * @param[in] idx         Unused for now
+     * @return
+     *     - #POLL_NO_MESSAGE: 0 messages found
+     *     - 0: One message found and returned
+     *     - #POLL_MORE_MESSAGE: 1 message found and returned but more available
+     *     - <val> & #POLL_ERR_MASK: error code or 0 if all went well
+     */
+    u8 (*pollMessageMT)(struct _ocrCommPlatform_t *self, struct _pdEvent_t **outEvent,
+                        u32 idx);
+
+    /**
+     * @brief Blocking check for incoming messages
+     *
+     * This function checks for incomming message that are COMM_ONE_WAY or initial requests
+     * All responses to messages sent via sendMessageMT can be waited on using the returned
+     * inOutEvent. This call polls the communication interface for any new incomming messages;
+     * either new requests (that will require a response from us) or COMM_ONE_WAY messages.
+     *
+     * In other words, this will block until a *new* unknown request comes up.
+     *
+     * @param[in] self        Pointer to this comm-platform
+     * @param[out] outEvent   Returns a pointer to an event (subclass of PDEVT_TYPE_BASE_MSG)
+     *                        that contains or will contain the next message to
+     *                        be received by this communication platform. Note that
+     *                        the event return may not yet contain the full message (and
+     *                        therefore not be fully ready). This is useful, for example,
+     *                        to allow the message to be buffered asynchronasly.
+     *                        If no message is available, this will be set to NULL.
+     * @param[in] idx         Unused for now
+     * @return 0 on success and a non-zero code on error
+     */
+    u8 (*waitMessageMT)(struct _ocrCommPlatform_t *self, struct _pdEvent_t **outEvent,
+                        u32 idx);
+
+    /**
      * @brief Releases/frees a message returned by pollMessage/waitMessage
      *
      * Implementations may vary in how this is implemented. This call must
@@ -242,7 +333,7 @@ typedef struct _ocrCommPlatformFcts_t {
 typedef struct _ocrCommPlatform_t {
     struct _ocrPolicyDomain_t *pd;  /**< Policy domain this comm-platform is used by */
     ocrLocation_t location;
-    ocrCommPlatformFcts_t fcts; /**< Functions for this instance */
+    ocrCommPlatformFcts_t fcts;     /**< Functions for this instance */
 } ocrCommPlatform_t;
 
 

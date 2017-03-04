@@ -22,9 +22,6 @@
 // Bug #694 Better handling of GUID metadata across PDs
 #define TG_X86_TARGET
 
-// Bug #556
-#define EDT_DEPV_DELAYED
-
 // Allocator
 #define ENABLE_ALLOCATOR_TLSF
 #define ENABLE_ALLOCATOR_SIMPLE
@@ -52,6 +49,15 @@
 
 // Event
 #define ENABLE_EVENT_HC
+
+// Event creation with parameter
+#define ENABLE_EXTENSION_PARAMS_EVT
+
+// Counted Events support
+#define ENABLE_EXTENSION_COUNTED_EVT
+
+// Channel Events support
+#define ENABLE_EXTENSION_CHANNEL_EVT
 
 // External things (mostly needed by the INI parser)
 #define ENABLE_EXTERNAL_DICTIONARY
@@ -84,6 +90,7 @@
 // Scheduler Heuristic
 #define ENABLE_SCHEDULER_HEURISTIC_NULL
 #define ENABLE_SCHEDULER_HEURISTIC_CE
+#define ENABLE_SCHEDULER_HEURISTIC_CE_AFF
 
 // Scheduler Objects
 #define ENABLE_SCHEDULER_OBJECT_NULL

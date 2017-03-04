@@ -32,6 +32,7 @@
 // Comm-platform
 #define ENABLE_COMM_PLATFORM_NULL
 #define ENABLE_COMM_PLATFORM_MPI
+#define ENABLE_COMM_PLATFORM_MPI_PROBE
 
 // Comp-platform
 #define ENABLE_COMP_PLATFORM_PTHREAD
@@ -119,6 +120,7 @@
 #define ENABLE_WORKER_HC
 #define ENABLE_WORKER_HC_COMM
 #define ENABLE_WORKER_SYSTEM
+#define ENABLE_WORKER_HC_COMM_MT
 
 // Workpile
 #define ENABLE_WORKPILE_HC
@@ -146,6 +148,19 @@
 
 // Runtime extension support
 #define ENABLE_EXTENSION_RTITF
+
+// Performance monitoring
+//#define ENABLE_EXTENSION_PERF
+
+//#define ENABLE_RESILIENCY
+
+#ifdef ENABLE_RESILIENCY
+#define ENABLE_RESILIENCY_CHECKPOINT_RESTART
+#define ENABLE_SCHEDULER_RUNTIME_OBJECT_MGMT
+//#define ENABLE_CHECKPOINT_VERIFICATION
+//#define OCR_CHECKPOINT_INTERVAL   1000000000UL /* 1 second */
+//#define OCR_CHECKPOINT_INTERVAL     10000000UL /* 10 miliseconds */
+#endif
 
 #endif /* __OCR_CONFIG_H__ */
 

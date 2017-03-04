@@ -43,6 +43,9 @@ do {                                                                            
 #define HINT_DBG_WARN_MSG "WARNING: Current build of OCR is not configured to use the hints API\n"
 
 u8 ocrHintInit(ocrHint_t *hint, ocrHintType_t hintType) {
+    OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_API_HINT, OCR_ACTION_INIT);
+    if(hintType == OCR_HINT_UNDEF_T)
+        return 0;
     START_PROFILE(api_ocrHintInit);
 #ifdef ENABLE_HINTS
     hint->type = hintType;
@@ -65,6 +68,7 @@ u8 ocrHintInit(ocrHint_t *hint, ocrHintType_t hintType) {
             OCR_HINT_FIELD(hint, OCR_HINT_DB_INTER) = 0;
             OCR_HINT_FIELD(hint, OCR_HINT_DB_FAR) = 0;
             OCR_HINT_FIELD(hint, OCR_HINT_DB_HIGHBW) = 0;
+            OCR_HINT_FIELD(hint, OCR_HINT_DB_EAGER) = 0;
         }
         break;
     case OCR_HINT_EVT_T:
@@ -81,6 +85,9 @@ u8 ocrHintInit(ocrHint_t *hint, ocrHintType_t hintType) {
 }
 
 u8 ocrSetHintValue(ocrHint_t *hint, ocrHintProp_t hintProp, u64 value) {
+    OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_API_HINT, OCR_ACTION_SET_VAL);
+    if(hint == NULL)
+        return 0;
     START_PROFILE(api_ocrSetHintValue);
 #ifdef ENABLE_HINTS
     OCR_HINT_CHECK(hint, hintProp);

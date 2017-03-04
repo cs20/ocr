@@ -23,28 +23,12 @@ typedef enum _eventType_t {
     eventMax_id
 } eventType_t;
 
-const char * event_types [] = {
-#ifdef ENABLE_EVENT_HC
-    "HC",
-#endif
-    NULL
-};
+extern const char * event_types[];
 
-// HC Event
+#ifdef ENABLE_EVENT_HC
 #include "event/hc/hc-event.h"
-
-// Add other events using the same pattern as above
-
-inline ocrEventFactory_t *newEventFactory(eventType_t type, ocrParamList_t *typeArg) {
-    switch(type) {
-#ifdef ENABLE_EVENT_HC
-    case eventHc_id:
-        return newEventFactoryHc(typeArg, (u32)type);
 #endif
-    default:
-        ASSERT(0);
-        return NULL;
-    };
-}
+
+ocrEventFactory_t *newEventFactory(eventType_t type, ocrParamList_t *typeArg);
 
 #endif /* __EVENT_ALL_H__ */

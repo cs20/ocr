@@ -21,12 +21,12 @@ ocrDataBlockFactory_t* newDataBlockFactory(dataBlockType_t type, ocrParamList_t 
     switch(type) {
 #ifdef ENABLE_DATABLOCK_REGULAR
     case dataBlockRegular_id:
-        return newDataBlockFactoryRegular(typeArg, (u32)type);
+        return newDataBlockFactoryRegular(typeArg, typeArg->id);
         break;
 #endif
 #ifdef ENABLE_DATABLOCK_LOCKABLE
     case dataBlockLockable_id:
-        return newDataBlockFactoryLockable(typeArg, (u32)type);
+        return newDataBlockFactoryLockable(typeArg, typeArg->id);
         break;
 #endif
     default:

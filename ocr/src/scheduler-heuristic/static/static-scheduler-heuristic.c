@@ -34,6 +34,7 @@ ocrSchedulerHeuristic_t* newSchedulerHeuristicStatic(ocrSchedulerHeuristicFactor
     ocrSchedulerHeuristicStatic_t *dself = (ocrSchedulerHeuristicStatic_t*)self;
     dself->rrCounter = 0;
     dself->isDistributed = false;
+    dself->isTraceActive = false;
     return self;
 }
 
@@ -133,6 +134,14 @@ u8 staticSchedulerHeuristicSwitchRunlevel(ocrSchedulerHeuristic_t *self, ocrPoli
 #else
 #error
 #endif
+            //NOTE: By convenvtion, worker[numWorkers-1] is the system worker.
+            ocrWorkerHc_t *wMax = (ocrWorkerHc_t *)PD->workers[PD->workerCount-1];
+            if(wMax->hcType == HC_WORKER_SYSTEM){
+                ASSERT(self->contextCount > 1);
+                ocrSchedulerHeuristicStatic_t *dself = (ocrSchedulerHeuristicStatic_t*)self;
+                dself->isTraceActive = true;
+
+            }
         }
         break;
     }
@@ -190,6 +199,14 @@ static u8 staticSchedulerHeuristicWorkEdtUserInvoke(ocrSchedulerHeuristic_t *sel
     if (!ocrGuidIsNull(edtObj.guid.guid)) {
         ASSERT(retVal == 0);
         taskArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).edt = edtObj.guid;
+        //Add same steal determining flag
+#ifdef OCR_MONITOR_SCHEDULER
+        OCR_TOOL_TRACE(false, OCR_TRACE_TYPE_WORKER, OCR_ACTION_WORK_TAKEN, edtObj.guid.guid, schedObj);
+        ocrWorker_t *wrkr;
+        getCurrentEnv(NULL, &wrkr, NULL, NULL);
+        wrkr->isSeeking = false;
+#endif
+
     }
 
     return retVal;
@@ -225,7 +242,7 @@ static u8 staticSchedulerHeuristicNotifyEdtReadyInvoke(ocrSchedulerHeuristic_t *
     u64 contextId = (u64)(-1);
     ocrHint_t edtHint;
     ocrHintInit(&edtHint, OCR_HINT_EDT_T);
-    RESULT_ASSERT(pd->taskFactories[0]->fcts.getHint(task, &edtHint), ==, 0);
+    RESULT_ASSERT(((ocrTaskFactory_t*)(pd->factories[pd->taskFactoryIdx]))->fcts.getHint(task, &edtHint), ==, 0);
     if (ocrGetHintValue(&edtHint, OCR_HINT_EDT_SPACE, &contextId) == 0) {
         ASSERT(contextId < self->contextCount);
         ocrSchedulerHeuristicContextStatic_t *staticContext = (ocrSchedulerHeuristicContextStatic_t*)self->contexts[contextId];
@@ -240,6 +257,10 @@ static u8 staticSchedulerHeuristicNotifyEdtReadyInvoke(ocrSchedulerHeuristic_t *
     edtObj.guid = notifyArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_EDT_READY).guid;
     edtObj.kind = OCR_SCHEDULER_OBJECT_EDT;
     ocrSchedulerObjectFactory_t *fact = self->scheduler->pd->schedulerObjectFactories[schedObj->fctId];
+#ifdef OCR_MONITOR_SCHEDULER
+    ocrGuid_t taskGuid = notifyArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_EDT_READY).guid.guid;
+    OCR_TOOL_TRACE(false, OCR_TRACE_TYPE_EDT, OCR_ACTION_SCHEDULED, taskGuid, schedObj);
+#endif
     return fact->fcts.insert(fact, schedObj, &edtObj, NULL, (SCHEDULER_OBJECT_INSERT_AFTER | SCHEDULER_OBJECT_INSERT_POSITION_TAIL));
 }
 
@@ -283,7 +304,7 @@ static u8 staticSchedulerHeuristicNotifyPreProcessMsgInvoke(ocrSchedulerHeuristi
                         affGuid.upper = 0ULL;
                         affGuid.lower = userAffinity;
 #endif
-                        msg->destLocation = affinityToLocation(affGuid);
+                        affinityToLocation(&(msg->destLocation), affGuid);
                     }
 
                     //Check if the disperse hint is set
@@ -301,9 +322,19 @@ static u8 staticSchedulerHeuristicNotifyPreProcessMsgInvoke(ocrSchedulerHeuristi
                                 RESULT_ASSERT(ocrSetHintValue(edtHint, OCR_HINT_EDT_AFFINITY, ocrAffinityToHintValue(affGuid)), ==, 0);
                                 msg->destLocation = dstLoc;
                             }
-                            workerId = (contextId % (self->contextCount - 1)) + 1; //Note: Assume worker 0 is comm worker
+
+                            //If tracing is active along with distributed
+                            if(dself->isTraceActive)
+                                workerId = (contextId % (self->contextCount - 2)) + 1; //Note: Assume worker 0 is comm worker and worker <numWorkers-1> is system worker
+                            else
+                                workerId = (contextId % (self->contextCount - 1)) + 1; //Note: Assume worker 0 is comm worker
                         } else {
-                            workerId = contextId % self->contextCount;
+
+                            //If tracing is active without distributed
+                            if(dself->isTraceActive)
+                                workerId = contextId % (self->contextCount-1);
+                            else
+                                workerId = contextId % self->contextCount;
                         }
                     } else {
                         workerId = worker->id;
@@ -341,7 +372,7 @@ static u8 staticSchedulerHeuristicNotifyPreProcessMsgInvoke(ocrSchedulerHeuristi
                     affGuid.upper = 0ULL;
                     affGuid.lower = userAffinity;
 #endif
-                    msg->destLocation = affinityToLocation(affGuid);
+                    affinityToLocation(&(msg->destLocation), affGuid);
                 }
             }
 #undef PD_MSG

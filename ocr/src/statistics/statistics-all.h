@@ -32,7 +32,7 @@ const char * statistics_types[] = {
 
 // Add other statistics provider using the same pattern as above
 
-inline ocrStatsFactory_t *newStatsFactory(statisticsType_t type, ocrParamList_t *typeArg) {
+static inline ocrStatsFactory_t *newStatsFactory(statisticsType_t type, ocrParamList_t *typeArg) {
     switch(type) {
     case statisticsDefault_id:
         return newStatsFactoryDefault(typeArg);

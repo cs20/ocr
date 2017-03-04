@@ -1,2 +1,4 @@
 tests-bin/
 tests-log/
+performance-tests/logs_*
+*~

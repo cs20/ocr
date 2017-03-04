@@ -31,6 +31,9 @@ typedef enum _commPlatformType_t {
 #ifdef ENABLE_COMM_PLATFORM_MPI
     commPlatformMPI_id,
 #endif
+#ifdef ENABLE_COMM_PLATFORM_MPI_PROBE
+    commPlatformMPIProbe_id,
+#endif
 #ifdef ENABLE_COMM_PLATFORM_GASNET
     commPlatformGasnet_id,
 #endif
@@ -56,6 +59,9 @@ extern const char * commplatform_types[];
 #endif
 #ifdef ENABLE_COMM_PLATFORM_MPI
 #include "comm-platform/mpi/mpi-comm-platform.h"
+#endif
+#ifdef ENABLE_COMM_PLATFORM_MPI_PROBE
+#include "comm-platform/mpi/mpi-probe-comm-platform.h"
 #endif
 #ifdef ENABLE_COMM_PLATFORM_GASNET
 #include "comm-platform/gasnet/gasnet-comm-platform.h"

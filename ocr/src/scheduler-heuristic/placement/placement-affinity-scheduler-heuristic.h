@@ -11,6 +11,7 @@
 #ifdef ENABLE_SCHEDULER_HEURISTIC_PLACEMENT_AFFINITY
 
 #include "ocr-scheduler-heuristic.h"
+#include "ocr-hal.h"
 #include "ocr-types.h"
 #include "utils/ocr-utils.h"
 #include "experimental/ocr-platform-model.h"
@@ -25,7 +26,7 @@ typedef struct _ocrSchedulerHeuristicContextPlacementAffinity_t {
 
 typedef struct _ocrSchedulerHeuristicPlacementAffinity_t {
     ocrSchedulerHeuristic_t base;
-    u32 lock; /**< Lock for updating edtLastPlacementIndex information */
+    lock_t lock; /**< Lock for updating edtLastPlacementIndex information */
     u64 edtLastPlacementIndex; /**< Index of the last guid returned for an edt */
     ocrPlatformModelAffinity_t * platformModel; // Cached from PD
     ocrLocation_t myLocation; // Cached from PD

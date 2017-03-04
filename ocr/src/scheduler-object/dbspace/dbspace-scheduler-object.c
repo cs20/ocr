@@ -54,7 +54,7 @@ static void dbspaceSchedulerObjectInitialize(ocrSchedulerObjectFactory_t *fact, 
     dbspaceSchedObj->dbPtr = NULL;
     dbspaceSchedObj->state = DB_STATE_PROXY;
     dbspaceSchedObj->time = 0;
-    dbspaceSchedObj->lock = 0;
+    dbspaceSchedObj->lock = INIT_LOCK;
     dbspaceSchedObj->activeCount = 0;
     dbspaceSchedObj->mode = DB_ACQUIRE_NONE;
     dbspaceSchedObj->free = false;
@@ -200,7 +200,7 @@ u8 dbspaceSchedulerObjectOcrPolicyMsgMarshallMsg(ocrSchedulerObjectFactory_t *fa
     ocrSchedulerObjectDbspace_t *dbspaceObj = (ocrSchedulerObjectDbspace_t*)schedObj->guid.metaDataPtr;
 
     //Dbspace critical section start
-    hal_lock32(&dbspaceObj->lock);
+    hal_lock(&dbspaceObj->lock);
 
     ASSERT(dbspaceObj && dbspaceObj->dbSize != 0 && dbspaceObj->dbPtr != NULL);
     ASSERT(dbspaceObj->base.mapping == OCR_SCHEDULER_OBJECT_MAPPING_UNMAPPED);
@@ -215,7 +215,7 @@ u8 dbspaceSchedulerObjectOcrPolicyMsgMarshallMsg(ocrSchedulerObjectFactory_t *fa
     dbspaceObj->base.mapping = OCR_SCHEDULER_OBJECT_MAPPING_MAPPED;
 
     //Dbspace critical section end
-    hal_unlock32(&dbspaceObj->lock);
+    hal_unlock(&dbspaceObj->lock);
 
     return 0;
 }
@@ -242,8 +242,8 @@ u8 dbspaceSchedulerObjectOcrPolicyMsgUnMarshallMsg(ocrSchedulerObjectFactory_t *
     ASSERT(dbMap);
     ocrSchedulerObjectFactory_t *mapFact = pd->schedulerObjectFactories[dbMap->fctId];
     ocrSchedulerObjectIterator_t *mapIt = mapFact->fcts.createIterator(mapFact, dbMap, 0);
-#if GUID_BIT_SIZE == 64
-    mapIt->data = (void*)(schedObj->guid.guid);
+#if GUID_BIT_COUNT == 64
+    mapIt->data = (void*)(schedObj->guid.guid.guid);
 #elif GUID_BIT_COUNT == 128
     mapIt->data = (void*)(schedObj->guid.guid.lower);
 #endif
@@ -252,14 +252,14 @@ u8 dbspaceSchedulerObjectOcrPolicyMsgUnMarshallMsg(ocrSchedulerObjectFactory_t *
     ASSERT(dbspaceObj);
 
     //Dbspace critical section start
-    hal_lock32(&dbspaceObj->lock);
+    hal_lock(&dbspaceObj->lock);
 
     ASSERT(dbspaceObj->dbPtr == NULL);
     dbspaceObj->dbPtr = schedObj->guid.metaDataPtr;
     schedObj->guid.metaDataPtr = dbspaceObj;
 
     //Dbspace critical section end
-    hal_unlock32(&dbspaceObj->lock);
+    hal_unlock(&dbspaceObj->lock);
 
     mapFact->fcts.destroyIterator(mapFact, mapIt);
     return 0;

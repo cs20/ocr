@@ -18,19 +18,19 @@
 u8 ocrEventCreateParams(ocrGuid_t *guid, ocrEventTypes_t eventType, u16 properties, ocrEventParams_t * params) {
 
     START_PROFILE(api_ocrEventCreate);
-    DPRINTF(DEBUG_LVL_INFO, "ENTER ocrEventCreate(*guid="GUIDF", eventType=%"PRIu32", properties=%"PRIu32")\n", GUIDA(*guid),
+    DPRINTF(DEBUG_LVL_INFO, "ENTER ocrEventCreateParams(*guid="GUIDF", eventType=%"PRIu32", properties=%"PRIu32")\n", GUIDA(*guid),
             (u32)eventType, (u32)properties);
-
     PD_MSG_STACK(msg);
     ocrPolicyDomain_t * pd = NULL;
     u8 returnCode = 0;
     ocrTask_t * curEdt = NULL;
     getCurrentEnv(&pd, NULL, &curEdt, &msg);
-
 #define PD_MSG (&msg)
 #define PD_TYPE PD_MSG_EVT_CREATE
     msg.type = PD_MSG_EVT_CREATE | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
-    PD_MSG_FIELD_IO(guid.guid) = *guid;
+    // If the GUID is not labeled, we always set to NULL_GUID to avoid giving spurious
+    // pointer values
+    PD_MSG_FIELD_IO(guid.guid) = (properties & GUID_PROP_IS_LABELED)?*guid:NULL_GUID;
     PD_MSG_FIELD_IO(guid.metaDataPtr) = NULL;
     PD_MSG_FIELD_I(currentEdt.guid) = curEdt ? curEdt->guid : NULL_GUID;
     PD_MSG_FIELD_I(currentEdt.metaDataPtr) = curEdt;
@@ -39,7 +39,18 @@ u8 ocrEventCreateParams(ocrGuid_t *guid, ocrEventTypes_t eventType, u16 properti
 #endif
     PD_MSG_FIELD_I(properties) = properties;
     PD_MSG_FIELD_I(type) = eventType;
+#ifdef ENABLE_OCR_API_DEFERRABLE
+    tagDeferredMsg(&msg, curEdt);
+#endif
     returnCode = pd->fcts.processMessage(pd, &msg, true);
+    //TODO-deferred check if OCR_EPEND ?
+    // I think we need to define convention here:
+    // Sounds we should return OCR_EPEND or some error code to indicate the operation is not
+    // completed, still can we say the I fields are gone and caller can only read IO/O ?
+    // Either it fully executed and we can read everything or it has been deferred
+    // which means there's a subset of fields one can read ?
+    // Most likely only IO fields ?
+    // - Read and set the *guid
     if(returnCode == 0) {
         returnCode = PD_MSG_FIELD_O(returnDetail);
         // Leave the GUID unchanged if the error is OCR_EGUIDEXISTS
@@ -52,17 +63,21 @@ u8 ocrEventCreateParams(ocrGuid_t *guid, ocrEventTypes_t eventType, u16 properti
 #undef PD_MSG
 #undef PD_TYPE
     DPRINTF_COND_LVL(((returnCode != 0) && (returnCode != OCR_EGUIDEXISTS)), DEBUG_LVL_WARN, DEBUG_LVL_INFO,
-                     "EXIT ocrEventCreate -> %"PRIu32"; GUID: "GUIDF"\n", returnCode, GUIDA(*guid));
-    OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_EVENT, OCR_ACTION_CREATE);
+                     "EXIT ocrEventCreateParams -> %"PRIu32"; GUID: "GUIDF"\n", returnCode, GUIDA(*guid));
+    if(returnCode == 0)
+        OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_EVENT, OCR_ACTION_CREATE, traceEventCreate, *guid);
+
     RETURN_PROFILE(returnCode);
 
 }
 
 u8 ocrEventCreate(ocrGuid_t *guid, ocrEventTypes_t eventType, u16 properties) {
+    OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_API_EVENT, OCR_ACTION_CREATE, eventType);
     return ocrEventCreateParams(guid, eventType, properties, NULL);
 }
 
 u8 ocrEventDestroy(ocrGuid_t eventGuid) {
+    OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_API_EVENT, OCR_ACTION_DESTROY, eventGuid);
     START_PROFILE(api_ocrEventDestroy);
     DPRINTF(DEBUG_LVL_INFO, "ENTER ocrEventDestroy(guid="GUIDF")\n", GUIDA(eventGuid));
     PD_MSG_STACK(msg);
@@ -78,7 +93,9 @@ u8 ocrEventDestroy(ocrGuid_t eventGuid) {
     PD_MSG_FIELD_I(currentEdt.guid) = curEdt ? curEdt->guid : NULL_GUID;
     PD_MSG_FIELD_I(currentEdt.metaDataPtr) = curEdt;
     PD_MSG_FIELD_I(properties) = 0;
-
+#ifdef ENABLE_OCR_API_DEFERRABLE
+    tagDeferredMsg(&msg, curEdt);
+#endif
     u8 returnCode = pd->fcts.processMessage(pd, &msg, false);
     DPRINTF_COND_LVL(returnCode, DEBUG_LVL_WARN, DEBUG_LVL_INFO,
                      "EXIT ocrEventDestroy(guid="GUIDF") -> %"PRIu32"\n", GUIDA(eventGuid), returnCode);
@@ -94,41 +111,52 @@ u8 ocrEventSatisfySlot(ocrGuid_t eventGuid, ocrGuid_t dataGuid /*= INVALID_GUID*
             GUIDA(eventGuid), GUIDA(dataGuid), slot);
     PD_MSG_STACK(msg);
     ocrPolicyDomain_t *pd = NULL;
-
     ocrTask_t * curEdt = NULL;
     getCurrentEnv(&pd, NULL, &curEdt, &msg);
+    ocrFatGuid_t satisfierGuid;
+    satisfierGuid.guid = curEdt?curEdt->guid:NULL_GUID;
+    satisfierGuid.metaDataPtr = curEdt;
 #define PD_MSG (&msg)
 #define PD_TYPE PD_MSG_DEP_SATISFY
     msg.type = PD_MSG_DEP_SATISFY | PD_MSG_REQUEST;
-    PD_MSG_FIELD_I(satisfierGuid.guid) = curEdt?curEdt->guid:NULL_GUID;
-    PD_MSG_FIELD_I(satisfierGuid.metaDataPtr) = curEdt;
+    PD_MSG_FIELD_I(satisfierGuid) = satisfierGuid;
+    PD_MSG_FIELD_I(satisfierGuid.guid) = satisfierGuid.guid;
+    PD_MSG_FIELD_I(satisfierGuid.metaDataPtr) = satisfierGuid.metaDataPtr;
     PD_MSG_FIELD_I(guid.guid) = eventGuid;
     PD_MSG_FIELD_I(guid.metaDataPtr) = NULL;
     PD_MSG_FIELD_I(payload.guid) = dataGuid;
     PD_MSG_FIELD_I(payload.metaDataPtr) = NULL;
-    PD_MSG_FIELD_I(currentEdt.guid) = curEdt ? curEdt->guid : NULL_GUID;
-    PD_MSG_FIELD_I(currentEdt.metaDataPtr) = curEdt;
+    PD_MSG_FIELD_I(currentEdt.guid) = satisfierGuid.guid;
+    PD_MSG_FIELD_I(currentEdt.metaDataPtr) = satisfierGuid.metaDataPtr;
     PD_MSG_FIELD_I(slot) = slot;
+#ifdef REG_ASYNC_SGL
+    PD_MSG_FIELD_I(mode) = -1;
+#endif
     PD_MSG_FIELD_I(properties) = 0;
+#ifdef ENABLE_OCR_API_DEFERRABLE
+    tagDeferredMsg(&msg, curEdt);
+#endif
     u8 returnCode = pd->fcts.processMessage(pd, &msg, false);
     DPRINTF_COND_LVL(returnCode, DEBUG_LVL_WARN, DEBUG_LVL_INFO,
                     "EXIT ocrEventSatisfySlot(evt="GUIDF") -> %"PRIu32"\n", GUIDA(eventGuid), returnCode);
-    OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_EVENT, OCR_ACTION_SATISFY, dataGuid);
+    OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_EVENT, OCR_ACTION_SATISFY, traceEventSatisfyDependence, eventGuid, dataGuid);
     RETURN_PROFILE(returnCode);
 #undef PD_MSG
 #undef PD_TYPE
 }
 
 u8 ocrEventSatisfy(ocrGuid_t eventGuid, ocrGuid_t dataGuid /*= INVALID_GUID*/) {
+    OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_API_EVENT, OCR_ACTION_SATISFY, eventGuid, dataGuid);
+    if(ocrGuidIsNull(eventGuid) && ocrGuidIsNull(dataGuid))
+        return 0;
     return ocrEventSatisfySlot(eventGuid, dataGuid, 0);
 }
 
-u8 ocrEdtTemplateCreate_internal(ocrGuid_t *guid, ocrEdt_t funcPtr, u32 paramc, u32 depc, char* funcName) {
+u8 ocrEdtTemplateCreate_internal(ocrGuid_t *guid, ocrEdt_t funcPtr, u32 paramc, u32 depc, const char* funcName) {
+    OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_API_EDT, OCR_ACTION_TEMPLATE_CREATE, funcPtr, paramc, depc);
     START_PROFILE(api_ocrEdtTemplateCreate);
-
     DPRINTF(DEBUG_LVL_INFO, "ENTER ocrEdtTemplateCreate(*guid="GUIDF", funcPtr=%p, paramc=%"PRId32", depc=%"PRId32", name=%s)\n",
             GUIDA(*guid), funcPtr, (s32)paramc, (s32)depc, funcName?funcName:"");
-
 #ifdef OCR_ENABLE_EDT_NAMING
     // Please check that OCR_ENABLE_EDT_NAMING is defined in the app's makefile
     ASSERT(funcName);
@@ -153,14 +181,15 @@ u8 ocrEdtTemplateCreate_internal(ocrGuid_t *guid, ocrEdt_t funcPtr, u32 paramc, 
     {
         u32 t = ocrStrlen(funcName);
         if(t >= OCR_EDT_NAME_SIZE) {
-            funcName[OCR_EDT_NAME_SIZE-1] = '\0';
             t = OCR_EDT_NAME_SIZE-1;
         }
         PD_MSG_FIELD_I(funcName) = funcName;
         PD_MSG_FIELD_I(funcNameLen) = t;
     }
 #endif
-
+#ifdef ENABLE_OCR_API_DEFERRABLE
+    tagDeferredMsg(&msg, curEdt);
+#endif
     returnCode = pd->fcts.processMessage(pd, &msg, true);
     if(returnCode == 0) {
         returnCode = PD_MSG_FIELD_O(returnDetail);
@@ -170,6 +199,7 @@ u8 ocrEdtTemplateCreate_internal(ocrGuid_t *guid, ocrEdt_t funcPtr, u32 paramc, 
     }
 #undef PD_MSG
 #undef PD_TYPE
+    OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_EDT, OCR_ACTION_TEMPLATE_CREATE, *guid, funcPtr);
     DPRINTF_COND_LVL(returnCode, DEBUG_LVL_WARN, DEBUG_LVL_INFO,
                      "EXIT ocrEdtTemplateCreate -> %"PRIu32"; GUID: "GUIDF"\n", returnCode, GUIDA(*guid));
     RETURN_PROFILE(returnCode);
@@ -190,6 +220,9 @@ u8 ocrEdtTemplateDestroy(ocrGuid_t guid) {
     PD_MSG_FIELD_I(currentEdt.guid) = curEdt ? curEdt->guid : NULL_GUID;
     PD_MSG_FIELD_I(currentEdt.metaDataPtr) = curEdt;
     PD_MSG_FIELD_I(properties) = 0;
+#ifdef ENABLE_OCR_API_DEFERRABLE
+    tagDeferredMsg(&msg, curEdt);
+#endif
     u8 returnCode = pd->fcts.processMessage(pd, &msg, false);
     DPRINTF_COND_LVL(returnCode, DEBUG_LVL_WARN, DEBUG_LVL_INFO,
                      "EXIT ocrEdtTemplateDestroy(guid="GUIDF") -> %"PRIu32"\n", GUIDA(guid), returnCode);
@@ -201,6 +234,7 @@ u8 ocrEdtTemplateDestroy(ocrGuid_t guid) {
 u8 ocrEdtCreate(ocrGuid_t* edtGuidPtr, ocrGuid_t templateGuid,
                 u32 paramc, u64* paramv, u32 depc, ocrGuid_t *depv,
                 u16 properties, ocrHint_t *hint, ocrGuid_t *outputEvent) {
+    OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_API_EDT, OCR_ACTION_CREATE, templateGuid, paramc, paramv, depc, depv);
     ocrGuid_t edtGuid = (edtGuidPtr != NULL) ? *edtGuidPtr : NULL_GUID;
     START_PROFILE(api_ocrEdtCreate);
     DPRINTF(DEBUG_LVL_INFO,
@@ -208,13 +242,12 @@ u8 ocrEdtCreate(ocrGuid_t* edtGuidPtr, ocrGuid_t templateGuid,
            ", depc=%"PRId32", depv=%p, prop=%"PRIu32", hint=%p, outEvt="GUIDF")\n",
            GUIDA(edtGuid), GUIDA(templateGuid), (s32)paramc, paramv, (s32)depc, depv,
             (u32)properties, hint,  GUIDA(outputEvent?*outputEvent:NULL_GUID));
-    OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_EDT, OCR_ACTION_CREATE);
-
     PD_MSG_STACK(msg);
     ocrPolicyDomain_t * pd = NULL;
     u8 returnCode = 0;
     ocrTask_t * curEdt = NULL;
     getCurrentEnv(&pd, NULL, &curEdt, &msg);
+
     if((paramc == EDT_PARAM_UNK) || (depc == EDT_PARAM_UNK)) {
         DPRINTF(DEBUG_LVL_WARN, "error: paramc or depc cannot be set to EDT_PARAM_UNK\n");
         ASSERT(false);
@@ -222,10 +255,28 @@ u8 ocrEdtCreate(ocrGuid_t* edtGuidPtr, ocrGuid_t templateGuid,
     }
 
     bool reqResponse = false;
+    if((properties & GUID_PROP_IS_LABELED)) {
+        if(depv != NULL) {
+            // This is disallowed for now because if there are two creators,
+            // they can't both be adding dependences
+            DPRINTF(DEBUG_LVL_WARN, "Ignoring depv specification for ocrEdtCreate since GUID is labeled\n");
+            depv = NULL;
+            depc = 0;
+        }
+        // You have to give a guid if you expect it to be labeled :)
+        ASSERT(edtGuidPtr);
+        reqResponse = true; // We always need a response in this case (for now)
+    } else {
+        // If we don't have labeling, we reset this to NULL_GUID to avoid
+        // propagating crap
+        edtGuid = NULL_GUID;
+    }
+
 #define PD_MSG (&msg)
 #define PD_TYPE PD_MSG_WORK_CREATE
     msg.type = PD_MSG_WORK_CREATE | PD_MSG_REQUEST;
     PD_MSG_FIELD_IO(guid.guid) = edtGuid;
+    PD_MSG_FIELD_IO(guid.metaDataPtr) = NULL;
     if (edtGuidPtr != NULL) {
         reqResponse = true;
     } else {
@@ -244,9 +295,7 @@ u8 ocrEdtCreate(ocrGuid_t* edtGuidPtr, ocrGuid_t templateGuid,
             reqResponse = true;
         }
     }
-    if (reqResponse) {
-        msg.type |= PD_MSG_REQ_RESPONSE;
-    }
+
     ocrFatGuid_t * depvFatGuids = NULL;
     // EDT_DEPV_DELAYED allows to use the older implementation
     // where dependences were always added by the caller instead
@@ -260,7 +309,14 @@ u8 ocrEdtCreate(ocrGuid_t* edtGuidPtr, ocrGuid_t templateGuid,
         depvArray[i].guid = depv[i];
         depvArray[i].metaDataPtr = NULL;
     }
+#else
+    // If we need to add dependences now, we will need a response
+    reqResponse |= (depv != NULL);
 #endif
+
+    if (reqResponse) {
+        msg.type |= PD_MSG_REQ_RESPONSE;
+    }
 
     //Copy the hints so that the runtime modifications
     //are not reflected back to the user
@@ -270,10 +326,16 @@ u8 ocrEdtCreate(ocrGuid_t* edtGuidPtr, ocrGuid_t templateGuid,
         hint = &userHint;
     }
 
-    PD_MSG_FIELD_IO(guid.guid) = NULL_GUID; // to be set by callee
-    PD_MSG_FIELD_IO(guid.metaDataPtr) = NULL;
     if(outputEvent) {
-        PD_MSG_FIELD_IO(outputEvent.guid) = UNINITIALIZED_GUID;
+        if(properties & EDT_PROP_OEVT_VALID) {
+            ASSERT( !ocrGuidIsNull(*outputEvent) );
+            ASSERT( !ocrGuidIsUninitialized(*outputEvent) );
+            ASSERT( !ocrGuidIsError(*outputEvent) );
+
+            PD_MSG_FIELD_IO(outputEvent.guid) = *outputEvent;
+        } else {
+            PD_MSG_FIELD_IO(outputEvent.guid) = UNINITIALIZED_GUID;
+        }
     } else {
         PD_MSG_FIELD_IO(outputEvent.guid) = NULL_GUID;
     }
@@ -291,29 +353,38 @@ u8 ocrEdtCreate(ocrGuid_t* edtGuidPtr, ocrGuid_t templateGuid,
     PD_MSG_FIELD_I(depv) = depvFatGuids;
     PD_MSG_FIELD_I(workType) = EDT_USER_WORKTYPE;
     PD_MSG_FIELD_I(properties) = properties;
-
+#ifdef ENABLE_OCR_API_DEFERRABLE
+    tagDeferredMsg(&msg, curEdt);
+#endif
     returnCode = pd->fcts.processMessage(pd, &msg, true);
     if ((returnCode == 0) && (reqResponse)) {
         returnCode = PD_MSG_FIELD_O(returnDetail);
     }
 
-    if(returnCode) {
-        DPRINTF(DEBUG_LVL_WARN, "EXIT ocrEdtCreate -> %"PRIu32"\n", returnCode);
-        RETURN_PROFILE(returnCode);
-    }
-
-    // Read the GUID anyway as the EDT may have been assigned one
-    // even if the user didn't need it to be returned.
-    edtGuid = PD_MSG_FIELD_IO(guid.guid);
-    if (edtGuidPtr != NULL) {
-        *edtGuidPtr = edtGuid;
+    if(returnCode != 0) {
+        if(returnCode != OCR_EGUIDEXISTS) {
+            ASSERT(edtGuidPtr);
+            *edtGuidPtr = NULL_GUID;
+            DPRINTF(DEBUG_LVL_WARN, "EXIT ocrEdtCreate -> %"PRIu32"\n", returnCode);
+            RETURN_PROFILE(returnCode);
+        } else {
+            DPRINTF(DEBUG_LVL_INFO, "EDT create for "GUIDF" returned OCR_EGUIDEXISTS\n", GUIDA(*edtGuidPtr));
+            ASSERT(edtGuidPtr);
+            *edtGuidPtr = PD_MSG_FIELD_IO(guid.guid);
+            RETURN_PROFILE(OCR_EGUIDEXISTS);
+        }
+    } else {
+        edtGuid = PD_MSG_FIELD_IO(guid.guid);
+        if(edtGuidPtr)
+            *edtGuidPtr = edtGuid;
+        if(outputEvent)
+            *outputEvent = PD_MSG_FIELD_IO(outputEvent.guid);
     }
     // These should have been resolved
     paramc = PD_MSG_FIELD_IO(paramc);
     depc = PD_MSG_FIELD_IO(depc);
 
-    if(outputEvent)
-        *outputEvent = PD_MSG_FIELD_IO(outputEvent.guid);
+
 
 #ifndef EDT_DEPV_DELAYED
     // We still need to do that in case depc was EDT_PARAM_DEF
@@ -342,9 +413,10 @@ u8 ocrEdtCreate(ocrGuid_t* edtGuidPtr, ocrGuid_t templateGuid,
     }
 
     if(outputEvent) {
-        DPRINTF(DEBUG_LVL_INFO, "EXIT ocrEdtCreate -> 0; GUID: "GUIDF"; outEvt: "GUIDF"\n", GUIDA(edtGuid), GUIDA(*outputEvent));
+        DPRINTF(DEBUG_LVL_INFO, "EXIT ocrEdtCreate -> %"PRIu32"; GUID: "GUIDF"; outEvt: "GUIDF"\n",
+                returnCode, GUIDA(edtGuid), GUIDA(*outputEvent));
     } else {
-        DPRINTF(DEBUG_LVL_INFO, "EXIT ocrEdtCreate -> 0; GUID: "GUIDF"\n", GUIDA(edtGuid));
+        DPRINTF(DEBUG_LVL_INFO, "EXIT ocrEdtCreate -> %"PRIu32"; GUID: "GUIDF"\n", returnCode, GUIDA(edtGuid));
     }
     RETURN_PROFILE(0);
 #undef PD_MSG
@@ -366,6 +438,9 @@ u8 ocrEdtDestroy(ocrGuid_t edtGuid) {
     PD_MSG_FIELD_I(currentEdt.guid) = curEdt ? curEdt->guid : NULL_GUID;
     PD_MSG_FIELD_I(currentEdt.metaDataPtr) = curEdt;
     PD_MSG_FIELD_I(properties) = 0;
+#ifdef ENABLE_OCR_API_DEFERRABLE
+    tagDeferredMsg(&msg, curEdt);
+#endif
     u8 returnCode = pd->fcts.processMessage(pd, &msg, false);
     DPRINTF_COND_LVL(returnCode, DEBUG_LVL_WARN, DEBUG_LVL_INFO,
                      "EXIT ocrEdtDestroy(guid="GUIDF") -> %"PRIu32"\n", GUIDA(edtGuid), returnCode);
@@ -376,6 +451,9 @@ u8 ocrEdtDestroy(ocrGuid_t edtGuid) {
 
 u8 ocrAddDependence(ocrGuid_t source, ocrGuid_t destination, u32 slot,
                     ocrDbAccessMode_t mode) {
+    OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_API_EVENT, OCR_ACTION_ADD_DEP, source, destination, slot, mode);
+    if( ocrGuidIsNull(source) && ocrGuidIsNull(destination) )
+        return 0;
     START_PROFILE(api_ocrAddDependence);
     DPRINTF(DEBUG_LVL_INFO, "ENTER ocrAddDependence(src="GUIDF", dest="GUIDF", slot=%"PRIu32", mode=%"PRId32")\n",
             GUIDA(source), GUIDA(destination), slot, (s32)mode);
@@ -384,6 +462,28 @@ u8 ocrAddDependence(ocrGuid_t source, ocrGuid_t destination, u32 slot,
     ocrTask_t * curEdt = NULL;
     getCurrentEnv(&pd, NULL, &curEdt, &msg);
     u8 returnCode = 0;
+#ifdef REG_ASYNC
+#define PD_MSG (&msg)
+#define PD_TYPE PD_MSG_DEP_ADD
+        msg.type = PD_MSG_DEP_ADD | PD_MSG_REQUEST;
+        PD_MSG_FIELD_I(source.guid) = source;
+        PD_MSG_FIELD_I(source.metaDataPtr) = NULL;
+        PD_MSG_FIELD_I(dest.guid) = destination;
+        PD_MSG_FIELD_I(dest.metaDataPtr) = NULL;
+        PD_MSG_FIELD_I(slot) = slot;
+        PD_MSG_FIELD_IO(properties) = mode;
+        PD_MSG_FIELD_I(currentEdt.guid) = curEdt ? curEdt->guid : NULL_GUID;
+        PD_MSG_FIELD_I(currentEdt.metaDataPtr) = curEdt;
+#ifdef ENABLE_OCR_API_DEFERRABLE
+        tagDeferredMsg(&msg, curEdt);
+#endif
+        returnCode = pd->fcts.processMessage(pd, &msg, true);
+        DPRINTF_COND_LVL(returnCode, DEBUG_LVL_WARN, DEBUG_LVL_INFO,
+                     "EXIT ocrAddDependence through PD_MSG_DEP_ADD(src="GUIDF", dest="GUIDF") -> %"PRIu32"\n",
+                     GUIDA(source), GUIDA(destination), returnCode);
+#undef PD_MSG
+#undef PD_TYPE
+#else
     if(!(ocrGuidIsNull(source))) {
 #define PD_MSG (&msg)
 #define PD_TYPE PD_MSG_DEP_ADD
@@ -396,9 +496,13 @@ u8 ocrAddDependence(ocrGuid_t source, ocrGuid_t destination, u32 slot,
         PD_MSG_FIELD_IO(properties) = mode;
         PD_MSG_FIELD_I(currentEdt.guid) = curEdt ? curEdt->guid : NULL_GUID;
         PD_MSG_FIELD_I(currentEdt.metaDataPtr) = curEdt;
+#ifdef ENABLE_OCR_API_DEFERRABLE
+        tagDeferredMsg(&msg, curEdt);
+#endif
         returnCode = pd->fcts.processMessage(pd, &msg, true);
         DPRINTF_COND_LVL(returnCode, DEBUG_LVL_WARN, DEBUG_LVL_INFO,
-                     "EXIT ocrAddDependence through PD_MSG_DEP_ADD(src="GUIDF", dest="GUIDF") -> %"PRIu32"\n", GUIDA(source), GUIDA(destination), returnCode);
+                     "EXIT ocrAddDependence through PD_MSG_DEP_ADD(src="GUIDF", dest="GUIDF") -> %"PRIu32"\n",
+                     GUIDA(source), GUIDA(destination), returnCode);
 #undef PD_MSG
 #undef PD_TYPE
     } else {
@@ -416,13 +520,22 @@ u8 ocrAddDependence(ocrGuid_t source, ocrGuid_t destination, u32 slot,
         PD_MSG_FIELD_I(currentEdt.guid) = curEdt ? curEdt->guid : NULL_GUID;
         PD_MSG_FIELD_I(currentEdt.metaDataPtr) = curEdt;
         PD_MSG_FIELD_I(slot) = slot;
+#ifdef REG_ASYNC_SGL
+        PD_MSG_FIELD_I(mode) = mode;
+#endif
         PD_MSG_FIELD_I(properties) = 0;
+#ifdef ENABLE_OCR_API_DEFERRABLE
+        tagDeferredMsg(&msg, curEdt);
+#endif
+
         returnCode = pd->fcts.processMessage(pd, &msg, true);
         DPRINTF_COND_LVL(returnCode, DEBUG_LVL_WARN, DEBUG_LVL_INFO,
-                     "EXIT ocrAddDependence through PD_MSG_DEP_SATISFY(src="GUIDF", dest="GUIDF") -> %"PRIu32"\n", GUIDA(source), GUIDA(destination), returnCode);
+                     "EXIT ocrAddDependence through PD_MSG_DEP_SATISFY(src="GUIDF", dest="GUIDF") -> %"PRIu32"\n",
+                     GUIDA(source), GUIDA(destination), returnCode);
 #undef PD_MSG
 #undef PD_TYPE
     }
+#endif
     DPRINTF_COND_LVL(returnCode, DEBUG_LVL_WARN, DEBUG_LVL_INFO,
                      "EXIT ocrAddDependence(src="GUIDF", dest="GUIDF") -> %"PRIu32"\n", GUIDA(source), GUIDA(destination), returnCode);
     RETURN_PROFILE(returnCode);

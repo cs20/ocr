@@ -1,0 +1,88 @@
+Tool for extracting relevant TG statistics from log files
+
+Disclaimer: WIP, things will likely change
+
+
+Pre-conditions
+==============
+
+    -The TG_ROOT environment variable must be correctly set
+    -The application must be run targetting the "Energy.cfg" config file
+    -The TG config file must have trace values RMD_TRACE_DUMP_STATS
+     and RMD_TRACE_DUMP_PMU enabled (should be enabled by default)
+    -For detailed information on gathering the correct logs visit:
+
+        xstack.exascale-tech.com/wiki/index.php/FSIM_Performance_Statistics
+
+
+Usage Instructions
+==================
+
+There are two usage options:
+
+    python tgStats.py <path_to_tg_log_files_parent_directory> <options>
+
+        Options:
+            -h :  display inter-agent payload traffic heatmap (in bytes)
+
+                y-axis: Source of load/store
+                x-axis: Destination of load/store
+
+                *NOTE: In order to display heatmap on the cluster you must add the -X flag
+                       when ssh'ing into the machine and execute the script on bar1
+
+
+        -The parent log directory is generated upon running an OCR application
+         on TG in the /install/tg/ directory called "logs"
+
+        -Generally the path will looks <apps_root>/<app>/install/tg/logs
+
+
+Output
+======
+
+The script will produce several summary files:
+
+
+    approximate_power_and_energy.txt
+
+        -Summary of measured time, energy, and power values (totalled across all agents)
+        -pJ / instruction breakdown of each XE
+
+    energy_per_agent.txt
+
+        -Breakdown of computational energy vs. non-computational energy.
+        -Non-computational energy broken down into network energy, dynamic memory energy, and static memory energy
+        -Percentage breakdown of each agents power consumption
+
+    xe_pmu_counters_summary_block_<n>.txt
+
+        -Displays PMU counters per XE on block <n>
+        -One file per block will be produced
+
+    isa_instuctions_summary.txt
+
+        -Summary of assembly instruction counters
+        -Categorized as:
+            logical
+            memory
+            control
+            float
+            integer
+            atomic
+            bitwise
+            misc
+
+    total_net_traffic.txt
+
+        - Summary of Agent to Agent data transfer for loads/stores/atomics at the block level, and DRAM level
+
+    energy_breakdown.csv
+
+        - Spreadsheet summarizing Total/Static/Dynamic/Network/Memory energy per agent
+
+    instruction_breakdown.csv
+
+        - Spreadsheet summarizing total instructions per XE categorized into general instruction type
+
+

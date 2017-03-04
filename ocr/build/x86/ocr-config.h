@@ -72,9 +72,13 @@
 // Policy domain
 #define ENABLE_POLICY_DOMAIN_HC
 
+// Resiliency
+//#define ENABLE_RESILIENCY
+
 // Scheduler
 #define ENABLE_SCHEDULER_COMMON
 #define ENABLE_SCHEDULER_HC
+#define ENABLE_SCHEDULER_BLOCKING_SUPPORT
 
 // Scheduler Heuristic
 #define ENABLE_SCHEDULER_HEURISTIC_NULL
@@ -134,5 +138,19 @@
 // GUID labeling extension
 #define ENABLE_EXTENSION_LABELING
 
+// Performance monitoring
+//#define ENABLE_EXTENSION_PERF
+
+#ifdef ENABLE_RESILIENCY
+
+#ifndef ENABLE_OCR_API_DEFERRABLE
+#define ENABLE_OCR_API_DEFERRABLE
+#endif
+
+#ifndef ENABLE_EXTENSION_PAUSE
+#define ENABLE_EXTENSION_PAUSE
+#endif
+
+#endif
 #endif /* __OCR_CONFIG_H__ */
 

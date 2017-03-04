@@ -12,6 +12,7 @@
 #define __OCR_RUNTIME_TYPES_H__
 
 #include "ocr-types.h"
+#include "ocr-guid-kind.h"
 #include "utils/profiler/profiler.h"
 
 #define INVALID_LOCATION ((u64)(-1))
@@ -21,6 +22,14 @@
 #define EVT_PROP_ALL  ((u16) 0x1)
 #define DB_PROP_ALL   ((u16) 0x70)
 #define GUID_PROP_ALL ((u16) 0x700)
+
+// Mask for runtime properties on GUIDs
+#define GUID_RT_PROP_ALL    ((u16) 0x7000)
+// The GUID value passed is valid
+#define GUID_PROP_ISVALID   ((u16) 0x1000)
+// The GP should record the passed GUID
+#define GUID_PROP_TORECORD  ((u16) 0x2000)
+//Warning: 0x4000 is used by DB_PROP_IGNORE_WARN. No space left.
 
 /* Run-level support */
 typedef enum _ocrRunlevels_t {
@@ -67,6 +76,122 @@ typedef enum _ocrRLPhaseComponents_t {
                                  This implies that the switchRunlevel PD call should return and not wait
                                  for the transition*/
 
+struct _ocrObject_t;
+struct _pdEvent_t;
+struct _ocrPolicyMsg_t;
+
+// BUG #605
+// This is a placeholder for something that identifies a memory,
+// a compute node and a policy domain. Whatever else this becomes in the future, it
+// includes the "engine index" in the low order eight bits.  Irrelevant for other
+// platforms, this is needed by TG where it provides the block-based index for which
+// processor or memory is identified:  0 == CE, 1-8 == XE; additional bits allow for
+// a differnt number of XE's in other potential TG hardware family members.
+typedef u64 ocrLocation_t;
+#define UNDEFINED_LOCATION ((u64)-1)
+
+#define UNINITIALIZED_NEIGHBOR_INDEX ((u64)-1)
+
+/**
+ * @brief Base type for OCR Objects.
+ *
+ */
+typedef struct _ocrObject_t {
+    ocrGuid_t guid;
+    u32 fctId;              /**< Factory ID for this object */
+#ifdef ENABLE_RESILIENCY
+    ocrGuidKind kind;
+    u64 size;
+#endif
+} ocrObject_t;
+
+#define getObjectField(self, name) (((ocrObject_t *)(self))->name)
+
+#define setObjectField(self, name, value) (((ocrObject_t *)(self))->name = value)
+
+/**
+ * @brief Functions common to all objects
+ */
+typedef struct _ocrObjectFcts_t {
+    /**
+     * @brief Implement all potentially asynchronous processing on
+     * objects
+     *
+     * With micro-tasks, user-defined processing functions are
+     * always in the form (object, in/out event, continuation index).
+     * This function is therefore defined for all objects when they may
+     * need to do something that is potentially blocking (for example, acquiring
+     * a data-block may involve fetching the data).
+     *
+     * @param[in] self          Pointer to this object
+     * @param[in/out] event     Event to process (on input). On output, contains
+     *                          the "response" of this function. Both event and *event
+     *                          should be non-NULL.
+     * @param[in] idx           Position in the code to resume (for continuations). Set
+     *                          to 0 to start at the beginning of the function.
+     * @return 0 on success and an error code otherwise
+     *
+     * @note If prior to the call *event has value ptr, the event pointed to by ptr should
+     * not be considered valid anymore. If you need to keep both the event passed in and
+     * the event returned, make a copy of the event passed-in first. This is to keep
+     * in line with the fact that if this call was an individual action, the
+     * source event would be destroyed if another one was returned
+     */
+    u8 (*processEvent)(struct _ocrObject_t* self, struct _pdEvent_t** event, u32 idx);
+} ocrObjectFcts_t;
+
+/**
+ * @brief Base type for OCR Object factories.
+ *
+ * This will contain basic information for all
+ * object factories (that create templates, EDTs,
+ * events, data-blocks, etc.)
+ */
+typedef struct _ocrObjectFactory_t {
+    ocrObjectFcts_t fcts;   /**< Functions for this object factory */
+    /**
+     * @brief Destructor for this factory
+     * @details Destroys this factory. This function is pure virtual and is implemented by the derived class
+     *
+     * @param factory[in] Factory to destroy
+     * @return Void
+     */
+    void (*destruct)(struct _ocrObjectFactory_t *factory);
+    //TODO-MD-FACT: We should get a PD pointer here since the factory is going to do malloc repeatedly
+    u8 (*clone)(struct _ocrObjectFactory_t * factory, ocrGuid_t, ocrObject_t ** mdPtr, ocrLocation_t dest, u32 type);
+    u8 (*serialize)(struct _ocrObjectFactory_t * factory, ocrGuid_t guid, ocrObject_t * src, u64 * mode, ocrLocation_t destLocation, void ** destBuffer, u64 * destSize);
+    u8 (*deserialize)(struct _ocrObjectFactory_t * factory, ocrGuid_t evtGuid, ocrObject_t ** dest, u64 mode, void * srcBuffer, u64 srcSize);
+    // The size of the metadata if it was to be serialized at the time of the call
+    u8 (*mdSize)(ocrObject_t *dest, u64 mode, u64 * size);
+    u8 (*process)(struct _ocrObjectFactory_t * factory, ocrGuid_t guid, ocrObject_t*, struct _ocrPolicyMsg_t * msg);
+} ocrObjectFactory_t;
+
+// Metadata Management
+
+#define ocrObjectOperation_t u32
+
+// Values set to indicate the direction of the requested metadata-cloning operation
+// Pull operation
+#define MD_DIR_PULL 1
+// Push operation
+#define MD_DIR_PUSH 2
+
+// Values set to indicate the type of requested metadata-cloning operation
+#define MD_MASK_TYPE     0x1
+// Request a clone operation
+#define MD_CLONE         0x0
+// Request a move operation
+#define MD_MOVE          0x1
+
+#define MD_MASK_COHERENT 0x2
+#define MD_COHERENT      0x0
+#define MD_NON_COHERENT  0x2
+
+#define HAS_MD_TYPE(prop, name, mask)     ((prop & mask) == name)
+#define HAS_MD_MOVE(prop)           (HAS_MD_TYPE(prop, MD_MOVE, MD_MASK_TYPE))
+#define HAS_MD_CLONE(prop)          (HAS_MD_TYPE(prop, MD_CLONE, MD_MASK_TYPE))
+#define HAS_MD_NON_COHERENT(prop)   (HAS_MD_TYPE(prop, MD_NON_COHERENT, MD_MASK_COHERENT))
+#define HAS_MD_COHERENT(prop)       (HAS_MD_TYPE(prop, MD_COHERENT, MD_MASK_COHERENT))
 
 /**
  * @brief Memory region "tags"
@@ -132,6 +257,11 @@ typedef enum {
 // Extracts marshalling information from a u32 communication property
 #define GET_PROP_U8_MARSHALL(commProperty) ((u8) ((commProperty & COMM_BEHAVIOR_MARSHALL_MASK) >> COMM_PROP_MARSHALL_OFFSET))
 
+// MT Comm constants
+#define COMM_ONE_WAY 0x1      /**< Message is only being sent with no response expected */
+#define COMM_STACK_MSG 0x2    /**< Message is stack allocated */
+
+
 /**
  * @brief Status of messages at the comm-platform level
  *
@@ -187,7 +317,12 @@ typedef enum {
 
 /** @brief Special property that removes the warning
  * for the acquire/create */
-#define DB_PROP_IGNORE_WARN (u16)(0x7000)
+//This is clashing with the RT/GUID mask. No space left anywhere else.
+#define DB_PROP_IGNORE_WARN ((u16)(0x4000))
+
+/** @brief Indicates that it's runtime DB
+ */
+#define DB_PROP_RUNTIME     ((u16)(0x2000))
 
 /**
  * @brief Type of memory allocated/unallocated
@@ -302,18 +437,6 @@ typedef enum { // Coded on 8 bits maximum
     MONITOR_PROGRESS_EVENT = 0x2, /**< Monitor an event completion */
     MAX_MONITOR_PROGRESS   = 0x3
 } ocrMonitorProgress_t;
-
-// BUG #605
-// This is a placeholder for something that identifies a memory,
-// a compute node and a policy domain. Whatever else this becomes in the future, it
-// includes the "engine index" in the low order eight bits.  Irrelevant for other
-// platforms, this is needed by TG where it provides the block-based index for which
-// processor or memory is identified:  0 == CE, 1-8 == XE; additional bits allow for
-// a differnt number of XE's in other potential TG hardware family members.
-typedef u64 ocrLocation_t;
-#define UNDEFINED_LOCATION ((u64)-1)
-
-#define UNINITIALIZED_NEIGHBOR_INDEX ((u64)-1)
 
 /**
  * @brief Returned by the pollMessage function in

@@ -39,6 +39,11 @@ typedef struct {
     pdXeResumeSwitchRL_t rlSwitch; // Structure to keep track of runlevel switches
 } ocrPolicyDomainXe_t;
 
+typedef struct {
+    paramListPolicyDomainInst_t base;
+    u32 neighborCount;
+} paramListPolicyDomainXeInst_t;
+
 ocrPolicyDomainFactory_t *newPolicyDomainFactoryXe(ocrParamList_t *perType);
 
 #ifdef ENABLE_SYSBOOT_FSIM

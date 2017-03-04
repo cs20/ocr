@@ -19,6 +19,15 @@
 #include "ocr-scheduler-object.h"
 #include "scheduler-heuristic/hc/hc-scheduler-heuristic.h"
 
+#define DEBUG_TYPE SCHEDULER_HEURISTIC
+
+#ifdef LOAD_BALANCING_TEST
+#include "extensions/ocr-hints.h"
+#endif
+
+#ifdef ENABLE_RESILIENCY
+#include "policy-domain/hc/hc-policy.h"
+#endif
 /******************************************************/
 /* OCR-HC SCHEDULER_HEURISTIC                         */
 /******************************************************/
@@ -136,53 +145,118 @@ ocrSchedulerHeuristicContext_t* hcSchedulerHeuristicGetContext(ocrSchedulerHeuri
 }
 
 /* Find EDT for the worker to execute - This uses random workstealing to find work if no work is found owned deque */
-static u8 hcSchedulerHeuristicWorkEdtUserInvoke(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicContext_t *context, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
+static u8 hcSchedulerHeuristicGetEdt(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicContext_t *context,
+                                     ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints, ocrSchedulerObjectKind kind,
+                                     u32 countProp)
+{
     ocrSchedulerOpWorkArgs_t *taskArgs = (ocrSchedulerOpWorkArgs_t*)opArgs;
     ocrSchedulerObject_t edtObj;
     edtObj.guid.guid = NULL_GUID;
     edtObj.guid.metaDataPtr = NULL;
-    edtObj.kind = OCR_SCHEDULER_OBJECT_EDT;
+    edtObj.kind = kind;
 
     //First try to pop from own deque
     ocrSchedulerHeuristicContextHc_t *hcContext = (ocrSchedulerHeuristicContextHc_t*)context;
     ocrSchedulerObject_t *schedObj = hcContext->mySchedulerObject;
     ASSERT(schedObj);
     ocrSchedulerObjectFactory_t *fact = self->scheduler->pd->schedulerObjectFactories[schedObj->fctId];
-    u8 retVal = fact->fcts.remove(fact, schedObj, OCR_SCHEDULER_OBJECT_EDT, 1, &edtObj, NULL, SCHEDULER_OBJECT_REMOVE_TAIL);
+    u8 retVal = fact->fcts.remove(fact, schedObj, kind , 1, &edtObj, NULL, SCHEDULER_OBJECT_REMOVE_TAIL);
 
     //If pop fails, then try to steal from other deques
     if (ocrGuidIsNull(edtObj.guid.guid)) {
+
         //First try to steal from the last deque that was visited (probably had a successful steal)
         ocrSchedulerObject_t *stealSchedulerObject = ((ocrSchedulerHeuristicContextHc_t*)self->contexts[hcContext->stealSchedulerObjectIndex])->mySchedulerObject;
         ASSERT(stealSchedulerObject);
-        retVal = fact->fcts.remove(fact, stealSchedulerObject, OCR_SCHEDULER_OBJECT_EDT, 1, &edtObj, NULL, SCHEDULER_OBJECT_REMOVE_HEAD); //try cached deque first
+        retVal = fact->fcts.remove(fact, stealSchedulerObject, kind, 1, &edtObj, NULL, SCHEDULER_OBJECT_REMOVE_HEAD); //try cached deque first
 
         //If cached steal failed, then restart steal loop from starting index
         ocrSchedulerObject_t *rootObj = self->scheduler->rootObj;
         ocrSchedulerObjectFactory_t *sFact = self->scheduler->pd->schedulerObjectFactories[rootObj->fctId];
-        while (ocrGuidIsNull(edtObj.guid.guid) && sFact->fcts.count(sFact, rootObj, (SCHEDULER_OBJECT_COUNT_EDT | SCHEDULER_OBJECT_COUNT_RECURSIVE) ) != 0) {
+        while (ocrGuidIsNull(edtObj.guid.guid) && sFact->fcts.count(sFact, rootObj, countProp) != 0) {
             u32 i;
             for (i = 1; ocrGuidIsNull(edtObj.guid.guid) && i < self->contextCount; i++) {
                 hcContext->stealSchedulerObjectIndex = (context->id + i) % self->contextCount; //simple round robin stealing
                 stealSchedulerObject = ((ocrSchedulerHeuristicContextHc_t*)self->contexts[hcContext->stealSchedulerObjectIndex])->mySchedulerObject;
-                if (stealSchedulerObject)
-                    retVal = fact->fcts.remove(fact, stealSchedulerObject, OCR_SCHEDULER_OBJECT_EDT, 1, &edtObj, NULL, SCHEDULER_OBJECT_REMOVE_HEAD);
+                if (stealSchedulerObject){
+                    retVal = fact->fcts.remove(fact, stealSchedulerObject, kind, 1, &edtObj, NULL, SCHEDULER_OBJECT_REMOVE_HEAD);
+                }
             }
         }
     }
 
-    if (!(ocrGuidIsNull(edtObj.guid.guid)))
+    if (!(ocrGuidIsNull(edtObj.guid.guid))){
         taskArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).edt = edtObj.guid;
+#ifdef OCR_MONITOR_SCHEDULER
+        OCR_TOOL_TRACE(false, OCR_TRACE_TYPE_WORKER, OCR_ACTION_WORK_TAKEN, edtObj.guid.guid, schedObj);
+        ocrWorker_t *wrkr;
+        getCurrentEnv(NULL, &wrkr, NULL, NULL);
+        wrkr->isSeeking = false;
+#endif
+    }
 
     return retVal;
 }
+
+#ifdef LOAD_BALANCING_TEST
+// Will go away with MT
+extern ocrGuid_t processRequestEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]);
+
+static u8 hcSchedulerHeuristicNotifyEdtSatisfiedInvoke(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicContext_t *context, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
+    ocrSchedulerOpNotifyArgs_t *notifyArgs = (ocrSchedulerOpNotifyArgs_t*)opArgs;
+    ocrSchedulerHeuristicContextHc_t *hcContext = (ocrSchedulerHeuristicContextHc_t*)context;
+    ASSERT(hcContext->mySchedulerObject);
+    ocrSchedulerObject_t edtObj;
+    edtObj.guid = notifyArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_EDT_READY).guid;
+    edtObj.kind = OCR_SCHEDULER_OBJECT_EDT;
+    ocrPolicyDomain_t * pd;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+    ocrLocation_t edtLoc;
+    pd->guidProviders[0]->fcts.getLocation(pd->guidProviders[0], edtObj.guid.guid, &edtLoc);
+    if (edtLoc != pd->myLocation) {
+        DPRINTF(DEBUG_LVL_VVERB, "[LB] Scheduler: Received foreign EDT for execution\n");
+    } else {
+        ocrTask_t * edt = (ocrTask_t *) edtObj.guid.metaDataPtr;
+        ASSERT(edt != NULL);
+        // These checks short-circuit a little bit the call path so that the placement
+        // heuristic is not called to end up doing the same kind of checks
+        ocrHint_t edtHints;
+        ocrHintInit(&edtHints, OCR_HINT_EDT_T);
+        u8 noHint = ((ocrTaskFactory_t*)(pd->factories[pd->taskFactoryIdx]))->fcts.getHint(edt, &edtHints);
+        u64 edtAff;
+        u8 noPlcHint = noHint || (!noHint && ocrGetHintValue(&edtHints, OCR_HINT_EDT_AFFINITY, &edtAff));
+        bool loadBalance = ((edt->funcPtr != &processRequestEdt) && noPlcHint);
+        if (loadBalance) {
+            DPRINTF(DEBUG_LVL_VVERB, "[LB] Scheduler node-level load balancing "GUIDF"\n", GUIDA(edtObj.guid.guid));
+            return OCR_ENOSPC;
+        } // else fall-through and continue with scheduling
+    }
+    return 0;
+}
+#endif
 
 u8 hcSchedulerHeuristicGetWorkInvoke(ocrSchedulerHeuristic_t *self, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
     ocrSchedulerHeuristicContext_t *context = self->fcts.getContext(self, opArgs->location);
     ocrSchedulerOpWorkArgs_t *taskArgs = (ocrSchedulerOpWorkArgs_t*)opArgs;
     switch(taskArgs->kind) {
     case OCR_SCHED_WORK_EDT_USER:
-        return hcSchedulerHeuristicWorkEdtUserInvoke(self, context, opArgs, hints);
+        {
+#ifdef ENABLE_SCHEDULER_RUNTIME_OBJECT_MGMT
+            ASSERT(ocrGuidIsNull(taskArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).edt.guid));
+            u8 retVal = hcSchedulerHeuristicGetEdt(self, context, opArgs, hints, OCR_SCHEDULER_OBJECT_RUNTIME_EDT, SCHEDULER_OBJECT_COUNT_RUNTIME_EDT);
+            if (!(ocrGuidIsNull(taskArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).edt.guid)))
+                return retVal;
+#ifdef ENABLE_RESILIENCY
+            ocrPolicyDomain_t * pd;
+            getCurrentEnv(&pd, NULL, NULL, NULL);
+            ocrPolicyDomainHc_t *hcPolicy = (ocrPolicyDomainHc_t*)pd;
+            if (hcPolicy->stateOfCheckpoint != 0 || hcPolicy->stateOfRestart != 0) {
+                return 0; //When checkpoint is in progress, we will not pick up anymore user edts
+            }
+#endif
+#endif
+            return hcSchedulerHeuristicGetEdt(self, context, opArgs, hints, OCR_SCHEDULER_OBJECT_EDT, SCHEDULER_OBJECT_COUNT_EDT);
+        }
     // Unknown ops
     default:
         ASSERT(0);
@@ -204,6 +278,18 @@ static u8 hcSchedulerHeuristicNotifyEdtReadyInvoke(ocrSchedulerHeuristic_t *self
     ocrSchedulerObject_t edtObj;
     edtObj.guid = notifyArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_EDT_READY).guid;
     edtObj.kind = OCR_SCHEDULER_OBJECT_EDT;
+#ifdef ENABLE_SCHEDULER_RUNTIME_OBJECT_MGMT
+    ocrTask_t *task = (ocrTask_t*)notifyArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_EDT_READY).guid.metaDataPtr;
+    if ((task->flags & OCR_TASK_FLAG_RUNTIME_EDT) != 0) {
+        edtObj.kind = OCR_SCHEDULER_OBJECT_RUNTIME_EDT;
+    } else {
+        ASSERT(task->state == ALLACQ_EDTSTATE);
+    }
+#endif
+#ifdef OCR_MONITOR_SCHEDULER
+    ocrGuid_t taskGuid = notifyArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_EDT_READY).guid.guid;
+    OCR_TOOL_TRACE(false, OCR_TRACE_TYPE_EDT, OCR_ACTION_SCHEDULED, taskGuid, schedObj);
+#endif
     ocrSchedulerObjectFactory_t *fact = self->scheduler->pd->schedulerObjectFactories[schedObj->fctId];
     return fact->fcts.insert(fact, schedObj, &edtObj, NULL, (SCHEDULER_OBJECT_INSERT_AFTER | SCHEDULER_OBJECT_INSERT_POSITION_TAIL));
 }
@@ -234,7 +320,11 @@ u8 hcSchedulerHeuristicNotifyInvoke(ocrSchedulerHeuristic_t *self, ocrSchedulerO
         break;
     // Notifies ignored by this heuristic
     case OCR_SCHED_NOTIFY_EDT_SATISFIED:
+#ifdef LOAD_BALANCING_TEST
+        return hcSchedulerHeuristicNotifyEdtSatisfiedInvoke(self, context, opArgs, hints);
+#else
         return OCR_ENOP;
+#endif
     // Unknown ops
     default:
         return OCR_ENOTSUP;

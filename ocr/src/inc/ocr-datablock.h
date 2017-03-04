@@ -46,6 +46,12 @@ typedef struct _paramListDataBlockInst_t {
 struct _ocrDataBlock_t;
 
 typedef struct _ocrDataBlockFcts_t {
+
+    //TODO: This is a hacked specialized version of clone from the base factory.
+    //It addresses a short-coming in the framework where when the clone
+    //is done an event must subsequently be satisfied (stored in the last u32/void*)
+    u8 (*cloneAndSatisfy)(ocrObjectFactory_t * factory, ocrGuid_t guid, ocrObject_t**, ocrLocation_t, u32, u32, void *);
+
     /**
      * @brief Destroys a data-block
      *
@@ -68,6 +74,8 @@ typedef struct _ocrDataBlockFcts_t {
      * @param[out] ptr          Returns the pointer to use to access the data
      * @param[in] edt           EDT seeking registration
      *                          Must be fully resolved
+     * @param[in] destLoc       Destination location for the acquire
+     *                          May be different than the EDT location at this time
      * @param[in] edtSlot       EDT slot the DB is acquired for. Can be EDT_NO_SLOT
      *                          when not applicable. For example when acquiring
      *                          a datablock for runtime usage)
@@ -80,7 +88,7 @@ typedef struct _ocrDataBlockFcts_t {
      * @note Multiple acquires for the same EDT have no effect BUT
      * the DB should only be freed ONCE
      */
-    u8 (*acquire)(struct _ocrDataBlock_t *self, void** ptr, ocrFatGuid_t edt,
+    u8 (*acquire)(struct _ocrDataBlock_t *self, void** ptr, ocrFatGuid_t edt, ocrLocation_t destLoc,
                   u32 edtSlot, ocrDbAccessMode_t mode, bool isInternal, u32 properties);
 
     /**
@@ -89,13 +97,14 @@ typedef struct _ocrDataBlockFcts_t {
      * @param self          Pointer for this data-block
      * @param edt           EDT seeking to de-register from the data-block.
      *                      Must be fully resolved
+     * @param srcLoc        Source location that initiated the release
      * @param isInternal    True if matching an internal acquire
      * @return 0 on success and an error code on failure (see ocr-db.h)
      *
      * @note No need to match one-to-one with acquires. One release
      * releases any and all previous acquires
      */
-    u8 (*release)(struct _ocrDataBlock_t *self, ocrFatGuid_t edt, bool isInternal);
+    u8 (*release)(struct _ocrDataBlock_t *self, ocrFatGuid_t edt, ocrLocation_t srcLoc, bool isInternal);
 
     /**
      * @brief Requests that the block be freed when possible
@@ -108,10 +117,11 @@ typedef struct _ocrDataBlockFcts_t {
      * @param self          Pointer to this data-block
      * @param edt           EDT seeking to free the data-block
      *                      Must be fully resolved
+     * @param srcLoc        Location requesting the free
      * @param properties    Properties of the free (runtime free, require release, etc..)
      * @return 0 on success and an error code on failure (see ocr-db.h)
      */
-    u8 (*free)(struct _ocrDataBlock_t *self, ocrFatGuid_t edt, u32 properties);
+    u8 (*free)(struct _ocrDataBlock_t *self, ocrFatGuid_t edt, ocrLocation_t srcLoc, u32 properties);
 
     /**
      * @brief Register a "waiter" (aka a dependence) on the data-block
@@ -180,6 +190,51 @@ typedef struct _ocrDataBlockFcts_t {
      * @return pointer to hint structure
      */
     ocrRuntimeHint_t* (*getRuntimeHint)(struct _ocrDataBlock_t* self);
+
+#ifdef ENABLE_RESILIENCY
+    /**
+     * @brief Get the serialization size
+     *
+     * @param[in] self        Pointer to this datablock
+     * @param[out] size       Buffer size required to serialize datablock
+     * @return 0 on success and a non-zero code on failure
+     */
+    u8 (*getSerializationSize)(struct _ocrDataBlock_t* self, u64* size);
+
+    /**
+     * @brief Serialize datablock into buffer
+     *
+     * @param[in] self        Pointer to this datablock
+     * @param[in/out] buffer  Buffer to serialize into
+     * @return 0 on success and a non-zero code on failure
+     */
+    u8 (*serialize)(struct _ocrDataBlock_t* self, u8* buffer);
+
+    /**
+     * @brief Deserialize datablock from buffer
+     *
+     * @param[in] buffer      Buffer to deserialize from
+     * @param[out] self       Pointer to deserialized datablock
+     * @return 0 on success and a non-zero code on failure
+     */
+    u8 (*deserialize)(u8* buffer, struct _ocrDataBlock_t** self);
+
+    /**
+     * @brief Fixup datablock pointers after deserialization
+     *
+     * @param[in] self        Pointer to this datablock
+     * @return 0 on success and a non-zero code on failure
+     */
+    u8 (*fixup)(struct _ocrDataBlock_t* self);
+
+    /**
+     * @brief Deallocate datablock during PD reset
+     *
+     * @param[in] self        Pointer to this datablock
+     * @return 0 on success and a non-zero code on failure
+     */
+    u8 (*reset)(struct _ocrDataBlock_t* self);
+#endif
 } ocrDataBlockFcts_t;
 
 /**
@@ -190,6 +245,7 @@ typedef struct _ocrDataBlockFcts_t {
  * with it for book-keeping
  **/
 typedef struct _ocrDataBlock_t {
+    ocrObject_t base;
     ocrGuid_t guid; /**< The guid of this data-block */
 #ifdef OCR_ENABLE_STATISTICS
     ocrStatsProcess_t *statProcess;
@@ -201,6 +257,10 @@ typedef struct _ocrDataBlock_t {
     u32 flags;              /**< flags for the data-block, lower 16 bits are info
                                  from user, upper 16 bits is for internal bookeeping */
     u32 fctId;              /**< ID determining which functions to use */
+#ifdef ENABLE_RESILIENCY
+    void* bkPtr;
+    ocrGuid_t singleAssigner;
+#endif
 } ocrDataBlock_t;
 
 // User DB properties
@@ -208,10 +268,9 @@ typedef struct _ocrDataBlock_t {
 
 // Runtime DB properties (upper 16 bits of a u32)
 #define DB_PROP_RT_ACQUIRE          0x10000 // DB acquired by runtime
-#define DB_PROP_RT_OBLIVIOUS        0x20000 // BUG #607 DB RO mode: (Flag is for runtime use)
+#define DB_PROP_ASYNC_ACQ           0x20000 // DB Acquire gated on MD being brought in //TODO-MD-DBRTACQ
 #define DB_PROP_NO_RELEASE          0x40000 // Indicate a release is not required
 #define DB_PROP_RT_PD_ACQUIRE       0x80000 // DB acquired by scheduler for whole PD
-#define DB_PROP_RT_PROXY            0x100000// DB metadata instantiated as proxy (workaround for BUG #162)
 
 #define DB_FLAG_RT_FETCH            0x1000000
 #define DB_FLAG_RT_WRITE_BACK       0x2000000
@@ -220,10 +279,14 @@ typedef struct _ocrDataBlock_t {
 /* OCR DATABLOCK FACTORY                            */
 /****************************************************/
 
+//fwd declaration
+struct _ocrPolicyMsg_t;
+
 /**
  * @brief data-block factory
  */
 typedef struct _ocrDataBlockFactory_t {
+    ocrObjectFactory_t base;
     /**
      * @brief Creates a data-block to represent a chunk of memory
      *
@@ -234,7 +297,7 @@ typedef struct _ocrDataBlockFactory_t {
      * @param[in] allocator     Allocator guid used to allocate memory
      * @param[in] allocPD       Policy-domain of the allocator
      * @param[in] size          data-block size
-     * @param[in] ptr           Pointer to the memory to use (created through an allocator)
+     * @param[out] ptr          Out pointer to the memory to use (created through an allocator)
      * @param[in] hint          Hints provided at time of creation
      * @param[in] properties    Properties for the data-block creation (GUID_PROP_* or DB_PROP_*)
      * @param[in] instanceArg   Arguments specific for this instance
@@ -243,12 +306,7 @@ typedef struct _ocrDataBlockFactory_t {
      **/
     u8 (*instantiate)(struct _ocrDataBlockFactory_t *factory, ocrFatGuid_t *guid,
                       ocrFatGuid_t allocator, ocrFatGuid_t allocPD, u64 size,
-                      void* ptr, ocrHint_t *hint, u32 properties, ocrParamList_t *instanceArg);
-    /**
-     * @brief Factory destructor
-     * @param factory       Pointer to the factory to destroy.
-     */
-    void (*destruct)(struct _ocrDataBlockFactory_t *factory);
+                      void** ptr, ocrHint_t *hint, u32 properties, ocrParamList_t *instanceArg);
     u32 factoryId; /**< Corresponds to fctId in DB */
     ocrDataBlockFcts_t fcts; /**< Function pointers created instances should use */
     u64 *hintPropMap; /**< Mapping hint properties to implementation specific packed array */

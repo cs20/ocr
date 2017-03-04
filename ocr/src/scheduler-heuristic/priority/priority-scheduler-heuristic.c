@@ -126,9 +126,9 @@ u8 prioritySchedulerHeuristicUpdate(ocrSchedulerHeuristic_t *self, ocrSchedulerO
 }
 
 ocrSchedulerHeuristicContext_t* prioritySchedulerHeuristicGetContext(ocrSchedulerHeuristic_t *self, ocrLocation_t loc) {
-    ASSERT(loc == self->scheduler->pd->myLocation);
     ocrWorker_t * worker = NULL;
     getCurrentEnv(NULL, &worker, NULL, NULL);
+    if (worker == NULL) return NULL;
     return self->contexts[worker->id];
 }
 
@@ -146,9 +146,15 @@ static u8 prioritySchedulerHeuristicWorkEdtUserInvoke(ocrSchedulerHeuristic_t *s
     ocrSchedulerObjectFactory_t *fact = self->scheduler->pd->schedulerObjectFactories[schedObj->fctId];
     u8 retVal = fact->fcts.remove(fact, schedObj, OCR_SCHEDULER_OBJECT_EDT, 1, &edtObj, NULL, SCHEDULER_OBJECT_REMOVE_TAIL);
 
-    if(!(ocrGuidIsNull(edtObj.guid.guid)))
+    if(!(ocrGuidIsNull(edtObj.guid.guid))){
         taskArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).edt = edtObj.guid;
-
+#ifdef OCR_MONITOR_SCHEDULER
+        OCR_TOOL_TRACE(false, OCR_TRACE_TYPE_WORKER, OCR_ACTION_WORK_TAKEN, edtObj.guid.guid, schedObj);
+        ocrWorker_t *wrkr;
+        getCurrentEnv(NULL, &wrkr, NULL, NULL);
+        wrkr->isSeeking = false;
+#endif
+    }
     return retVal;
 }
 
@@ -180,6 +186,10 @@ static u8 prioritySchedulerHeuristicNotifyEdtReadyInvoke(ocrSchedulerHeuristic_t
     edtObj.guid = notifyArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_EDT_READY).guid;
     edtObj.kind = OCR_SCHEDULER_OBJECT_EDT;
     ocrSchedulerObjectFactory_t *fact = self->scheduler->pd->schedulerObjectFactories[schedObj->fctId];
+#ifdef OCR_MONITOR_SCHEDULER
+    ocrGuid_t taskGuid = notifyArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_EDT_READY).guid.guid;
+    OCR_TOOL_TRACE(false, OCR_TRACE_TYPE_EDT, OCR_ACTION_SCHEDULED, taskGuid, schedObj);
+#endif
     return fact->fcts.insert(fact, schedObj, &edtObj, NULL, (SCHEDULER_OBJECT_INSERT_AFTER | SCHEDULER_OBJECT_INSERT_POSITION_TAIL));
 }
 
@@ -213,7 +223,6 @@ u8 prioritySchedulerHeuristicNotifyInvoke(ocrSchedulerHeuristic_t *self, ocrSche
         return OCR_ENOP;
     // Unknown ops
     default:
-        ASSERT(0);
         return OCR_ENOTSUP;
     }
     return 0;

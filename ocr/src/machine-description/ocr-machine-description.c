@@ -277,17 +277,8 @@ char* populate_type(ocrParamList_t **type_param, type_enum index, dictionary *di
     case policydomain_type:
         ALLOC_PARAM_LIST(*type_param, paramListPolicyDomainFact_t);
         break;
-    case taskfactory_type: {
-            ALLOC_PARAM_LIST(*type_param, paramListTaskFact_t);
-            ((paramListTaskFact_t*)(*type_param))->usesSchedulerObject = 0;
-            if (key_exists(dict, secname, "schedobj")) {
-                char *valuestr = NULL;
-                snprintf(key, MAX_KEY_SZ, "%s:%s", secname, "schedobj");
-                INI_GET_STR (key, valuestr, "");
-                ASSERT(strcmp(valuestr, "1") == 0);
-                ((paramListTaskFact_t*)(*type_param))->usesSchedulerObject = 1;
-            }
-        }
+    case taskfactory_type:
+        ALLOC_PARAM_LIST(*type_param, paramListTaskFact_t);
         break;
     case tasktemplatefactory_type:
         ALLOC_PARAM_LIST(*type_param, paramListTaskTemplateFact_t);
@@ -778,6 +769,13 @@ s32 populate_inst(ocrParamList_t **inst_param, int inst_param_size, void **insta
                 } else {
                     ((paramListCompPlatformPthread_t *)inst_param[j])->binding = -1;
                 }
+#ifdef OCR_RUNTIME_PROFILER
+                bool doProfile = false;
+                snprintf(key, MAX_KEY_SZ, "%s:%s", secname, "profilethread");
+                // Use low-level function because we don't want a warning if key does not exit
+                doProfile = iniparser_getboolean(dict, key, 1);
+                ((paramListCompPlatformPthread_t *)(inst_param[j]))->doProfile = doProfile;
+#endif
             }
             break;
 #endif
@@ -827,23 +825,27 @@ s32 populate_inst(ocrParamList_t **inst_param, int inst_param_size, void **insta
         break;
     case schedulerObject_type:
         for (j = low; j<=high; j++) {
-            ALLOC_PARAM_LIST(inst_param[j], paramListSchedulerObject_t);
-            ((paramListSchedulerObject_t*)inst_param[j])->config = true;
-            ((paramListSchedulerObject_t*)inst_param[j])->guidRequired = false;
             schedulerObjectType_t mytype = schedulerObjectMax_id;
             TO_ENUM (mytype, inststr, schedulerObjectType_t, schedulerObject_types, schedulerObjectMax_id);
             switch(mytype) {
+#ifdef ENABLE_SCHEDULER_NULL
+            case schedulerObjectNull_id:
+                {
+                    ALLOC_PARAM_LIST(inst_param[j], paramListSchedulerObjectNull_t);
+                }
+                break;
+#endif
 #ifdef ENABLE_SCHEDULER_OBJECT_WST
             case schedulerObjectWst_id:
                 {
+                    ALLOC_PARAM_LIST(inst_param[j], paramListSchedulerObjectWst_t);
+                    ((paramListSchedulerObjectWst_t*)inst_param[j])->config = SCHEDULER_OBJECT_WST_CONFIG_REGULAR;
                     if (key_exists(dict, secname, "config")) {
                         char *valuestr = NULL;
                         snprintf(key, MAX_KEY_SZ, "%s:%s", secname, "config");
                         INI_GET_STR (key, valuestr, "");
                         if (strcmp(valuestr, "STATIC") == 0) {
                             ((paramListSchedulerObjectWst_t*)inst_param[j])->config = SCHEDULER_OBJECT_WST_CONFIG_STATIC;
-                        } else {
-                            ((paramListSchedulerObjectWst_t*)inst_param[j])->config = SCHEDULER_OBJECT_WST_CONFIG_REGULAR;
                         }
                     }
                 }
@@ -853,8 +855,11 @@ s32 populate_inst(ocrParamList_t **inst_param, int inst_param_size, void **insta
                 ASSERT (0); // Unimplemented scheduler object type
                 break;
             default:
+                ALLOC_PARAM_LIST(inst_param[j], paramListSchedulerObject_t);
                 break;
             }
+            ((paramListSchedulerObject_t*)inst_param[j])->config = true;
+            ((paramListSchedulerObject_t*)inst_param[j])->guidRequired = false;
             instance[j] = (void *)((ocrSchedulerObjectFactory_t *)factory)->instantiate(factory, inst_param[j]);
             if (instance[j]) {
                 DPRINTF(DEBUG_LVL_INFO, "Created schedulerObject of type %s, index %"PRId32"\n", inststr, j);
@@ -863,7 +868,33 @@ s32 populate_inst(ocrParamList_t **inst_param, int inst_param_size, void **insta
         break;
     case schedulerHeuristic_type:
         for (j = low; j<=high; j++) {
-            ALLOC_PARAM_LIST(inst_param[j], paramListSchedulerHeuristic_t);
+            schedulerHeuristicType_t mytype = -1;
+            TO_ENUM (mytype, inststr, schedulerHeuristicType_t, schedulerHeuristic_types, schedulerHeuristicMax_id);
+            switch(mytype) {
+#if defined(ENABLE_SCHEDULER_HEURISTIC_CE_AFF)
+                case schedulerHeuristicCeAff_id: {
+                    ALLOC_PARAM_LIST(inst_param[j], paramListSchedulerHeuristicCeAff_t);
+                    if(key_exists(dict, secname, "enforceaffinity")) {
+                        char *valuestr = NULL;
+                        snprintf(key, MAX_KEY_SZ, "%s:%s", secname, "enforceaffinity");
+                        INI_GET_STR(key, valuestr, "no");
+                        if(strcmp(valuestr, "yes") == 0) {
+                            ((paramListSchedulerHeuristicCeAff_t*)inst_param[j])->enforceAffinity = true;
+                        } else {
+                            u32 t = strcmp(valuestr, "no");
+                            ASSERT(t == 0 && "enforceaffinity should be 'yes' or 'no'");
+                            ((paramListSchedulerHeuristicCeAff_t*)inst_param[j])->enforceAffinity = false;
+                        }
+                    } else {
+                        ((paramListSchedulerHeuristicCeAff_t*)inst_param[j])->enforceAffinity = false;
+                    }
+                    break;
+                }
+#endif
+                default: {
+                    ALLOC_PARAM_LIST(inst_param[j], paramListSchedulerHeuristic_t);
+                }
+            }
             ((paramListSchedulerHeuristic_t*)inst_param[j])->isMaster = false;
             if (key_exists(dict, secname, "kind")) {
                 char *valuestr = NULL;
@@ -883,20 +914,23 @@ s32 populate_inst(ocrParamList_t **inst_param, int inst_param_size, void **insta
             workerType_t mytype = -1;
             TO_ENUM (mytype, inststr, workerType_t, worker_types, workerMax_id);
             switch (mytype) {
-#if defined(ENABLE_WORKER_HC) || defined(ENABLE_WORKER_HC_COMM)
+#if defined(ENABLE_WORKER_HC) || defined(ENABLE_WORKER_HC_COMM) || defined(ENABLE_WORKER_HC_COMM_MT)
 #if defined(ENABLE_WORKER_HC)
                 case workerHc_id:
 #endif
 #if defined(ENABLE_WORKER_HC_COMM)
                 case workerHcComm_id:
 #endif
+#if defined(ENABLE_WORKER_HC_COMM_MT)
+                case workerHcCommMT_id:
+#endif
                     {
                     char *workerstr;
-                    char workertypekey[MAX_KEY_SZ];
+                    char key[MAX_KEY_SZ];
                     ocrWorkerType_t workertype = MAX_WORKERTYPE;
 
-                    snprintf(workertypekey, MAX_KEY_SZ, "%s:%s", secname, "workertype");
-                    INI_GET_STR (workertypekey, workerstr, "");
+                    snprintf(key, MAX_KEY_SZ, "%s:%s", secname, "workertype");
+                    INI_GET_STR (key, workerstr, "");
                     TO_ENUM (workertype, workerstr, ocrWorkerType_t, ocrWorkerType_types, MAX_WORKERTYPE-1);
                     workertype += 1;  // because workertype is 1-indexed, not 0-indexed
                     if (workertype == MAX_WORKERTYPE) workertype = SLAVE_WORKERTYPE; // reasonable default
@@ -1058,6 +1092,18 @@ s32 populate_inst(ocrParamList_t **inst_param, int inst_param_size, void **insta
                     ((paramListPolicyDomainCeInst_t *)inst_param[j])->neighborCount = (u32)value;
                 } else {
                     ((paramListPolicyDomainCeInst_t *)inst_param[j])->neighborCount = (u32)0;
+                }
+            }
+            break;
+#endif
+#ifdef ENABLE_POLICY_DOMAIN_XE
+            case policyDomainXe_id: {
+                ALLOC_PARAM_LIST(inst_param[j], paramListPolicyDomainXeInst_t);
+                if (key_exists(dict, secname, "neighborcount")) {
+                    value = get_key_value(dict, secname, "neighborcount", j-low);
+                    ((paramListPolicyDomainXeInst_t *)inst_param[j])->neighborCount = (u32)value;
+                } else {
+                    ((paramListPolicyDomainXeInst_t *)inst_param[j])->neighborCount = (u32)0;
                 }
             }
             break;
@@ -1237,36 +1283,38 @@ void add_dependence (type_enum fromtype, type_enum totype, char *refstr,
             f->schedulers[dependence_index] = (ocrScheduler_t *)toinstance;
             break;
         }
-        case taskfactory_type: {
-            if (f->taskFactories == NULL) {
-                f->taskFactoryCount = dependence_count;
-                f->taskFactories = (ocrTaskFactory_t **)runtimeChunkAlloc(dependence_count * sizeof(ocrTaskFactory_t *), PERSISTENT_CHUNK);
+        case taskfactory_type: case tasktemplatefactory_type: case datablockfactory_type: case eventfactory_type: {
+            if(f->factories == NULL) {
+                f->taskFactoryIdx = f->taskTemplateFactoryIdx = f->datablockFactoryIdx = f->eventFactoryIdx = dependence_count+1;
+                f->factoryCount = dependence_count;
+                f->factories = (ocrObjectFactory_t**)runtimeChunkAlloc(dependence_count*sizeof(ocrObjectFactory_t*), PERSISTENT_CHUNK);
             }
-            f->taskFactories[dependence_index] = (ocrTaskFactory_t *)toinstance;
-            break;
-        }
-        case tasktemplatefactory_type: {
-            if (f->taskTemplateFactories == NULL) {
-                f->taskTemplateFactoryCount = dependence_count;
-                f->taskTemplateFactories = (ocrTaskTemplateFactory_t **)runtimeChunkAlloc(dependence_count * sizeof(ocrTaskTemplateFactory_t *), PERSISTENT_CHUNK);
+            f->factories[dependence_index] = (ocrObjectFactory_t*)toinstance;
+            switch(totype) {
+            case taskfactory_type: {
+                if(f->taskFactoryIdx > dependence_index)
+                    f->taskFactoryIdx = dependence_index;
+                break;
             }
-            f->taskTemplateFactories[dependence_index] = (ocrTaskTemplateFactory_t *)toinstance;
-            break;
-        }
-        case datablockfactory_type: {
-            if (f->dbFactories == NULL) {
-                f->dbFactoryCount = dependence_count;
-                f->dbFactories = (ocrDataBlockFactory_t **)runtimeChunkAlloc(dependence_count * sizeof(ocrDataBlockFactory_t *), PERSISTENT_CHUNK);
+            case tasktemplatefactory_type: {
+                if(f->taskTemplateFactoryIdx > dependence_index)
+                    f->taskTemplateFactoryIdx = dependence_index;
+                break;
             }
-            f->dbFactories[dependence_index] = (ocrDataBlockFactory_t *)toinstance;
-            break;
-        }
-        case eventfactory_type: {
-            if (f->eventFactories == NULL) {
-                f->eventFactoryCount = dependence_count;
-                f->eventFactories = (ocrEventFactory_t **)runtimeChunkAlloc(dependence_count * sizeof(ocrEventFactory_t *), PERSISTENT_CHUNK);
+            case datablockfactory_type: {
+                if(f->datablockFactoryIdx > dependence_index)
+                    f->datablockFactoryIdx = dependence_index;
+                break;
             }
-            f->eventFactories[dependence_index] = (ocrEventFactory_t *)toinstance;
+            case eventfactory_type: {
+                if(f->eventFactoryIdx > dependence_index)
+                    f->eventFactoryIdx = dependence_index;
+                break;
+            }
+            default:
+                ASSERT(0);
+                break;
+            }
             break;
         }
         case schedulerObject_type: {
@@ -1326,15 +1374,35 @@ s32 build_deps (dictionary *dict, s32 A, s32 B, char *refstr, void ***all_instan
     return 0;
 }
 
-s32 build_deps_types (s32 A, s32 B, char *refstr, void **pdinst, int pdcount, int type_count, void ***all_factories, ocrParamList_t ***type_params) {
+s32 build_deps_types (s32 A, s32 B, char *refstr, void **pdinst, int pdcount, int *type_counts, void ***all_factories, ocrParamList_t ***type_params) {
     s32 i, j;
 
-    for (i = 0; i < pdcount; i++) {
-        for (j = 0; j < type_count; j++) {
-            add_dependence(A, B, refstr, pdinst[i], NULL, all_factories[B][j], NULL, j, type_count);
+    if(B >= taskfactory_type && B <= eventfactory_type) {
+        // We clump all of these together in factories so we calculate the start index
+        s32 initJ = 0;
+        s32 totalCount = 0;
+        for(j=taskfactory_type; j<=eventfactory_type; ++j) {
+            if(j == B) {
+                break;
+            }
+            initJ += type_counts[j];
+        }
+        totalCount = initJ;
+        for(; j<=eventfactory_type; ++j)
+            totalCount += type_counts[j];
+
+        for(i=0; i<pdcount; ++i) {
+            for(j=initJ; j<type_counts[B]+initJ; ++j) {
+                add_dependence(A, B, refstr, pdinst[i], NULL, all_factories[taskfactory_type][j], NULL, j, totalCount);
+            }
+        }
+    } else {
+        for (i = 0; i < pdcount; i++) {
+            for (j = 0; j < type_counts[B]; j++) {
+                add_dependence(A, B, refstr, pdinst[i], NULL, all_factories[B][j], NULL, j, type_counts[B]);
+            }
         }
     }
-
     return 0;
 }
 

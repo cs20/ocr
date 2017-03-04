@@ -30,6 +30,10 @@ else
         TEST_OPTIONS="-ext_rtapi -ext_legacy -ext_params_evt -ext_counted_evt -ext_channel_evt"
     fi
 
+    if [[ "${OCR_TYPE}" == "x86-mpi" ]]; then
+        TEST_OPTIONS="-ext_rtapi -ext_params_evt -ext_counted_evt -ext_channel_evt -ext_labeling"
+    fi
+
     OCR_TYPE=${OCR_TYPE} ./ocrTests ${TEST_OPTIONS} -unstablefile unstable.${OCR_TYPE}-${DB_IMPL}
     RES=$?
 

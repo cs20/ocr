@@ -64,12 +64,21 @@ ocrGuid_t ocrElsUserGet(u8 offset);
 void ocrElsUserSet(u8 offset, ocrGuid_t data);
 
 /**
+ * @brief Get the local data-store associated with the
+ * current EDT and its size.
+ *
+ * @param[out] ptr Pointer to the local data-store
+ * @param[out] elsSize Size (in bytes) of the local data-store
+ * */
+u8 ocrEdtLocalStorageGet(void **ptr, u64 *elsSize);
+
+/**
  * @brief Get the GUID of the calling EDT
  *
  * @return the GUID of the calling EDT or NULL_GUID if this code
  * is running outside an EDT (runtime code)
  **/
-ocrGuid_t currentEdtUserGet();
+void currentEdtUserGet(ocrGuid_t * guid);
 
 /**
  * @brief Get the number of workers the runtime currently uses
@@ -89,7 +98,7 @@ u64 ocrNbWorkers();
  *
  * @return the GUID of the calling worker
  **/
-ocrGuid_t ocrCurrentWorkerGuid();
+void ocrCurrentWorkerGuid(ocrGuid_t * guid);
 
 /**
  * @brief Inform the OCR runtime that the currently

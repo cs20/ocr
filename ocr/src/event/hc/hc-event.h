@@ -12,6 +12,7 @@
 
 #include "hc/hc.h"
 #include "ocr-event.h"
+#include "ocr-hal.h"
 #include "ocr-types.h"
 #include "utils/ocr-utils.h"
 
@@ -32,19 +33,37 @@
 #define HCEVT_WAITER_DYNAMIC_COUNT 4
 #endif
 
+#ifndef ENABLE_EVENT_MDC
+#define ENABLE_EVENT_MDC 0
+#endif
+
+#define MDC_SUPPORT_EVT(guidKind) (ENABLE_EVENT_MDC && ((guidKind == OCR_GUID_EVENT_IDEM) || (guidKind == OCR_GUID_EVENT_STICKY)))
+
 typedef struct {
     ocrEventFactory_t base;
 } ocrEventFactoryHc_t;
 
+typedef struct locNode_t {
+    ocrLocation_t loc;
+    struct locNode_t * next;
+} locNode_t;
+
+typedef struct ocrEventHcDist_t {
+    ocrLocation_t satFromLoc;
+    ocrLocation_t delFromLoc;
+    locNode_t * peers; // A list of unique peers locations
+} ocrEventHcDist_t;
+
 typedef struct ocrEventHc_t {
     ocrEvent_t base;
+    ocrEventHcDist_t mdClass;
     regNode_t waiters[HCEVT_WAITER_STATIC_COUNT]; /**< hold waiters. If overflows a dynamically
                                               allocated waiter list is stored in waitersDb */
     ocrFatGuid_t waitersDb; /**< DB containing an array of regNode_t listing the
                              * events/EDTs depending on this event */
     volatile u32 waitersCount; /**< Number of waiters in waitersDb */
     u32 waitersMax; /**< Maximum number of waiters in waitersDb */
-    volatile u32 waitersLock;
+    lock_t waitersLock;
     ocrRuntimeHint_t hint;
 } ocrEventHc_t;
 
@@ -60,7 +79,7 @@ typedef struct _ocrEventHcCounted_t {
 
 typedef struct _ocrEventHcLatch_t {
     ocrEventHc_t base;
-    volatile s32 counter;
+    s32 counter;
 } ocrEventHcLatch_t;
 
 typedef struct _ocrEventHcChannel_t {
@@ -80,6 +99,7 @@ typedef struct _ocrEventHcChannel_t {
     regNode_t * waiters; // An array of registration node, possibly multi-dimensional and linearized
 } ocrEventHcChannel_t;
 
+ocrGuidKind eventTypeToGuidKind(ocrEventTypes_t eventType);
 
 ocrEventFactory_t* newEventFactoryHc(ocrParamList_t *perType, u32 factoryId);
 

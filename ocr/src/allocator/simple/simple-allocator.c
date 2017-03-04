@@ -194,10 +194,10 @@ static void simpleInit(pool_t *pool, u64 size)
     // pool->lock and pool->inited is already 0 at startup (on x86, it's done at mallocBegin())
 #ifdef ENABLE_VALGRIND
     VALGRIND_MAKE_MEM_DEFINED(&(pool->lock), sizeof(pool->lock));
-    hal_lock32(&(pool->lock));
+    hal_lock(&(pool->lock));
     VALGRIND_MAKE_MEM_NOACCESS(&(pool->lock), sizeof(pool->lock));
 #else
-    hal_lock32(&(pool->lock));
+    hal_lock(&(pool->lock));
 #endif
 
 #ifdef ENABLE_VALGRIND
@@ -227,10 +227,10 @@ static void simpleInit(pool_t *pool, u64 size)
 
 #ifdef ENABLE_VALGRIND
     VALGRIND_MAKE_MEM_DEFINED(&(pool->lock), sizeof(pool->lock));
-    hal_unlock32(&(pool->lock));
+    hal_unlock(&(pool->lock));
     VALGRIND_MAKE_MEM_NOACCESS(&(pool->lock), sizeof(pool->lock));
 #else
-    hal_unlock32(&(pool->lock));
+    hal_unlock(&(pool->lock));
 #endif
 }
 
@@ -370,7 +370,7 @@ static void simpleDeleteFree(pool_t *pool,u64 *p)
 static void *simpleMalloc(pool_t *pool,u64 size, struct _ocrPolicyDomain_t *pd)
 {
     VALGRIND_POOL_OPEN(pool);
-    hal_lock32(&(pool->lock));
+    hal_lock(&(pool->lock));
     u64 *p = pool->freelist;
     VALGRIND_POOL_CLOSE(pool);
     u64 *next;
@@ -407,7 +407,7 @@ static void *simpleMalloc(pool_t *pool,u64 size, struct _ocrPolicyDomain_t *pd)
             ASSERT_BLOCK_END
             VALGRIND_CHUNK_CLOSE(p);
             VALGRIND_POOL_OPEN(pool);
-            hal_unlock32(&(pool->lock));
+            hal_unlock(&(pool->lock));
             VALGRIND_POOL_CLOSE(pool);
 #ifdef ENABLE_VALGRIND
             VALGRIND_MEMPOOL_ALLOC(pool, ret, size_orig);
@@ -424,7 +424,7 @@ static void *simpleMalloc(pool_t *pool,u64 size, struct _ocrPolicyDomain_t *pd)
 exit_fail:
     //DPRINTF(DEBUG_LVL_INFO, "OUT OF HEAP! malloc failed\n");
     VALGRIND_POOL_OPEN(pool);
-    hal_unlock32(&(pool->lock));
+    hal_unlock(&(pool->lock));
     VALGRIND_POOL_CLOSE(pool);
     return NULL;
 }
@@ -446,7 +446,7 @@ void simpleFree(void *p)
     VALGRIND_POOL_OPEN(pool);
     u64 start = (u64)pool->pool_start;
     u64 end   = (u64)pool->pool_end;
-    hal_lock32(&(pool->lock));
+    hal_lock(&(pool->lock));
     VALGRIND_POOL_CLOSE(pool);
 
     ASSERT((*(u8 *)(&INFO2(q)) & POOL_HEADER_TYPE_MASK) == allocatorSimple_id);
@@ -522,7 +522,7 @@ void simpleFree(void *p)
     }
     simpleInsertFree(pool, &HEAD(q), size);
     VALGRIND_POOL_OPEN(pool);
-    hal_unlock32(&(pool->lock));
+    hal_unlock(&(pool->lock));
     VALGRIND_POOL_CLOSE(pool);
 #ifdef ENABLE_VALGRIND
     VALGRIND_MEMPOOL_FREE(pool, p);

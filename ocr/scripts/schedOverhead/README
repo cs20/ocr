@@ -1,0 +1,73 @@
+##
+# License
+##
+
+This file is subject to the license agreement located in the file
+LICENSE and cannot be distributed without it.  This notice
+cannot be removed or modified.
+
+##
+# Usage Instructions
+##
+
+This tool produces data detailing time overheads incurred by each EDT
+throughout various stages of thier life cycle, as well as absolute times
+that workers begin seeking work and when they recieve work from the scheduler.
+    -x86
+    -x86-mpi
+
+-In ocr/build/common.mk:
+    -DOCR_MONITOR_SCHEDULER must be set.
+    -DOCR_TRACE_BINARY must be set.
+
+Script Instructions:
+
+-Navigate to desired application directory
+
+-When building/running the application a configuration option must be prepended
+ to the make command.
+
+    The command would look like: CONFIG_FLAGS=--sysworker make -f Makefile.<platform_type> run
+
+-When properly configured, one trace binary per policy domain will be created
+ in: <application_directory>/install/<platform_type>
+
+
+-Navigate to /ocr/scripts/TraceUtils and run:
+    -make
+    -./traceDecode <path_to_trace_binaries>/trace_* > <filename>
+
+    -<filename> is a an appropriately formatted file expected by the overhead script.
+
+
+-Navigate to /ocr/scripts/schedOverhead/ and run:
+    ./analyzeSchedOverhead.py <filename>
+
+
+    -This will create two files per policy domain: timeData_pd#.csv and workActivityLog_pd#.csv
+
+    -timeData_pd#.csv contains time difference intervals per EDT and are arranged as follows:
+
+        Column A: EDT Guid
+        Column B: EDT func. ptr.
+        Column C: Time from EDT creation thruough EDT becoming runnable (All depv satisfied)
+        Column D: Time from EDT becoming runnable through policy domain being notified (PD_MSG send)
+        Column E: Time from PD_MSG send through time when PD_MSG received/processed
+        Column F: Time from PD_MSG receive through time when scheduler module is invoked
+        Column G: Time from scheduler invoke through when the EDT gets scheduled (placed on deque)
+        Column H: Time from EDT being scheduled through the time the EDT gets taken from deque
+        Column I: Time from EDT being taken taken through the time the EDT gets executed
+
+        NOTE: this file is sorted by timestamp of EDT creation
+
+    -workActivityLog_pd#.csv
+
+        -Contains records for each time a worker begins seeking, and when it finds work.
+         In seeking records, the total number of EDTs available at that point in time is also included.
+
+        Column A: Policy Domain ID
+        Column B: Worker ID (deque owner)
+        Column C: Deque Action (Worker requesting EDT | Worker taking EDT)
+        Column D: Timestamp of deque action
+        Column E: Number of EDTs available after action is taken.
+

@@ -38,7 +38,7 @@ bool allDequesEmpty(ocrPolicyDomain_t *pd){
         s32 head = ((ocrWorkerHc_t *)pd->workers[i])->sysDeque->head;
         s32 tail = ((ocrWorkerHc_t *)pd->workers[i])->sysDeque->tail;
 
-        if(tail-head > 0)
+        if(tail!=head)
             return false;
     }
     return true;
@@ -51,9 +51,8 @@ void processTraceObject(ocrTraceObj_t *trace, FILE *f){
     fwrite(trace, sizeof(ocrTraceObj_t), 1, f);
     return;
 }
-#endif
 
-void drainAllDeques(FILE *f){
+static void drainSysDeques(FILE *f){
     ocrPolicyDomain_t *pd;
     getCurrentEnv(&pd, NULL, NULL, NULL);
     u32 i;
@@ -69,11 +68,23 @@ void drainAllDeques(FILE *f){
             ocrTraceObj_t *tr = (ocrTraceObj_t *)(deq->popFromHead(deq,0));
             ASSERT(tr != NULL);
 
-#ifdef OCR_TRACE_BINARY
             processTraceObject(tr, f);
-#endif
             pd->fcts.pdFree(pd, tr);
         }
+    }
+}
+#endif
+
+void drainCurrentDeque(ocrWorker_t *worker, FILE *f, s32 head, s32 tail, deque_t *deq){
+    s32 remaining = tail-head;
+    u32 i;
+    for(i = 0; i < remaining; i++){
+        ocrTraceObj_t *tr = (ocrTraceObj_t *)(deq->popFromHead(deq, 0));
+        ASSERT(tr != NULL);
+#ifdef OCR_TRACE_BINARY
+        processTraceObject(tr, f);
+#endif
+        worker->pd->fcts.pdFree(worker->pd, tr);
     }
 }
 
@@ -83,8 +94,15 @@ void workerLoopSystem(ocrWorker_t *worker){
     ASSERT(worker->curState == GET_STATE(RL_USER_OK, (RL_GET_PHASE_COUNT_DOWN(worker->pd, RL_USER_OK))));
 
 #ifdef OCR_TRACE_BINARY
-    //NP open file for binary writing
-    FILE *f = fopen("trace.bin", "a");
+    ocrPolicyDomain_t *pd;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+    u64 location = pd->myLocation;
+
+    char traceName[32];
+    SNPRINTF(traceName, 31, "trace_%lu.bin", location);
+
+    //open file for binary writing. (One per policy domain)
+    FILE *f = fopen(traceName, "w");
 #endif
 
     u8 continueLoop = true;
@@ -101,12 +119,10 @@ void workerLoopSystem(ocrWorker_t *worker){
                 s32 head = deq->head;
                 s32 tail = deq->tail;
                 if(tail-head > 0){
-                    //Trace record in deque. Pop
-                    ocrTraceObj_t *tr = (ocrTraceObj_t *)(deq->popFromHead(deq, 0));
+                    //Atleast one trace object on deque.  Drain.
 #ifdef OCR_TRACE_BINARY
-                    processTraceObject(tr, f);
+                    drainCurrentDeque(worker, f, head, tail, deq);
 #endif
-                    worker->pd->fcts.pdFree(worker->pd, tr);
                 }
             }
         }
@@ -153,7 +169,7 @@ void workerLoopSystem(ocrWorker_t *worker){
     if(toDrain){
 
 #ifdef OCR_TRACE_BINARY
-        drainAllDeques(f);
+        drainSysDeques(f);
         fclose(f);
 #endif
 

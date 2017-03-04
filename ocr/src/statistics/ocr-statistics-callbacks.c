@@ -35,7 +35,7 @@ void statsTEMP_CREATE(ocrPolicyDomain_t *pd, ocrGuid_t edtGuid, ocrTask_t *task,
         deguidify(pd, templateGuid, (u64*)&ttemplate, NULL);
     }
     ttemplate->statProcess = stats->fctPtrs->createStatsProcess(stats, templateGuid);
-    if(edtGuid == NULL_GUID) {
+    if(ocrGuidIsNull(edtGuid) {
         // This is the first creation. No parent EDT
         return;
     }
@@ -60,7 +60,7 @@ void statsTEMP_USE(ocrPolicyDomain_t *pd, ocrGuid_t edtGuid, ocrTask_t *task,
 
     ocrStats_t *stats = pd->getStats(pd);
 
-    if(edtGuid == NULL_GUID)
+    if(ocrGuidIsNull((edtGuid))
         return;
 
     if(!task) {
@@ -89,7 +89,7 @@ void statsTEMP_DESTROY(ocrPolicyDomain_t *pd, ocrGuid_t edtGuid, ocrTask_t *task
         deguidify(pd, templateGuid, (u64*)&ttemplate, NULL);
     }
 
-    if(edtGuid == NULL_GUID) {
+    if(ocrGuidIsNull(edtGuid)) {
         stats->fctPtrs->destructStatsProcess(stats, ttemplate->statProcess);
         return;
     }
@@ -121,7 +121,7 @@ void statsEDT_CREATE(ocrPolicyDomain_t *pd, ocrGuid_t edtGuid, ocrTask_t *task,
     }
     createTask->statProcess = stats->fctPtrs->createStatsProcess(stats, createGuid);
 
-    if(edtGuid == NULL_GUID) {
+    if(ocrGuidIsNull(edtGuid)) {
         return;
     }
 
@@ -149,7 +149,7 @@ void statsEDT_DESTROY(ocrPolicyDomain_t *pd, ocrGuid_t edtGuid, ocrTask_t *task,
         deguidify(pd, destroyGuid, (u64*)&destroyTask, NULL);
     }
 
-    if(edtGuid == NULL_GUID) {
+    if(ocrGuidIsNull(edtGuid)) {
         stats->fctPtrs->destructStatsProcess(stats, destroyTask->statProcess);
         return;
     }
@@ -230,7 +230,7 @@ void statsDB_CREATE(ocrPolicyDomain_t *pd, ocrGuid_t edtGuid, ocrTask_t *task,
     }
     db->statProcess = stats->fctPtrs->createStatsProcess(stats, dbGuid);
 
-    if(edtGuid == NULL_GUID) {
+    if(ocrGuidIsNull(edtGuid)) {
         return;
     }
 
@@ -264,7 +264,7 @@ void statsDB_DESTROY(ocrPolicyDomain_t *pd, ocrGuid_t edtGuid, ocrTask_t *task,
         deguidify(pd, dbGuid, (u64*)&db, NULL);
     }
 
-    if(edtGuid == NULL_GUID) {
+    if(ocrGuidIsNull(edtGuid)) {
         stats->fctPtrs->destructStatsProcess(stats, db->statProcess);
         return;
     }
@@ -298,7 +298,7 @@ void statsDB_ACQ(ocrPolicyDomain_t *pd, ocrGuid_t edtGuid, ocrTask_t *task,
         deguidify(pd, dbGuid, (u64*)&db, NULL);
     }
 
-    if(edtGuid == NULL_GUID) {
+    if(ocrGuidIsNull(edtGuid)) {
         return;
     }
     if(!task) {
@@ -323,7 +323,7 @@ void statsDB_REL(ocrPolicyDomain_t *pd, ocrGuid_t edtGuid, ocrTask_t *task,
         deguidify(pd, dbGuid, (u64*)&db, NULL);
     }
 
-    if(edtGuid == NULL_GUID) {
+    if(ocrGuidIsNull(edtGuid)) {
         return;
     }
     if(!task) {
@@ -373,7 +373,7 @@ void statsEVT_CREATE(ocrPolicyDomain_t *pd, ocrGuid_t edtGuid, ocrTask_t *task,
     }
     evt->statProcess = stats->fctPtrs->createStatsProcess(stats, evtGuid);
 
-    if(edtGuid == NULL_GUID) {
+    if(ocrGuidIsNull(edtGuid)) {
         return;
     }
 
@@ -393,7 +393,7 @@ void statsEVT_DESTROY(ocrPolicyDomain_t *pd, ocrGuid_t edtGuid, ocrTask_t *task,
         deguidify(pd, evtGuid, (u64*)&evt, NULL);
     }
 
-    if(edtGuid == NULL_GUID) {
+    if(ocrGuidIsNull(edtGuid)) {
         stats->fctPtrs->destructStatsProcess(stats, evt->statProcess);
         return;
     }
@@ -412,7 +412,7 @@ void statsDEP_SATISFYToEvt(ocrPolicyDomain_t *pd, ocrGuid_t edtGuid, ocrTask_t *
 
     ocrStats_t *stats = pd->getStats(pd);
 
-    if(edtGuid == NULL_GUID)
+    if(ocrGuidIsNull(edtGuid))
         return;
 
     if(!task) {
@@ -461,7 +461,7 @@ void statsDEP_ADD(ocrPolicyDomain_t *pd, ocrGuid_t edtGuid, ocrTask_t *task, ocr
     ocrStats_t *stats = pd->getStats(pd);
     ocrStatsProcess_t *midProcess = NULL;
 
-    if(edtGuid == NULL_GUID)
+    if(ocrGuidIsNull(edtGuid))
         return;
     if(!task) {
         deguidify(pd, edtGuid, (u64*)&task, NULL);
@@ -469,7 +469,7 @@ void statsDEP_ADD(ocrPolicyDomain_t *pd, ocrGuid_t edtGuid, ocrTask_t *task, ocr
     if(!depDest) {
         deguidify(pd, depDestGuid, (u64*)&depDest, NULL);
     }
-    if(depSrcGuid == NULL_GUID) {
+    if(ocrGuidIsNull(depSrcGuid)) {
         // Implicitely a DB with no data...
         // Ignore
         return;

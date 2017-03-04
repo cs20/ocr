@@ -33,68 +33,214 @@
 
 #define DEBUG_TYPE WORKER
 
+#if defined(UTASK_COMM) || defined(UTASK_COMM2) || defined(ENABLE_OCR_API_DEFERRABLE_MT)
+#include "ocr-policy-domain-tasks.h"
+#endif
+
+#ifdef ENABLE_EXTENSION_PERF
+#include "ocr-sal.h"
+#endif
+
 /******************************************************/
 /* OCR-HC WORKER                                      */
 /******************************************************/
 
+#ifdef OCR_ASSERT // For debugging spurious tasks at shutdown
+extern ocrGuid_t processRequestEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]);
+#endif
+
 static void hcWorkShift(ocrWorker_t * worker) {
+
+    START_PROFILE(wo_hc_workShift);
     ocrPolicyDomain_t * pd;
     PD_MSG_STACK(msg);
     getCurrentEnv(&pd, NULL, NULL, &msg);
 
-    ocrWorkerHc_t *hcWorker = (ocrWorkerHc_t *) worker;
+#ifdef ENABLE_RESILIENCY
+    {
+        PD_MSG_STACK(msg);
+        getCurrentEnv(NULL, NULL, NULL, &msg);
+#define PD_MSG (&msg)
+#define PD_TYPE PD_MSG_RESILIENCY_MONITOR
+        msg.type = PD_MSG_RESILIENCY_MONITOR | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
+        PD_MSG_FIELD_I(properties) = OCR_RESILIENCY_MONITOR_DEFAULT;
+        RESULT_ASSERT(pd->fcts.processMessage(pd, &msg, true), ==, 0);
+#undef PD_MSG
+#undef PD_TYPE
+    }
+#endif
 
+    ocrWorkerHc_t *hcWorker = (ocrWorkerHc_t *) worker;
+#if defined(UTASK_COMM) || defined(UTASK_COMM2) || defined(ENABLE_OCR_API_DEFERRABLE_MT)
+    RESULT_ASSERT(pdProcessStrands(pd, NP_WORK, 0), ==, 0);
+#endif
+    u8 retCode = 0;
+    {
+    START_PROFILE(wo_hc_getWork);
 #define PD_MSG (&msg)
 #define PD_TYPE PD_MSG_SCHED_GET_WORK
     msg.type = PD_MSG_SCHED_GET_WORK | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
     PD_MSG_FIELD_IO(schedArgs).kind = OCR_SCHED_WORK_EDT_USER;
     PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).edt.guid = NULL_GUID;
     PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).edt.metaDataPtr = NULL;
-    if(pd->fcts.processMessage(pd, &msg, true) == 0) {
+
+#ifdef OCR_MONITOR_SCHEDULER
+    if(!worker->isSeeking){
+        worker->isSeeking = true;
+        OCR_TOOL_TRACE(false, OCR_TRACE_TYPE_WORKER, OCR_ACTION_WORK_REQUEST);
+    }
+#endif
+    retCode = pd->fcts.processMessage(pd, &msg, true);
+    EXIT_PROFILE;
+    }
+    if(retCode == 0) {
         // We got a response
         ocrFatGuid_t taskGuid = PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).edt;
         if(!(ocrGuidIsNull(taskGuid.guid))){
-#ifdef ENABLE_EXTENSION_BLOCKING_SUPPORT
+#ifdef ENABLE_RESILIENCY
+            worker->isIdle = 0;
+#endif
             ocrTask_t * curTask = (ocrTask_t*)taskGuid.metaDataPtr;
+#ifdef OCR_ASSERT
+            if (GET_STATE_PHASE(worker->curState) < (RL_GET_PHASE_COUNT_DOWN(pd, RL_USER_OK)-1)) {
+                if (curTask->funcPtr != processRequestEdt) {
+                    DPRINTF(DEBUG_LVL_WARN, "user-error: task with funcPtr=%p scheduled after ocrShutdown\n", curTask->funcPtr);
+                    ASSERT(false);
+                }
+            }
+#endif
+#ifdef ENABLE_EXTENSION_BLOCKING_SUPPORT
             if (((curTask->flags & OCR_TASK_FLAG_LONG) != 0) && (((ocrWorkerHc_t *) worker)->isHelping)) {
                 // Illegal to pick up a LONG EDT in that case to avoid creating a deadlock
                 curTask->state = RESCHED_EDTSTATE;
                 hcWorker->stealFirst = true;
-            } else {
+            } else
 #endif
+            {
+                START_PROFILE(wo_hc_executeWork);
                 // Task sanity checks
                 ASSERT(taskGuid.metaDataPtr != NULL);
-                worker->curTask = (ocrTask_t*)taskGuid.metaDataPtr;
+                worker->curTask = curTask;
                 DPRINTF(DEBUG_LVL_VERB, "Worker shifting to execute EDT GUID "GUIDF"\n", GUIDA(taskGuid.guid));
                 u32 factoryId = PD_MSG_FIELD_O(factoryId);
-                pd->taskFactories[factoryId]->fcts.execute(worker->curTask);
-                //Store state at worker level to report most recent state on pause.
-                hcWorker->templateGuid = worker->curTask->templateGuid;
-                hcWorker->edtGuid = worker->curTask->guid;
-                hcWorker->fctPtr  = worker->curTask->funcPtr;
-#ifdef OCR_ENABLE_EDT_NAMING
-                hcWorker->name = worker->curTask->name;
+#ifdef ENABLE_EXTENSION_PERF
+                u32 i;
+                if(worker->curTask->flags & OCR_TASK_FLAG_PERFMON_ME)
+                    salPerfStart(hcWorker->perfCtrs);
+                else DPRINTF(DEBUG_LVL_VERB, "Steady state reached\n");
 #endif
+#undef PD_MSG
 #undef PD_TYPE
-#ifdef ENABLE_EXTENSION_BLOCKING_SUPPORT
+                RESULT_ASSERT(((ocrTaskFactory_t *)(pd->factories[factoryId]))->fcts.execute(curTask), ==, 0);
+                //TODO-DEFERRED: With MT, there can be multiple workers executing curTask.
+                // Not sure we thought about that and implications
+#ifdef ENABLE_EXTENSION_PERF
+                if(worker->curTask->flags & OCR_TASK_FLAG_PERFMON_ME) {
+                    salPerfStop(hcWorker->perfCtrs);
+                }
+
+                ocrPerfCounters_t* ctrs = worker->curTask->taskPerfsEntry;
+
+                if(curTask->flags & OCR_TASK_FLAG_PERFMON_ME) {
+                    ctrs->count++;
+                    // Update this value - atomic update is not necessary,
+                    // we sacrifice accuracy for performance
+                    for(i = 0; i < PERF_MAX; i++) {
+                        u64 perfval = (i<PERF_HW_MAX) ? (hcWorker->perfCtrs[i].perfVal)
+                                                      : (curTask->swPerfCtrs[i-PERF_HW_MAX]);
+                        u64 oldaverage = ctrs->stats[i].average;
+                        ctrs->stats[i].average = (oldaverage + perfval)>>1;
+                        ctrs->stats[i].current = perfval;
+                        // Check for steady state
+                        if(ctrs->count > STEADY_STATE_COUNT) {
+                            s64 diff = ctrs->stats[i].average - oldaverage;
+                            diff = (diff < 0)?(-diff):(diff);
+#if !defined(OCR_ENABLE_SIMULATOR)
+                            if(diff <= ctrs->stats[i].average >> STEADY_STATE_SHIFT)
+                                ctrs->steadyStateMask &= ~(1<<i);  // Steady state reached for this counter
+#endif
+                        }
+                    }
+#ifdef OCR_ENABLE_SIMULATOR
+                    //The below trace should only happen in worker if we are doing a simulator trace run. otherwise trace in task
+                    OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_EDT, OCR_ACTION_FINISH, traceTaskFinish, worker->curTask->guid , ctrs->edt, ctrs->count, ctrs->stats);
+#endif
+
+                } else {
+                    // If hints are specified, simply read them
+                    u64 hintValue;
+                    ocrHint_t hint = {0};
+                    u8 hintValid = 0;
+
+                    hint.type = OCR_HINT_EDT_T;
+                    ((ocrTaskFactory_t *)(pd->factories[factoryId]))->fcts.getHint(curTask, &hint);
+                    for (i = OCR_HINT_EDT_STATS_HW_CYCLES; i <= OCR_HINT_EDT_STATS_FLOAT_OPS; i++) {
+                        hintValue = 0;
+                        ocrGetHintValue(&hint, i, &hintValue);
+                        if(hintValue) {
+                            ctrs->stats[i-OCR_HINT_EDT_STATS_HW_CYCLES].average = hintValue;
+                            hintValid = 1;
+                        }
+                    }
+                    if(hintValid) {
+                        ctrs->count++;
+                        ctrs->steadyStateMask = 0;
+                    }
+                }
+#endif
+                //Store state at worker level to report most recent state on pause.
+                hcWorker->edtGuid = curTask->guid;
+#ifdef OCR_ENABLE_EDT_NAMING
+                hcWorker->name = curTask->name;
+#endif
+                EXIT_PROFILE;
+            }
+#ifndef ENABLE_OCR_API_DEFERRABLE_MT
+            {
+                START_PROFILE(wo_hc_wrapupWork);
+#define PD_MSG (&msg)
+#define PD_TYPE PD_MSG_SCHED_NOTIFY
+                getCurrentEnv(NULL, NULL, NULL, &msg);
+                msg.type = PD_MSG_SCHED_NOTIFY | PD_MSG_REQUEST;
+                PD_MSG_FIELD_IO(schedArgs).kind = OCR_SCHED_NOTIFY_EDT_DONE;
+                PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_EDT_DONE).guid.guid = taskGuid.guid;
+                PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_EDT_DONE).guid.metaDataPtr = taskGuid.metaDataPtr;
+                RESULT_ASSERT(pd->fcts.processMessage(pd, &msg, false), ==, 0);
+                EXIT_PROFILE;
+#undef PD_MSG
+#undef PD_TYPE
             }
 #endif
-#define PD_TYPE PD_MSG_SCHED_NOTIFY
-            getCurrentEnv(NULL, NULL, NULL, &msg);
-            msg.type = PD_MSG_SCHED_NOTIFY | PD_MSG_REQUEST;
-            PD_MSG_FIELD_IO(schedArgs).kind = OCR_SCHED_NOTIFY_EDT_DONE;
-            PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_EDT_DONE).guid.guid = taskGuid.guid;
-            PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_EDT_DONE).guid.metaDataPtr = taskGuid.metaDataPtr;
-            RESULT_ASSERT(pd->fcts.processMessage(pd, &msg, false), ==, 0);
 
             // Important for this to be the last
             worker->curTask = NULL;
+        } else {
+#ifdef ENABLE_RESILIENCY
+            if (worker->isIdle == 0 && worker->edtDepth == 0) {
+                if (pd->schedulers[0]->fcts.count(pd->schedulers[0], SCHEDULER_OBJECT_COUNT_RUNTIME_EDT) == 0) {
+                    worker->isIdle = 1;
+                }
+            }
+#endif
         }
     } else {
         ASSERT(0); //Handle error code
     }
+#ifdef ENABLE_RESILIENCY
+    {
+        PD_MSG_STACK(msg);
+        getCurrentEnv(NULL, NULL, NULL, &msg);
+#define PD_MSG (&msg)
+#define PD_TYPE PD_MSG_RESILIENCY_MONITOR
+        msg.type = PD_MSG_RESILIENCY_MONITOR | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
+        PD_MSG_FIELD_I(properties) = OCR_RESILIENCY_MONITOR_FAULT;
+        RESULT_ASSERT(pd->fcts.processMessage(pd, &msg, true), ==, 0);
 #undef PD_MSG
 #undef PD_TYPE
+    }
+#endif
+// #undef PD_MSG
+// #undef PD_TYPE
 #ifdef ENABLE_EXTENSION_PAUSE
     ocrPolicyDomainHc_t *self = (ocrPolicyDomainHc_t *)pd;
     if(self->pqrFlags.runtimePause == true) {
@@ -106,14 +252,29 @@ static void hcWorkShift(ocrWorker_t * worker) {
         hal_xadd32((u32*)&self->pqrFlags.pauseCounter, -1);
     }
 #endif
+
+    RETURN_PROFILE();
 }
+
+#ifdef ENABLE_RESILIENCY
+extern bool doCheckpointResume(ocrPolicyDomain_t *pd);
+#endif
 
 static void workerLoop(ocrWorker_t * worker) {
     u8 continueLoop = true;
+#ifdef ENABLE_EXTENSION_PERF
+    ocrWorkerHc_t *hcWorker = (ocrWorkerHc_t *)worker;
+#endif
+
     // At this stage, we are in the USER_OK runlevel
     ASSERT(worker->curState == GET_STATE(RL_USER_OK, (RL_GET_PHASE_COUNT_DOWN(worker->pd, RL_USER_OK))));
     ocrPolicyDomain_t *pd = worker->pd;
-    if (worker->amBlessed) {
+#ifdef ENABLE_RESILIENCY
+    if (worker->amBlessed && !doCheckpointResume(pd))
+#else
+    if (worker->amBlessed)
+#endif
+    {
         ocrGuid_t affinityMasterPD;
         u64 count = 0;
         // There should be a single master PD
@@ -133,14 +294,14 @@ static void workerLoop(ocrWorker_t * worker) {
         ocrHint_t dbHint;
         ocrHintInit( &dbHint, OCR_HINT_DB_T );
 #if GUID_BIT_COUNT == 64
-            ocrSetHintValue( & dbHint, OCR_HINT_DB_AFFINITY, affinityMasterPD.guid );
+        ocrSetHintValue( & dbHint, OCR_HINT_DB_AFFINITY, affinityMasterPD.guid );
 #elif GUID_BIT_COUNT == 128
-            ocrSetHintValue( & dbHint, OCR_HINT_DB_AFFINITY, affinityMasterPD.lower );
+        ocrSetHintValue( & dbHint, OCR_HINT_DB_AFFINITY, affinityMasterPD.lower );
 #else
 #error Unknown GUID type
 #endif
         ocrDbCreate(&dbGuid, &dbPtr, totalLength,
-                    DB_PROP_IGNORE_WARN, &dbHint, NO_ALLOC);
+                    DB_PROP_RUNTIME | DB_PROP_IGNORE_WARN, &dbHint, NO_ALLOC);
         // copy packed args to DB
         hal_memCopy(dbPtr, packedUserArgv, totalLength, 0);
         PD_MSG_STACK(msg);
@@ -152,6 +313,7 @@ static void workerLoop(ocrWorker_t * worker) {
         PD_MSG_FIELD_IO(guid.metaDataPtr) = NULL;
         PD_MSG_FIELD_I(edt.guid) = NULL_GUID;
         PD_MSG_FIELD_I(edt.metaDataPtr) = NULL;
+        PD_MSG_FIELD_I(srcLoc) = pd->myLocation;
         PD_MSG_FIELD_I(ptr) = NULL;
         PD_MSG_FIELD_I(size) = 0;
         PD_MSG_FIELD_I(properties) = 0;
@@ -166,18 +328,30 @@ static void workerLoop(ocrWorker_t * worker) {
         ocrHint_t edtHint;
         ocrHintInit( &edtHint, OCR_HINT_EDT_T );
 #if GUID_BIT_COUNT == 64
-            ocrSetHintValue( & edtHint, OCR_HINT_EDT_AFFINITY, affinityMasterPD.guid );
+        ocrSetHintValue( & edtHint, OCR_HINT_EDT_AFFINITY, affinityMasterPD.guid );
 #elif GUID_BIT_COUNT == 128
-            ocrSetHintValue( & edtHint, OCR_HINT_EDT_AFFINITY, affinityMasterPD.lower );
+        ocrSetHintValue( & edtHint, OCR_HINT_EDT_AFFINITY, affinityMasterPD.lower );
 #else
 #error Unknown GUID type
 #endif
+
+#ifdef OCR_ENABLE_SIMULATOR
+        //Cannot use EDT_PARAM_DEF when collecting simulator traces
+         ocrEdtCreate(&edtGuid, edtTemplateGuid, 0, /* paramv = */ NULL,
+                     /* depc = */ 1, /* depv = */ &dbGuid,
+                     GUID_PROP_TORECORD, &edtHint, NULL);
+#else
         ocrEdtCreate(&edtGuid, edtTemplateGuid, EDT_PARAM_DEF, /* paramv = */ NULL,
                      /* depc = */ EDT_PARAM_DEF, /* depv = */ &dbGuid,
-                     EDT_PROP_NONE, &edtHint, NULL);
+                     GUID_PROP_TORECORD, &edtHint, NULL);
+#endif
         // Once mainEdt is created, its template is no longer needed
         ocrEdtTemplateDestroy(edtTemplateGuid);
     }
+
+#ifdef ENABLE_EXTENSION_PERF
+    salPerfInit(hcWorker->perfCtrs);
+#endif
 
     // Actual loop
     do {
@@ -225,6 +399,11 @@ static void workerLoop(ocrWorker_t * worker) {
             ASSERT(0);
         }
     } while(continueLoop);
+
+#ifdef ENABLE_EXTENSION_PERF
+    salPerfShutdown(hcWorker->perfCtrs);
+#endif
+
     DPRINTF(DEBUG_LVL_VERB, "Finished worker loop ... waiting to be reapped\n");
 }
 
@@ -236,6 +415,9 @@ u8 hcWorkerSwitchRunlevel(ocrWorker_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_
                           phase_t phase, u32 properties, void (*callback)(ocrPolicyDomain_t *, u64), u64 val) {
 
     u8 toReturn = 0;
+#ifdef ENABLE_EXTENSION_PERF
+    ocrWorkerHc_t *hcWorker = (ocrWorkerHc_t *)self;
+#endif
 
     // Verify properties
     ASSERT((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
@@ -286,17 +468,27 @@ u8 hcWorkerSwitchRunlevel(ocrWorker_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_
             self->pd = PD;
         break;
     case RL_MEMORY_OK:
-        //Check that OCR has been configured to utilize system worker.
-        //worker[n-1] by convention. If so initialize deques
-        if(PD->workers[(PD->workerCount)-1]->type == SYSTEM_WORKERTYPE){
-            if(self->type == MASTER_WORKERTYPE || self->type == SLAVE_WORKERTYPE) {
-                if(((ocrWorkerHc_t *)self)->sysDeque == NULL){
-                    ((ocrWorkerHc_t*)self)->sysDeque = newDeque(self->pd, NULL, NON_CONCURRENT_DEQUE);
-                }
-            }
-        }
         break;
     case RL_GUID_OK:
+        if((properties & RL_BRING_UP) && (RL_IS_FIRST_PHASE_UP(PD, RL_GUID_OK, phase))) {
+            //Check that OCR has been configured to utilize system worker.
+            //worker[n-1] by convention. If so initialize deques
+            //TODO: this check can be dropped without too much consequence (just some unused memory)
+            if(PD->workers[(PD->workerCount)-1]->type == SYSTEM_WORKERTYPE){
+                if(self->type == MASTER_WORKERTYPE || self->type == SLAVE_WORKERTYPE) {
+                    if(((ocrWorkerHc_t *)self)->sysDeque == NULL){
+                        ((ocrWorkerHc_t*)self)->sysDeque = newDeque(self->pd, NULL, NON_CONCURRENT_DEQUE);
+                    }
+                }
+            }
+#ifdef ENABLE_EXTENSION_PERF
+            hcWorker->perfCtrs = PD->fcts.pdMalloc(PD, PERF_HW_MAX*sizeof(salPerfCounter));
+#endif
+        } else if((properties & RL_TEAR_DOWN) && (RL_IS_LAST_PHASE_DOWN(PD, RL_GUID_OK, phase))) {
+#ifdef ENABLE_EXTENSION_PERF
+            PD->fcts.pdFree(PD, hcWorker->perfCtrs);
+#endif
+        }
         break;
     case RL_COMPUTE_OK:
         if((properties & RL_BRING_UP) && RL_IS_FIRST_PHASE_UP(PD, RL_COMPUTE_OK, phase)) {
@@ -307,6 +499,12 @@ u8 hcWorkerSwitchRunlevel(ocrWorker_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_
             self->curState = GET_STATE(RL_MEMORY_OK, 0); // Technically last phase of memory OK but doesn't really matter
             self->desiredState = GET_STATE(RL_COMPUTE_OK, phase);
             self->location = (u64) self; // Currently used only by visualizer, value is not important as long as it's unique
+#ifdef ENABLE_RESILIENCY
+            if (((ocrWorkerHc_t*)self)->hcType == HC_WORKER_COMP) {
+                ocrPolicyDomainHc_t *hcPolicy = (ocrPolicyDomainHc_t *)PD;
+                hal_xadd32((u32*)&hcPolicy->computeWorkerCount, 1);
+            }
+#endif
 
             // See if we are blessed
             self->amBlessed = (properties & RL_BLESSED) != 0;
@@ -354,6 +552,12 @@ u8 hcWorkerSwitchRunlevel(ocrWorker_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_
                 self->callbackArg = val;
                 hal_fence();
                 self->desiredState = GET_STATE(RL_COMPUTE_OK, phase);
+#ifdef ENABLE_RESILIENCY
+                if (((ocrWorkerHc_t*)self)->hcType == HC_WORKER_COMP) {
+                    ocrPolicyDomainHc_t *hcPolicy = (ocrPolicyDomainHc_t *)PD;
+                    hal_xadd32((u32*)&hcPolicy->computeWorkerCount, -1);
+                }
+#endif
             } else {
                 ASSERT(false && "Unexpected phase on runlevel RL_COMPUTE_OK teardown");
             }

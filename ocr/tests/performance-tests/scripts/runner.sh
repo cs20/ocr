@@ -70,7 +70,7 @@ while [[ $# -gt 0 ]]; do
         shift
         LOGDIR_OPT="yes"
         LOGDIR_ARG=("$@")
-    echo "LOGDIR_ARG=$LOGDIR_ARG"
+        echo "LOGDIR_ARG=$LOGDIR_ARG"
         shift
     elif [[ "$1" = "-nbrun" && $# -ge 2 ]]; then
         shift
@@ -120,7 +120,7 @@ if [[ -z "$PROG_ARG" ]]; then
     exit 1
 fi
 
-if [[ -z "$LOGDIR_ARG" ]]; then
+if [[ "${LOGDIR_OPT}" != "yes" ]]; then
     LOGDIR=`mktemp -d rundir.XXXXXX`
 else
     LOGDIR=${LOGDIR_ARG}
@@ -196,7 +196,7 @@ function generateMachineFile {
     VALUE="$PWD/mf${nodes}"
 
     if [[ ${OCRRUN_OPT_ENVKIND} == "CLE" ]]; then
-        more $PBS_NODEFILE | sort | uniq | head -n ${nodes} > ${VALUE}
+        cat $PBS_NODEFILE | sort | uniq | head -n ${nodes} > ${VALUE}
         echo "Generated node file: ${OCR_NODEFILE} for ${OCR_NUM_NODES} number of nodes"
     elif [[ ${OCRRUN_OPT_ENVKIND} == "SLURM" ]]; then
         #Just rely on srun to do the mapping
@@ -211,10 +211,10 @@ function generateMachineFile {
                 VALUE=""
             fi
             head -n ${nodes} "${OCRRUN_OPT_TPL_NODEFILE}" > $VALUE
-            local nb=`more $VALUE | wc -l`;
+            local nb=`cat $VALUE | wc -l`;
             if [[ "$nb" != "${nodes}" ]]; then
-                nb= `more ${OCRRUN_OPT_TPL_NODEFILE} | wc -l`;
-                echo "Error: not enough nodes (${nodes})/${nb}) declared in ${OCRRUN_OPT_TPL_NODEFILE}"
+                nb=`cat ${OCRRUN_OPT_TPL_NODEFILE} | wc -l`
+                echo "Error: not enough nodes (${nodes}/${nb}) declared in ${OCRRUN_OPT_TPL_NODEFILE}"
                 VALUE=""
             else
                 echo "Generated node file: ${VALUE} for ${OCR_NUM_NODES} number of nodes from ${OCRRUN_OPT_TPL_NODEFILE}"
@@ -253,11 +253,6 @@ function generateCfgFile {
         parsed=(${cfgarg//=/ })
         argNameU=${parsed[0]#CFGARG_}
         toLower ${argNameU} argNameL
-        # if [[ ${BASH_VER} -eq 4 ]]; then
-        #     argNameL=${argNameU,,}
-        # else
-        #     argNameL=`echo ${argNameU} | tr '[:upper:]' '[:lower:]'`
-        # fi
         argValue=${parsed[1]}
         #Append to generator argument list
         arg="--${argNameL} ${argValue}"
@@ -313,15 +308,40 @@ function runApplication {
 }
 
 
+function invokeRunnerWorkloadArguments {
+    local  __resultvar=$1
+    type runnerWorkloadArguments 2>/dev/null | grep "is a function"
+    RES=$?
+    if [[ $RES -eq 0 ]]; then
+        echo "Use user-defined runnerWorkloadArguments function to generate WORKLOAD_ARGS"
+        runnerWorkloadArguments
+    else
+        echo "Use WORKLOAD_ARGS=${WORKLOAD_ARGS}"
+    fi
+    eval $__resultvar="'$WORKLOAD_ARGS'"
+}
+
 function scalingTest {
     prog=$1
     progDefines="$2"
+    export HAS_NODEFILE="${OCR_NODEFILE}"
+
     for nodes in `echo "${NODE_SCALING}"`; do
         for cores in `echo "${CORE_SCALING}"`; do
-            runInfo="NB_WORKERS=${cores} NB_NODES=${nodes}"
+            export nodes_all=${nodes}
+            export pes_per_node=${cores}
+            export pes_all=`echo "${cores}*${nodes}" | bc`
+            if [[ "${OCR_TYPE}" == "x86-mpi" ]]; then
+                export pes_comp=`echo "(${cores}-1)*${nodes}" | bc`
+            else
+                export pes_comp=${pes_all}
+            fi
+            runInfo="NB_WORKERS=${cores} NB_NODES=${nodes} nodes_all=${nodes_all} pes_per_node=${pes_per_node} pes_all=${pes_all}"
+            echo "======== $runInfo ======== "
 
-            if [[ -z "${OCR_NODEFILE}" ]]; then
-                export OCR_NUM_NODES=$nodes
+            export OCR_NUM_NODES=${nodes}
+
+            if [[ -z "${HAS_NODEFILE}" ]]; then
                 export OCR_NODEFILE=
                 # Generate the machine file list, can be none
                 generateMachineFile OCR_NODEFILE
@@ -332,8 +352,11 @@ function scalingTest {
 
             # Generate the OCR CFG file
             export CFGARG_THREADS=${cores}
-            export CFGARG_OUTPUT="${prog}-${cores}c.cfg"
+            export CFGARG_OUTPUT="${LOGDIR}/${prog}-${cores}c.cfg"
             generateCfgFile
+
+            # Generate workload arguments if there is a user-provided function
+            invokeRunnerWorkloadArguments WORKLOAD_ARGS
 
             if [[ "${RUNNER_TYPE}" == "Application" ]]; then
                 runApplication RES
@@ -342,12 +365,10 @@ function scalingTest {
                 runMicroBenchmark RES
             fi
 
-
             if [[ ! -f ${CFGARG_OUTPUT} ]]; then
                 echo "error: ${SCRIPT_NAME} Cannot find generated OCR config file ${CFGARG_OUTPUT}"
                 exit 1
             fi
-
 
             if [[ $RES -ne 0 ]]; then
                 if [[ "${TARGET_ARG}" != "gasnet" ]]; then
@@ -360,8 +381,12 @@ function scalingTest {
             # Everything went fine, delete the generated cfg file
             # unless instructed otherwise by NOCLEAN_OPT
             deleteFiles ${CFGARG_OUTPUT}
+
+            unset OCR_NUM_NODES
+            unset OCR_NODEFILE
         done
     done
+    unset HAS_NODEFILE
 }
 
 function runTest() {
@@ -380,7 +405,7 @@ function runTest() {
     w > ${LOGDIR}/info_machine_load
 
     # OCR specific information
-    more ${LOGDIR}/info_env_all | grep -e "OCR" -e "CFGARG_" -e "SCALING" > ${LOGDIR}/info_ocr_env
+    cat ${LOGDIR}/info_env_all | grep -e "OCR" -e "CFGARG_" -e "SCALING" > ${LOGDIR}/info_ocr_env
     FULLLOGDIR=$PWD/${LOGDIR}
     cd ${OCR_INSTALL}
     # test if we have an actual GIT repo checkout

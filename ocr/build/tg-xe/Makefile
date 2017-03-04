@@ -18,12 +18,35 @@ endif
 #
 
 DEFAULT_CONFIG = xe-default.cfg
+APPS_LIBS_INSTALL_ROOT ?= ../../../../apps/apps/libs/install
+ARCH ?= tg-xe
+APPS_LIBS_INSTALL := ${APPS_LIBS_INSTALL_ROOT}/${ARCH}
+
+# Check that this path exists, but only if we are building something
+_T := $(APPS_LIBS_INSTALL)
+APPS_LIBS_INSTALL := $(realpath $(_T))
+ifeq (,$(APPS_LIBS_INSTALL))
+  $(info Creating APPS_LIBS_INSTALL: $(_T))
+  $(shell mkdir -p "$(_T)")
+  APPS_LIBS_INSTALL := $(realpath $(_T))
+endif
 
 TG_INSTALL ?= ../../../../tg/tg/install
 
+# Check that this path exists
+_T := $(TG_INSTALL)
+TG_INSTALL := $(realpath $(_T))
+ifeq (,$(TG_INSTALL))
+  $(error TG_INSTALL is not a valid path: $(_T))
+endif
+
 PREFIX  := $(TG_INSTALL)/bin/xstg-linux-elf-
 CC      := $(PREFIX)clang
-CFLAGS  := -fxstg-extensions -fno-builtin -Wno-typedef-redefinition -I $(TG_INSTALL)/include
+CFLAGS  := -fxstg-extensions -fno-builtin -Wno-typedef-redefinition -I $(TG_INSTALL)/include -I $(APPS_LIBS_INSTALL)/include/ -Wno-visibility
+
+# Uncomment the following line to move the strings used in DPRINTF to another section
+# which can then be moved to L2 or DRAM
+# CFLAGS  += -DOCR_DPRINTF_SECTION=.dprintf_str
 
 RM      := rm
 RMFLAGS := -rf

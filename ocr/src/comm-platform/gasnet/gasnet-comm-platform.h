@@ -13,6 +13,7 @@
 #include "ocr-config.h"
 #ifdef ENABLE_COMM_PLATFORM_GASNET
 
+#include "ocr-hal.h"
 #include "utils/ocr-utils.h"
 #include "utils/list.h"
 #include "ocr-comm-api.h"
@@ -27,7 +28,7 @@ typedef struct {
     u64 msgId;
     linkedlist_t * incoming;
     iterator_t * incomingIt;
-    u32 queueLock;
+    lock_t queueLock;
 } ocrCommPlatformGasnet_t;
 
 typedef struct {

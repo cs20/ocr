@@ -76,4 +76,16 @@ void allocatorFreeFunction(void* blockPayloadAddr);
 // addresses
 void *addrGlobalizeOnTG(void *result, ocrPolicyDomain_t *self);
 
+// For TYPE_* macros to be passed to slabAllocator, avoid 0, use -1, -2, up to -(MAX_SLABS_NAMED-1)
+// e.g. #define TYPE_XXXX_T     ((u64)( -1 ))
+#define MAX_SLABS_NAMED         ( 128 )                             // named slabs max
+
+extern struct slabSizeTable_t {    // to support named slab allocs, we need size info
+    s32 size[MAX_SLABS_NAMED];     // assumed to be zeroed
+    s32 next_objcount[MAX_SLABS_NAMED]; // used for variable sized slabs
+    lock_t lock;                   // assumed to be zeroed
+} slabSizeTable;
+
+void slabInit(u64 type, s32 size);
+
 #endif /* __ALLOCATOR_ALL_H__ */

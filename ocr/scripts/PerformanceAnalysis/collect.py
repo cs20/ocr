@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python
 #
 # Instruction/energy stat collector
 # written by Wooil Kim

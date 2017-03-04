@@ -17,7 +17,19 @@
 #include "ocr-policy-domain.h"
 #include "ocr-types.h"
 #include "utils/ocr-utils.h"
+#include "comm-platform/fsim-common/fsim-common.h"
 
+
+// Temporary buffers
+// This is to work around an issue where the XE needs to call
+// pdMalloc to store either a message that is too big to send or
+// a message that is incomming. If there is not enough space in the
+// L1, this will trigger a message to the CE and therefore cause a deadlock
+// in communication (XE receiving message so incoming XE buffer full, CE tries to
+// reply to second message (getting memory) but can't respond because incoming XE buffer
+// full)
+#define XE_HACK_BUFFER_COUNT 2
+#define XE_HACK_BUFFER_SIZE (sizeof(ocrPolicyMsg_t)*XE_HACK_BUFFER_COUNT)
 
 typedef struct {
     ocrCommPlatformFactory_t base;
@@ -27,7 +39,11 @@ typedef struct {
     ocrCommPlatform_t base;
 
     u64 N;                      // Agent bits from our tuple
-    u64 * rq;                   // CE stage for this XE
+    fsimCommSlot_t * rq;        // CE stage for this XE
+
+    ocrPolicyMsg_t inBuffer[XE_HACK_BUFFER_COUNT];
+	ocrPolicyMsg_t outBuffer[XE_HACK_BUFFER_COUNT];
+	bool inBufferFree;
 } ocrCommPlatformXe_t;
 
 typedef struct {

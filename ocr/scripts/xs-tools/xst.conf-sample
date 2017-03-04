@@ -4,7 +4,16 @@
 # Should be named 'xst.conf' and placed in ${HOME}
 #
 
-export XST_GITNAME=XXXX
+TMP_GUSER=`git config --global user.name`; RES=$?
+
+if [[ $RES = 0 ]]; then
+   export XST_GITNAME=${TMP_GUSER}
+else
+   echo "error: cannot resolve GIT user.name"
+fi
 
 export XST_SYS=${XST_SYS-thor}
 export XST_MPI=${XST_MPI-intel}
+export XST_BATCH=${XST_BATCH-no}
+
+unset TMP_GUSER

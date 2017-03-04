@@ -170,23 +170,39 @@ typedef void blkPayload_t; // Strongly type-check the ptr-to-void that comprises
 // |     |     |     |      user-visible     |     |
 // +-----+-----+-----+-----------------------+-----+
 //
-// HEAD and TAIL contains full size including HEAD/INFOs/TAIL in bytes and HEAD also has MARK in its higher 16 bits.
-// HEAD's bit0 is 1 for allocated block, or 0 for free block.
-// i.e.  HEAD == ( MARK | size | bit0 )  , and   TAIL == size
+// HEAD and TAIL contains full size including HEAD/INFOs/TAIL in bytes and HEAD also has MARK in its higher 8 bits.
+// HEAD's bit0 flag is 1 for allocated block, or 0 for free block. see below for details
+// i.e.  HEAD == ( MARK | User flags | size | flags )  , and TAIL == MARK | size
+
 // PEER_LEFT and PEER_RIGHT helps access neightbor blocks.
 // NEXT and PREV is valid for free blocks and forms linked list for free list.
 // INFO1 contains a pointer to the pool header which it belongs to. i.e. poolHdr_t
 // INFO2 contains canonical address for other agent/CE can use to free this block. (useful only on TG)
 
+//        |MSB  |                                                       LSB|
+//        |8bits|                  56 bits                                 |
+//        +-----+----------------------------------------------------------+
+// HEAD   |MARK | User flags  ...              size (low 3 bits are flags) |
+//        +-----+----------------------------------------------------------+
+//
+//        +-----+----------------------------------------------------------+
+// TAIL   |MARK |                              size                        |
+//        +-----+----------------------------------------------------------+
+
 //#define FINE_LOCKING     // WIP, disabled at this moment.
 
 // This mark helps detect invalid ptr or double free.
-#define MARK                    (0xfeef0055U)
-#define HEAD(X)                 (((u32 *)(X))[0])
+#define SHIFT_USER              (48)
+#define SHIFT_MARK              (56)
+#define MARK                    (0x5cUL << SHIFT_MARK)           // arbitrary number, but it's recommended the first bit set to 0 for slab allocator.
+#define MASK_MARK               (0xffUL << SHIFT_MARK)
+#define MASK_USER               (0xffUL << SHIFT_USER)
+#define MASK_FLAG               (0x7UL)
+#define MASK_SIZE               (~(MASK_MARK|MASK_USER|MASK_FLAG))
+
+#define HEAD(X)                 (((u64 *)(X))[0])
 #ifdef FINE_LOCKING
 #define HEAD_LOCK(X)            (((u32 *)(X))[1])
-#else
-#define HEAD_MARK(X)            (((u32 *)(X))[1])
 #endif
 #ifndef FINE_LOCKING
 struct bmapOp {int dummy;};
@@ -198,32 +214,29 @@ struct bmapOp {
 #endif
 
 // first 64bit == HEAD
-// last 64bit == TAIL , and last 32bit == TAIL_SIZE (holds block size)
-#define TAIL_SIZE(X,SIZE)       (*(u32 *)((u8 *)(X)+(SIZE)-sizeof(u64)))
+// last 64bit == TAIL
 #ifdef FINE_LOCKING
 #define TAIL_LOCK(X,SIZE)       (*(u32 *)((u8 *)(X)+(SIZE)-sizeof(u32)))
-#else
-#define TAIL_MARK(X,SIZE)       (*(u32 *)((u8 *)(X)+(SIZE)-sizeof(u32)))
 #endif
 #define TAIL(X,SIZE)            (*(u64 *)((u8 *)(X)+(SIZE)-sizeof(u64)))
 #define PEER_LEFT(X)            ((X)[-( ((s32 *)(X))[-2] >> 3 )])
 #define PEER_LEFT_TAIL_LOCK(X)  (((s32 *)(X))[-1])
 #define PEER_RIGHT(X,SIZE)      (*(u64 *)((u8 *)(X)+(SIZE)))
 
-#define MAX_BLOCK_SIZE          (0x80000000)  // To support per-agent cache
+#define MAX_BLOCK_SIZE          (0x1UL << 48) // this may viewed as a max pool size roughly
 #define FLAG_FREE               (0)
 #define FLAG_INUSE              (1)
 #define FLAG_MERGE              (2) // block locked, and is to be merged
 #define FLAG_INUSE_SLAB         (3)
 #define FLAG_FOR_SLAB           (0x2)  // FLAG_INUSE | FLAG_FOR_SLAB == FLAG_INUSE_SLAB
-#define GET_FLAG(X)             (  3UL & (X))
-#define GET_BIT2(X)             (  4UL & (X)) // BIT2: 0 for user , 1 for runtime
-#define GET_SIZE(X)             ( ~7UL & (X))
+#define GET_FLAG(X)             (MASK_FLAG & (X))
+#define GET_SIZE(X)             (MASK_SIZE & (X))
+#define GET_USER(X)             (MASK_USER & (X))
 #ifdef FINE_LOCKING
 #define GET_MARK(X)             (MARK)        // disable
 #else
 //#define GET_MARK(X)             (TAIL_MARK((X),GET_SIZE(HEAD(X))))
-#define GET_MARK(X)             (HEAD_MARK(X))
+#define GET_MARK(X)             (HEAD(X) & MASK_MARK)
 #endif
 
 // Additional INFOs
@@ -257,11 +270,10 @@ struct bmapOp {
 #define CACHE_POOL(ID)          (&_cache_pool)
 #define _CACHE_POOL(ID)         (_cache_pool)
 #else
-// x86
-#define PER_AGENT_KEYWORD
-#define MAX_THREAD              16
-#define CACHE_POOL(ID)          (&_cache_pool)
-#define _CACHE_POOL(ID)         (_cache_pool)
+// x86 or standalone
+#define PER_AGENT_CACHE
+#define PER_AGENT_KEYWORD       __thread
+#define CACHE_POOL(ID)          (cache_pool)
 #endif
 
 #ifdef PER_AGENT_CACHE
@@ -271,28 +283,38 @@ struct bmapOp {
 #define SIZE_TO_SLABS(size)     ( ((size)+SLAB_MASK) >> SLAB_SHIFT )
 #define SLAB_MAX_SIZE(index)    (  (index) << SLAB_SHIFT )
 #define SLAB_OVERHEAD           ( sizeof(u64)*3 )
-#define MAX_SLABS               ( 32 )
-#define MAX_SIZE_FOR_SLABS      SLAB_MAX_SIZE(MAX_SLABS-1)
+// see allocator-all.h for MAX_SLABS_NAMED macros
+
+// For unnamed slabs, the size difference between each size bins is 16 (see SLAB_SHIFT)
+// so this will cover up to 16*32 = 512 bytes.
+#define MAX_SLABS_UNNAMED       ( 32 )                              // unnamed slabs max
+#define MAX_SLABS               ( MAX_SLABS_UNNAMED + MAX_SLABS_NAMED )
+#define MAX_SIZE_FOR_SLABS      SLAB_MAX_SIZE(MAX_SLABS_UNNAMED-1)  // max size (for unnamed)
 #define MAX_OBJ_PER_SLAB        ( 63 )
 
 // Each agent (or thread) has pointers to an array of objects it allocates from the central heap.
 // When the allocation requests come, it first checks this per-agent lists for free object before it goes to the central heap.
-PER_AGENT_KEYWORD
 struct per_agent_cache {
     void *slabs[MAX_SLABS];
     s32 count_malloc[MAX_SLABS];
     s32 count_free[MAX_SLABS];
-    u32 lock;
-} _CACHE_POOL(MAX_THREAD);
+    lock_t lock;
+};
+
+PER_AGENT_KEYWORD
+struct per_agent_cache *CACHE_POOL(ID);
 
 struct slab_header {
     struct slab_header *next, *prev;
     struct per_agent_cache *per_agent;
     u64 bitmap;
+    u64 bitmap_initial;
     u32 mark;
-    u32 size;
+    u32 objsize;
+    u32 index;
 };
 #endif
+
 
 //#define ALIGN_CACHE_LINE       // disabled. needs review
 #ifdef ALIGN_CACHE_LINE
@@ -399,9 +421,9 @@ typedef struct {
     u32 slAvailOrNot;
     u32 freeList[SL_COUNT];
 #ifdef FINE_LOCKING
-    u32 listLock[SL_COUNT];
+    lock_t listLock[SL_COUNT];
     s32 listCount[SL_COUNT];
-    s32 bmapLockSL;
+    lock_t bmapLockSL;
     s32 count;          // count for FL
 #endif
 } secondLevel_t;
@@ -410,7 +432,7 @@ typedef struct {
     u64 guard;          // some known value as a guard
     u64 *glebeStart;    // inclusive
     u64 *glebeEnd;      // exclusive
-    u32 lock;           // used for init only, if FINE_LOCKING
+    lock_t lock;           // used for init only, if FINE_LOCKING
     u32 init_count;
     // counters
     u32 count_used;     // count bytes allocated.
@@ -420,7 +442,7 @@ typedef struct {
     u32 flCount;        // Number of first-level buckets.  This is invariant after constructor runs.
     u64 flAvailOrNot;   // bitmap that indicates the presence (1) or absence (0) of free blocks in blocks[i][*]
 #ifdef FINE_LOCKING
-    u32 bmapLockFL;
+    lock_t bmapLockFL;
 #endif
     secondLevel_t sl[0];// second level structure in the annex area
 } poolHdr_t;
@@ -462,10 +484,6 @@ static u64 quickInitAnnex(poolHdr_t * pPool, u64 size) {
                          sizeof(secondLevel_t) * flBucketCount;                  // space for secondLevel
         sizeRemainingAfterPoolHeader = size - poolHeaderSize - ALLOC_OVERHEAD;
         poolSizeSpannedByFlBuckets <<= 1;
-        if (flBucketCount == 26) {
-            DPRINTF(DEBUG_LVL_WARN, "Too big pool size.\n");
-            ASSERT(0);
-        }
     }
     pPool->flCount = flBucketCount;
     poolHeaderSize = (poolHeaderSize + ALIGNMENT_MASK)&(~ALIGNMENT_MASK);   // ceiling
@@ -475,30 +493,119 @@ static u64 quickInitAnnex(poolHdr_t * pPool, u64 size) {
             (u64)sizeRemainingAfterPoolHeader);
     pPool->flAvailOrNot = 0; // Initialize the bitmaps to 0
 #ifdef FINE_LOCKING
-    pPool->bmapLockFL = 0;
+    pPool->bmapLockFL = INIT_LOCK;
 #endif
 
     return poolHeaderSize;
 }
 
+static void quickFreeInternal(blkPayload_t *p);
+
+#ifdef PER_AGENT_CACHE
+static void quickCleanCache(void)
+{
+    s32 i, allreset=1;
+    hal_lock(&CACHE_POOL(myid)->lock);
+    for(i=0;i<MAX_SLABS;i++) {
+        struct slab_header *head = CACHE_POOL(myid)->slabs[i];
+        if (head == NULL)
+            continue;
+        if (head->bitmap == head->bitmap_initial /* empty slab? */) {
+            CACHE_POOL(myid)->slabs[i] = NULL;
+            quickFreeInternal(head);
+        } else {
+            DPRINTF(DEBUG_LVL_VERB,"slab still in use because of memory leak?\n");
+            allreset = 0;
+        }
+    }
+    hal_unlock(&CACHE_POOL(myid)->lock);
+    if (allreset) {
+        void *p = CACHE_POOL(myid);
+        CACHE_POOL(myid) = NULL;
+        quickFreeInternal(p);
+        DPRINTF(DEBUG_LVL_VERB, "cache %p destroyed\n", p);
+    }
+
+}
+
 static void quickPrintCache(void)
 {
-#ifdef PER_AGENT_CACHE
     s32 i;
-    DPRINTF(DEBUG_LVL_INFO, "==== MEMORY LEAK REPORT (cache %p) ====\n", CACHE_POOL(myid));
-    hal_lock32(&CACHE_POOL(myid)->lock);
+    s32 head_printed = 0;
+    hal_lock(&CACHE_POOL(myid)->lock);
     for(i=0;i<MAX_SLABS;i++) {
         s32 m = CACHE_POOL(myid)->count_malloc[i];
         s32 f = CACHE_POOL(myid)->count_free[i];
-        if (m || f)
-            DPRINTF(DEBUG_LVL_INFO, "(%"PRId32"~%"PRId32"] : malloc %"PRId32" free %"PRId32"\n", SLAB_MAX_SIZE(i-1), SLAB_MAX_SIZE(i), m, f);
+        if (m != f) {
+            if (!head_printed) {
+                DPRINTF(DEBUG_LVL_INFO, "==== MEMORY LEAK REPORT (cache %p) ====\n", CACHE_POOL(myid));
+                head_printed = 1;
+            }
+            if (i < MAX_SLABS_UNNAMED) {
+                DPRINTF(DEBUG_LVL_INFO, "(%"PRId32"~%"PRId32"] : malloc %"PRId32" free %"PRId32"\n", SLAB_MAX_SIZE(i-1), SLAB_MAX_SIZE(i), m, f);
+            } else {
+                DPRINTF(DEBUG_LVL_INFO, "size %"PRId32" : malloc %"PRId32" free %"PRId32"\n", (s32)(slabSizeTable.size[i - MAX_SLABS_UNNAMED]), m, f);
+            }
+        }
     }
-    hal_unlock32(&CACHE_POOL(myid)->lock);
-    DPRINTF(DEBUG_LVL_INFO, "====== END OF REPORT (cache %p) =======\n", CACHE_POOL(myid));
+    hal_unlock(&CACHE_POOL(myid)->lock);
+    if (head_printed)
+        DPRINTF(DEBUG_LVL_INFO, "====== END OF REPORT (cache %p) =======\n", CACHE_POOL(myid));
+}
+#endif
+
+// this detects empty slabs and free them. Such empty slabs should have been
+// cleaned-up by quickCleanCache(). If it hasn't for some reason, this function
+// will clean up them.
+static void quickCleanPool(poolHdr_t *pool)
+{
+#ifdef PER_AGENT_CACHE
+    u64 end   = (u64)pool->glebeEnd;
+    u64 *p = pool->glebeStart;
+    u64 size, flag;
+    u64 *prev = p;
+    u64 count_slab_inuse = 0;
+    for(;;) {
+        size = GET_SIZE(HEAD(p));
+        flag = GET_FLAG(HEAD(p));
+        if (flag != FLAG_FREE) {
+            if (flag == FLAG_INUSE) {
+            } else if (flag == FLAG_INUSE_SLAB) {
+                struct slab_header *head = (struct slab_header *)HEAD_TO_USER(p);
+                ASSERT(head->mark == SLAB_MARK);
+                if (head->bitmap == head->bitmap_initial /* empty slab? */) {
+                    // it must be only (and first) slab in the slab list
+                    s32 slabsIndex = head->index;
+                    hal_lock(&head->per_agent->lock);
+                    struct slab_header *slabs = head->per_agent->slabs[slabsIndex];
+                    if (slabs == head) {
+                        head->per_agent->slabs[slabsIndex] = NULL;
+                    }
+                    hal_unlock(&head->per_agent->lock);
+                    if (slabs != head) {
+                        DPRINTF(DEBUG_LVL_WARN, "cleanup pool -- empty slab found but it was not the first slab in this slab list?\n");
+                        continue;
+                    }
+
+                    quickFreeInternal(head);
+                    p = prev;
+                    continue;
+                } else {
+                    count_slab_inuse++;
+                }
+            } else {
+            }
+        }
+        prev = p;
+        p = &PEER_RIGHT(p, size);
+        if ( (u64)p >= end )
+            break;
+    }
+    DPRINTF(DEBUG_LVL_INFO, "quickCleanPool: leak? found %"PRId64" slabs in use.\n", count_slab_inuse);
 #endif
 }
 
-static void quickWalkPool(poolHdr_t *pool)
+static void quickWalkPool(poolHdr_t *pool, int opt)
 {
     u64 end   = (u64)pool->glebeEnd;
     u64 *p = pool->glebeStart;
@@ -508,17 +615,17 @@ static void quickWalkPool(poolHdr_t *pool)
         flag = GET_FLAG(HEAD(p));
         if (flag != FLAG_FREE) {
             if (flag == FLAG_INUSE) {
-                DPRINTF(DEBUG_LVL_INFO, "[size %"PRId64"]\n", size);
+                DPRINTF(DEBUG_LVL_INFO, "[size %"PRId64" user %"PRIx64"] %p\n", size, GET_USER(HEAD(p))>>SHIFT_USER , p);
             } else if (flag == FLAG_INUSE_SLAB) {
 #ifdef PER_AGENT_CACHE
                 struct slab_header *head = (struct slab_header *)HEAD_TO_USER(p);
                 ASSERT(head->mark == SLAB_MARK);
-                DPRINTF(DEBUG_LVL_INFO, "[size %"PRId64"] slab for %p\n", size, head->per_agent);
+                DPRINTF(DEBUG_LVL_INFO, "[size %"PRId64" user %"PRIx64"] slab for %p\n", size, GET_USER(HEAD(p))>>SHIFT_USER, head->per_agent);
 #else
                 ASSERT(0 && "FLAG_INUSE_SLAB without slab enabled?\n");
 #endif
             } else {
-                DPRINTF(DEBUG_LVL_INFO, "{size %"PRId64"}\n", size);
+                DPRINTF(DEBUG_LVL_INFO, "{size %"PRId64" user %"PRIx64"}\n", size, GET_USER(HEAD(p))>>SHIFT_USER);
             }
             total += size;
         }
@@ -534,7 +641,7 @@ static void quickPrintCounters(poolHdr_t *pool)
     if (pool->count_used) {
         DPRINTF(DEBUG_LVL_INFO, "**** MEMORY LEAK REPORT (pool %p) ****\n", pool);
         DPRINTF(DEBUG_LVL_INFO, "%"PRId32" bytes still in use, malloc %"PRId32" times, free %"PRId32" times\n", pool->count_used, pool->count_malloc, pool->count_free);
-        quickWalkPool(pool);
+        quickWalkPool(pool, 1);
         DPRINTF(DEBUG_LVL_INFO, "****** END OF REPORT (pool %p) *******\n", pool);
     }
 }
@@ -731,13 +838,13 @@ bmap_fallback:
     for(i=bmap_op->count-1;i>=0;i--) {
         flIndex = bmap_op->fli[i];
         slIndex = bmap_op->sli[i];
-        hal_lock32(&(pool->sl[flIndex].bmapLockSL));
+        hal_lock(&(pool->sl[flIndex].bmapLockSL));
         u = pool->sl[flIndex].listCount[slIndex];
         v = (pool->sl[flIndex].listCount[slIndex] += bmap_op->delta[i]);
         ASSERT(bmap_op->delta[i] == 1 || bmap_op->delta[i] == -1);
 
         if (u && v) { // common cases. i.e. no bitmap change
-            hal_unlock32(&(pool->sl[flIndex].bmapLockSL));
+            hal_unlock(&(pool->sl[flIndex].bmapLockSL));
             continue;
         }
 
@@ -748,34 +855,34 @@ bmap_fallback:
         if (u == 0 && v == 1) {  // 0 -> 1
             ASSERT(!(oldBitmap & (1UL << slIndex)));
             pool->sl[flIndex].slAvailOrNot |= (1UL << slIndex);
-            hal_unlock32(&(pool->sl[flIndex].bmapLockSL));
+            hal_unlock(&(pool->sl[flIndex].bmapLockSL));
             if (!oldBitmap) {
-                hal_lock32(&(pool->bmapLockFL));
+                hal_lock(&(pool->bmapLockFL));
                 pool->sl[flIndex].count++;
                 if (pool->sl[flIndex].count == 1) {
                     ASSERT(!(pool->flAvailOrNot & (1UL << flIndex)));
                     pool->flAvailOrNot |= (1UL << flIndex);
                 }
-                hal_unlock32(&(pool->bmapLockFL));
+                hal_unlock(&(pool->bmapLockFL));
             }
             continue;
         }
         if (u == 1 && v == 0) {  // 1 -> 0
             ASSERT(oldBitmap & (1UL << slIndex));
             u32 newBitmap = (pool->sl[flIndex].slAvailOrNot &= ~(1UL << slIndex));
-            hal_unlock32(&(pool->sl[flIndex].bmapLockSL));
+            hal_unlock(&(pool->sl[flIndex].bmapLockSL));
             if (!newBitmap) {
-                hal_lock32(&(pool->bmapLockFL));
+                hal_lock(&(pool->bmapLockFL));
                 pool->sl[flIndex].count--;
                 if (pool->sl[flIndex].count == 0) {
                     ASSERT(pool->flAvailOrNot & (1UL << flIndex));
                     pool->flAvailOrNot &= ~(1UL << flIndex);
                 }
-                hal_unlock32(&(pool->bmapLockFL));
+                hal_unlock(&(pool->bmapLockFL));
             }
             continue;
         }
-        hal_unlock32(&(pool->sl[flIndex].bmapLockSL));
+        hal_unlock(&(pool->sl[flIndex].bmapLockSL));
     }
 //quickPrint(pool);
 }
@@ -818,23 +925,32 @@ static void quickFinish(poolHdr_t *pool, u64 size)
 
     DPRINTF(DEBUG_LVL_VERB, "quickFinish called. size 0x%"PRIx64" at %p\n", size, (u8 *)pool);
 
-    // spinlock value must be 0 or 1. If not, it means it's not properly zero'ed before, or corrupted.
-    ASSERT(pool->lock == 0 || pool->lock == 1);
 
-    quickPrintCache();
+#ifdef PER_AGENT_CACHE
+    if (CACHE_POOL(myid) != NULL) {
+        quickPrintCache();
+        quickCleanCache();
+    }
+#endif
+
 /*
 DPRINTF(DEBUG_LVL_WARN, "bmap_arr  : %"PRId32", %"PRId32"(was %"PRId32"), %"PRId32"\n", dobmap_arr[1], dobmap_arr[2]-dobmap_count_case2, dobmap_arr[2], dobmap_arr[3]);
 DPRINTF(DEBUG_LVL_WARN, "bmap_count: %"PRId32"\n", dobmap_count_case3);
 */
-    hal_lock32(&(pool->lock));
+    hal_lock(&(pool->lock));
     pool->init_count--;
     if (!(pool->init_count)) {
+        hal_unlock(&(pool->lock));
+        // no more user for this pool -- no need to lock
+        quickCleanPool(pool);
         quickPrintCounters(pool);
     } else {
+        hal_unlock(&(pool->lock));
         DPRINTF(DEBUG_LVL_INFO, "shutdown skip for pool %p\n", pool);
     }
-    hal_unlock32(&(pool->lock));
 }
+
+static blkPayload_t *quickMallocInternal(poolHdr_t *pool,u64 size, struct _ocrPolicyDomain_t *pd);
 
 static void quickInit(poolHdr_t *pool, u64 size)
 {
@@ -844,23 +960,11 @@ static void quickInit(poolHdr_t *pool, u64 size)
 
 #ifdef PER_AGENT_CACHE
     ASSERT((sizeof(struct slab_header) & ALIGNMENT_MASK) == 0);
-#ifdef ENABLE_ALLOCATOR_QUICK_STANDALONE
-#elif defined(HAL_FSIM_CE) || defined(HAL_FSIM_XE)
-#else
-/*
-    // x86
-    for(i=0;i<MAX_THREAD;i++) {
-        cache_pool[i] = &_cache_pool[i];
-    }
-*/
-#endif
 #endif
 
-    // spinlock value must be 0 or 1. If not, it means it's not properly zero'ed before, or corrupted.
-    ASSERT(pool->lock == 0 || pool->lock == 1);
 
     // pool->lock and pool->init_count is already 0 at startup (on x86, it's done at mallocBegin())
-    hal_lock32(&(pool->lock));
+    hal_lock(&(pool->lock));
     if (!(pool->init_count)) {
 #if 0 // TODO: 4.1.0 - this test severely slows down FSim without any obvious benefit
         // See bug #875
@@ -878,18 +982,20 @@ static void quickInit(poolHdr_t *pool, u64 size)
 #endif
         //marks the glebe as a single free block
         size = size - offsetToGlebe;
-        HEAD(q) = size | FLAG_FREE;
+        if (size >= MAX_BLOCK_SIZE) {
+            DPRINTF(DEBUG_LVL_WARN,"Too big pool size! MAX is 0x%lx\n", MAX_BLOCK_SIZE);
+            ASSERT(0);
+        }
+        HEAD(q) = MARK | size | FLAG_FREE;
 
 #ifdef FINE_LOCKING
-        HEAD_LOCK(q) = 0;
-        TAIL_LOCK(q,size) = 0;
-#else
-        HEAD_MARK(q) = MARK;
-        TAIL_MARK(q,size) = MARK;
+        HEAD_LOCK(q) = INIT_LOCK;
+        TAIL_LOCK(q,size) = INIT_LOCK;
 #endif
         NEXT(q) = 0;
         PREV(q) = 0;
-        TAIL_SIZE(q,size) = size;
+//        TAIL_SIZE(q,size) = size;
+        TAIL(q,size) = MARK | size;
         pool->glebeStart = (u64 *)q;
         pool->glebeEnd = (u64 *)(p+size+offsetToGlebe);
         DPRINTF(DEBUG_LVL_VERB, "end of annex:%p , glebeStart:%p\n", &pool->sl[pool->flCount], pool->glebeStart);
@@ -910,7 +1016,7 @@ static void quickInit(poolHdr_t *pool, u64 size)
                 pool->sl[i].freeList[j] = -1;    // empty list
 #ifdef FINE_LOCKING
                 pool->sl[i].listCount[j] = 0;
-                pool->sl[i].bmapLockSL = 0;
+                pool->sl[i].bmapLockSL = INIT_LOCK;
                 pool->sl[i].count = 0;
 #endif
             }
@@ -930,7 +1036,7 @@ static void quickInit(poolHdr_t *pool, u64 size)
 
         doBmapOp(pool, &bmap_op);
 #endif
-        DPRINTF(DEBUG_LVL_INFO, "init'ed pool %p, avail %"PRId64" bytes , sizeof(poolHdr_t) = %zd\n", pool, size, sizeof(poolHdr_t));
+        DPRINTF(DEBUG_LVL_INFO, "init'ed pool %p, avail %"PRId64" bytes , sizeof(poolHdr_t) = %"PRId64"\n", pool, size, sizeof(poolHdr_t));
         pool->init_count++;
 #ifdef ENABLE_VALGRIND
         VALGRIND_CREATE_MEMPOOL(p, 0, 1);  // BUG #600: Mempool needs to be destroyed
@@ -941,12 +1047,28 @@ static void quickInit(poolHdr_t *pool, u64 size)
     }
 #ifdef ENABLE_VALGRIND
     VALGRIND_MAKE_MEM_DEFINED(&(pool->lock), sizeof(pool->lock));
-    hal_unlock32(&(pool->lock));
+    hal_unlock(&(pool->lock));
     VALGRIND_MAKE_MEM_NOACCESS(&(pool->lock), sizeof(pool->lock));
 #else
-    hal_unlock32(&(pool->lock));
+    hal_unlock(&(pool->lock));
 #endif
+    // TODO probably we need a barrier here to make sure init_count to reach its peak
 }
+
+#ifdef PER_AGENT_CACHE
+static void *quickInitCache(poolHdr_t *pool)
+{
+    struct per_agent_cache *q = quickMallocInternal(pool, sizeof(struct per_agent_cache), NULL /* TODO PD for TG ??*/);
+    ASSERT(q);
+    int i;
+    for(i=0;i<MAX_SLABS;i++) {
+        q->slabs[i] = NULL;
+        q->count_malloc[i] = q->count_free[i] = 0;
+        q->lock = INIT_LOCK;
+    }
+    return q;
+}
+#endif
 
 static void quickInsertFree(poolHdr_t *pool,u64 *p, u64 size, u32 flIndex, u32 slIndex)
 {
@@ -956,7 +1078,7 @@ static void quickInsertFree(poolHdr_t *pool,u64 *p, u64 size, u32 flIndex, u32 s
     ASSERT(!((u64)p & CACHE_LINE_MASK));
 #endif
 #ifdef FINE_LOCKING
-    hal_lock32(&pool->sl[flIndex].listLock[slIndex]);
+    hal_lock(&pool->sl[flIndex].listLock[slIndex]);
 #endif
     if (pool->sl[flIndex].freeList[slIndex] != -1) {
         u64 *q = pool->glebeStart + pool->sl[flIndex].freeList[slIndex];
@@ -976,7 +1098,7 @@ static void quickInsertFree(poolHdr_t *pool,u64 *p, u64 size, u32 flIndex, u32 s
         setFreeList(pool, size, p, flIndex, slIndex);
     }
 #ifdef FINE_LOCKING
-    hal_unlock32(&pool->sl[flIndex].listLock[slIndex]);
+    hal_unlock(&pool->sl[flIndex].listLock[slIndex]);
 #endif
     //quickPrint(pool);
     VALGRIND_POOL_CLOSE(pool);
@@ -1042,7 +1164,7 @@ static void quickDeleteFree2(poolHdr_t *pool,u64 *p, struct bmapOp *bmap_op)
     bmap_op->fli[i] = flIndex;
     bmap_op->sli[i] = slIndex;
     bmap_op->delta[i] = -1;
-    hal_lock32(&pool->sl[flIndex].listLock[slIndex]);
+    hal_lock(&pool->sl[flIndex].listLock[slIndex]);
 #endif
     ASSERT(GET_FLAG(HEAD(p)) == FLAG_MERGE);
     ASSERT(PREV(p) != -1 && NEXT(p) != -1);
@@ -1061,7 +1183,7 @@ static void quickDeleteFree2(poolHdr_t *pool,u64 *p, struct bmapOp *bmap_op)
         setFreeList(pool, size, NULL, flIndex, slIndex);
 #ifdef FINE_LOCKING
         PREV(p) = NEXT(p) = -1;
-        hal_unlock32(&pool->sl[flIndex].listLock[slIndex]);
+        hal_unlock(&pool->sl[flIndex].listLock[slIndex]);
 #endif
         VALGRIND_CHUNK_CLOSE(p);
         VALGRIND_POOL_CLOSE(pool);
@@ -1077,7 +1199,7 @@ static void quickDeleteFree2(poolHdr_t *pool,u64 *p, struct bmapOp *bmap_op)
     }
 #ifdef FINE_LOCKING
     PREV(p) = NEXT(p) = -1;
-    hal_unlock32(&pool->sl[flIndex].listLock[slIndex]);
+    hal_unlock(&pool->sl[flIndex].listLock[slIndex]);
 #endif
     VALGRIND_CHUNK_CLOSE(p);
     VALGRIND_CHUNK_CLOSE(next);
@@ -1114,7 +1236,7 @@ static blkPayload_t *quickMallocInternal(poolHdr_t *pool,u64 size, struct _ocrPo
 
     VALGRIND_POOL_OPEN(pool);
 #ifndef FINE_LOCKING
-    hal_lock32(&(pool->lock));
+    hal_lock(&(pool->lock));
 #endif
     checkGuard(pool);
 
@@ -1131,7 +1253,7 @@ retry:
         //DPRINTF(DEBUG_LVL_INFO, "OUT OF HEAP! malloc failed\n");
         VALGRIND_POOL_OPEN(pool);
 #ifndef FINE_LOCKING
-        hal_unlock32(&(pool->lock));
+        hal_unlock(&(pool->lock));
 #endif
         VALGRIND_POOL_CLOSE(pool);
         return NULL;
@@ -1143,10 +1265,10 @@ retry:
         hal_xadd32(&count_malloc_retry1, 1);
         goto retry;
     }
-    hal_lock32(&pool->sl[fli].listLock[sli]);
+    hal_lock(&pool->sl[fli].listLock[sli]);
     if (pool->sl[fli].freeList[sli] == -1) {
 //        printf("wrong bitmap.. malloc try again...\n");
-        hal_unlock32(&pool->sl[fli].listLock[sli]);
+        hal_unlock(&pool->sl[fli].listLock[sli]);
         hal_xadd32(&count_malloc_retry2, 1);
         goto retry;
     }
@@ -1165,12 +1287,12 @@ retry:
     {
     u32 ret;
     do {
-        ret = hal_trylock32(&HEAD_LOCK(p));
+        ret = hal_trylock(&HEAD_LOCK(p));
         if (ret) {
             if (GET_FLAG(HEAD(p)) == FLAG_MERGE) {
                 //printf("found FLAG_MERGE.. retry\n");
                 hal_xadd32(&count_merge_retry, 1);
-                hal_unlock32(&pool->sl[fli].listLock[sli]);
+                hal_unlock(&pool->sl[fli].listLock[sli]);
                 goto retry;
             }
         }
@@ -1186,7 +1308,7 @@ retry:
 
     quickDeleteFree1(pool, p, fli, sli);
 #ifdef FINE_LOCKING
-    hal_unlock32(&pool->sl[fli].listLock[sli]);
+    hal_unlock(&pool->sl[fli].listLock[sli]);
 #endif
 
     VALGRIND_CHUNK_OPEN_INIT(p, size);
@@ -1196,15 +1318,13 @@ retry:
     // make sure the remaining block is bigger than minimum size
     if (remain >= MINIMUM_SIZE) {  // we need split
 #ifdef FINE_LOCKING
-        hal_lock32(&TAIL_LOCK(p, GET_SIZE(HEAD(p))));
+        hal_lock(&TAIL_LOCK(p, GET_SIZE(HEAD(p))));
 #endif
         // we're already holding lock
-        HEAD(p) = size | FLAG_INUSE;    // in-use mark
-        TAIL_SIZE(p, size) = size;
+        HEAD(p) = MARK | size | FLAG_INUSE;    // in-use mark
+        TAIL(p, size) = MARK | size;
 #ifdef FINE_LOCKING
-        TAIL_LOCK(p, size) = 0;
-#else
-        TAIL_MARK(p, size) = MARK;
+        TAIL_LOCK(p, size) = INIT_LOCK;
 #endif
         VALGRIND_CHUNK_CLOSE(p);
 
@@ -1214,23 +1334,22 @@ retry:
 
         VALGRIND_CHUNK_OPEN_INIT(right, remain);
         ASSERT((remain & ALIGNMENT_MASK) == 0);
-        HEAD(right) = remain | FLAG_FREE;
+        HEAD(right) = MARK | remain | FLAG_FREE;
         PREV(right) = NEXT(right) = -1;
 #ifdef FINE_LOCKING
-        HEAD_LOCK(right) = 1;  // can this be 0 ?
-#else
-        HEAD_MARK(right) = MARK;
+        HEAD_LOCK(right) = INIT_LOCK;
+        hal_lock(&HEAD_LOCK(right));
 #endif
-        TAIL_SIZE(right, remain) = remain;
+        TAIL(right, remain) = MARK | remain;
 #ifdef FINE_LOCKING
-        hal_unlock32(&TAIL_LOCK(right, remain));
+        hal_unlock(&TAIL_LOCK(right, remain));
 #endif
         // do I need barrier?
 
         quickInsertFree(pool, right, remain, flIndex, slIndex);
         VALGRIND_CHUNK_CLOSE(right);
 #ifdef FINE_LOCKING
-        hal_unlock32(&HEAD_LOCK(right));
+        hal_unlock(&HEAD_LOCK(right));
         bmap_op.count = 2;
         bmap_op.fli[1] = flIndex;
         bmap_op.sli[1] = slIndex;
@@ -1241,7 +1360,7 @@ retry:
         VALGRIND_CHUNK_CLOSE(p);
     }
 #ifdef FINE_LOCKING
-    hal_unlock32(&HEAD_LOCK(p));
+    hal_unlock(&HEAD_LOCK(p));
     doBmapOp(pool, &bmap_op);
 #endif
 
@@ -1266,7 +1385,7 @@ retry:
     VALGRIND_CHUNK_CLOSE(p);
 #ifndef FINE_LOCKING
     VALGRIND_POOL_OPEN(pool);
-    hal_unlock32(&(pool->lock));
+    hal_unlock(&(pool->lock));
     VALGRIND_POOL_CLOSE(pool);
 #endif
 #ifdef ENABLE_VALGRIND
@@ -1298,7 +1417,7 @@ static void quickFreeInternal(blkPayload_t *p)
     u64 end   = (u64)pool->glebeEnd;
     struct bmapOp bmap_op;
 #ifndef FINE_LOCKING
-    hal_lock32(&(pool->lock));
+    hal_lock(&(pool->lock));
 #else
     bmap_op.count = 0;
 #endif
@@ -1320,7 +1439,7 @@ static void quickFreeInternal(blkPayload_t *p)
     ASSERT_BLOCK_END
 
     u64 size = GET_SIZE(HEAD(q));
-    ASSERT_BLOCK_BEGIN(TAIL_SIZE(q, size) == size)
+    ASSERT_BLOCK_BEGIN(GET_SIZE(TAIL(q, size)) == size)
     DPRINTF(DEBUG_LVL_WARN, "QuickAlloc : two sizes doesn't match. p=%p\n", p);
     ASSERT_BLOCK_END
 
@@ -1357,22 +1476,22 @@ static void quickFreeInternal(blkPayload_t *p)
         VALGRIND_CHUNK_OPEN(peer_right);
 
 #ifdef FINE_LOCKING
-        hal_lock32(&HEAD_LOCK(peer_right));
-        hal_lock32(&HEAD_LOCK(q));
+        hal_lock(&HEAD_LOCK(peer_right));
+        hal_lock(&HEAD_LOCK(q));
 #endif
 
         ASSERT_BLOCK_BEGIN (  GET_MARK(q) == MARK )
         DPRINTF(DEBUG_LVL_WARN, "QuickAlloc : right neighbor's mark not found %p\n", p);
         ASSERT_BLOCK_END
 
-        HEAD(q) = GET_SIZE(HEAD(q)) | FLAG_FREE;   // change flag
+        HEAD(q) = MARK | GET_SIZE(HEAD(q)) | FLAG_FREE;   // change flag
         if (GET_FLAG(HEAD(peer_right)) == FLAG_FREE) {     // right block is free?
             //printf("merge right..\n");
             u64 peer_size = GET_SIZE(HEAD(peer_right));
 #ifdef FINE_LOCKING
-            hal_lock32(&TAIL_LOCK(peer_right, peer_size));
+            hal_lock(&TAIL_LOCK(peer_right, peer_size));
 #endif
-            HEAD(peer_right) = peer_size | FLAG_MERGE;
+            HEAD(peer_right) = MARK | peer_size | FLAG_MERGE;
 
             VALGRIND_CHUNK_CLOSE(peer_right);
             quickDeleteFree2(pool, peer_right, &bmap_op);
@@ -1380,23 +1499,23 @@ static void quickFreeInternal(blkPayload_t *p)
 
             // TAIL_MARK( = 0; erase header??
             size += peer_size;
-            TAIL_SIZE(peer_right, peer_size) = size;
+            TAIL(peer_right, peer_size) = MARK | size;
             HEAD(peer_right) = 0;    // erase header
-            HEAD(q) = size | FLAG_FREE;         // clear in-use bit
+            HEAD(q) = MARK | size | FLAG_FREE;         // clear in-use bit
             // peer_right merged.
         } else {
 #ifdef FINE_LOCKING
-            hal_unlock32(&HEAD_LOCK(peer_right));
-            hal_lock32(&TAIL_LOCK(q, GET_SIZE(HEAD(q))));
+            hal_unlock(&HEAD_LOCK(peer_right));
+            hal_lock(&TAIL_LOCK(q, GET_SIZE(HEAD(q))));
 #endif
         }
         VALGRIND_CHUNK_CLOSE(peer_right);
     } else {
 #ifdef FINE_LOCKING
-        hal_lock32(&HEAD_LOCK(q));
-        hal_lock32(&TAIL_LOCK(q, GET_SIZE(HEAD(q))));
+        hal_lock(&HEAD_LOCK(q));
+        hal_lock(&TAIL_LOCK(q, GET_SIZE(HEAD(q))));
 #endif
-        HEAD(q) = GET_SIZE(HEAD(q)) | FLAG_FREE;   // clears in-use bit
+        HEAD(q) = MARK | GET_SIZE(HEAD(q)) | FLAG_FREE;   // clears in-use bit
     }
 
     VALGRIND_CHUNK_OPEN(q);
@@ -1406,7 +1525,7 @@ static void quickFreeInternal(blkPayload_t *p)
         u64 *peer_left;
 #ifdef FINE_LOCKING
 left_merge_retry:
-        hal_lock32(&PEER_LEFT_TAIL_LOCK(q));
+        hal_lock(&PEER_LEFT_TAIL_LOCK(q));
 #endif
         peer_left = &PEER_LEFT(q);
         ASSERT(peer_left != q);
@@ -1419,14 +1538,14 @@ left_merge_retry:
         {
         u32 ret;
         do {
-            ret = hal_trylock32(&HEAD_LOCK(peer_left));
+            ret = hal_trylock(&HEAD_LOCK(peer_left));
             if (ret) {
-                hal_unlock32(&PEER_LEFT_TAIL_LOCK(q));
+                hal_unlock(&PEER_LEFT_TAIL_LOCK(q));
                 hal_xadd32(&count_left_retry, 1);
                 goto left_merge_retry;
             }
         } while(ret);
-        hal_unlock32(&PEER_LEFT_TAIL_LOCK(q));
+        hal_unlock(&PEER_LEFT_TAIL_LOCK(q));
         }
 #endif
         ASSERT_BLOCK_BEGIN ( GET_MARK(peer_left) == MARK )
@@ -1436,7 +1555,7 @@ left_merge_retry:
         if (GET_FLAG(HEAD(peer_left))==FLAG_FREE) {      // left block is free?
             //printf("merge left..\n");
             u64 peer_size = GET_SIZE(HEAD(peer_left));
-            HEAD(peer_left) = peer_size | FLAG_MERGE;
+            HEAD(peer_left) = MARK | peer_size | FLAG_MERGE;
 
             // erase peer_left's mark?
             VALGRIND_CHUNK_CLOSE(peer_left);
@@ -1444,17 +1563,17 @@ left_merge_retry:
             VALGRIND_CHUNK_OPEN(peer_left);
 
             u64 new_size = size + peer_size;
-            TAIL_SIZE(q, size) = new_size;
+            TAIL(q, size) = MARK | new_size;
             size = new_size;
 
             VALGRIND_CHUNK_OPEN(q);
             HEAD(q) = 0;    // erase header
             VALGRIND_CHUNK_CLOSE(q);
             q = peer_left;
-            HEAD(q) = size | FLAG_FREE;    // clear in-use bit
+            HEAD(q) = MARK | size | FLAG_FREE;    // clear in-use bit
         } else {
 #ifdef FINE_LOCKING
-            hal_unlock32(&HEAD_LOCK(peer_left));
+            hal_unlock(&HEAD_LOCK(peer_left));
 #endif
         }
         VALGRIND_CHUNK_CLOSE(peer_left);
@@ -1462,7 +1581,7 @@ left_merge_retry:
         VALGRIND_CHUNK_CLOSE(q);
     }
 #ifdef FINE_LOCKING
-    hal_unlock32(&TAIL_LOCK(q, GET_SIZE(HEAD(q))));
+    hal_unlock(&TAIL_LOCK(q, GET_SIZE(HEAD(q))));
 #endif
 
     if (!skip_merges)  // if merged, recalculate due to size changes
@@ -1470,7 +1589,7 @@ left_merge_retry:
     quickInsertFree(pool, q, size, flIndex, slIndex);
 #ifdef FINE_LOCKING
     ASSERT(GET_FLAG(HEAD(q)) == FLAG_FREE);
-    hal_unlock32(&HEAD_LOCK(q));
+    hal_unlock(&HEAD_LOCK(q));
 #endif
 #ifdef FINE_LOCKING
     int i = bmap_op.count++;
@@ -1488,7 +1607,7 @@ left_merge_retry:
 //    quickPrintCounters(pool);
 #ifndef FINE_LOCKING
     VALGRIND_POOL_OPEN(pool);
-    hal_unlock32(&(pool->lock));
+    hal_unlock(&(pool->lock));
     VALGRIND_POOL_CLOSE(pool);
 #endif
 #ifdef ENABLE_VALGRIND
@@ -1497,14 +1616,23 @@ left_merge_retry:
 #endif
 }
 
+// higher bits in 'user' that doesn't fit will be truncated.
+static void quickSetUserbits(blkPayload_t *p, u64 user)
+{
+    if (p == NULL)
+        return;
+    u64 *q = USER_TO_HEAD(p);
+    ASSERT(GET_USER(HEAD(q)) == 0);
+    HEAD(q) |= ((user<<SHIFT_USER)&MASK_USER);
+}
 
 #ifdef PER_AGENT_CACHE
-static struct slab_header *quickNewSlab(poolHdr_t *pool,s32 slabMaxSize, struct _ocrPolicyDomain_t *pd, struct per_agent_cache *per_agent)
+static struct slab_header *quickNewSlab(poolHdr_t *pool,s32 objsize, s32 objcount, s32 slabsIndex, struct _ocrPolicyDomain_t *pd, struct per_agent_cache *per_agent)
 {
         // goes to the central heap to allocate slab
-        void *slab = quickMallocInternal(pool, sizeof(struct slab_header)+(SLAB_OVERHEAD+slabMaxSize)*MAX_OBJ_PER_SLAB, pd );
+        void *slab = quickMallocInternal(pool, sizeof(struct slab_header)+(SLAB_OVERHEAD+objsize)*objcount, pd );
         if (slab == NULL) {
-            DPRINTF(DEBUG_LVL_VERB, "Slab alloc failed (slabMaxSize %"PRId32"), falling back to central heap\n", slabMaxSize);
+            DPRINTF(DEBUG_LVL_VERB, "Slab alloc failed (objsize %"PRId32"), falling back to central heap\n", objsize);
             return NULL;
         }
 
@@ -1516,45 +1644,60 @@ static struct slab_header *quickNewSlab(poolHdr_t *pool,s32 slabMaxSize, struct 
         struct slab_header *head = slab;
         head->per_agent = addrGlobalizeOnTG((void *)per_agent, pd);
         head->next = head->prev = head;
-        head->bitmap = (1UL << MAX_OBJ_PER_SLAB)-1UL;
+        ASSERT(objcount <= MAX_OBJ_PER_SLAB);
+        head->bitmap = (1UL << objcount)-1UL;
+        head->bitmap_initial = head->bitmap;    // save the initial state, i.e. all objs are available
         head->mark = SLAB_MARK;
-        head->size = slabMaxSize;
+        head->objsize = objsize;
+        head->index = slabsIndex;
         return head;
 }
 
-static blkPayload_t *quickMalloc(poolHdr_t *pool,u64 size, struct _ocrPolicyDomain_t *pd)
+static blkPayload_t *quickMallocSlab(poolHdr_t *pool, s32 slabsIndex, struct _ocrPolicyDomain_t *pd)
 {
-    if (size > MAX_SIZE_FOR_SLABS) // for big objects, go to the central heap
-        return quickMallocInternal(pool, size, pd);
     // s64 myid = (s64)pd;
     // ASSERT(myid >=0 && myid < MAX_THREAD);
-    s32 slabsIndex = SIZE_TO_SLABS(size);
-    s32 slabMaxSize = SLAB_MAX_SIZE(slabsIndex);
-    hal_lock32(&CACHE_POOL(myid)->lock);
+    if (CACHE_POOL(myid) == NULL) {
+        CACHE_POOL(myid) = quickInitCache(pool);
+        DPRINTF(DEBUG_LVL_VERB, "cache %p created, handles up to size %"PRId64"\n", CACHE_POOL(myid), (s64)MAX_SIZE_FOR_SLABS);
+    }
+
+    s32 objcount = MAX_OBJ_PER_SLAB;
+    s32 objsize;
+    if (slabsIndex < MAX_SLABS_UNNAMED) {
+        objsize = SLAB_MAX_SIZE(slabsIndex);
+    } else {
+        objsize = slabSizeTable.size[slabsIndex-MAX_SLABS_UNNAMED];
+        objcount = slabSizeTable.next_objcount[slabsIndex-MAX_SLABS_UNNAMED];
+    }
+    ASSERT(objsize > 0);
+
+    hal_lock(&CACHE_POOL(myid)->lock);
     struct slab_header *slabs = CACHE_POOL(myid)->slabs[slabsIndex];
     if (slabs == NULL /* initial alloc? */ || slabs->bitmap == 0 /* full? */) {
-        struct slab_header *slab = quickNewSlab(pool, slabMaxSize, pd, CACHE_POOL(myid));
+        struct slab_header *slab = quickNewSlab(pool, objsize, objcount, slabsIndex, pd, CACHE_POOL(myid));
         if (slab == NULL) {
-            hal_unlock32(&CACHE_POOL(myid)->lock);
-            blkPayload_t *ret = quickMallocInternal(pool, size, pd);
-            if (ret == NULL) {
-                DPRINTF(DEBUG_LVL_VERB, "Even fallback didn't work -- too small heap?\n");
-            }
-            return ret;
+            hal_unlock(&CACHE_POOL(myid)->lock);
+            DPRINTF(DEBUG_LVL_WARN, "slab alloc failed -- too small heap?\n");
+            return NULL;
         }
-        if (slabs) {  // list manupulation
+        if (slabs) {  // list manipulation
             slab->next = slabs;
             slab->prev = slabs->prev;
             slabs->prev->next = slab;
             slabs->prev = slab;
         }
         CACHE_POOL(myid)->slabs[slabsIndex] = slabs = slab;
+        if (slabsIndex >= MAX_SLABS_UNNAMED) {  // if named slabs...
+            objcount += 10;
+            slabSizeTable.next_objcount[slabsIndex-MAX_SLABS_UNNAMED] = (MAX_OBJ_PER_SLAB < objcount) ? MAX_OBJ_PER_SLAB : objcount; // set next objcount
+        }
     }
     ASSERT(slabs->bitmap);
     s32 pos = myffs(slabs->bitmap);
     ASSERT(pos >= 0 && pos < MAX_OBJ_PER_SLAB);
-    u64 *p = (u64 *)((u64)slabs + sizeof(struct slab_header)+(SLAB_OVERHEAD+slabMaxSize)*pos);
-    HEAD(p) = (s64)slabs - (s64)p;   // for cached objects, put negative offset in header.
+    u64 *p = (u64 *)((u64)slabs + sizeof(struct slab_header)+(SLAB_OVERHEAD+objsize)*pos);
+    HEAD(p) = ((s64)slabs - (s64)p)&(~MASK_USER);   // for cached objects, put negative offset in header, and clear user bits.
 
     // for only TG
     void *ret = HEAD_TO_USER(p);
@@ -1571,8 +1714,16 @@ static blkPayload_t *quickMalloc(poolHdr_t *pool,u64 size, struct _ocrPolicyDoma
         CACHE_POOL(myid)->slabs[slabsIndex] = slabs->next;     // next slab
     }
     CACHE_POOL(myid)->count_malloc[slabsIndex]++;
-    hal_unlock32(&CACHE_POOL(myid)->lock);
+    hal_unlock(&CACHE_POOL(myid)->lock);
     return ret;
+}
+
+static blkPayload_t *quickMalloc(poolHdr_t *pool,u64 size, struct _ocrPolicyDomain_t *pd)
+{
+    if (size > MAX_SIZE_FOR_SLABS) { // for big objects, go to the central heap
+        return quickMallocInternal(pool, size, pd);
+    }
+    return quickMallocSlab(pool, SIZE_TO_SLABS(size), pd);  // for small objects
 }
 
 static void quickFree(blkPayload_t *p)
@@ -1580,24 +1731,29 @@ static void quickFree(blkPayload_t *p)
     if (p == NULL)
         return;
     u64 *q = USER_TO_HEAD(p);
-    u64 size = GET_SIZE(HEAD(q));
-    if (size < MAX_BLOCK_SIZE) {   // in case of cached object, size is negative (offset to slab header)
+
+    // in case of cached objects, the head holds negative offset to slab header
+    // It has no flags, no mark, but it has user-bits. This will truncate higher 32bits,
+    // removing user-bits.
+    s32 neg_off = GET_SIZE(HEAD(q));
+    if (neg_off >= 0) {
         quickFreeInternal(p);
         return;
     }
+    // in case of cached object, it's negative offset to slab header
 
-    struct slab_header *head = (struct slab_header *)((s64)(q) + (s32)HEAD(q));
+    struct slab_header *head = (struct slab_header *)((s64)(q) + neg_off);
     ASSERT(head->mark == SLAB_MARK);
     s64 offset = (s64)q - (s64)head - sizeof(struct slab_header);
-    s64 pos = offset / (head->size+SLAB_OVERHEAD);
+    s64 pos = offset / (head->objsize+SLAB_OVERHEAD);
     ASSERT(pos >= 0 && pos < MAX_OBJ_PER_SLAB);
     //printf("%"PRIx64" , %"PRId64", pos %"PRId32"\n", HEAD(q), HEAD(q), pos);
     //printf("offset %"PRId64" , size %"PRId32" \n", offset, head->size+SLAB_OVERHEAD);
-    ASSERT((offset % (head->size+SLAB_OVERHEAD)) == 0);
+    ASSERT((offset % (head->objsize+SLAB_OVERHEAD)) == 0);
 
     // local if (addrGlobalizeOnTG(CACHE_POOL(X)) == head->per_agent)
-    s32 slabsIndex = SIZE_TO_SLABS(head->size);
-    hal_lock32(&head->per_agent->lock);
+    s32 slabsIndex = head->index;
+    hal_lock(&head->per_agent->lock);
     struct slab_header *slabs = head->per_agent->slabs[slabsIndex];
 
     //    __sync_fetch_and_xor(&head->bitmap , 1UL << pos);
@@ -1608,14 +1764,14 @@ static void quickFree(blkPayload_t *p)
     (head->per_agent->count_free[slabsIndex])++;
 
     if (slabs == head ) {  // so we will have at least one slab always
-        hal_unlock32(&head->per_agent->lock);
+        hal_unlock(&head->per_agent->lock);
         return;
     }
 
-    if (head->bitmap == ((1UL << MAX_OBJ_PER_SLAB)-1UL) /* empty slab? */) {
+    if (head->bitmap == head->bitmap_initial /* empty slab? */) {
         head->next->prev = head->prev;
         head->prev->next = head->next;
-        hal_unlock32(&head->per_agent->lock);
+        hal_unlock(&head->per_agent->lock);
         quickFreeInternal(head);
         return;
     }
@@ -1632,7 +1788,7 @@ static void quickFree(blkPayload_t *p)
 
         head->per_agent->slabs[slabsIndex] = head;
     }
-    hal_unlock32(&head->per_agent->lock);
+    hal_unlock(&head->per_agent->lock);
 }
 #else
 static inline blkPayload_t *quickMalloc(poolHdr_t *pool,u64 size, struct _ocrPolicyDomain_t *pd)
@@ -1789,12 +1945,36 @@ u8 quickSwitchRunlevel(ocrAllocator_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_
 
 void* quickAllocate(
     ocrAllocator_t *self,   // Allocator to attempt block allocation
-    u64 size,               // Size of desired block, in bytes
+    u64 size,               // Size of desired block, in bytes (or type_id for slab allocation)
     u64 hints) {            // Allocator-dependent hints
 
     ocrAllocatorQuick_t * rself = (ocrAllocatorQuick_t *) self;
-    void *ret = quickMalloc((poolHdr_t *)rself->poolAddr, size, self->pd);
+
+    void *ret;
+#ifdef PER_AGENT_CACHE
+    s64 type_id = (s64)size;
+    if (type_id < 0) {         // negative size is interpreted as type_id for slab allocation request
+        type_id = -type_id;
+        ASSERT(type_id > 0 && type_id < MAX_SLABS_NAMED );
+        ret = quickMallocSlab((poolHdr_t *)rself->poolAddr, type_id+MAX_SLABS_UNNAMED, self->pd);
+    } else if (hints & OCR_ALLOC_HINT_PDMALLOC) {
+        // ideally pdMalloc uses fast path only, but sometimes pdMalloc wants quite big size,
+        // e.g. ~256KB for baseDequeInit() so we use quickMalloc() to check just big sizes.
+        //
+        //if (size > MAX_SIZE_FOR_SLABS) {
+        //    DPRINTF(DEBUG_LVL_WARN, "size %"PRId64" is too large for slab?\n", size);
+        //    ASSERT(0);
+        //}
+        // ret = quickMallocSlab((poolHdr_t *)rself->poolAddr, SIZE_TO_SLABS(size), self->pd);
+        ret = quickMalloc((poolHdr_t *)rself->poolAddr, size, self->pd);
+    } else {
+        ret = quickMalloc((poolHdr_t *)rself->poolAddr, size, self->pd);
+    }
+#else
+    ret = quickMalloc((poolHdr_t *)rself->poolAddr, size, self->pd);
+#endif
     DPRINTF(DEBUG_LVL_VERB, "quickAllocate called, ret %p from PoolAddr %"PRIx64"\n", ret, rself->poolAddr);
+    quickSetUserbits(ret, hints);
     return ret;
 }
 void quickDeallocate(void* address) {

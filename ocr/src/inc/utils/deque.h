@@ -8,6 +8,7 @@
 #define DEQUE_H_
 
 #include "ocr-config.h"
+#include "ocr-hal.h"
 #include "ocr-types.h"
 #include "ocr-policy-domain.h"
 
@@ -25,15 +26,17 @@
  */
 typedef enum {
     // Virtual implementations
-    NO_LOCK_BASE_DEQUE       = 0x1,
-    SINGLE_LOCK_BASE_DEQUE   = 0x2,
-    DUAL_LOCK_BASE_DEQUE     = 0x3,
+    NO_LOCK_BASE_DEQUE              = 0x1,
+    SINGLE_LOCK_BASE_DEQUE          = 0x2,
+    DUAL_LOCK_BASE_DEQUE            = 0x3,
     // Concrete implementations
-    WORK_STEALING_DEQUE      = 0x4,
-    NON_CONCURRENT_DEQUE     = 0x5,
-    SEMI_CONCURRENT_DEQUE    = 0x6,
-    LOCKED_DEQUE             = 0x7,
-    MAX_DEQUETYPE            = 0x8
+    WORK_STEALING_DEQUE             = 0x4,
+    NON_CONCURRENT_DEQUE            = 0x5,
+    SEMI_CONCURRENT_DEQUE           = 0x6,
+    LOCKED_DEQUE                    = 0x7,
+    ARRAY_DEQUE                     = 0x8,
+    NON_CONCURRENT_OVERWRITE_DEQUE  = 0x9,
+    MAX_DEQUETYPE                   = 0xa
 } ocrDequeType_t;
 
 /****************************************************/
@@ -47,6 +50,7 @@ typedef enum {
  */
 typedef struct _ocrDeque_t {
     ocrDequeType_t type;
+    lock_t lock;
     volatile s32 head;
     volatile s32 tail;
     volatile void ** data;
@@ -83,7 +87,7 @@ typedef struct _ocrDeque_t {
 // deque with single lock
 typedef struct _ocrDequeSingleLocked_t {
     deque_t base;
-    volatile u32 lock;
+    lock_t lock;
 } dequeSingleLocked_t;
 
 /****************************************************/
@@ -93,8 +97,8 @@ typedef struct _ocrDequeSingleLocked_t {
 // deque with dual lock
 typedef struct _ocrDequeDualLocked_t {
     deque_t base;
-    volatile u32 lockH;
-    volatile u32 lockT;
+    lock_t lockH;
+    lock_t lockT;
 } dequeDualLocked_t;
 
 /****************************************************/

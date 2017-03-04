@@ -4,12 +4,9 @@
 #include <features.h>
 #include <stdint.h>
 #include <errno.h>
-typedef long _off_t;
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/syscall.h>
-#include <sys/_types.h>
-#include <sys/reent.h>
 #include <sys/time.h>
 #include <sys/stat.h>
 #include <signal.h>
@@ -111,9 +108,6 @@ static int nlflags_to_linux( int nlflags )
 
 ///////////////////////////////////////////////////////////////////////////////
 // System call shim definition
-
-struct _ocr_reent ocrreent;
-struct _reent *_impure_ptr = (struct _reent *)&ocrreent;
 
 static inline int isNull( ocrGuid_t g ) { return ocrGuidIsNull(g); }
 
@@ -328,6 +322,10 @@ u8 ocrUSalUnlink(ocrGuid_t legacyContext, const char* name)
     ocr_assert( isGuidType( legacyContext, GUID_CONTEXT ) );
     return (u8) (unlink( name ) == -1);
 }
+u8 ocrUSalGetcwd(ocrGuid_t legacyContext, char* buf, u64 bufSize)
+{
+    return 0;
+}
 //
 // This file is compiled with the Linux host includes and it's struct stat
 // is a different size and order than newlib's. So we do a manual copy-over
@@ -366,7 +364,7 @@ u8 ocrFork (_NOARGS)
 {
     return -1;
 }
-u8 ocrEvecve (char *name, char **argv, char **env)
+u8 ocrExecve (char *name, char **argv, char **env)
 {
     return -1;
 }

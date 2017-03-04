@@ -12,6 +12,7 @@
 #ifdef ENABLE_MEM_PLATFORM_FSIM
 
 #include "debug.h"
+#include "ocr-hal.h"
 #include "utils/rangeTracker.h"
 #include "ocr-mem-platform.h"
 #include "ocr-types.h"
@@ -28,7 +29,7 @@ typedef struct {
  * So, locking does not work. What I did is to move rangeTracker structure into each memory level, not L1,
  * so that there would be a single lock variable for each memory it manages.
  */
-    u32 lock;   // this does not work on fsim, so I'll use pRangeTracker->lockChunkAndTag instead. See Bug #497
+    lock_t lock;   // this does not work on fsim, so I'll use pRangeTracker->lockChunkAndTag instead. See Bug #497
 } ocrMemPlatformFsim_t;
 
 typedef struct {

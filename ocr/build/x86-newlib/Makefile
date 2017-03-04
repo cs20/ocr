@@ -15,9 +15,6 @@ endif
 endif
 
 DEFAULT_CONFIG = jenkins-common-8w-lockableDB.cfg
-APPS_LIBS_INSTALL_ROOT ?= ../../../../apps/apps/libs/install
-ARCH ?= x86
-APPS_LIBS_INSTALL := ${APPS_LIBS_INSTALL_ROOT}/${ARCH}
 
 #
 # Tool-chain to be used for the build
@@ -36,7 +33,7 @@ LN      := ln
 # Shared libraries specific builds
 LDFLAGS := -shared -fpic -lpthread
 
-CFLAGS_STATIC := -fpic -isystem /usr/include -isystem ${APPS_LIBS_INSTALL}/include
+CFLAGS_STATIC := -fpic -isystem /usr/include
 
 AR := ar
 ARFLAGS := cru
@@ -61,11 +58,6 @@ SUPPORTS_STATIC=yes
 # (optional) Maximum number of scope
 # nesting for runtime profiler
 # CFLAGS += -DMAX_PROFILER_LEVEL=512
-
-# Enables the collection of EDT R/W statistics
-# x86 only
-# Requires OCR_ENABLE_EDT_NAMING
-# CFLAGS += -DOCR_ENABLE_EDT_PROFILING
 
 # Enables data collection for execution timeline visualizer
 # x86 only

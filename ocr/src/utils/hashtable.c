@@ -29,17 +29,34 @@ typedef struct _ocr_hashtable_entry_struct {
 typedef struct _hashtableBucketLockedStats_t {
     u64 watermark;
     u64 current;
+#ifdef STATS_HASHTABLE_COLLIDE
+    u64 get;
+    u64 put;
+    u64 del;
+#endif
 } hashtableBucketLockedStats_t;
 
 static void hashtableBucketLockedStatsInit(hashtableBucketLockedStats_t * stats) {
     stats->watermark = 0;
     stats->current = 0;
+#ifdef STATS_HASHTABLE_COLLIDE
+    stats->get = 0;
+    stats->put = 0;
+    stats->del = 0;
+#endif
+
 }
+#endif
+
+#ifdef HASHTABLE_LOCK_SPREAD
+#define GET_LOCK_IDX(id) (id * (CACHE_LINE_SZB/sizeof(lock_t)))
+#else
+#define GET_LOCK_IDX(id) (id)
 #endif
 
 typedef struct _hashtableBucketLocked_t {
     hashtable_t base;
-    u32 * bucketLock;
+    lock_t * bucketLock;
 #ifdef STATS_HASHTABLE
     hashtableBucketLockedStats_t * stats;
 #endif
@@ -126,6 +143,19 @@ void destructHashtable(hashtable_t * hashtable, deallocFct entryDeallocator, voi
     pd->fcts.pdFree(pd, hashtable);
 }
 
+void iterateHashtable(hashtable_t * hashtable, hashtableIterateFct iterate, void * args) {
+    u32 i = 0;
+    while(i < hashtable->nbBuckets) {
+        ocr_hashtable_entry * entry = hashtable->table[i];
+        while (entry != NULL) {
+            ocr_hashtable_entry * next = entry->nxt;
+            iterate(entry->key, entry->value, args);
+            entry = next;
+        }
+        i++;
+    }
+}
+
 /**
  * @brief Create a new hashtable bucket locked instance that uses the specified hashing function.
  */
@@ -134,12 +164,18 @@ hashtable_t * newHashtableBucketLocked(ocrPolicyDomain_t * pd, u32 nbBuckets, ha
     hashtableInit(pd, hashtable, nbBuckets, hashing);
     hashtableBucketLocked_t * rhashtable = (hashtableBucketLocked_t *) hashtable;
     u32 i;
-    u32 * bucketLock = pd->fcts.pdMalloc(pd, nbBuckets*sizeof(u32));
+#ifdef HASHTABLE_LOCK_SPREAD
+    ASSERT(sizeof(lock_t)<(CACHE_LINE_SZB));
+    u64 bucketLockSz = nbBuckets*CACHE_LINE_SZB;
+#else
+    u64 bucketLockSz = nbBuckets*sizeof(lock_t);
+#endif
+    lock_t * bucketLock = pd->fcts.pdMalloc(pd, bucketLockSz);
 #ifdef STATS_HASHTABLE
     hashtableBucketLockedStats_t * stats = pd->fcts.pdMalloc(pd, nbBuckets*sizeof(hashtableBucketLockedStats_t));
 #endif
     for (i=0; i < nbBuckets; i++) {
-        bucketLock[i] = 0;
+        bucketLock[GET_LOCK_IDX(i)] = INIT_LOCK;
 #ifdef STATS_HASHTABLE
         hashtableBucketLockedStatsInit(&stats[i]);
 #endif
@@ -151,34 +187,31 @@ hashtable_t * newHashtableBucketLocked(ocrPolicyDomain_t * pd, u32 nbBuckets, ha
     return hashtable;
 }
 
-/**
- * @brief Destruct the hashtable and all its entries (do not deallocate keys and values pointers).
- */
-void destructHashtableBucketLocked(hashtable_t * hashtable, deallocFct entryDeallocator, void * deallocatorParam) {
-    ocrPolicyDomain_t * pd = hashtable->pd;
-    hashtableBucketLocked_t * rhashtable = (hashtableBucketLocked_t *) hashtable;
-    pd->fcts.pdFree(pd, rhashtable->bucketLock);
 #ifdef STATS_HASHTABLE
-    // Try to compact watermarks
-    u32 nbBuckets = hashtable->nbBuckets;
+#define GET_STAT_OFFSET(name) ((u64) &(((hashtableBucketLockedStats_t*)0)->name))
+#define READ_STAT_VALUE(statEntry, offset) (*((u64*)((char *) statEntry)+offset))
+
+static void dumpStats(hashtable_t * self, char * name, u64 offset) {
+    hashtableBucketLocked_t * rself = (hashtableBucketLocked_t *) self;
+    u32 nbBuckets = self->nbBuckets;
     if (nbBuckets > 0) {
-        DPRINTF(DEBUG_LVL_WARN, "Hashtable@%p statistics\n", hashtable);
+        PRINTF("[PD:0x%"PRIu64"] Hashtable@%p statistics\n", (u64) self->pd->myLocation, self);
 #ifdef STATS_HASHTABLE_VERB
-        u64 curWm = rhashtable->stats[0].watermark;
+        u64 curWm = READ_STAT_VALUE(&rself->stats[0], offset);
         u64 lb = 0;
 #endif
-        u64 hWm = rhashtable->stats[0].watermark;
+        u64 hWm = READ_STAT_VALUE(&rself->stats[0], offset);
         u32 i;
         for (i=1; i < nbBuckets; i++) {
-            u64 wm = rhashtable->stats[i].watermark;
+            u64 wm = READ_STAT_VALUE(&rself->stats[i], offset);
 #ifdef STATS_HASHTABLE_VERB
             if (wm == curWm) {
                 continue;
             } else { // Print previous if any
                 if ((i-lb) == 1) {
-                    DPRINTF(DEBUG_LVL_WARN, "Bucket[%"PRId32"]: watermark=%"PRIu64"\n", lb, curWm);
+                    PRINTF("[PD:0x%"PRIu64"] Bucket[%"PRIu64"]: %s=%"PRIu64"\n", (u64) self->pd->myLocation, lb, name, curWm);
                 } else {
-                    DPRINTF(DEBUG_LVL_WARN, "Bucket[%"PRId32"-%"PRId32"]: watermark=%"PRIu64"\n", lb, i-1, curWm);
+                    PRINTF("[PD:0x%"PRIu64"] Bucket[%"PRIu64"-%"PRId32"]: %s=%"PRIu64"\n", (u64) self->pd->myLocation, lb, i-1, name, curWm);
                 }
                 lb = i;
                 curWm = wm;
@@ -190,15 +223,48 @@ void destructHashtableBucketLocked(hashtable_t * hashtable, deallocFct entryDeal
         }
 #ifdef STATS_HASHTABLE_VERB
         if ((i-lb) == 1) {
-            DPRINTF(DEBUG_LVL_WARN, "Bucket[%"PRId32"]: watermark=%"PRIu64"\n", lb, curWm);
+            PRINTF("[PD:0x%"PRIu64"] Bucket[%"PRIu64"]: %s=%"PRIu64"\n", (u64) self->pd->myLocation, lb, name, curWm);
         } else {
-            DPRINTF(DEBUG_LVL_WARN, "Bucket[%"PRId32"-%"PRId32"]: watermark=%"PRIu64"\n", lb, i-1, curWm);
+            PRINTF("[PD:0x%"PRIu64"] Bucket[%"PRIu64"-%"PRId32"]: %s=%"PRIu64"\n", (u64) self->pd->myLocation, lb, i-1, name, curWm);
         }
 #endif
-        DPRINTF(DEBUG_LVL_WARN, "High Watermark=%"PRIu64"\n", hWm);
+        PRINTF("[PD:0x%"PRIu64"] High %s=%"PRIu64"\n", (u64) self->pd->myLocation, name, hWm);
     }
+}
+#endif
+
+/**
+ * @brief Destruct the hashtable and all its entries (do not deallocate keys and values pointers).
+ */
+void destructHashtableBucketLocked(hashtable_t * hashtable, deallocFct entryDeallocator, void * deallocatorParam) {
+    ocrPolicyDomain_t * pd = hashtable->pd;
+    hashtableBucketLocked_t * rhashtable = (hashtableBucketLocked_t *) hashtable;
+    pd->fcts.pdFree(pd, (void*)(rhashtable->bucketLock));
+#ifdef STATS_HASHTABLE
+    dumpStats(hashtable,"watermark", GET_STAT_OFFSET(watermark));
+#ifdef STATS_HASHTABLE_COLLIDE
+    dumpStats(hashtable,"get", GET_STAT_OFFSET(get));
+    dumpStats(hashtable,"put", GET_STAT_OFFSET(put));
+    dumpStats(hashtable,"del", GET_STAT_OFFSET(del));
+#endif
 #endif
     destructHashtable(hashtable, entryDeallocator, deallocatorParam);
+}
+
+void iterateHashtableBucketLocked(hashtable_t * hashtable, hashtableIterateFct iterate, void * args) {
+    u32 i;
+    u32 nbBuckets = hashtable->nbBuckets;
+    hashtableBucketLocked_t * rhashtable = (hashtableBucketLocked_t *) hashtable;
+    for (i = 0; i < nbBuckets; i++) {
+        hal_lock(&(rhashtable->bucketLock[i]));
+        ocr_hashtable_entry * entry = hashtable->table[i];
+        while (entry != NULL) {
+            ocr_hashtable_entry * next = entry->nxt;
+            iterate(entry->key, entry->value, args);
+            entry = next;
+        }
+        hal_unlock(&(rhashtable->bucketLock[i]));
+    }
 }
 
 /******************************************************/
@@ -272,6 +338,31 @@ bool hashtableNonConcRemove(hashtable_t * hashtable, void * key, void ** value) 
     return false;
 }
 
+/**
+ * @brief Removes a key from the table and return the bucket entry
+ * If 'value' is not NULL, fill-in the pointer with the entry's value associated with 'key'.
+ * If the hashtable implementation allows for NULL values entries, check the returned value to be NULL.
+ * Returns entry.
+ */
+static void * hashtableNonConcRemoveInternal(hashtable_t * hashtable, void * key, void ** value) {
+    ocr_hashtable_entry * prev;
+    ocr_hashtable_entry * entry = hashtableFindEntryAndPrev(hashtable, key, &prev);
+    if (entry != NULL) {
+        ASSERT(prev != NULL);
+        ASSERT(key == entry->key);
+        if (entry == prev) {
+            // entry is bucket's head
+            u32 bucket = hashtable->hashing(key, hashtable->nbBuckets);
+            hashtable->table[bucket] = entry->nxt;
+        } else {
+            prev->nxt = entry->nxt;
+        }
+        if (value != NULL) {
+            *value = entry->value;
+        }
+    }
+    return entry;
+}
 
 /******************************************************/
 /* CONCURRENT HASHTABLE FUNCTIONS                     */
@@ -370,9 +461,19 @@ bool hashtableConcRemove(hashtable_t * hashtable, void * key, void ** value) {
 void * hashtableConcBucketLockedGet(hashtable_t * hashtable, void * key) {
     u32 bucket = hashtable->hashing(key, hashtable->nbBuckets);
     hashtableBucketLocked_t * rhashtable = (hashtableBucketLocked_t *) hashtable;
-    hal_lock32(&(rhashtable->bucketLock[bucket]));
+#ifdef STATS_HASHTABLE_COLLIDE
+    bool isBusy = hal_islocked(&(rhashtable->bucketLock[GET_LOCK_IDX(bucket)]));
+#endif
+    hal_lock(&(rhashtable->bucketLock[GET_LOCK_IDX(bucket)]));
+#ifdef STATS_HASHTABLE
+#ifdef STATS_HASHTABLE_COLLIDE
+    hashtableBucketLockedStats_t * stats = &rhashtable->stats[bucket];
+    if (isBusy) { stats->get++; }
+#endif
+#endif
     ocr_hashtable_entry * entry = hashtableFindEntry(hashtable, key);
-    hal_unlock32(&(rhashtable->bucketLock[bucket]));
+    //DPRINTF(DEBUG_LVL_WARN, "ht=%p For get key=%p: bucket=%"PRIu32" found entry=%p value=%p\n", hashtable, key, bucket, entry, (entry) ? entry->value : NULL);
+    hal_unlock(&(rhashtable->bucketLock[GET_LOCK_IDX(bucket)]));
     return (entry == NULL) ? 0x0 : entry->value;
 }
 
@@ -382,7 +483,11 @@ bool hashtableConcBucketLockedPut(hashtable_t * hashtable, void * key, void * va
     ocr_hashtable_entry * newHead = hashtable->pd->fcts.pdMalloc(hashtable->pd, sizeof(ocr_hashtable_entry));
     newHead->key = key;
     newHead->value = value;
-    hal_lock32(&(rhashtable->bucketLock[bucket]));
+    //DPRINTF(DEBUG_LVL_WARN, "ht=%p For put key=%p: bucket=%"PRIu32" found entry=%p value=%p\n", hashtable, key, bucket, newHead, newHead->value);
+#ifdef STATS_HASHTABLE_COLLIDE
+    bool isBusy = hal_islocked(&(rhashtable->bucketLock[GET_LOCK_IDX(bucket)]));
+#endif
+    hal_lock(&(rhashtable->bucketLock[GET_LOCK_IDX(bucket)]));
     ocr_hashtable_entry * oldHead = hashtable->table[bucket];
     newHead->nxt = oldHead;
     hashtable->table[bucket] = newHead;
@@ -390,18 +495,21 @@ bool hashtableConcBucketLockedPut(hashtable_t * hashtable, void * key, void * va
     hashtableBucketLockedStats_t * stats = &rhashtable->stats[bucket];
     stats->current++;
     if (stats->current > stats->watermark) {
-        ASSERT((stats->current-1) ==stats->watermark);
+        ASSERT((stats->current-1) == stats->watermark);
         stats->watermark++;
     }
+#ifdef STATS_HASHTABLE_COLLIDE
+    if (isBusy) { stats->put++; }
 #endif
-    hal_unlock32(&(rhashtable->bucketLock[bucket]));
+#endif
+    hal_unlock(&(rhashtable->bucketLock[GET_LOCK_IDX(bucket)]));
     return true;
 }
 
 void * hashtableConcBucketLockedTryPut(hashtable_t * hashtable, void * key, void * value) {
     u32 bucket = hashtable->hashing(key, hashtable->nbBuckets);
     hashtableBucketLocked_t * rhashtable = (hashtableBucketLocked_t *) hashtable;
-    hal_lock32(&(rhashtable->bucketLock[bucket]));
+    hal_lock(&(rhashtable->bucketLock[GET_LOCK_IDX(bucket)]));
     ocr_hashtable_entry * entry = hashtableFindEntry(hashtable, key);
     if (entry == NULL) {
         hashtableNonConcPut(hashtable, key, value); // we already own the lock
@@ -412,10 +520,10 @@ void * hashtableConcBucketLockedTryPut(hashtable_t * hashtable, void * key, void
             stats->watermark++;
         }
 #endif
-        hal_unlock32(&(rhashtable->bucketLock[bucket]));
+        hal_unlock(&(rhashtable->bucketLock[GET_LOCK_IDX(bucket)]));
         return value;
     } else {
-        hal_unlock32(&(rhashtable->bucketLock[bucket]));
+        hal_unlock(&(rhashtable->bucketLock[GET_LOCK_IDX(bucket)]));
         return entry->value;
     }
 }
@@ -423,15 +531,26 @@ void * hashtableConcBucketLockedTryPut(hashtable_t * hashtable, void * key, void
 bool hashtableConcBucketLockedRemove(hashtable_t * hashtable, void * key, void ** value) {
     hashtableBucketLocked_t * rhashtable = (hashtableBucketLocked_t *) hashtable;
     u32 bucket = hashtable->hashing(key, hashtable->nbBuckets);
-    hal_lock32(&(rhashtable->bucketLock[bucket]));
+#ifdef STATS_HASHTABLE_COLLIDE
+    bool isBusy = hal_islocked(&(rhashtable->bucketLock[GET_LOCK_IDX(bucket)]));
+#endif
+    hal_lock(&(rhashtable->bucketLock[GET_LOCK_IDX(bucket)]));
 #ifdef STATS_HASHTABLE
     hashtableBucketLockedStats_t * stats = &rhashtable->stats[bucket];
     ASSERT(stats->current >= 1);
     stats->current--;
+#ifdef STATS_HASHTABLE_COLLIDE
+        if (isBusy) { stats->del++; }
 #endif
-    bool res = hashtableNonConcRemove(hashtable, key, value);
-    hal_unlock32(&(rhashtable->bucketLock[bucket]));
-    return res;
+#endif
+    void * res = hashtableNonConcRemoveInternal(hashtable, key, value);
+    bool removed = (res != NULL);
+    hal_unlock(&(rhashtable->bucketLock[GET_LOCK_IDX(bucket)]));
+    if (removed) {
+        hashtable->pd->fcts.pdFree(hashtable->pd, res);
+    }
+    //DPRINTF(DEBUG_LVL_WARN, "ht=%p For del key=%p: bucket=%"PRIu32" found value=%p *value=%p\n", hashtable, key, bucket, value, ((value) ? *value : NULL));
+    return removed;
 }
 
 

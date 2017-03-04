@@ -120,14 +120,13 @@ u8 delegateCommInitHandle(ocrCommApi_t *self, ocrMsgHandle_t *handle) {
 u8 delegateCommSendMessage(ocrCommApi_t *self, ocrLocation_t target,
                             ocrPolicyMsg_t *message,
                             ocrMsgHandle_t **handle, u32 properties) {
+    START_PROFILE(commapi_delegateCommSendMessage);
     ocrPolicyDomain_t * pd = self->pd;
     // Message source/destination is corrupted
     ASSERT((pd->myLocation == message->srcLocation) && (target == message->destLocation));
     ASSERT(pd->myLocation != target); // Do not support sending to 'itself' (current PD).
-
     // If the message is not persistent and the marshall mode is set, we do the specified
     // copy. Otherwise it is just the mode the buffer has been copied in the first place.
-
     // Modified this to experiment with asynchronous remote edt creation
     if (!(properties & PERSIST_MSG_PROP)) {
         // Need to make a copy of the message. Recall that send is returning
@@ -173,7 +172,7 @@ u8 delegateCommSendMessage(ocrCommApi_t *self, ocrLocation_t target,
         // Set the handle for the caller
         *handle = handlerDelegate;
     }
-    return 0;
+    RETURN_PROFILE(0);
 }
 
 /**
@@ -185,6 +184,7 @@ u8 delegateCommSendMessage(ocrCommApi_t *self, ocrLocation_t target,
  *  - *handle != NULL (Poll for a specific handle completion)
  */
 u8 delegateCommPollMessage(ocrCommApi_t *self, ocrMsgHandle_t **handle) {
+    START_PROFILE(commapi_delegateCommPollMessage);
     ocrPolicyDomain_t * pd = self->pd;
     // Try to take a message from the scheduler and pass the handle as a hint.
     ocrFatGuid_t fatGuid;
@@ -211,9 +211,9 @@ u8 delegateCommPollMessage(ocrCommApi_t *self, ocrMsgHandle_t **handle) {
             // Set the handle for the caller
             *handle = (ocrMsgHandle_t *) delHandle;
         }
-        return POLL_MORE_MESSAGE;
+        RETURN_PROFILE(POLL_MORE_MESSAGE);
     }
-    return POLL_NO_MESSAGE;
+    RETURN_PROFILE(POLL_NO_MESSAGE);
 }
 
 /**
@@ -225,6 +225,7 @@ u8 delegateCommPollMessage(ocrCommApi_t *self, ocrMsgHandle_t **handle) {
  *  - *handle != NULL (Wait for a specific handle completion)
  */
 u8 delegateCommWaitMessage(ocrCommApi_t *self, ocrMsgHandle_t **handle) {
+    START_PROFILE(commapi_delegateCommWaitMessage);
     u8 ret = POLL_NO_MESSAGE;
     //BUG #130 Is there a use case to wait for a one-way to complete ?
     while(ret == POLL_NO_MESSAGE) {
@@ -251,7 +252,7 @@ u8 delegateCommWaitMessage(ocrCommApi_t *self, ocrMsgHandle_t **handle) {
         #undef PD_TYPE
         }
     }
-    return ret;
+    RETURN_PROFILE(ret);
 }
 
 ocrCommApi_t* newCommApiDelegate(ocrCommApiFactory_t *factory,

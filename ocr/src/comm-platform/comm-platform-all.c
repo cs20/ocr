@@ -28,6 +28,9 @@ const char * commplatform_types[] = {
 #ifdef ENABLE_COMM_PLATFORM_MPI
     "MPI",
 #endif
+#ifdef ENABLE_COMM_PLATFORM_MPI_PROBE
+    "MPI_PROBE",
+#endif
 #ifdef ENABLE_COMM_PLATFORM_GASNET
     "GASNet",
 #endif
@@ -61,6 +64,10 @@ ocrCommPlatformFactory_t *newCommPlatformFactory(commPlatformType_t type, ocrPar
 #ifdef ENABLE_COMM_PLATFORM_MPI
     case commPlatformMPI_id:
         return newCommPlatformFactoryMPI(typeArg);
+#endif
+#ifdef ENABLE_COMM_PLATFORM_MPI_PROBE
+    case commPlatformMPIProbe_id:
+        return newCommPlatformFactoryMPIProbe(typeArg);
 #endif
 #ifdef ENABLE_COMM_PLATFORM_GASNET
     case commPlatformGasnet_id:

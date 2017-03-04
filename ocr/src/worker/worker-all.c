@@ -14,6 +14,9 @@ const char * worker_types[] = {
 #ifdef ENABLE_WORKER_HC_COMM
    "HC_COMM",
 #endif
+#ifdef ENABLE_WORKER_HC_COMM_MT
+   "HC_COMM_MT",
+#endif
 #ifdef ENABLE_WORKER_XE
    "XE",
 #endif
@@ -44,6 +47,10 @@ ocrWorkerFactory_t * newWorkerFactory(workerType_t type, ocrParamList_t *perType
     case workerHcComm_id:
       return newOcrWorkerFactoryHcComm(perType);
 #endif
+#ifdef ENABLE_WORKER_HC_COMM_MT
+    case workerHcCommMT_id:
+      return newOcrWorkerFactoryHcCommMT(perType);
+#endif
 #ifdef ENABLE_WORKER_XE
     case workerXe_id:
         return newOcrWorkerFactoryXe(perType);
@@ -73,5 +80,17 @@ void initializeWorkerOcr(ocrWorkerFactory_t * factory, ocrWorker_t * self, ocrPa
     self->callback = NULL;
     self->callbackArg = 0ULL;
     self->id = ((paramListWorkerInst_t *) perInstance)->workerId;
+#ifdef OCR_MONITOR_SCHEDULER
+    self->isSeeking = false;
+#endif
+#ifdef ENABLE_RESILIENCY
+    self->stateOfCheckpoint = 0;
+    self->stateOfRestart = 0;
+    self->resiliencyMaster = 0;
+    self->isIdle = 0;
+    self->edtDepth = 0;
+    self->activeDepv = NULL;
+    self->notifyLock = INIT_LOCK;
+#endif
 }
 

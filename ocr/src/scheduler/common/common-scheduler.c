@@ -16,6 +16,8 @@
 // BUG #793 Probably need to make this not HC-specific
 #include "scheduler/hc/scheduler-blocking-support.h"
 
+#include "ocr-policy-domain-tasks.h"
+
 #define DEBUG_TYPE SCHEDULER
 
 // This scheduler is expecting at least two heuristics to be present
@@ -247,6 +249,7 @@ u8 commonSchedulerNotifyInvoke(ocrScheduler_t *self, ocrSchedulerOpArgs_t *opArg
     // Dispatch notify to the correct scheduler
     ocrSchedulerHeuristic_t * schedulerHeuristic;
     ocrSchedulerOpNotifyArgs_t * notifyArgs = (ocrSchedulerOpNotifyArgs_t *) opArgs;
+
     switch(notifyArgs->kind) {
     case OCR_SCHED_NOTIFY_PRE_PROCESS_MSG: {
         //BUG #917
@@ -270,6 +273,26 @@ u8 commonSchedulerNotifyInvoke(ocrScheduler_t *self, ocrSchedulerOpArgs_t *opArg
         schedulerHeuristic = dself->schedulerHeuristics[PLACEMENT_HEURISTIC_ID];
         break;
     }
+#ifdef LOAD_BALANCING_TEST
+    case OCR_SCHED_NOTIFY_EDT_SATISFIED: {
+        // Call the computation heuristic and it may check how full is his queue or whatever else
+        schedulerHeuristic = dself->schedulerHeuristics[COMP_HEURISTIC_ID];
+        u8 res = schedulerHeuristic->fcts.op[OCR_SCHEDULER_HEURISTIC_OP_NOTIFY].invoke(schedulerHeuristic, opArgs, hints);
+        if (res == OCR_ENOSPC) { //TODO just made up the error code
+            // Decided there was no space available for this task so try to load-balance it somewhere.
+            // The load balancer impl must be careful not to bounce things around too much.
+            // Here we set hints once and it becomes a must not a may
+            schedulerHeuristic = dself->schedulerHeuristics[PLACEMENT_HEURISTIC_ID];
+            // returns OCR_ENOP if no decisions have been made. In that case the EDT stays in the current PD.
+            return schedulerHeuristic->fcts.op[OCR_SCHEDULER_HEURISTIC_OP_NOTIFY].invoke(schedulerHeuristic, opArgs, hints);
+        } else {
+            // COMP heuristic agreed to take on this EDT
+            ASSERT(res == 0);
+            return OCR_ENOP; // Allows caller to proceed
+        }
+        break;
+    }
+#endif
     case OCR_SCHED_NOTIFY_COMM_READY: {
         schedulerHeuristic = dself->schedulerHeuristics[COMM_HEURISTIC_ID];
         break;
@@ -280,6 +303,12 @@ u8 commonSchedulerNotifyInvoke(ocrScheduler_t *self, ocrSchedulerOpArgs_t *opArg
         schedulerHeuristic = dself->schedulerHeuristics[COMP_HEURISTIC_ID];
     }
     }
+#ifdef OCR_MONITOR_SCHEDULER
+    if(notifyArgs->kind == OCR_SCHED_NOTIFY_EDT_READY){
+        ocrGuid_t taskGuid = notifyArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_EDT_READY).guid.guid;
+        OCR_TOOL_TRACE(false, OCR_TRACE_TYPE_SCHEDULER, OCR_ACTION_SCHED_INVOKE, taskGuid);
+    }
+#endif
     return schedulerHeuristic->fcts.op[OCR_SCHEDULER_HEURISTIC_OP_NOTIFY].invoke(schedulerHeuristic, opArgs, hints);
 }
 
@@ -312,9 +341,28 @@ u8 commonSchedulerAnalyzeInvoke(ocrScheduler_t *self, ocrSchedulerOpArgs_t *opAr
 }
 
 u8 commonSchedulerUpdate(ocrScheduler_t *self, u32 properties) {
+    switch(properties) {
+#ifdef ENABLE_RESILIENCY
+    case OCR_SCHEDULER_UPDATE_PROP_RESET:
+        { //This code assumes that all workers are quiesced
+            ocrSchedulerObject_t * rootObj = self->rootObj;
+            ocrSchedulerObjectFactory_t *sFact = self->pd->schedulerObjectFactories[rootObj->fctId];
+            return sFact->fcts.reset(sFact, rootObj, properties);
+        }
+        return 0;
+#endif
+    default:
+        break;
+    }
     ocrSchedulerCommon_t * dself = (ocrSchedulerCommon_t *) self;
     ocrSchedulerHeuristic_t *schedulerHeuristic = dself->schedulerHeuristics[self->masterHeuristicId];
     return schedulerHeuristic->fcts.update(schedulerHeuristic, properties);
+}
+
+u64 commonSchedulerCount(ocrScheduler_t *self, u32 properties) {
+    ocrSchedulerObject_t * rootObj = self->rootObj;
+    ocrSchedulerObjectFactory_t *sFact = self->pd->schedulerObjectFactories[rootObj->fctId];
+    return sFact->fcts.count(sFact, rootObj, properties);
 }
 
 ocrScheduler_t* newSchedulerCommon(ocrSchedulerFactory_t * factory, ocrParamList_t *perInstance) {
@@ -386,6 +434,7 @@ ocrSchedulerFactory_t * newOcrSchedulerFactoryCommon(ocrParamList_t *perType) {
 
     //Scheduler 1.0
     base->schedulerFcts.update = FUNC_ADDR(u8 (*)(ocrScheduler_t*, u32), commonSchedulerUpdate);
+    base->schedulerFcts.count = FUNC_ADDR(u64 (*)(ocrScheduler_t*, u32), commonSchedulerCount);
     base->schedulerFcts.op[OCR_SCHEDULER_OP_GET_WORK].invoke = FUNC_ADDR(u8 (*)(ocrScheduler_t*, ocrSchedulerOpArgs_t*, ocrRuntimeHint_t*), commonSchedulerGetWorkInvoke);
     base->schedulerFcts.op[OCR_SCHEDULER_OP_NOTIFY].invoke = FUNC_ADDR(u8 (*)(ocrScheduler_t*, ocrSchedulerOpArgs_t*, ocrRuntimeHint_t*), commonSchedulerNotifyInvoke);
     base->schedulerFcts.op[OCR_SCHEDULER_OP_TRANSACT].invoke = FUNC_ADDR(u8 (*)(ocrScheduler_t*, ocrSchedulerOpArgs_t*, ocrRuntimeHint_t*), commonSchedulerTransactInvoke);

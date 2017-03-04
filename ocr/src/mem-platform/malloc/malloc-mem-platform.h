@@ -15,6 +15,7 @@
 #ifdef ENABLE_MEM_PLATFORM_MALLOC
 
 #include "debug.h"
+#include "ocr-hal.h"
 #include "utils/rangeTracker.h"
 #include "ocr-mem-platform.h"
 #include "ocr-types.h"
@@ -27,7 +28,7 @@ typedef struct {
 typedef struct {
     ocrMemPlatform_t base;
     rangeTracker_t *pRangeTracker;
-    u32 lock;
+    lock_t lock;
 } ocrMemPlatformMalloc_t;
 
 ocrMemPlatformFactory_t* newMemPlatformFactoryMalloc(ocrParamList_t *perType);

@@ -32,6 +32,7 @@ struct _ocrPolicyDomain_t;
 typedef struct _ocrParamList_t {
     u64 size;                   /**< Size of this parameter list (in bytes) */
     struct _ocrPolicyDomain_t *policy;  /**< Policy domain for this factory/instance */
+    u32 id;                     /**< For factories, the factory ID; for other things, a unique ID (if needed) */
     char* misc;                 /**< Miscellaneous arguments (NULL terminated string) */
 } ocrParamList_t;
 
@@ -128,6 +129,15 @@ u32 ctz32(u32 val);
  * @return  LSB set to 1 (from 0 to 63)
  */
 u32 ctz64(u64 val);
+
+/**
+ * @brief Counts the number of 1s in a
+ * 64 bit value
+ *
+ * @param val Value to look at
+ * @return Number of bits set
+ */
+u32 popcnt64(u64 val);
 
 /**
  * @brief Convenient structure to keep track

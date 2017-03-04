@@ -120,9 +120,13 @@ typedef struct _ocrEventFcts_t {
      *                          we only register waiters on their dependence frontier
      * @return 0 on success and a non-zero code on failure
      */
+#ifdef REG_ASYNC_SGL
+    u8 (*registerWaiter)(struct _ocrEvent_t *self, ocrFatGuid_t waiter, u32 slot,
+                         bool isDepAdd, ocrDbAccessMode_t mode);
+#else
     u8 (*registerWaiter)(struct _ocrEvent_t *self, ocrFatGuid_t waiter, u32 slot,
                          bool isDepAdd);
-
+#endif
     /**
      * @brief Unregisters a "waiter" (aka a dependence) on the event
      *
@@ -176,6 +180,51 @@ typedef struct _ocrEventCommonFcts_t {
      * @return pointer to hint structure
      */
     ocrRuntimeHint_t* (*getRuntimeHint)(struct _ocrEvent_t* self);
+
+#ifdef ENABLE_RESILIENCY
+    /**
+     * @brief Get the serialization size
+     *
+     * @param[in] self        Pointer to this event
+     * @param[out] size       Buffer size required to serialize event
+     * @return 0 on success and a non-zero code on failure
+     */
+    u8 (*getSerializationSize)(struct _ocrEvent_t* self, u64* size);
+
+    /**
+     * @brief Serialize event into buffer
+     *
+     * @param[in] self        Pointer to this event
+     * @param[in/out] buffer  Buffer to serialize into
+     * @return 0 on success and a non-zero code on failure
+     */
+    u8 (*serialize)(struct _ocrEvent_t* self, u8* buffer);
+
+    /**
+     * @brief Deserialize event from buffer
+     *
+     * @param[in] buffer      Buffer to deserialize from
+     * @param[out] self       Pointer to deserialized event
+     * @return 0 on success and a non-zero code on failure
+     */
+    u8 (*deserialize)(u8* buffer, struct _ocrEvent_t** self);
+
+    /**
+     * @brief Fixup event pointers after deserialization
+     *
+     * @param[in] self        Pointer to this event
+     * @return 0 on success and a non-zero code on failure
+     */
+    u8 (*fixup)(struct _ocrEvent_t* self);
+
+    /**
+     * @brief Deallocate event during PD reset
+     *
+     * @param[in] self        Pointer to this event
+     * @return 0 on success and a non-zero code on failure
+     */
+    u8 (*reset)(struct _ocrEvent_t* self);
+#endif
 } ocrEventCommonFcts_t;
 
 /**
@@ -186,6 +235,7 @@ typedef struct _ocrEventCommonFcts_t {
  * other events or edts.
  */
 typedef struct _ocrEvent_t {
+    ocrObject_t base;
     ocrGuid_t guid;         /**< GUID for this event */
 #ifdef OCR_ENABLE_STATISTICS
     ocrStatsProcess_t *statProcess;
@@ -203,6 +253,7 @@ typedef struct _ocrEvent_t {
  * @brief events factory
  */
 typedef struct _ocrEventFactory_t {
+    ocrObjectFactory_t base;
     /** @brief Instantiates an Event and returns its corresponding GUID
      *  @param[in] factory          Pointer to this factory
      *  @param[in] eventType        Type of event to instantiate
@@ -219,11 +270,6 @@ typedef struct _ocrEventFactory_t {
     u8 (*instantiate)(struct _ocrEventFactory_t* factory, ocrFatGuid_t *guid,
                       ocrEventTypes_t eventType, u32 properties,
                       ocrParamList_t *instanceArg);
-
-    /** @brief Virtual destructor for the factory
-     *  @param[in] factory          Pointer to this factory
-     */
-    void (*destruct)(struct _ocrEventFactory_t* factory);
 
     u32 factoryId;             /**< Factory ID (matches fctId in event */
     ocrEventCommonFcts_t commonFcts; /**< Functions common for all the types of events */

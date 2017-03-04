@@ -45,43 +45,43 @@ ocrSchedulerObjectFactory_t * newSchedulerObjectFactory(schedulerObjectType_t ty
     switch(type) {
 #ifdef ENABLE_SCHEDULER_OBJECT_NULL
     case schedulerObjectNull_id:
-        return newOcrSchedulerObjectFactoryNull(perType, (u32)type);
+        return newOcrSchedulerObjectFactoryNull(perType, perType->id);
 #endif
 #ifdef ENABLE_SCHEDULER_OBJECT_WST
     case schedulerObjectWst_id:
-        return newOcrSchedulerObjectFactoryWst(perType, (u32)type);
+        return newOcrSchedulerObjectFactoryWst(perType, perType->id);
 #endif
 #ifdef ENABLE_SCHEDULER_OBJECT_DEQ
     case schedulerObjectDeq_id:
-        return newOcrSchedulerObjectFactoryDeq(perType, (u32)type);
+        return newOcrSchedulerObjectFactoryDeq(perType, perType->id);
 #endif
 #ifdef ENABLE_SCHEDULER_OBJECT_LIST
     case schedulerObjectList_id:
-        return newOcrSchedulerObjectFactoryList(perType, (u32)type);
+        return newOcrSchedulerObjectFactoryList(perType, perType->id);
 #endif
 #ifdef ENABLE_SCHEDULER_OBJECT_MAP
     case schedulerObjectMap_id:
-        return newOcrSchedulerObjectFactoryMap(perType, (u32)type);
+        return newOcrSchedulerObjectFactoryMap(perType, perType->id);
 #endif
 #ifdef ENABLE_SCHEDULER_OBJECT_PDSPACE
     case schedulerObjectPdspace_id:
-        return newOcrSchedulerObjectFactoryPdspace(perType, (u32)type);
+        return newOcrSchedulerObjectFactoryPdspace(perType, perType->id);
 #endif
 #ifdef ENABLE_SCHEDULER_OBJECT_DBSPACE
     case schedulerObjectDbspace_id:
-        return newOcrSchedulerObjectFactoryDbspace(perType, (u32)type);
+        return newOcrSchedulerObjectFactoryDbspace(perType, perType->id);
 #endif
 #ifdef ENABLE_SCHEDULER_OBJECT_DBTIME
     case schedulerObjectDbtime_id:
-        return newOcrSchedulerObjectFactoryDbtime(perType, (u32)type);
+        return newOcrSchedulerObjectFactoryDbtime(perType, perType->id);
 #endif
 #ifdef ENABLE_SCHEDULER_OBJECT_PR_WSH
     case schedulerObjectPrWsh_id:
-        return newOcrSchedulerObjectFactoryPrWsh(perType, (u32)type);
+        return newOcrSchedulerObjectFactoryPrWsh(perType, perType->id);
 #endif
 #ifdef ENABLE_SCHEDULER_OBJECT_BIN_HEAP
     case schedulerObjectBinHeap_id:
-        return newOcrSchedulerObjectFactoryBinHeap(perType, (u32)type);
+        return newOcrSchedulerObjectFactoryBinHeap(perType, perType->id);
 #endif
     default:
         ASSERT(0);

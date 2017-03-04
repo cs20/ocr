@@ -5,6 +5,7 @@
  */
 
 #include "ocr-config.h"
+#include "ocr-errors.h"
 #ifdef ENABLE_EXTENSION_RTITF
 
 #include "debug.h"
@@ -42,14 +43,28 @@ void ocrElsUserSet(u8 offset, ocrGuid_t data) {
     RETURN_PROFILE();
 }
 
-ocrGuid_t currentEdtUserGet() {
+/**
+   @brief Get the local data-store associated with the current EDT
+          and its size
+ **/
+u8 ocrEdtLocalStorageGet(void **ptr, u64 *elsSize) {
+    ocrTask_t *task = NULL;
+    getCurrentEnv(NULL, NULL, &task, NULL);
+    if((ptr == NULL) || (elsSize == NULL) || (task==NULL))
+        return OCR_EINVAL;
+    else {
+        *ptr = task->els;
+        *elsSize = ELS_USER_SIZE;
+    }
+    return 0;
+}
+
+void currentEdtUserGet(ocrGuid_t * edtGuid) {
     START_PROFILE(api_currentEdtUserGet);
     ocrTask_t *task = NULL;
     getCurrentEnv(NULL, NULL, &task, NULL);
-    if(task) {
-        RETURN_PROFILE(task->guid);
-    }
-    RETURN_PROFILE(NULL_GUID);
+    *edtGuid = (task) ? task->guid : NULL_GUID;
+    RETURN_PROFILE();
 }
 
 // exposed to runtime implementers as convenience
@@ -63,11 +78,12 @@ u64 ocrNbWorkers() {
 }
 
 // exposed to runtime implementers as convenience
-ocrGuid_t ocrCurrentWorkerGuid() {
+void ocrCurrentWorkerGuid(ocrGuid_t * workerGuid) {
     START_PROFILE(api_ocrCurrentWorkerGuid);
     ocrWorker_t *worker = NULL;
     getCurrentEnv(NULL, &worker, NULL, NULL);
-    RETURN_PROFILE(worker->fguid.guid);
+    *workerGuid = (worker) ? worker->fguid.guid : NULL_GUID;
+    RETURN_PROFILE();
 }
 
 // Inform the OCR runtime the currently executing thread is logically blocked

@@ -44,6 +44,40 @@ typedef struct _paramListGuidProviderInst_t {
 struct _ocrGuidProvider_t;
 struct _ocrPolicyDomain_t;
 
+#define MD_PROXY 2
+#define MD_FETCH 1
+#define MD_LOCAL 0
+
+//
+// TODO: this is to be replaced by some form of runtime event
+//
+
+#define REG_OPEN 0x1
+#define REG_CLOSED 0x0
+#define OCR_GUID_MD_PROXY 32
+
+struct _ocrPolicyMsg_t;
+
+typedef struct _MdProxyNode_t {
+    //TODO This should be a rt event to allow 'anything' to be a continuation of the md fetch
+    struct _ocrPolicyMsg_t * msg;
+    struct _MdProxyNode_t * next;
+} MdProxyNode_t;
+
+typedef struct {
+#ifdef ENABLE_RESILIENCY
+    ocrObject_t base;
+    u32 numNodes;
+#endif
+    MdProxyNode_t * queueHead;
+    volatile u64 ptr;
+} MdProxy_t;
+
+//
+// END TODO
+//
+
+
 /**
  * @brief GUID provider function pointers
  *
@@ -81,6 +115,7 @@ typedef struct _ocrGuidProviderFcts_t {
      */
     u8 (*switchRunlevel)(struct _ocrGuidProvider_t* self, struct _ocrPolicyDomain_t *PD, ocrRunlevel_t runlevel,
                          phase_t phase, u32 properties, void (*callback)(struct _ocrPolicyDomain_t*, u64), u64 val);
+
     /**
      * @brief Reserves a GUID range to be used by a user mapping function
      *
@@ -89,10 +124,12 @@ typedef struct _ocrGuidProviderFcts_t {
      * @param[out] skipGuid        Returns the "step" between valid GUIDs in the range
      * @param[in] numberGuids      Number of GUIDs to reserve
      * @param[in] guidType         Type of GUIDs this range will be used to store
+     * @param[in] properties       Properties. For instance, indicates whether or not the
+     *                             reservation is for reserved labeled or regular GUIDs
      * @return 0 on success a non-zero error code
      */
     u8 (*guidReserve)(struct _ocrGuidProvider_t *self, ocrGuid_t *startGuid, u64* skipGuid,
-                      u64 numberGuids, ocrGuidKind guidType);
+                      u64 numberGuids, ocrGuidKind guidType, u32 properties);
 
     /**
      * @brief Un-reserves a GUID range when no longer needed.
@@ -121,10 +158,12 @@ typedef struct _ocrGuidProviderFcts_t {
      * @param[out] guid         GUID returned
      * @param[in] val           Value to be associated
      * @param[in] kind          Kind of the object that will be associated with the GUID
+     * @param[in] targetLoc     Location targeted by this GUID (whenever relevant)
+     * @param[in] properties    Properties for the GUID generation
      * @return 0 on success or an error code
      */
     u8 (*getGuid)(struct _ocrGuidProvider_t* self, ocrGuid_t* guid, u64 val,
-                  ocrGuidKind kind);
+                  ocrGuidKind kind, ocrLocation_t targetLoc, u32 properties);
 
     /**
      * @brief Create a GUID for an object of kind 'kind'
@@ -144,13 +183,14 @@ typedef struct _ocrGuidProviderFcts_t {
      *                          the GUID that is requested
      * @param[in] size          Size of the storage to be created
      * @param[in] kind          Kind of the object that will be associated with the GUID
+     * @param[in] targetLoc     Location targeted by this GUID (whenever relevant)
      * @param[in] properties    Properties for the creation. Mostly contains stuff
      *                          related to GUID labeling
      * @return 0 on success or an error code:
      *     - OCR_EGUIDEXISTS if GUID_PROP_CHECK is set and the GUID already exists
      */
     u8 (*createGuid)(struct _ocrGuidProvider_t* self, ocrFatGuid_t* fguid,
-                     u64 size, ocrGuidKind kind, u32 properties);
+                     u64 size, ocrGuidKind kind, ocrLocation_t targetLoc, u32 properties);
 
     /**
      * @brief Resolve the associated value to the GUID 'guid'
@@ -162,7 +202,7 @@ typedef struct _ocrGuidProviderFcts_t {
      *
      * @return 0 on success or an error code
      */
-    u8 (*getVal)(struct _ocrGuidProvider_t* self, ocrGuid_t guid, u64* val, ocrGuidKind* kind);
+    u8 (*getVal)(struct _ocrGuidProvider_t* self, ocrGuid_t guid, u64* val, ocrGuidKind* kind, u32 mode, MdProxy_t ** proxy);
 
     /**
      * @brief Resolve the kind of a GUID
@@ -229,6 +269,52 @@ typedef struct _ocrGuidProviderFcts_t {
      * @return 0 on success or an error code
      */
     u8 (*releaseGuid)(struct _ocrGuidProvider_t *self, ocrFatGuid_t guid, bool releaseVal);
+
+#ifdef ENABLE_RESILIENCY
+    /**
+     * @brief Get the serialization size
+     *
+     * @param[in] self        Pointer to this GUID provider
+     * @param[out] size       Buffer size required to serialize GUID provider metadata
+     * @return 0 on success and a non-zero code on failure
+     */
+    u8 (*getSerializationSize)(struct _ocrGuidProvider_t *self, u64 * size);
+
+    /**
+     * @brief Serialize GUID provider metadata into buffer
+     *
+     * @param[in] self        Pointer to this GUID provider
+     * @param[in/out] buffer  Buffer to serialize into
+     * @return 0 on success and a non-zero code on failure
+     */
+    u8 (*serialize)(struct _ocrGuidProvider_t *self, u8 * buffer);
+
+    /**
+     * @brief Deserialize GUID provider from buffer
+     *
+     * @param[in] self        Pointer to this GUID provider
+     * @param[in] buffer      Buffer to deserialize from
+     * @return 0 on success and a non-zero code on failure
+     */
+    u8 (*deserialize)(struct _ocrGuidProvider_t *self, u8 * buffer);
+
+    /**
+     * @brief Reset GUID provider user program state by clearing
+     * all user program metadata
+     *
+     * @param[in] self        Pointer to this GUID provider
+     * @return 0 on success and a non-zero code on failure
+     */
+    u8 (*reset)(struct _ocrGuidProvider_t *self);
+
+    /**
+     * @brief Fixup GUID provider state after restore
+     *
+     * @param[in] self        Pointer to this GUID provider
+     * @return 0 on success and a non-zero code on failure
+     */
+    u8 (*fixup)(struct _ocrGuidProvider_t *self);
+#endif
 } ocrGuidProviderFcts_t;
 
 /**
@@ -241,6 +327,7 @@ typedef struct _ocrGuidProviderFcts_t {
  * support different address spaces (in the future)
  */
 typedef struct _ocrGuidProvider_t {
+    ocrObject_t base;
     struct _ocrPolicyDomain_t *pd;  /**< Policy domain of this GUID provider */
     u32 id;                         /**< Function IDs for this GUID provider */
     ocrGuidProviderFcts_t fcts;     /**< Functions for this instance */

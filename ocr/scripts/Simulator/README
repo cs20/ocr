@@ -1,0 +1,133 @@
+##
+# License
+##
+
+This file is subject to the license agreement located in the file
+LICENSE and cannot be distributed without it.  This notice
+cannot be removed or modified.
+
+
+##
+# Details
+##
+
+The purpose of the OCR Simulator tool is to extract application characteristics
+from log files provided, and produce a syntactically correct OCR C application
+with API calls, and communication patterns maintaned, while removing computations.
+
+The application produced by this tool can be run, with limited runtime features.
+Like hand-written OCR applications, simulated applications can be run intrumented
+with options necessary to use existing analysis (i.e OCR profiler) to examine OCR
+overheads without the presence of heavy computation, giving a more definitive
+understanding of where bottlenecks exist in OCR per how the DAG of an application
+is contructed. The feature limitations mentioned above are discussed further in
+the section below.
+
+##
+# Usage Instructions - OCR Configuration
+##
+
+This tool is designed to be use trace input produced via logs collected from
+applications run on single node x86 platform.
+
+To instrument the OCR code before application execution:
+
+    -In ocr/build/common.mk:
+        -DOCR_ENABLE_SIMULATOR must be set.
+        -DOCR_TRACE_BINARY must be set.
+
+    -In ocr/build/x86/ocr-config.h:
+        -ENABLE_EXTENSION_PERF must be defined
+
+    -In the application makefile:
+        -CONFIG_FLAGS+=--sysworker --guid COUNTED_MAP
+            -Including the above CONFIG_FLAGS will enable the reservation
+             of a worker thread to perform tracing actions during execution
+             and ensure that guids are uniquely defined and not re-used, as
+             as expected by the postprocessing.
+
+             NOTE: If your original application requires the use of labeled guids,
+                   --guid COUNTED_MAP can be replaced with --guid LABELED
+
+Once all necessary flags are added, build and execute the application.  On execution,
+all OCR api calls entry/completions will be timestamped and traced as well as all EDT's
+beginning/end of execution.  The post-processing requires multiple trace files produced
+from executing the application at a minimum of 7 different problem sizes, in order to
+determine the relationship between problem size, and the patterns of API calls present
+within each respective EDT observed.
+
+NOTE: The postprocessing does not support multi-variate analysis.  When collecting traces
+the best known method currently is to select a single application input variable that has
+the biggest impact on scaling the problem size. This will be used as the independent variable
+during postprocessing.  All other application inputs should be kept constant.
+
+It should also be noted that the overall problem size should be kept as small as is feasible,
+as you scale the inputs across the 7 application runs.  This is optimal in the insterest of
+time and simplicty, as observed relationships are most often observed as a simple polynomial,
+and large application sizes are not necessary.
+
+##
+# Usage Instructions - Tracing and post-processing
+##
+
+The following must be completed for each application execution. A minimum of 7 trace files
+are needed to appropriately determing polynomial relationships:
+
+    -Select workload paramters, (increasing each execution)
+    -run make -f Makefile.x86 run
+    -A trace file will be created and placed in <app_directory>/install/x86/ called trace_0.bin
+    -Navigate to ocr/scripts/traceUtils/
+    -run make sim  (builds the trace decoding application specific to simulation trace files)
+    -run ./traceDecode <path_to_app_directory>/install/x86/trace_0.bin >   <file_name>
+        -NOTE: <file_name> should be named differently for each trace file.
+
+Once each of your 7 trace files are decoded and re-directed to files:
+
+    -mv the files to /ocr/scripts/Simulator/
+    -open sim_config.cfg
+    -populate the configuration options as follows:
+
+        INPUT_FILES: f1, f2, f3, f4, f5, f6, f7
+        INPUT_PARAMS: 1, 2, 3, 4, 5, 6, 7
+        APPLICATION_BINARY_PATH: <absolute_path_to_application_binary>
+
+        NOTE: INPUT_FILES and INPUT_PARAMS should follow the comma
+              seperated format as shown above. f1 - f7 represent each of
+              files produced via decoding and redirecting application output.
+              1 - 7 represent the independent workload parameter chosen for
+              each file respectively (i.e f1 is the trace file produced via
+              executing the application with 1 and your workload arg.)
+
+    - run the script, passing the config file:  ./ocrSimulator.py sim_config.cfg
+
+The output application will be created named simApp.c, and can be run using the original app's
+makefile, via replacing SRCS := <original>.c  with SRCS := simApp.c
+The simulated application will accept a single workload argument, that will simulate the behavior
+of the chosen independent variable.
+
+##
+# Noteable Limitations
+##
+
+- Limited testing thus far.  Only applications with extensive testing include Stencil2D and smith-waterman
+
+- When tracing applications, EDT_PARAM_DEF may not be used when calling ocrEdtCreate().
+
+- API call limitations:
+    -Calls to the affinity API are currently accounted for, but ignored when running a simulated application.
+    -Event management is currently accounted for, but ignored by the runtime.
+    -Dependency management is currently ignored by the runtime.
+    -Datablock creation is managed 'virtually'. I.e when ocrDbCreate() is called, the allocator keeps track of the
+     amount of memory requested, but does not actually allocate memory.
+    -Task performance tracked via hints (produced by postprocessing and included in application) rather than being
+     tracked by the performance monitoring framework.
+    -Data dependencies present in the subject application are unaccounted for.  Applications that include tasks
+     whose behavior differs based on data must be accounted for manually in the output application manually by the
+     programmer.
+    -EDTs with tail recursion unsupported.  If self referential EDTs are observed via post-processing, a FIXME prompt
+     will be written rather than the ocrEdtCreate() call for the programmer to manually add.
+    -Application behavior may not be consitent and/or meaningful for every application.
+
+
+
+

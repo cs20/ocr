@@ -18,6 +18,7 @@
 
 #include "debug.h"
 #include "ocr-errors.h"
+#include "ocr-hal.h"
 #include "ocr-policy-domain.h"
 #include "ocr-runtime-types.h"
 #include "ocr-sysboot.h"
@@ -62,7 +63,7 @@ ocrSchedulerHeuristic_t* newSchedulerHeuristicSt(ocrSchedulerHeuristicFactory_t 
     ocrSchedulerHeuristicSt_t *derived = (ocrSchedulerHeuristicSt_t*)self;
     derived->schedulerLocation = 0;
     derived->locationPlacement = 0;
-    derived->locationLock = 0;
+    derived->locationLock = INIT_LOCK;
     return self;
 }
 
@@ -296,7 +297,7 @@ ocrSchedulerObjectDbspace_t *createDbSpace(ocrSchedulerHeuristic_t *self, ocrSch
         ocrSchedulerObjectPdspace_t *pdspaceObj = (ocrSchedulerObjectPdspace_t*)self->scheduler->rootObj;
 
         //PD critical section to handle concurrent DB space object creates
-        hal_lock32(&pdspaceObj->lock);
+        hal_lock(&pdspaceObj->lock);
 #if GUID_BIT_COUNT == 64
         mapIt->data = (void*) dbGuid.guid;
 #elif GUID_BIT_COUNT == 128
@@ -361,11 +362,11 @@ ocrSchedulerObjectDbspace_t *createDbSpace(ocrSchedulerHeuristic_t *self, ocrSch
         }
 
         //PD critical section end
-        hal_unlock32(&pdspaceObj->lock);
+        hal_unlock(&pdspaceObj->lock);
     }
 
     //Dbspace critical section start
-    hal_lock32(&dbspaceObj->lock);
+    hal_lock(&dbspaceObj->lock);
 
     if (doCreateTime) createDbTime(self, context, dbspaceObj, space, time);
     if (state == DB_STATE_INFO) {
@@ -387,7 +388,7 @@ ocrSchedulerObjectDbspace_t *createDbSpace(ocrSchedulerHeuristic_t *self, ocrSch
     }
 
     //Dbspace critical section end
-    hal_unlock32(&dbspaceObj->lock);
+    hal_unlock(&dbspaceObj->lock);
 
     return dbspaceObj;
 }
@@ -428,11 +429,11 @@ static void acquireEdtDeps(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicC
     u64 time = 0;
     ocrHint_t edtHint;
     ocrHintInit(&edtHint, OCR_HINT_EDT_T);
-    RESULT_ASSERT(pd->taskFactories[0]->fcts.getHint(task, &edtHint), ==, 0);
+    RESULT_ASSERT((ocrTaskFactory_t*)(pd->factories[pd->taskFactoryIdx])->fcts.getHint(task, &edtHint), ==, 0);
     RESULT_ASSERT(ocrGetHintValue(&edtHint, OCR_HINT_EDT_TIME, &time), ==, 0);
 #endif
 
-    RESULT_ASSERT(pd->taskFactories[task->fctId]->fcts.dependenceResolved(task, NULL_GUID, NULL, EDT_SLOT_NONE), ==, 0);
+    RESULT_ASSERT(((ocrTaskFactory_t*)(pd->factories[task->fctId]))->fcts.dependenceResolved(task, NULL_GUID, NULL, EDT_SLOT_NONE), ==, 0);
 }
 
 //The EDT's depv is scanned to see if all the DBs are local and current
@@ -449,7 +450,7 @@ static void scheduleEdtDeps(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristic
     u64 time = 0;
     ocrHint_t edtHint;
     ocrHintInit(&edtHint, OCR_HINT_EDT_T);
-    RESULT_ASSERT(pd->taskFactories[0]->fcts.getHint(task, &edtHint), ==, 0);
+    RESULT_ASSERT(((ocrTaskFactory_t*)(pd->factories[pd->taskFactoryIdx]))->fcts.getHint(task, &edtHint), ==, 0);
     RESULT_ASSERT(ocrGetHintValue(&edtHint, OCR_HINT_EDT_TIME, &time), ==, 0);
 
     //Get the EDT's dependence vector
@@ -547,6 +548,7 @@ static u8 dbMoveSend(ocrSchedulerHeuristic_t *self, ocrPolicyDomain_t *pd, ocrGu
         PD_MSG_FIELD_IO(guid.metaDataPtr) = NULL;
         PD_MSG_FIELD_I(edt.guid) = NULL_GUID;
         PD_MSG_FIELD_I(edt.metaDataPtr) = NULL;
+        PD_MSG_FIELD_I(srcLoc) = pd->myLocation;
         PD_MSG_FIELD_I(ptr) = NULL;
         PD_MSG_FIELD_I(size) = 0;
         PD_MSG_FIELD_I(properties) = DB_PROP_RT_PD_ACQUIRE;
@@ -651,7 +653,7 @@ static u8 processDbSMOP(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicCont
             ASSERT(dbspaceObj);
 
             //Dbspace critical section start
-            hal_lock32(&dbspaceObj->lock);
+            hal_lock(&dbspaceObj->lock);
 
             DPRINTF(DEBUG_LVL_VERB, "ST-SCHEDULER: SM_DB_ACQUIRE: (db: "GUIDF" state: %"PRIu32")\n", GUIDA(dbGuid), dbspaceObj->state);
             ocrSchedulerObjectDbtime_t *dbtimeObj __attribute__((unused)) = (ocrSchedulerObjectDbtime_t*)ocrSchedulerObjectListHead(dbspaceObj->dbTimeList);
@@ -667,7 +669,7 @@ static u8 processDbSMOP(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicCont
                                                                  dbtimeObj, dbtimeObj->edtScheduledCount, dbtimeObj->edtDoneCount);
 
             //Dbspace critical section end
-            hal_unlock32(&dbspaceObj->lock);
+            hal_unlock(&dbspaceObj->lock);
         }
         break;
     case SM_DB_RELEASE: //SM is notified that the DB has been released by an EDT in this PD
@@ -679,7 +681,7 @@ static u8 processDbSMOP(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicCont
             u64 edtDoneCountLocal = 0;
 
             //Dbspace critical section start
-            hal_lock32(&dbspaceObj->lock);
+            hal_lock(&dbspaceObj->lock);
 
             DPRINTF(DEBUG_LVL_VERB, "ST-SCHEDULER: SM_DB_RELEASE: (db: "GUIDF" state: %"PRIu32")\n", GUIDA(dbGuid), dbspaceObj->state);
             ASSERT(dbspaceObj->state == DB_STATE_LOCAL_ACTIVE && dbspaceObj->activeCount > 0);
@@ -704,7 +706,7 @@ static u8 processDbSMOP(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicCont
                                                                     (u8)isTimeDone, (u8)localDestruct);
 
             //Dbspace critical section end
-            hal_unlock32(&dbspaceObj->lock);
+            hal_unlock(&dbspaceObj->lock);
 
             if (isTimeDone) {
                 RESULT_ASSERT(dbTimeDone(self, pd, dbGuid, dbSize, time, edtDoneCountLocal, localDestruct), ==, 0);
@@ -723,7 +725,7 @@ static u8 processDbSMOP(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicCont
                 u64 edtDoneCountLocal = 0;
 
                 //Dbspace critical section start
-                hal_lock32(&dbspaceObj->lock);
+                hal_lock(&dbspaceObj->lock);
 
                 DPRINTF(DEBUG_LVL_VERB, "ST-SCHEDULER: SM_DB_FREE: (db: "GUIDF" state: %"PRIu32")\n", GUIDA(dbGuid), dbspaceObj->state);
                 ocrSchedulerObjectDbtime_t *dbtimeObj = (ocrSchedulerObjectDbtime_t*)ocrSchedulerObjectListHead(dbspaceObj->dbTimeList);
@@ -752,7 +754,7 @@ static u8 processDbSMOP(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicCont
                                                                      (u8)isTimeDone, (u8)localDestruct);
 
                 //Dbspace critical section end
-                hal_unlock32(&dbspaceObj->lock);
+                hal_unlock(&dbspaceObj->lock);
 
                 if (isTimeDone) {
                     RESULT_ASSERT(dbTimeDone(self, pd, dbGuid, dbSize, time, edtDoneCountLocal, true), ==, 0);
@@ -777,7 +779,7 @@ static u8 processDbSMOP(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicCont
             ASSERT(dbspaceObj);
 
             //Dbspace critical section start
-            hal_lock32(&dbspaceObj->lock);
+            hal_lock(&dbspaceObj->lock);
 
             DPRINTF(DEBUG_LVL_VERB, "ST-SCHEDULER: SM_DB_TIME_SHIFT_AT_SCHEDULER: (db: "GUIDF" state: %"PRIu32")\n", GUIDA(dbGuid), dbspaceObj->state);
             ASSERT(dbspaceObj->state != DB_STATE_PROXY);
@@ -801,7 +803,7 @@ static u8 processDbSMOP(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicCont
             }
 
             //Dbspace critical section end
-            hal_unlock32(&dbspaceObj->lock);
+            hal_unlock(&dbspaceObj->lock);
 
             if (update) {
                 RESULT_ASSERT(initiateDbMove(self, pd, dbGuid, dbspaceObj->dbSize, dbtimeObj->space, dbtimeObjNext->space, dbtimeObj->time, dbtimeObjNext->time), ==, 0);
@@ -816,7 +818,7 @@ static u8 processDbSMOP(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicCont
             u64 edtDoneCount = count;
 
             //Dbspace critical section start
-            hal_lock32(&dbspaceObj->lock);
+            hal_lock(&dbspaceObj->lock);
 
             DPRINTF(DEBUG_LVL_VERB, "ST-SCHEDULER: SM_DB_DONE_AT_SCHEDULER: (db: "GUIDF" space: %"PRIu64" time: %"PRIu64" count: %"PRIu64" free: %"PRIu32" state: %"PRIu32")\n",
                                                                              GUIDA(dbGuid), space, time, edtDoneCount, properties, dbspaceObj->state);
@@ -862,7 +864,7 @@ static u8 processDbSMOP(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicCont
                                                                              dbspaceObj->state);
 
             //Dbspace critical section end
-            hal_unlock32(&dbspaceObj->lock);
+            hal_unlock(&dbspaceObj->lock);
         }
         break;
     case SM_DB_MOVE_DST: //SM is notified that DB is now scheduled at this PD
@@ -877,7 +879,7 @@ static u8 processDbSMOP(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicCont
             ASSERT(dbspaceObj);
 
             //Dbspace critical section start
-            hal_lock32(&dbspaceObj->lock);
+            hal_lock(&dbspaceObj->lock);
 
             ocrSchedulerObjectDbtime_t *dbtimeObj = getDbTime(self, context, dbspaceObj, time);
             ASSERT(dbtimeObj && dbtimeObj->time == time && dbtimeObj->space == pd->myLocation);
@@ -911,7 +913,7 @@ static u8 processDbSMOP(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicCont
             }
 
             //Dbspace critical section end
-            hal_unlock32(&dbspaceObj->lock);
+            hal_unlock(&dbspaceObj->lock);
 
             //Note: we do this outside DB space critical section
             if (waiterCount > 0) processDbWaitlist(pd, self, context, dbspaceObj, dbtimeObj, waiterCount);
@@ -924,7 +926,7 @@ static u8 processDbSMOP(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicCont
             bool doRelease = false;
 
             //Dbspace critical section start
-            hal_lock32(&dbspaceObj->lock);
+            hal_lock(&dbspaceObj->lock);
 
             DPRINTF(DEBUG_LVL_VERB, "ST-SCHEDULER: SM_DB_MOVE_SRC: (db: "GUIDF" time: %"PRIu64" state: %"PRIu32")\n", GUIDA(dbGuid), time, dbspaceObj->state);
             if (dbspaceObj->dbPtr == NULL) {
@@ -944,7 +946,7 @@ static u8 processDbSMOP(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicCont
             dbspaceObj->time = (dbtimeObj != NULL) ? dbtimeObj->time : 0;
 
             //Dbspace critical section end
-            hal_unlock32(&dbspaceObj->lock);
+            hal_unlock(&dbspaceObj->lock);
 
             //DB transfer to destination
             RESULT_ASSERT(dbMoveSend(self, pd, dbGuid, space, dbspaceObj, doRelease), ==, 0);
@@ -956,7 +958,7 @@ static u8 processDbSMOP(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicCont
             ASSERT(dbspaceObj && dbSize == dbspaceObj->dbSize && dbPtr != NULL && space == pd->myLocation && time == 0 && task == NULL);
 
             //Dbspace critical section start
-            hal_lock32(&dbspaceObj->lock);
+            hal_lock(&dbspaceObj->lock);
 
             DPRINTF(DEBUG_LVL_VERB, "ST-SCHEDULER: SM_DB_AT_SPACE: (db: "GUIDF" ptr: %p state: %"PRIu32")\n", GUIDA(dbGuid), dbPtr, dbspaceObj->state);
             dbspaceObj->dbPtr = dbPtr;
@@ -981,7 +983,7 @@ static u8 processDbSMOP(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicCont
             }
 
             //Dbspace critical section end
-            hal_unlock32(&dbspaceObj->lock);
+            hal_unlock(&dbspaceObj->lock);
 
             //Note: we do this outside DB space critical section
             if (waiterCount > 0) processDbWaitlist(pd, self, context, dbspaceObj, dbtimeObj, waiterCount);
@@ -1002,7 +1004,7 @@ static u8 processDbSMOP(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicCont
             ASSERT(dbspaceObj && time >= dbspaceObj->time);
 
             //Dbspace critical section start
-            hal_lock32(&dbspaceObj->lock);
+            hal_lock(&dbspaceObj->lock);
 
             DPRINTF(DEBUG_LVL_VERB, "ST-SCHEDULER: SM_EDT_AT_SPACE: (edt: "GUIDF" db: "GUIDF" time: %"PRIu64" state: %"PRIu32")\n", GUIDA(task->guid), GUIDA(dbGuid), time, dbspaceObj->state);
             //Find time slot for EDT
@@ -1036,7 +1038,7 @@ static u8 processDbSMOP(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicCont
                                                                       dbtimeObj, dbtimeObj->edtScheduledCount, dbtimeObj->edtDoneCount, (u8)local);
 
             //Dbspace critical section end
-            hal_unlock32(&dbspaceObj->lock);
+            hal_unlock(&dbspaceObj->lock);
         }
         break;
     default:
@@ -1130,7 +1132,7 @@ static u8 analyzeEdtSpaceTime(ocrSchedulerHeuristic_t *self, ocrSchedulerHeurist
                 if (dbspaceObj->state == DB_STATE_PROXY) { //DB info has not yet reached scheduler node. EDT needs to wait.
                     ASSERT(pd->neighborCount != 0);
                     bool proxy = false;
-                    hal_lock32(&dbspaceObj->lock);
+                    hal_lock(&dbspaceObj->lock);
                     if (dbspaceObj->state == DB_STATE_PROXY) { //Double check to ensure
                         if (edtProxy == NULL) {
                             edtProxy = (ocrEdtProxy_t*)pd->fcts.pdMalloc(pd, sizeof(ocrEdtProxy_t));
@@ -1145,7 +1147,7 @@ static u8 analyzeEdtSpaceTime(ocrSchedulerHeuristic_t *self, ocrSchedulerHeurist
                         listFact->fcts.insert(listFact, dbspaceObj->schedList, (ocrSchedulerObject_t*)edtProxy, NULL, (SCHEDULER_OBJECT_INSERT_AFTER | SCHEDULER_OBJECT_INSERT_POSITION_TAIL));
                         proxy = true;
                     }
-                    hal_unlock32(&dbspaceObj->lock);
+                    hal_unlock(&dbspaceObj->lock);
                     if (proxy)
                         return 0; //We suspend until DB reaches scheduler node
                 }
@@ -1162,12 +1164,12 @@ static u8 analyzeEdtSpaceTime(ocrSchedulerHeuristic_t *self, ocrSchedulerHeurist
         for (i = 0; i < depc; i++) {
             if (depv[i].ptr != NULL) {
                 ocrSchedulerObjectDbspace_t *dbspaceObj = (ocrSchedulerObjectDbspace_t*)depv[i].ptr;
-                hal_lock32(&dbspaceObj->lock);
+                hal_lock(&dbspaceObj->lock);
                 ASSERT(dbspaceObj->time == 1);
                 ocrSchedulerObjectDbtime_t *dbtimeObj = (ocrSchedulerObjectDbtime_t*)ocrSchedulerObjectListHead(dbspaceObj->dbTimeList);
                 ASSERT(dbtimeObj->time == 1);
                 dbtimeObj->schedulerCount += 1;
-                hal_unlock32(&dbspaceObj->lock);
+                hal_unlock(&dbspaceObj->lock);
                 depv[i].ptr = NULL;
             }
         }
@@ -1178,10 +1180,10 @@ static u8 analyzeEdtSpaceTime(ocrSchedulerHeuristic_t *self, ocrSchedulerHeurist
         //TODO: Bad placement (round-robin); needs better placement with updated load information.
         //TODO: Read affinity hint
         u64 scheduleTime = 1; //use the default time slot
-        hal_lock32(&derived->locationLock);
+        hal_lock(&derived->locationLock);
         ocrLocation_t scheduleSpace = derived->locationPlacement;
         derived->locationPlacement = (derived->locationPlacement + 1) % (pd->neighborCount + 1); //TODO: Works for MPI ranks only. Use platform model in future.
-        hal_unlock32(&derived->locationLock);
+        hal_unlock(&derived->locationLock);
         DPRINTF(DEBUG_LVL_VERB, "Scheduler decision (load balance) for EDT "GUIDF": Space: %"PRIu64" Time: %"PRIu64"\n", GUIDA(edtGuid), scheduleSpace, scheduleTime);
         return respondSchedulerDecision(self, edtGuid, edtLocation, scheduleSpace, scheduleTime);
     }
@@ -1202,23 +1204,23 @@ static u8 analyzeEdtSpaceTime(ocrSchedulerHeuristic_t *self, ocrSchedulerHeurist
     ocrSchedulerObjectPdspace_t *pdspaceObj = (ocrSchedulerObjectPdspace_t*)self->scheduler->rootObj;
     while (1) {
         bool contention = false;
-        hal_lock32(&pdspaceObj->lock);
+        hal_lock(&pdspaceObj->lock);
         for (i = 0; i < depc; i++) {
             if(depv[i].ptr != NULL) {
                 ocrSchedulerObjectDbspace_t *dbspaceObj = (ocrSchedulerObjectDbspace_t*)depv[i].ptr;
-                if (hal_trylock32(&dbspaceObj->lock) != 0) {
+                if (hal_trylock(&dbspaceObj->lock) != 0) {
                     contention = true;
                     for (j = 0; j < i; j++) {
                         if(depv[j].ptr != NULL) {
                             ocrSchedulerObjectDbspace_t *dbspaceObjPtr = (ocrSchedulerObjectDbspace_t*)depv[j].ptr;
-                            hal_unlock32(&dbspaceObjPtr->lock);
+                            hal_unlock(&dbspaceObjPtr->lock);
                         }
                     }
                     break;
                 }
             }
         }
-        hal_unlock32(&pdspaceObj->lock);
+        hal_unlock(&pdspaceObj->lock);
 
         if (!contention) break;
 
@@ -1227,8 +1229,9 @@ static u8 analyzeEdtSpaceTime(ocrSchedulerHeuristic_t *self, ocrSchedulerHeurist
             for (i = 0; i < depc; i++) {
                 if(depv[i].ptr != NULL) {
                     ocrSchedulerObjectDbspace_t *dbspaceObj = (ocrSchedulerObjectDbspace_t*)depv[i].ptr;
-                    if (dbspaceObj->lock != 0) {
-                        while(dbspaceObj->lock != 0);
+                    if(hal_islocked(&(dbspaceObj->lock))) {
+                        while(hal_islocked(&(dbspaceObj->lock)))
+                            ;
                         break;
                     }
                 }
@@ -1428,7 +1431,7 @@ static u8 analyzeEdtSpaceTime(ocrSchedulerHeuristic_t *self, ocrSchedulerHeurist
     for (i = 0; i < depc; i++) {
         if (depv[i].ptr != NULL) {
             ocrSchedulerObjectDbspace_t *dbspaceObj = (ocrSchedulerObjectDbspace_t*)depv[i].ptr;
-            hal_unlock32(&dbspaceObj->lock);
+            hal_unlock(&dbspaceObj->lock);
         }
     }
 
@@ -1506,9 +1509,16 @@ static u8 stSchedulerHeuristicWorkEdtUserInvoke(ocrSchedulerHeuristic_t *self, o
         }
     }
 
-    if(!(ocrGuidIsNull(edtObj.guid.guid)))
+    if(!(ocrGuidIsNull(edtObj.guid.guid))){
         taskArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).edt = edtObj.guid;
-
+        //Add same schedObj determine flag
+#ifdef OCR_MONITOR_SCHEDULER
+        OCR_TOOL_TRACE(false, OCR_TRACE_TYPE_WORKER, OCR_ACTION_WORK_TAKEN, edtObj.guid.guid, schedObj);
+        ocrWorker_t *wrkr;
+        getCurrentEnv(NULL, &wrkr, NULL, NULL);
+        wrkr->isSeeking = false;
+#endif
+    }
     return retVal;
 }
 
@@ -1543,7 +1553,7 @@ static u8 stDbCreate(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicContext
     if (task) {
         ocrHint_t edtHint;
         ocrHintInit(&edtHint, OCR_HINT_EDT_T);
-        RESULT_ASSERT(pd->taskFactories[0]->fcts.getHint(task, &edtHint), ==, 0);
+        RESULT_ASSERT(((ocrTaskFactory_t*)(pd->factories[pd->taskFactoryIdx]))->fcts.getHint(task, &edtHint), ==, 0);
         RESULT_ASSERT(ocrGetHintValue(&edtHint, OCR_HINT_EDT_TIME, &time), ==, 0);
     } else {
         time = 1;
@@ -1598,7 +1608,7 @@ static u8 stSchedulerHeuristicNotifyEdtSatisfiedInvoke(ocrSchedulerHeuristic_t *
         ocrHintInit(&edtHint, OCR_HINT_EDT_T);
         RESULT_ASSERT(ocrSetHintValue(&edtHint, OCR_HINT_EDT_SPACE, pd->myLocation), ==, 0);
         RESULT_ASSERT(ocrSetHintValue(&edtHint, OCR_HINT_EDT_TIME, 1), ==, 0);
-        RESULT_ASSERT(pd->taskFactories[0]->fcts.setHint(task, &edtHint), ==, 0);
+        RESULT_ASSERT(((ocrTaskFactory_t*)(pd->factories[pd->taskFactoryIdx]))->fcts.setHint(task, &edtHint), ==, 0);
         return OCR_ENOP;
     }
 
@@ -1646,6 +1656,10 @@ static u8 stSchedulerHeuristicNotifyEdtReadyInvoke(ocrSchedulerHeuristic_t *self
     edtObj.guid = *fguid;
     edtObj.kind = OCR_SCHEDULER_OBJECT_EDT;
     ocrSchedulerObjectFactory_t *fact = self->scheduler->pd->schedulerObjectFactories[schedObj->fctId];
+#ifdef OCR_MONITOR_SCHEDULER
+    ocrGuid_t taskGuid = notifyArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_EDT_READY).guid.guid;
+    OCR_TOOL_TRACE(false, OCR_TRACE_TYPE_EDT, OCR_ACTION_SCHEDULED, taskGuid, schedObj);
+#endif
     return fact->fcts.insert(fact, schedObj, &edtObj, NULL, (SCHEDULER_OBJECT_INSERT_AFTER | SCHEDULER_OBJECT_INSERT_POSITION_TAIL));
 }
 
@@ -1836,7 +1850,7 @@ static u8 stSchedulerHeuristicTransactEdt(ocrSchedulerHeuristic_t *self, ocrSche
     ocrLocation_t space = pd->myLocation;
     ocrHint_t edtHint;
     ocrHintInit(&edtHint, OCR_HINT_EDT_T);
-    RESULT_ASSERT(pd->taskFactories[0]->fcts.getHint(task, &edtHint), ==, 0);
+    RESULT_ASSERT(((ocrTaskFactory_t*)(pd->factories[pd->taskFactoryIdx]))->fcts.getHint(task, &edtHint), ==, 0);
     RESULT_ASSERT(ocrGetHintValue(&edtHint, OCR_HINT_EDT_SPACE, &space), ==, 0);
     ASSERT(space == pd->myLocation);
 
@@ -1844,7 +1858,7 @@ static u8 stSchedulerHeuristicTransactEdt(ocrSchedulerHeuristic_t *self, ocrSche
 
     //Register the guid in this PD
     u64 val;
-    pd->guidProviders[0]->fcts.getVal(pd->guidProviders[0], task->guid, &val, NULL);
+    pd->guidProviders[0]->fcts.getVal(pd->guidProviders[0], task->guid, &val, NULL, MD_LOCAL, NULL);
     ASSERT(val == 0);
     pd->guidProviders[0]->fcts.registerGuid(pd->guidProviders[0], task->guid, (u64) task);
 
@@ -1889,6 +1903,7 @@ static u8 stSchedulerHeuristicTransactDb(ocrSchedulerHeuristic_t *self, ocrSched
     PD_MSG_FIELD_IO(guid.metaDataPtr) = NULL;
     PD_MSG_FIELD_IO(edt.guid) = NULL_GUID;
     PD_MSG_FIELD_IO(edt.metaDataPtr) = NULL;
+    PD_MSG_FIELD_IO(destLoc) = pd->myLocation;
     PD_MSG_FIELD_IO(edtSlot) = EDT_SLOT_NONE;
     PD_MSG_FIELD_IO(properties) = DB_MODE_RW | DB_PROP_RT_PD_ACQUIRE;
     RESULT_ASSERT(pd->fcts.processMessage(pd, &msg, true), ==, 0); //blocking call to acquire
@@ -1955,7 +1970,7 @@ u8 stSchedulerHeuristicAnalyzeSpaceTimeEdtResponse(ocrSchedulerHeuristic_t *self
     ocrFatGuid_t fguid;
     fguid.guid = analyzeArgs->guid;
     fguid.metaDataPtr = NULL;
-    pd->guidProviders[0]->fcts.getVal(pd->guidProviders[0], fguid.guid, (u64*)(&(fguid.metaDataPtr)), NULL);
+    pd->guidProviders[0]->fcts.getVal(pd->guidProviders[0], fguid.guid, (u64*)(&(fguid.metaDataPtr)), NULL, MD_LOCAL, NULL);
     ASSERT(fguid.metaDataPtr);
     ocrTask_t *task = (ocrTask_t*)fguid.metaDataPtr;
 
@@ -1970,7 +1985,7 @@ u8 stSchedulerHeuristicAnalyzeSpaceTimeEdtResponse(ocrSchedulerHeuristic_t *self
     ocrHintInit(&edtHint, OCR_HINT_EDT_T);
     RESULT_ASSERT(ocrSetHintValue(&edtHint, OCR_HINT_EDT_SPACE, space), ==, 0);
     RESULT_ASSERT(ocrSetHintValue(&edtHint, OCR_HINT_EDT_TIME, time), ==, 0);
-    RESULT_ASSERT(pd->taskFactories[0]->fcts.setHint(task, &edtHint), ==, 0);
+    RESULT_ASSERT(((ocrTaskFactory_t*)(pd->factories[pd->taskFactoryIdx]))->fcts.setHint(task, &edtHint), ==, 0);
 
     //Schedule EDT onto the space determined by the heuristic
     if (space == pd->myLocation) {

@@ -29,11 +29,23 @@ extern void salResume(u32 flag);
 
 #define sal_exit(x)   hal_exit(x)
 
+#ifdef TG_GDB_SUPPORT
+extern void __ceDoAssert();
+
+#define sal_assert(x, fn, ln)   do { if(!(x)) {                         \
+            PRINTF("ASSERT FAILURE: CE at line %"PRId32" in '%s'\n", (int)(ln), fn); \
+            __ceDoAssert();                                             \
+            hal_abort();                                                \
+        } } while(0)
+#else
 #define sal_assert(x, fn, ln)   do { if(!(x)) {                         \
             PRINTF("ASSERT FAILURE: CE at line %"PRId32" in '%s'\n", (int)(ln), fn); \
             hal_abort();                                                \
         } } while(0)
+#endif
 
 #define sal_print(msg, len) __asm__ __volatile__("int $0xFF\n\t" : : "a" (msg))
 
 #endif /* __OCR_SAL_FSIM_CE_H__ */
+
+

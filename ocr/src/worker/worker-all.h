@@ -18,6 +18,9 @@ typedef enum _workerType_t {
 #ifdef ENABLE_WORKER_HC_COMM
     workerHcComm_id,
 #endif
+#ifdef ENABLE_WORKER_HC_COMM_MT
+    workerHcCommMT_id,
+#endif
 #ifdef ENABLE_WORKER_XE
     workerXe_id,
 #endif
@@ -40,6 +43,9 @@ extern const char * ocrWorkerType_types[];
 #endif
 #ifdef ENABLE_WORKER_HC_COMM
 #include "worker/hc-comm/hc-comm-worker.h"
+#endif
+#ifdef ENABLE_WORKER_HC_COMM_MT
+#include "worker/hc-comm-mt/hc-comm-mt-worker.h"
 #endif
 #ifdef ENABLE_WORKER_XE
 #include "worker/xe/xe-worker.h"

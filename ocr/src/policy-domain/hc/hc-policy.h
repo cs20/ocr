@@ -17,6 +17,10 @@
 /* OCR-HC POLICY DOMAIN                               */
 /******************************************************/
 
+#ifndef OCR_CHECKPOINT_INTERVAL
+#define OCR_CHECKPOINT_INTERVAL     10000000UL /* 10 miliseconds */
+#endif
+
 typedef struct {
     ocrPolicyDomainFactory_t base;
 } ocrPolicyDomainFactoryHc_t;
@@ -30,17 +34,47 @@ typedef struct {
     bool legacySecondStart;
 } pdHcResumeSwitchRL_t;
 
+#ifdef ENABLE_EXTENSION_PAUSE
 typedef struct {
     volatile u32 pausingWorker; //Worker responsible for pause
     volatile bool runtimePause; //flag to indicate pause
     volatile u32 pauseCounter; //number of paused workers
     volatile ocrGuid_t prevDb; //Previous DB used for sat.
 } hcPqrFlags;
+#endif
 
 typedef struct {
     ocrPolicyDomain_t base;
     pdHcResumeSwitchRL_t rlSwitch; // Used for asynchronous RL switch
+#ifdef ENABLE_EXTENSION_PAUSE
     hcPqrFlags pqrFlags;
+#endif
+#ifdef ENABLE_RESILIENCY
+    ocrFaultArgs_t faultArgs;
+    volatile u32 shutdownInProgress;
+    volatile u32 stateOfCheckpoint;
+    volatile u32 resiliencyInProgress;
+    volatile u32 resumeAfterCheckpoint;
+    volatile u32 resumeAfterRestart;
+    volatile u32 stateOfRestart;
+    volatile u32 initialCheckForRestart;
+    volatile u32 quiesceComms;
+    volatile u32 quiesceComps;
+    volatile u32 commStopped;
+    volatile u32 fault;
+    volatile u32 recover;
+    u32 computeWorkerCount;
+    u32 faultMonitorCounter;
+    u32 checkpointWorkerCounter;
+    u32 checkpointPdCounter;
+    u32 restartWorkerCounter;
+    u32 restartPdCounter;
+    u64 checkpointInterval;
+    u64 timestamp;
+    u64 calTime;    // Calendar start time agreed by all PD's
+    char *currCheckpointName;
+    char *prevCheckpointName;
+#endif
 } ocrPolicyDomainHc_t;
 
 typedef struct {

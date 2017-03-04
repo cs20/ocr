@@ -8,7 +8,7 @@
 #include "extensions/ocr-affinity.h"
 
 /**
- * DESC: OCR: Add dependence GUID->EDT in Intent-to-write mode
+ * DESC: OCR: Add dependence GUID->EDT in read-write mode
  */
 
 #define TYPE_ELEM_DB int

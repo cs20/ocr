@@ -154,6 +154,18 @@ void* mallocProxyAllocate(
     u64 size,               // Size of desired block, in bytes
     u64 hints)              // Allocator-dependent hints; not used for malloc. (Not used, but exists to match other allocators)
 {
+    // mallocproxy doesn't support slab allocation, so just fall back to mallocproxy by fixing size
+    s64 type_id = (s64)size;
+    if (type_id < 0) {         // negative size is interpreted as type_id for slab allocation request
+        type_id = -type_id;
+        if (!(type_id > 0 && type_id < MAX_SLABS_NAMED )) {
+            // Too large size requested.
+            DPRINTF(DEBUG_LVL_WARN, "mallocProxyAllocate failure. Too large size %"PRId64"/0x%"PRIx64"\n", (u64) size, (u64) size);
+            return NULL;
+        }
+        size = slabSizeTable.size[type_id]; // get the original size. now size is fixed.
+    }
+
     DPRINTF(DEBUG_LVL_INFO, "mallocProxyAllocate called to get datablock of size %"PRId64"/0x%"PRIx64"\n", (u64) size, (u64) size);
     u64 adjustedSize =
         getRealSizeOfRequest(size) +  // Client's requested size rounded up to alignment units, plus

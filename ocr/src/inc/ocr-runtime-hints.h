@@ -40,6 +40,8 @@ do {                                                                \
 /* OCR RUNTIME HINTS                                */
 /****************************************************/
 
+#define NULL_RT_HINT ((ocrRuntimeHint_t *)0x0)
+
 typedef struct {
     u64 hintMask;   /**< Refer below for mask format details */
     u64 *hintVal;   /**< The array to hold supported hint values */
@@ -87,45 +89,45 @@ do {                                                                            
     _mask = (_mask & (~OCR_RUNTIME_HINT_SIZE_MASK)) | (((u64)_size) << OCR_RUNTIME_HINT_SIZE_OFFSET);   \
 } while(0);
 
-#define OCR_RUNTIME_HINT_SET(_uHint, _rHint, _count, _prop, _start)         \
-do {                                                                        \
-    u32 i, size = 0;                                                        \
-    if (OCR_RUNTIME_HINT_GET_TYPE(_rHint->hintMask) != (u64)(_uHint->type)) \
-        return OCR_EINVAL;                                                  \
-                                                                            \
-    u64 runtimePropMask = OCR_RUNTIME_HINT_GET_PROP(_rHint->hintMask);      \
-    for (i = 0; i < _count; i++) {                                          \
-        u32 index = _prop[i] - _start - 1;                                  \
-        u64 mask = 0x1UL << index;                                          \
-        if (_uHint->propMask & mask) {                                      \
-            _rHint->hintVal[i] = ((u64*)(&(_uHint->args)))[index];          \
-            if ((runtimePropMask & mask) == 0) {                            \
-                _rHint->hintMask |= mask;                                   \
-                size++;                                                     \
-            }                                                               \
-        }                                                                   \
-    }                                                                       \
-    if (size > 0) {                                                         \
-        u64 newSize = OCR_RUNTIME_HINT_GET_SIZE(_rHint->hintMask) + size;   \
-        OCR_RUNTIME_HINT_SET_SIZE(_rHint->hintMask, newSize);               \
-    }                                                                       \
+#define OCR_RUNTIME_HINT_SET(_uHint, _rHint, _count, _prop, _start)             \
+do {                                                                            \
+    u32 i, size = 0;                                                            \
+    if (OCR_RUNTIME_HINT_GET_TYPE((_rHint)->hintMask) != (u64)((_uHint)->type)) \
+        return OCR_EINVAL;                                                      \
+                                                                                \
+    u64 runtimePropMask = OCR_RUNTIME_HINT_GET_PROP((_rHint)->hintMask);        \
+    for (i = 0; i < _count; i++) {                                              \
+        u32 index = _prop[i] - _start - 1;                                      \
+        u64 mask = 0x1UL << index;                                              \
+        if ((_uHint)->propMask & mask) {                                        \
+            (_rHint)->hintVal[i] = ((u64*)(&((_uHint)->args)))[index];          \
+            if ((runtimePropMask & mask) == 0) {                                \
+                (_rHint)->hintMask |= mask;                                     \
+                size++;                                                         \
+            }                                                                   \
+        }                                                                       \
+    }                                                                           \
+    if (size > 0) {                                                             \
+        u64 newSize = OCR_RUNTIME_HINT_GET_SIZE((_rHint)->hintMask) + size;     \
+        OCR_RUNTIME_HINT_SET_SIZE((_rHint)->hintMask, newSize);                 \
+    }                                                                           \
 } while(0);
 
-#define OCR_RUNTIME_HINT_GET(_uHint, _rHint, _count, _prop, _start)         \
-do {                                                                        \
-    u32 i;                                                                  \
-    if (OCR_RUNTIME_HINT_GET_TYPE(_rHint->hintMask) != (u64)(_uHint->type)) \
-        return OCR_EINVAL;                                                  \
-                                                                            \
-    u64 runtimePropMask = OCR_RUNTIME_HINT_GET_PROP(_rHint->hintMask);      \
-    for (i = 0; i < _count; i++) {                                          \
-        u32 index = _prop[i] - _start - 1;                                  \
-        u64 mask = 0x1UL << index;                                          \
-        if (runtimePropMask & mask) {                                       \
-            ((u64*)(&(_uHint->args)))[index] = _rHint->hintVal[i];          \
-            _uHint->propMask |= mask;                                       \
-        }                                                                   \
-    }                                                                       \
+#define OCR_RUNTIME_HINT_GET(_uHint, _rHint, _count, _prop, _start)             \
+do {                                                                            \
+    u32 i;                                                                      \
+    if (OCR_RUNTIME_HINT_GET_TYPE((_rHint)->hintMask) != (u64)((_uHint)->type)) \
+        return OCR_EINVAL;                                                      \
+                                                                                \
+    u64 runtimePropMask = OCR_RUNTIME_HINT_GET_PROP((_rHint)->hintMask);        \
+    for (i = 0; i < _count; i++) {                                              \
+        u32 index = _prop[i] - _start - 1;                                      \
+        u64 mask = 0x1UL << index;                                              \
+        if (runtimePropMask & mask) {                                           \
+            ((u64*)(&((_uHint)->args)))[index] = (_rHint)->hintVal[i];          \
+            (_uHint)->propMask |= mask;                                         \
+        }                                                                       \
+    }                                                                           \
 } while(0);
 
 #endif /* OCR_RUNTIME_HINT_H_ */

@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python
 
 import argparse
 import multiprocessing
@@ -42,13 +42,25 @@ def ExtractValues(infilename):
     m1 = config.get('BlockGlobal', 'sl1_size').strip(' ').split(' ')[0]
     m1 = int(''.join(itertools.takewhile(lambda s: s.isdigit(), m1)))
     m1 = m1 * 1024
+
     m2 = config.get('BlockGlobal', 'sl2_size').strip(' ').split(' ')[0]
     m2 = int(''.join(itertools.takewhile(lambda s: s.isdigit(), m2)))
     m2 = m2 * 1024
+
     # m3 == sl3 which is omitted for now
+
     m4 = config.get('SocketGlobal', 'ipm_size').strip(' ').split(' ')[0]
     m4 = int(''.join(itertools.takewhile(lambda s: s.isdigit(), m4)))
     m4 = m4 * 1024 * 1024
+
+    if config.has_option('TricksGlobal', 'xe_ipm_stack'):
+        xe_ipm_stack = config.get('TricksGlobal', 'xe_ipm_stack').strip(' ').split(' ')[0]
+        xe_ipm_stack = int(''.join(itertools.takewhile(lambda s: s.isdigit(), xe_ipm_stack)))
+        xe_ipm_stack = xe_ipm_stack * 1024 # This is for each XE
+        xe_ipm_stack = xe_ipm_stack * xc * bc * cc # This is for all XEs
+        assert m4 > xe_ipm_stack, "IPM size %lx insufficient for XE stacks %lx" % (m4, xe_ipm_stack)
+        m4 = m4 - xe_ipm_stack
+
     m5 = config.get('SocketGlobal', 'dram_size').strip(' ').split(' ')[0]
     m5 = int(''.join(itertools.takewhile(lambda s: s.isdigit(), m5)))
     m5 = m5 * 1024 * 1024
@@ -118,7 +130,7 @@ def RewriteConfig(cfg):
                 section = 0
 
             if section == 4 and 'size' in line:
-                line = '   size\t=\t' + hex(m4) + '\n'
+                line = '   size\t=\t' + hex(m4) + 'ULL\n'
                 m4 = m4 - (m4 >> 5)
                 section = 0
 
@@ -135,7 +147,7 @@ def RewriteConfig(cfg):
                 section = 0
 
             if section == 40 and 'size' in line:
-                line = '   size\t=\t' + hex(m4) + '\n'
+                line = '   size\t=\t' + hex(m4) + 'ULL\n'
                 m4 = m4 - (m4 >> 5)
                 section = 0
 
@@ -150,7 +162,7 @@ def RewriteConfig(cfg):
                 section = 0
 
             if section == 400 and 'size' in line:
-                line = '   size\t=\t' + hex(m4) + '\n'
+                line = '   size\t=\t' + hex(m4) + 'ULL\n'
                 section = 0
 
             fp.write(line)

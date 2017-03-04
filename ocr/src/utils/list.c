@@ -23,16 +23,33 @@ typedef struct _listnode {
     struct _listnode * next;
 } listnode_t;
 
+bool linkedListEmpty(linkedlist_t * list) {
+    return list->head == NULL;
+}
+
 void linkedListPushFront(linkedlist_t * list, void * elt) {
     ocrPolicyDomain_t * pd = list->pd;
     listnode_t * node = pd->fcts.pdMalloc(pd, sizeof(listnode_t));
     node->elt = elt;
     node->next = list->head;
     list->head = node;
+    if (linkedListEmpty(list)) {
+        list->tail = node;
+    }
 }
 
-bool linkedListEmpty(linkedlist_t * list) {
-    return list->head == NULL;
+void linkedListPushTail(linkedlist_t * list, void * elt) {
+    ocrPolicyDomain_t * pd = list->pd;
+    listnode_t * node = pd->fcts.pdMalloc(pd, sizeof(listnode_t));
+    ASSERT((list->tail == NULL) || (list->tail->next == NULL));
+    node->elt = elt;
+    node->next = NULL;
+    if (list->tail == NULL) {
+        list->head = list->tail = node;
+    } else {
+        list->tail->next = node;
+        list->tail = node;
+    }
 }
 
 //Fwd decl
@@ -53,8 +70,10 @@ linkedlist_t * newLinkedList(ocrPolicyDomain_t *pd) {
     linkedlist_t * list = (linkedlist_t *) pd->fcts.pdMalloc(pd, sizeof(linkedlist_t));
     list->pd = pd;
     list->head = NULL;
+    list->tail = NULL;
     list->iterator = &newLinkedListIterator;
     list->pushFront = &linkedListPushFront;
+    list->pushTail = &linkedListPushTail;
     list->isEmpty = &linkedListEmpty;
     list->destruct = &linkedListDestruct;
     return list;
@@ -111,6 +130,9 @@ void linkedListIteratorRemove(iterator_t * iterator) {
         it->ante->next = it->curr;
         it->prev = it->ante;
         it->ante = NULL;
+    }
+    if (it->curr == NULL) {
+        it->list->tail = it->prev;
     }
     iterator->pd->fcts.pdFree(iterator->pd, toErase);
 }

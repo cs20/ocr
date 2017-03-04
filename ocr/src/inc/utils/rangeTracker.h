@@ -13,6 +13,7 @@
 #ifndef __RANGETRACKER_H__
 #define __RANGETRACKER_H__
 
+#include "ocr-hal.h"
 #include "ocr-runtime-types.h"
 #include "ocr-types.h"
 
@@ -67,8 +68,8 @@ typedef struct _rangeTracker_t {
     tagHead_t heads[MAX_TAG]; /**< Heads to the linked-lists stored in tags */
 
     // BUG #499: For the lock, would be better to move to a reader-writer lock
-    volatile u32 lock; /**< Lock protecting range */
-    volatile u32 lockChunkAndTag;    // BUG #497: move this to ocrMemPlatformFsim_t
+    lock_t lock; /**< Lock protecting range */
+    lock_t lockChunkAndTag;    // BUG #497: move this to ocrMemPlatformFsim_t
     volatile u32 count;  /**< initialization count */
 } rangeTracker_t;
 

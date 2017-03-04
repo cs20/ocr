@@ -195,6 +195,12 @@ u32 ctz64(u64 val) {
     return bit;
 }
 
+u32 popcnt64(u64 val) {
+    val = val - ((val >> 1) & 0x5555555555555555ULL);
+    val = (val & 0x3333333333333333ULL) + ((val >> 2) & 0x3333333333333333ULL);
+    return (((val + (val >> 4)) & 0xF0F0F0F0F0F0F0FULL) * 0x101010101010101ULL) >> 56;
+}
+
 void ocrGuidTrackerInit(ocrGuidTracker_t *self) {
     self->slotsStatus = 0xFFFFFFFFFFFFFFFFULL;
 }

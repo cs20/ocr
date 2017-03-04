@@ -4,3 +4,4 @@
 *.exe
 */objs/
 */src/
+cflags

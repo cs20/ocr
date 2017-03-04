@@ -36,7 +36,7 @@
 
 ocrPlacer_t * createLocationPlacer(ocrPolicyDomain_t *pd) {
     ocrLocationPlacer_t * placer = pd->fcts.pdMalloc(pd, sizeof(ocrLocationPlacer_t));
-    placer->lock = 0;
+    placer->lock = INIT_LOCK;
     placer->edtLastPlacementIndex = 0;
     return (ocrPlacer_t *) placer;
 }
@@ -75,7 +75,7 @@ u8 suggestLocationPlacement(ocrPolicyDomain_t *pd, ocrLocation_t curLoc, ocrPlat
                             affGuid.lower = hintValue;
     #endif
                             ASSERT(!ocrGuidIsNull(affGuid));
-                            msg->destLocation = affinityToLocation(affGuid);
+                            affinityToLocation(&(msg->destLocation), affGuid);
                             doAutoPlace = false;
                         }
                     }
@@ -104,7 +104,7 @@ u8 suggestLocationPlacement(ocrPolicyDomain_t *pd, ocrLocation_t curLoc, ocrPlat
                         affGuid.lower = hintValue;
 #endif
                         ASSERT(!ocrGuidIsNull(affGuid));
-                        msg->destLocation = affinityToLocation(affGuid);
+                        affinityToLocation(&(msg->destLocation), affGuid);
                         return 0;
                     }
                 }
@@ -118,20 +118,19 @@ u8 suggestLocationPlacement(ocrPolicyDomain_t *pd, ocrLocation_t curLoc, ocrPlat
         }
         // Auto placement
         if (doAutoPlace) {
-            hal_lock32(&(placer->lock));
+            hal_lock(&(placer->lock));
             u32 placementIndex = placer->edtLastPlacementIndex;
             ocrGuid_t pdLocAffinity = model->pdLocAffinities[placementIndex];
             placer->edtLastPlacementIndex++;
             if (placer->edtLastPlacementIndex == model->pdLocAffinitiesSize) {
                 placer->edtLastPlacementIndex = 0;
             }
-            hal_unlock32(&(placer->lock));
-            msg->destLocation = affinityToLocation(pdLocAffinity);
+            hal_unlock(&(placer->lock));
+            affinityToLocation(&(msg->destLocation), pdLocAffinity);
             DPRINTF(DEBUG_LVL_VVERB,"Auto-Placement for msg %p, type 0x%"PRIx64", at location %"PRId32"\n",
                     msg, msgType, (u32)placementIndex);
         }
     }
-
     return 0;
 }
 

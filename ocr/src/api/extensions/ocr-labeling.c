@@ -39,7 +39,8 @@ u8 ocrGuidMapCreate(ocrGuid_t *mapGuid, u32 numParams,
     // Size is properly rounded so that the s64 params are properly aligned
     PD_MSG_FIELD_I(size) = ((sizeof(ocrGuidMap_t) + sizeof(s64) - 1) & ~(sizeof(s64)-1)) + numParams*sizeof(s64);
     PD_MSG_FIELD_I(kind) = OCR_GUID_GUIDMAP;
-    PD_MSG_FIELD_I(properties) = 0;
+    PD_MSG_FIELD_I(targetLoc) = pd->myLocation;
+    PD_MSG_FIELD_I(properties) = GUID_PROP_TORECORD;
     u8 returnCode = pd->fcts.processMessage(pd, &msg, true);
     if(!((returnCode == 0) && ((returnCode = PD_MSG_FIELD_O(returnDetail)) == 0))) {
         RETURN_PROFILE(returnCode);
@@ -60,6 +61,7 @@ u8 ocrGuidMapCreate(ocrGuid_t *mapGuid, u32 numParams,
     msg.type = PD_MSG_GUID_RESERVE | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
     PD_MSG_FIELD_I(numberGuids) = numberGuid;
     PD_MSG_FIELD_I(guidKind) = (ocrGuidKind)kind;
+    PD_MSG_FIELD_I(properties) = GUID_PROP_IS_LABELED;
     //BUG #527: memory reclaim: There is a leak if this fails
     returnCode = pd->fcts.processMessage(pd, &msg, true);
     if(!((returnCode == 0) && ((returnCode = PD_MSG_FIELD_O(returnDetail)) == 0))) {
@@ -89,7 +91,8 @@ u8 ocrGuidRangeCreate(ocrGuid_t *mapGuid,
     // Size is properly rounded so that the s64 params are properly aligned
     PD_MSG_FIELD_I(size) = sizeof(ocrGuidMap_t);
     PD_MSG_FIELD_I(kind) = OCR_GUID_GUIDMAP;
-    PD_MSG_FIELD_I(properties) = 0;
+    PD_MSG_FIELD_I(targetLoc) = pd->myLocation;
+    PD_MSG_FIELD_I(properties) = GUID_PROP_TORECORD;
     u8 returnCode = pd->fcts.processMessage(pd, &msg, true);
     if(!((returnCode == 0) && ((returnCode = PD_MSG_FIELD_O(returnDetail)) == 0))) {
         RETURN_PROFILE(returnCode);
@@ -110,6 +113,7 @@ u8 ocrGuidRangeCreate(ocrGuid_t *mapGuid,
     msg.type = PD_MSG_GUID_RESERVE | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
     PD_MSG_FIELD_I(numberGuids) = numberGuid;
     PD_MSG_FIELD_I(guidKind) = (ocrGuidKind)kind;
+    PD_MSG_FIELD_I(properties) = GUID_PROP_IS_LABELED;
     //BUG #527: memory reclaim: There is a leak if this fails
     returnCode = pd->fcts.processMessage(pd, &msg, true);
     if(!((returnCode == 0) && ((returnCode = PD_MSG_FIELD_O(returnDetail)) == 0))) {
@@ -212,7 +216,6 @@ u8 ocrGuidFromIndex(ocrGuid_t *outGuid, ocrGuid_t rangeGuid, u64 idx) {
     if(ocrGuidIsNull(rangeGuid)){
         RETURN_PROFILE(OCR_EINVAL);
     }
-
     ocrPolicyDomain_t *pd = NULL;
     ocrGuidMap_t *myMap = NULL;
     PD_MSG_STACK(msg);

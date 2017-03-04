@@ -16,13 +16,17 @@
 #endif
 
 #include "hc/hc.h"
+#include "ocr-hal.h"
 #include "ocr-task.h"
 #include "utils/ocr-utils.h"
+#ifdef ENABLE_OCR_API_DEFERRABLE_MT
+#include "ocr-policy-domain-tasks.h"
+#endif
 
 #ifdef ENABLE_HINTS
 /**< The number of hint properties supported by this implementation
  * The properties supported are specified in the hc-task.c file. */
-#define OCR_HINT_COUNT_EDT_HC   6
+#define OCR_HINT_COUNT_EDT_HC   10
 #else
 #define OCR_HINT_COUNT_EDT_HC   0
 #endif
@@ -44,21 +48,44 @@ ocrTaskTemplateFactory_t * newTaskTemplateFactoryHc(ocrParamList_t* perType, u32
 
 #ifdef ENABLE_TASK_HC
 
+#ifdef ENABLE_OCR_API_DEFERRABLE
+#include "utils/queue.h"
+#endif
+
+//Indicates this EDT's MD is the authority
+#define MD_STATE_EDT_MASTER   0
+//Indicates this EDT's MD on the current policy-domain is not valid
+//anymore, for instance because the EDT has been moved. This allows
+//implementation to keep things around for forwarding and properly
+//destruct copies.
+#define MD_STATE_EDT_GHOST    1
+
 /*! \brief Event Driven Task(EDT) implementation for OCR Tasks
  */
 typedef struct {
     ocrTask_t base;
+#if !(defined(REG_ASYNC) || defined(REG_ASYNC_SGL))
+    lock_t lock;
+#endif
+    u32 frontierSlot; /**< Slot of the execution frontier
+                           This excludes once events */
+    u32 slotSatisfiedCount; /**< Number of slots satisfied */
     regNode_t * signalers; /**< Does not grow, set once when the task is created */
     ocrGuid_t* unkDbs;     /**< Contains the list of DBs dynamically acquired (through DB create) */
     u32 countUnkDbs;       /**< Count in unkDbs */
     u32 maxUnkDbs;         /**< Maximum number in unkDbs */
-    volatile u32 frontierSlot; /**< Slot of the execution frontier
-                                  This excludes once events */
-    volatile u32 slotSatisfiedCount; /**< Number of slots satisfied */
-    volatile u32 lock;
+    u32 mdState;           /**< State of this metadata - Impl. specific */
     ocrEdtDep_t * resolvedDeps; /**< List of satisfied dependences */
     u64 doNotReleaseSlots[OCR_MAX_MULTI_SLOT];
     ocrRuntimeHint_t hint;
+#ifdef ENABLE_OCR_API_DEFERRABLE
+#ifdef ENABLE_OCR_API_DEFERRABLE_MT
+    pdEvent_t * evtHead;
+    pdStrand_t * tailStrand;
+#else
+    Queue_t * evts;
+#endif
+#endif
 } ocrTaskHc_t;
 
 #define HC_TASK_PARAMV_PTR(edt)     ((u64*)(((u64)edt) + sizeof(ocrTaskHc_t)))

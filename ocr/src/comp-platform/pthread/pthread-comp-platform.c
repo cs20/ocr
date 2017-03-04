@@ -49,13 +49,16 @@ static void pthreadRoutineInitializer(ocrCompPlatformPthread_t * pthreadCompPlat
     }
 #ifdef OCR_RUNTIME_PROFILER
     {
-        _profilerData *d = (_profilerData*) runtimeChunkAlloc(sizeof(_profilerData), PERSISTENT_CHUNK);
-        _profilerDataInit(d);
-        char buffer[50];
-        snprintf(buffer, 50, "profiler_%"PRIx64"-%"PRIx64"",
+        _profilerData *d = NULL;
+        if(pthreadCompPlatform->doProfile) {
+            d = (_profilerData*) runtimeChunkAlloc(sizeof(_profilerData), PERSISTENT_CHUNK);
+            _profilerDataInit(d);
+            char buffer[50];
+            snprintf(buffer, 50, "profiler_%"PRIx64"-%"PRIx64"",
                      ((ocrPolicyDomain_t *)(pthreadCompPlatform->base.pd))->myLocation, (u64)pthreadCompPlatform);
-        d->output = fopen(buffer, "w");
-        ASSERT(d->output);
+            d->output = fopen(buffer, "w");
+            ASSERT(d->output);
+        }
         RESULT_ASSERT(pthread_setspecific(_profilerThreadData, d), ==, 0);
     }
 #endif
@@ -255,7 +258,8 @@ u8 pthreadSwitchRunlevel(ocrCompPlatform_t *self, ocrPolicyDomain_t *PD, ocrRunl
 #ifdef OCR_RUNTIME_PROFILER
                 // We also destroy the profile data here for the master thread
                 _profilerData *pData = pthread_getspecific(_profilerThreadData);
-                _profilerDataDestroy(pData);
+                if(pData)
+                    _profilerDataDestroy(pData);
 #endif
             }
 #ifdef OCR_RUNTIME_PROFILER
@@ -314,6 +318,9 @@ void initializeCompPlatformPthread(ocrCompPlatformFactory_t * factory, ocrCompPl
     compPlatformPthread->base.fcts = factory->platformFcts;
     compPlatformPthread->binding = (params != NULL) ? params->binding : -1;
     compPlatformPthread->stackSize = ((params != NULL) && (params->stackSize > 0)) ? params->stackSize : 8388608;
+#ifdef OCR_RUNTIME_PROFILER
+    compPlatformPthread->doProfile = (params != NULL) ? params->doProfile:true;
+#endif
     ((ocrCompPlatformPthread_t*)compPlatformPthread)->tls.pd = NULL;
     ((ocrCompPlatformPthread_t*)compPlatformPthread)->tls.worker = NULL;
 }

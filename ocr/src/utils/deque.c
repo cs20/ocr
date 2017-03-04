@@ -11,6 +11,7 @@
 #include "ocr-policy-domain.h"
 #include "ocr-types.h"
 #include "utils/deque.h"
+#include "utils/arrayDeque.h"
 
 #define DEBUG_TYPE UTIL
 
@@ -89,13 +90,13 @@ static void baseDequeInit(deque_t* self, ocrPolicyDomain_t *pd, void * initValue
 
 static void singleLockedDequeInit(dequeSingleLocked_t* self, ocrPolicyDomain_t *pd, void * initValue) {
     baseDequeInit((deque_t*)self, pd, initValue);
-    self->lock = 0;
+    self->lock = INIT_LOCK;
 }
 
 static void dualLockedDequeInit(dequeDualLocked_t* self, ocrPolicyDomain_t *pd, void * initValue) {
     baseDequeInit((deque_t*)self, pd, initValue);
-    self->lockH = 0;
-    self->lockT = 0;
+    self->lockH = INIT_LOCK;
+    self->lockT = INIT_LOCK;
 }
 
 static deque_t * newBaseDeque(ocrPolicyDomain_t *pd, void * initValue, ocrDequeType_t type) {
@@ -130,13 +131,26 @@ static deque_t * newBaseDeque(ocrPolicyDomain_t *pd, void * initValue, ocrDequeT
 /*
  * push an entry onto the tail of the deque
  */
-void nonConcDequePushTail(deque_t* self, void* entry, u8 doTry) {
+void nonConcDequePushTailOverwrite(deque_t* self, void* entry, u8 doTry) {
     u32 head = self->head;
     u32 tail = self->tail;
     if (tail == INIT_DEQUE_CAPACITY + head) { /* deque looks full */
-        /* may not grow the deque if some interleaving steal occur */
-        ASSERT("DEQUE full, increase deque's size" && 0);
+        ++(self->head); // Make room
+        hal_fence();
     }
+    u32 n = (self->tail) % INIT_DEQUE_CAPACITY;
+    self->data[n] = entry;
+    ++(self->tail);
+}
+
+/*
+ * push an entry onto the tail of the deque
+ */
+void nonConcDequePushTail(deque_t* self, void* entry, u8 doTry) {
+    u32 head = self->head;
+    u32 tail = self->tail;
+    /* deque looks full - may not grow the deque if some interleaving steal occur */
+    ASSERT_CRITICAL("DEQUE full, increase deque's size" && !(tail == INIT_DEQUE_CAPACITY + head));
     u32 n = (self->tail) % INIT_DEQUE_CAPACITY;
     self->data[n] = entry;
     ++(self->tail);
@@ -176,10 +190,8 @@ void * nonConcDequePopHead(deque_t * self, u8 doTry) {
 void wstDequePushTail(deque_t* self, void* entry, u8 doTry) {
     s32 head = self->head;
     s32 tail = self->tail;
-    if (tail == INIT_DEQUE_CAPACITY + head) { /* deque looks full */
-        /* may not grow the deque if some interleaving steal occur */
-        ASSERT("DEQUE full, increase deque's size" && 0);
-    }
+    /* deque looks full - may not grow the deque if some interleaving steal occur */
+    ASSERT_CRITICAL("DEQUE full, increase deque's size" && !(tail == INIT_DEQUE_CAPACITY + head));
     s32 n = (self->tail) % INIT_DEQUE_CAPACITY;
     self->data[n] = entry;
     DPRINTF(DEBUG_LVL_VERB, "Pushing h:%"PRId32" t:%"PRId32" deq[%"PRId32"] elt:0x%p into conc deque @ 0x%p\n",
@@ -262,17 +274,15 @@ void * wstDequePopHead(deque_t * self, u8 doTry) {
  */
 void lockedDequePushTail(deque_t* self, void* entry, u8 doTry) {
     dequeSingleLocked_t* dself = (dequeSingleLocked_t*)self;
-    hal_lock32(&dself->lock);
+    hal_lock(&dself->lock);
     u32 head = self->head;
     u32 tail = self->tail;
-    if (tail == INIT_DEQUE_CAPACITY + head) { /* deque looks full */
-        /* may not grow the deque if some interleaving steal occur */
-        ASSERT("DEQUE full, increase deque's size" && 0);
-    }
+    /* deque looks full - may not grow the deque if some interleaving steal occur */
+    ASSERT_CRITICAL("DEQUE full, increase deque's size" && !(tail == INIT_DEQUE_CAPACITY + head));
     u32 n = (self->tail) % INIT_DEQUE_CAPACITY;
     self->data[n] = entry;
     ++(self->tail);
-    hal_unlock32(&dself->lock);
+    hal_unlock(&dself->lock);
 }
 
 /*
@@ -281,15 +291,15 @@ void lockedDequePushTail(deque_t* self, void* entry, u8 doTry) {
  */
 void * lockedDequePopTail(deque_t * self, u8 doTry) {
     dequeSingleLocked_t* dself = (dequeSingleLocked_t*)self;
-    hal_lock32(&dself->lock);
+    hal_lock(&dself->lock);
     ASSERT(self->tail >= self->head);
     if (self->tail == self->head) {
-        hal_unlock32(&dself->lock);
+        hal_unlock(&dself->lock);
         return NULL;
     }
     --(self->tail);
     void * rt = (void*) self->data[(self->tail) % INIT_DEQUE_CAPACITY];
-    hal_unlock32(&dself->lock);
+    hal_unlock(&dself->lock);
     return rt;
 }
 
@@ -299,17 +309,14 @@ void * lockedDequePopTail(deque_t * self, u8 doTry) {
  */
 void lockedDequePushHead(deque_t* self, void* entry, u8 doTry) {
     dequeSingleLocked_t* dself = (dequeSingleLocked_t*)self;
-    hal_lock32(&dself->lock);
+    hal_lock(&dself->lock);
     u32 head = self->head;
     u32 tail = self->tail;
-    if (tail == INIT_DEQUE_CAPACITY + head) { /* deque looks full */
-        /* may not grow the deque if some interleaving steal occur */
-        ASSERT("DEQUE full, increase deque's size" && 0);
-    }
+    /* deque looks full - may not grow the deque if some interleaving steal occur */
+    ASSERT_CRITICAL("DEQUE full, increase deque's size" && !(tail == INIT_DEQUE_CAPACITY + head));
     // Not full so I must be able to write
     u32 n;
     if (head == tail) { // empty
-        // PRINTF("PUSH_HEAD empty\n");
         ++(self->tail);
         n = head % INIT_DEQUE_CAPACITY;
     } else if (head == 0) { // no space at head, need to shift
@@ -317,12 +324,11 @@ void lockedDequePushHead(deque_t* self, void* entry, u8 doTry) {
         self->tail++;
         n = 0;
     } else { // ok to just prepend
-        // PRINTF("PUSH_HEAD prepend\n");
         --(self->head);
         n = (head-1) % INIT_DEQUE_CAPACITY;
     }
     self->data[n] = entry;
-    hal_unlock32(&dself->lock);
+    hal_unlock(&dself->lock);
 }
 
 
@@ -332,15 +338,15 @@ void lockedDequePushHead(deque_t* self, void* entry, u8 doTry) {
  */
 void * lockedDequePopHead(deque_t * self, u8 doTry) {
     dequeSingleLocked_t* dself = (dequeSingleLocked_t*)self;
-    hal_lock32(&dself->lock);
+    hal_lock(&dself->lock);
     ASSERT(self->tail >= self->head);
     if (self->tail == self->head) {
-        hal_unlock32(&dself->lock);
+        hal_unlock(&dself->lock);
         return NULL;
     }
     void * rt = (void*) self->data[(self->head) % INIT_DEQUE_CAPACITY];
     ++(self->head);
-    hal_unlock32(&dself->lock);
+    hal_unlock(&dself->lock);
     return rt;
 }
 
@@ -352,19 +358,17 @@ void * lockedDequePopHead(deque_t * self, u8 doTry) {
 void lockedDequePushTailSemiConc(deque_t* self, void* entry, u8 doTry) {
     dequeSingleLocked_t* dself = (dequeSingleLocked_t*)self;
     ASSERT(entry != NULL);
-    hal_lock32(&dself->lock);
+    hal_lock(&dself->lock);
     u32 head = self->head;
     u32 tail = ((u32)self->tail);
     u32 ptail = (tail == (INIT_DEQUE_CAPACITY-1)) ? 0 : tail+1;
-    if (ptail == head) {
-        ASSERT("DEQUE full, increase deque's size" && 0);
-    }
+    ASSERT_CRITICAL("DEQUE full, increase deque's size" && !(ptail == head));
     self->data[tail] = entry;
     // The fence ensures a concurrent head pop cannot see
     // self->tail increased without seeing the entry being written
     hal_fence();
     self->tail = ptail;
-    hal_unlock32(&dself->lock);
+    hal_unlock(&dself->lock);
 }
 
 /*
@@ -414,6 +418,14 @@ deque_t * newDeque(ocrPolicyDomain_t *pd, void * initValue, ocrDequeType_t type)
         self->pushAtHead = NULL;
         self->popFromHead = nonConcDequePopHead;
         break;
+    case NON_CONCURRENT_OVERWRITE_DEQUE:
+        self = newBaseDeque(pd, initValue, NO_LOCK_BASE_DEQUE);
+        // Specialize push/pop implementations
+        self->pushAtTail = nonConcDequePushTailOverwrite;
+        self->popFromTail = NULL;
+        self->pushAtHead = NULL;
+        self->popFromHead = nonConcDequePopHead;
+        break;
     case SEMI_CONCURRENT_DEQUE:
         self = newBaseDeque(pd, initValue, SINGLE_LOCK_BASE_DEQUE);
         self->size = nonSyncCircularDequeSize;
@@ -430,6 +442,9 @@ deque_t * newDeque(ocrPolicyDomain_t *pd, void * initValue, ocrDequeType_t type)
         self->popFromTail = lockedDequePopTail;
         self->pushAtHead = lockedDequePushHead;
         self->popFromHead = lockedDequePopHead;
+        break;
+    case ARRAY_DEQUE:
+        self = newArrayQueue(pd, initValue);
         break;
     default:
         ASSERT(0);
@@ -462,6 +477,17 @@ deque_t* newNonConcurrentQueue(ocrPolicyDomain_t *pd, void * initValue) {
  */
 deque_t* newSemiConcurrentQueue(ocrPolicyDomain_t *pd, void * initValue) {
     deque_t* self = newDeque(pd, initValue, SEMI_CONCURRENT_DEQUE);
+    return self;
+}
+
+/**
+ * @brief Allows multiple concurrent push at the tail (a single succeed
+ at a time, others fail and need to retry). Pop from head are not synchronized.
+ * If full, overwrites oldest value. Useful for perfmon where inaccuracy
+ * is acceptable.
+ */
+deque_t* newNonConcurrentOverwriteQueue(ocrPolicyDomain_t *pd, void * initValue) {
+    deque_t* self = newDeque(pd, initValue, NON_CONCURRENT_OVERWRITE_DEQUE);
     return self;
 }
 

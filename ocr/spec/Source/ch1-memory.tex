@@ -1,7 +1,6 @@
 %
 % This is an included file. See the master file for more information.
 %
-
 % TODO:  The original Release Consistency model had the "memory coherence" assumption which stated that all
 % processors see writes to the same location in the same order, which is likely too strong a
 %condition for OCR. For a weaker memory model, see Location Consistency (Gao & Sarkar, IEEE ToC 2000).
@@ -43,7 +42,6 @@ relationship. For example:
 \item then \code{A} happens-before \code{D}.
 \end{itemize}
 These basic concepts are enough to define the memory model for OCR.
-
 %%%%
 \subsection{OCR memory model}
 OCR provides a relatively simple memory model. Before an EDT can read
@@ -53,7 +51,10 @@ possible (depending on the mode of the data block in question) for
 multiple EDTs to acquire the same data block at the same
 time. When an EDT has finished with a data block and it is ready
 to expose any modifications to the data block to other EDTs, it
-must \emph{release}\index{Release} that data block.
+must \emph{release}\index{Release} that data block. Acquiring data blocks
+happens implicitly only at the start of an EDT while releasing data blocks
+can happen either implicitly at the end of an EDT or explicitly through an API
+call.
 
 \begin{quote}
 When an EDT calls an OCR function that releases a data block, the OCR
@@ -80,7 +81,6 @@ An EDT can use data blocks to satisfy events in the body of the task
 in addition to the event associated with its post-slot. We can reason
 about the behavior of the memory model and establish happens-before
 relationships if we define the following rule.
-
 %Vincent's feedback....
 %
 %"If an EDT uses a Data Block to satisfy an event, all writes to that data block from the EDT must complete
@@ -147,7 +147,7 @@ constructs and atomic variables so a programmer has the tools needed
 to write race-free programs. OCR, however, does not provide any
 synchronization constructs beyond the behavior of events. This is not
 an oversight. Rather, this restricted synchronization model helps OCR
-to better scale on a wider range of parallel computers.
+better scale on a wider range of parallel computers.
 
 OCR, therefore, allows a programmer to write legal programs that may
 potentially contain data races. OCR deals with this situation by

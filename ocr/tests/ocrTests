@@ -45,7 +45,7 @@ while [[ $# -gt 0 ]]; do
         TEST_EXT_PARAMS_EVT=yes
     elif [[ "$1" = "-ext_counted_evt" ]]; then
         shift
-	# Need both
+        # Need both
         TEST_EXT_PARAMS_EVT=yes
         TEST_EXT_COUNTED_EVT=yes
     elif [[ "$1" = "-ext_channel_evt" ]]; then
@@ -139,18 +139,47 @@ CFLAGS="$CFLAGS -DOCR_TYPE_H=${OCR_TYPE}.h"
 export LDFLAGS="-L${OCR_INSTALL}/lib -locr_${OCR_TYPE} -lpthread ${OCR_LDFLAGS}"
 export OCR_TESTS_BIN_OUTPUT=
 
+
+# Generates an OCR configuration file
 if [ -z "${OCR_CONFIG}" ]; then
-    export OCR_CONFIG=${OCR_INSTALL}/share/ocr/config/${OCR_TYPE}/generated_ocrTests.cfg
-    args="--threads 8 --alloctype mallocproxy --dbtype Lockable"
+    #default values
+    export CFGARG_THREADS=${CFGARG_THREADS-8}
+    export CFGARG_ALLOCTYPE=${CFGARG_ALLOCTYPE-mallocproxy}
+    export CFGARG_DBTYPE=${CFGARG_DBTYPE-Lockable}
+    if [ -n "${TEST_EXT_LABELING}" ]; then
+        export CFGARG_GUID=${CFGARG_GUID-LABELED}
+    fi
     if [ "${OCR_TYPE}" = "x86-mpi" ]; then
-        args="${args} --guid COUNTED_MAP --target mpi"
+        export CFGARG_GUID=${CFGARG_GUID-COUNTED_MAP}
+        export CFGARG_TARGET=${CFGARG_TARGET-mpi}
     elif [[ "${OCR_TYPE}" = "x86-gasnet" ]]; then
-        args="${args} --guid COUNTED_MAP --target gasnet"
+        export CFGARG_GUID=${CFGARG_GUID-COUNTED_MAP}
+        export CFGARG_TARGET=${CFGARG_TARGET-gasnet}
     elif [[ "${OCR_TYPE}" = "tg-x86" ]]; then
         echo "error: ocrrun cannot call config-generator for tg-x86 (not supported - set OCR_CONFIG)"
         exit 1
     fi
-    ${OCR_INSTALL}/share/ocr/scripts/Configs/config-generator.py ${args} --output ${OCR_CONFIG} --remove-destination
+
+    CFG_ARGS=""
+    # Read all CFGARG_ environment variables and transform them into config generator's arguments
+    for cfgarg in `env | grep CFGARG_`; do
+        #Extract argument name and value
+        parsed=(${cfgarg//=/ })
+        argNameU=${parsed[0]#CFGARG_}
+        if [[ ${BASH_VER} -eq 4 ]]; then
+            argNameL=${argNameU,,}
+        else
+            argNameL=`echo ${argNameU} | tr '[:upper:]' '[:lower:]'`
+        fi
+        # toLower ${argNameU} argNameL
+        argValue=${parsed[1]}
+        #Append to generator argument list
+        arg="--${argNameL} ${argValue}"
+        CFG_ARGS+="$arg "
+    done
+
+    export OCR_CONFIG=${OCR_INSTALL}/share/ocr/config/${OCR_TYPE}/generated_ocrTests.cfg
+    ${OCR_INSTALL}/share/ocr/scripts/Configs/config-generator.py ${CFG_ARGS} --output ${OCR_CONFIG} --remove-destination
     echo "OCR_CONFIG is not set, defaulting to ${OCR_CONFIG}"
 fi
 
@@ -188,7 +217,6 @@ export LD_LIBRARY_PATH=${LIB_DIR}:${LD_LIBRARY_PATH}
 #
 
 
-
 function ext_usage () {
     echo "Usage: ocrTests [general-options] [options]"
     echo "where [options] includes:"
@@ -213,6 +241,12 @@ function usage () {
     echo "       -perftest     : Run performance tests as non-regression tests"
     echo "       -showoutput   : Show test output on console"
     echo "       -v            : Prints additionnal information"
+    echo "       -ext_rtapi       : Enable extension runtime API"
+    echo "       -ext_legacy      : Enable extension legacy support"
+    echo "       -ext_labeling    : Enable extension labelled GUIDs"
+    echo "       -ext_params_evt  : Enable extension parameterize events"
+    echo "       -ext_counted_evt : Enable extension counted events"
+    echo "       -ext_channel_evt : Enable extension channel events"
     echo "  (-h) --help        : Prints this message"
 }
 
@@ -338,6 +372,11 @@ function compile () {
     cd $FOLDER;
     NAME=
     get_name ${FILE}
+    if [[ "${OCR_ASAN}" = "yes" ]]; then
+        ASAN_FLAGS=" -g -fsanitize=address -fno-omit-frame-pointer"
+        CFLAGS+=${ASAN_FLAGS}
+        LDFLAGS+=${ASAN_FLAGS}
+    fi
     echo "${CC} ${OCR_CFLAGS} ${CFLAGS} ${INCLUDES} ${FILE} -o ${BIN_GEN_DIR}/${NAME} ${LDFLAGS}"
     ${CC} ${OCR_CFLAGS} ${CFLAGS} ${INCLUDES} ${FILE} -o ${BIN_GEN_DIR}/${NAME} ${LDFLAGS}
     RES=$?
@@ -600,6 +639,7 @@ function print_test_status () {
     local RUN=0
     local FAIL=0
     local ERR=0
+    local COLOR=39
 
     if [[ $STATUS -eq $RUN_STATUS ]]; then
         # No pbs
@@ -609,15 +649,17 @@ function print_test_status () {
 
     if [[ $STATUS -eq $FAIL_STATUS ]]; then
         # RAN but didn't verified
+        COLOR=31
         FAIL=1
     fi
 
     if [[ $STATUS -eq $ERR_STATUS ]]; then
         # didn't compiled
+        COLOR=31
         ERR=1
 fi
 
-    echo "Tests run: $RUN, Failures: $FAIL, Errors: $ERR"
+    echo -e "\033[${COLOR}mTests run: $RUN, Failures: $FAIL, Errors: ${ERR}\033[m"
 }
 
 
@@ -956,7 +998,7 @@ function runTests () {
     local BIN_GEN_DIR=
     local PATTERN=
     local EXCL_PATTERN=
-    local UNSTABLE_EXT=ignored
+    local UNSTABLE_EXT="${OCR_TYPE}-lockableDB"
     OPTION_SWEEPING="-"
     OPT_SWEEP_NULL="-"
     RUN_UNSTABLE=
@@ -1070,7 +1112,7 @@ function runTests () {
     # If no unstable file is provided as argument
     # Check if default unstable file exists
     if [ -z "$UNSTABLE_FILE" ]; then
-        DEFAULT_UNSTABLE_FILE=${SCRIPT_NAME}.${UNSTABLE_EXT}
+        DEFAULT_UNSTABLE_FILE=unstable.${UNSTABLE_EXT}
         if [ -f "${DEFAULT_UNSTABLE_FILE}" ]; then
             UNSTABLE_FILE=${DEFAULT_UNSTABLE_FILE}
         else
