@@ -87,6 +87,35 @@ u8 ocrDbCreate(ocrGuid_t *db, void** addr, u64 len, u16 flags,
         task->swPerfCtrs[PERF_DB_CREATES - PERF_HW_MAX] += len;
 #endif
 
+#ifdef ENABLE_AMT_RESILIENCE
+    ocrGuid_t latch = (task != NULL) ? (!ocrGuidIsNull(task->finishLatch) ? task->finishLatch : task->parentLatch) : NULL_GUID;
+    if ((flags & DB_PROP_RESILIENT) && (returnCode == 0) && !ocrGuidIsNull(latch)) {
+#define PD_MSG (&msg)
+#define PD_TYPE PD_MSG_DEP_SATISFY
+        getCurrentEnv(NULL, NULL, NULL, &msg);
+        msg.type = PD_MSG_DEP_SATISFY | PD_MSG_REQUEST;
+        PD_MSG_FIELD_I(satisfierGuid.guid) = task->guid;
+        PD_MSG_FIELD_I(satisfierGuid.metaDataPtr) = task;
+        PD_MSG_FIELD_I(guid.guid) = latch;
+        PD_MSG_FIELD_I(guid.metaDataPtr) = NULL;
+        PD_MSG_FIELD_I(payload.guid) = *db;
+        PD_MSG_FIELD_I(payload.metaDataPtr) = NULL;
+        PD_MSG_FIELD_I(currentEdt.guid) = task->guid;
+        PD_MSG_FIELD_I(currentEdt.metaDataPtr) = task;
+        PD_MSG_FIELD_I(slot) = OCR_EVENT_LATCH_RECORD_DB_SLOT;
+#ifdef REG_ASYNC_SGL
+        PD_MSG_FIELD_I(mode) = -1;
+#endif
+        PD_MSG_FIELD_I(properties) = 0;
+#ifdef ENABLE_OCR_API_DEFERRABLE
+        tagDeferredMsg(&msg, task);
+#endif
+        RESULT_PROPAGATE(policy->fcts.processMessage(policy, &msg, true));
+#undef PD_TYPE
+#undef PD_MSG
+    }
+#endif
+
     if((!(flags & DB_PROP_NO_ACQUIRE)) &&  task && (returnCode == 0)) {
         // Here we inform the task that we created a DB
         // This is most likely ALWAYS a local message but let's leave the

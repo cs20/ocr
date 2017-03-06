@@ -626,6 +626,26 @@ u8 satisfyEventHcPersistSticky(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
 // This is for latch events
 u8 satisfyEventHcLatch(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
     ocrEventHcLatch_t *event = (ocrEventHcLatch_t*)base;
+#ifdef ENABLE_AMT_RESILIENCE
+    if (slot == OCR_EVENT_LATCH_RECORD_DB_SLOT) {
+        ASSERT(!ocrGuidIsNull(db.guid));
+        hal_lock(&(event->base.waitersLock));
+        if (event->dbPublishCount == event->dbPublishArrayLength) {
+            ocrPolicyDomain_t *pd = NULL;
+            getCurrentEnv(&pd, NULL, NULL, NULL);
+            ocrGuid_t *oldArray = event->dbPublishArray;
+            event->dbPublishArrayLength += 8;
+            event->dbPublishArray = pd->fcts.pdMalloc(pd, sizeof(ocrGuid_t) * event->dbPublishArrayLength);
+            if (oldArray != NULL) {
+                hal_memCopy(event->dbPublishArray, oldArray, sizeof(ocrGuid_t) * event->dbPublishCount, false);
+                pd->fcts.pdFree(pd, oldArray);
+            }
+        }
+        event->dbPublishArray[event->dbPublishCount++] = db.guid;
+        hal_unlock(&(event->base.waitersLock));
+        return 0;
+    }
+#endif
     ASSERT(slot == OCR_EVENT_LATCH_DECR_SLOT ||
            slot == OCR_EVENT_LATCH_INCR_SLOT);
 
@@ -1369,6 +1389,11 @@ static u8 initNewEventHc(ocrEventHc_t * event, ocrEventTypes_t eventType, ocrGui
         } else {
             ((ocrEventHcLatch_t*)event)->counter = 0;
         }
+#ifdef ENABLE_AMT_RESILIENCE
+        ((ocrEventHcLatch_t*)event)->dbPublishArray = NULL;
+        ((ocrEventHcLatch_t*)event)->dbPublishArrayLength = 0;
+        ((ocrEventHcLatch_t*)event)->dbPublishCount = 0;
+#endif
     }
     event->mdClass.peers = NULL;
     event->mdClass.satFromLoc = INVALID_LOCATION;

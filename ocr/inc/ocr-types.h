@@ -313,7 +313,10 @@ typedef enum {
  */
 typedef enum {
     OCR_EVENT_LATCH_DECR_SLOT = 0, /**< The decrement slot of a LATCH event */
-    OCR_EVENT_LATCH_INCR_SLOT = 1  /**< The increment slot of a LATCH event */
+    OCR_EVENT_LATCH_INCR_SLOT = 1, /**< The increment slot of a LATCH event */
+#ifdef ENABLE_AMT_RESILIENCE
+    OCR_EVENT_LATCH_RECORD_DB_SLOT = 2,  /**< The slot of a LATCH event to record data-blocks for publishing */
+#endif
 } ocrLatchEventSlot_t;
 
 #define EVT_PROP_NONE      ((u16) 0x0) /**< Property bits indicating a regular event */

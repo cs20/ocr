@@ -80,6 +80,11 @@ typedef struct _ocrEventHcCounted_t {
 typedef struct _ocrEventHcLatch_t {
     ocrEventHc_t base;
     s32 counter;
+#ifdef ENABLE_AMT_RESILIENCE
+    ocrGuid_t *dbPublishArray;
+    u32 dbPublishArrayLength;
+    u32 dbPublishCount;
+#endif
 } ocrEventHcLatch_t;
 
 typedef struct _ocrEventHcChannel_t {
