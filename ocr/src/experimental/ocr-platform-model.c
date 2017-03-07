@@ -137,7 +137,7 @@ ocrPlatformModel_t * createPlatformModelAffinityXE(ocrPolicyDomain_t *pd) {
         PD_MSG_FIELD_I(size) = sizeof(ocrAffinity_t);
         PD_MSG_FIELD_I(kind) = OCR_GUID_AFFINITY;
         PD_MSG_FIELD_I(targetLoc) = myBlockLocation;
-        PD_MSG_FIELD_I(properties) = GUID_PROP_NONE;
+        PD_MSG_FIELD_I(properties) = GUID_PROP_TORECORD;
         RESULT_ASSERT(pd->fcts.processMessage(pd, &msg, true), ==, 0);
         fguid = PD_MSG_FIELD_IO(guid);
         ((ocrAffinity_t*)fguid.metaDataPtr)->place = tLocation;
