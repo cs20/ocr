@@ -753,12 +753,12 @@ u8 cePdSwitchRunlevel(ocrPolicyDomain_t *policy, ocrRunlevel_t runlevel, u32 pro
                 rself->rlSwitch.barrierState = RL_BARRIER_STATE_CHILD_WAIT;
                 // Do the barrier
                 doRLBarrier(policy);
-                // Setup the next one, in this case, it's the teardown barrier
+                // Setup the next one, in this case, it's the RL_COMPUTE barrier
                 rself->rlSwitch.oldBarrierRL = RL_GUID_OK;
-                rself->rlSwitch.barrierRL = RL_USER_OK;
+                rself->rlSwitch.barrierRL = RL_COMPUTE_OK;
                 rself->rlSwitch.checkedIn = 0;
                 rself->rlSwitch.barrierState = RL_BARRIER_STATE_UNINIT;
-                rself->rlSwitch.properties = RL_REQUEST | RL_TEAR_DOWN | RL_BARRIER | RL_FROM_MSG;
+                rself->rlSwitch.properties = RL_REQUEST | RL_BRING_UP | RL_BARRIER | RL_FROM_MSG;
                 // Release the children
                 doRLRelease(policy);
             }
@@ -823,6 +823,23 @@ u8 cePdSwitchRunlevel(ocrPolicyDomain_t *policy, ocrRunlevel_t runlevel, u32 pro
                     toReturn |= policy->workers[0]->fcts.switchRunlevel(
                         policy->workers[0], policy, runlevel, i, masterWorkerProperties, NULL, 0);
                 }
+            }
+            if(toReturn == 0) {
+                // At this stage, we need to wait for the barrier. We set it up
+                rself->rlSwitch.properties = origProperties;
+                ASSERT(rself->rlSwitch.barrierRL == RL_COMPUTE_OK);
+                ASSERT(rself->rlSwitch.barrierState == RL_BARRIER_STATE_UNINIT);
+                rself->rlSwitch.barrierState = RL_BARRIER_STATE_CHILD_WAIT;
+                // Do the barrier
+                doRLBarrier(policy);
+                // Setup the next one, in this case, it's the teardown barrier
+                rself->rlSwitch.oldBarrierRL = RL_COMPUTE_OK;
+                rself->rlSwitch.barrierRL = RL_USER_OK;
+                rself->rlSwitch.checkedIn = 0;
+                rself->rlSwitch.barrierState = RL_BARRIER_STATE_UNINIT;
+                rself->rlSwitch.properties = RL_REQUEST | RL_TEAR_DOWN | RL_BARRIER | RL_FROM_MSG;
+                // Release the children
+                doRLRelease(policy);
             }
         } else {
 

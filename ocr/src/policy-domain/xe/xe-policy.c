@@ -352,10 +352,10 @@ u8 xePdSwitchRunlevel(ocrPolicyDomain_t *policy, ocrRunlevel_t runlevel, u32 pro
                 ASSERT(rself->rlSwitch.barrierState == RL_BARRIER_STATE_UNINIT);
                 // Do the barrier
                 doRLBarrier(policy);
-                // Setup the next one, in this case, it's the teardown barrier
-                rself->rlSwitch.barrierRL = RL_USER_OK;
+                // Setup the next one, in this case, it's the RL_COMPUTE barrier
+                rself->rlSwitch.barrierRL = RL_COMPUTE_OK;
                 rself->rlSwitch.barrierState = RL_BARRIER_STATE_UNINIT;
-                rself->rlSwitch.properties = RL_TEAR_DOWN | RL_BARRIER;
+                rself->rlSwitch.properties = RL_BRING_UP | RL_BARRIER;
             }
         } else {
             phaseCount = RL_GET_PHASE_COUNT_DOWN(policy, RL_GUID_OK);
@@ -413,6 +413,18 @@ u8 xePdSwitchRunlevel(ocrPolicyDomain_t *policy, ocrRunlevel_t runlevel, u32 pro
                     toReturn |= policy->workers[0]->fcts.switchRunlevel(
                         policy->workers[0], policy, runlevel, i, masterWorkerProperties, NULL, 0);
                 }
+            }
+            if(toReturn == 0) {
+                // At this stage, we need to wait for the barrier. We set it up
+                rself->rlSwitch.properties = origProperties;
+                ASSERT(rself->rlSwitch.barrierRL == RL_COMPUTE_OK);
+                ASSERT(rself->rlSwitch.barrierState == RL_BARRIER_STATE_UNINIT);
+                // Do the barrier
+                doRLBarrier(policy);
+                // Setup the next one, in this case, it's the teardown barrier
+                rself->rlSwitch.barrierRL = RL_USER_OK;
+                rself->rlSwitch.barrierState = RL_BARRIER_STATE_UNINIT;
+                rself->rlSwitch.properties = RL_TEAR_DOWN | RL_BARRIER;
             }
         } else {
             // Tear down
