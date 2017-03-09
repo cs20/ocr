@@ -81,4 +81,4 @@ squeaky:
 	OCR_TYPE=x86-mpi $(MAKE) -C x86-mpi squeaky
 	OCR_TYPE=x86-phi $(MAKE) -C x86-phi squeaky
 	OCR_TYPE=x86-newlib $(MAKE) -C x86-newlib squeaky
-#	OCR_TYPE=x86-gasnet $(MAKE) -C x86-gasnet squeaky
+	OCR_TYPE=x86-gasnet $(MAKE) -C x86-gasnet squeaky
