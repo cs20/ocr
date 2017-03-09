@@ -652,9 +652,13 @@ ${OBJDIR}/static:
 .PHONY: info-static
 info-static:
 ifneq (${NO_COLOR}, yes)
+	$(eval MDAT:=$(shell date))
+	@printf "$(MDAT)\n"
 	@printf "\033[32m>>>> Compile command for .c files is\033[1;30m '$(CC) $(CFLAGS_STATIC) -MMD -c <src> -o <obj>'\033[0m\n"
 	@printf "\033[32m>>>> Building a static library with\033[1;30m '$(AR) $(ARFLAGS)'\033[0m\n"
 else
+	$(eval MDAT:=$(shell date))
+	@printf "$(MDAT)\n"
 	@printf ">>>> Compile command for .c files is '$(CC) $(CFLAGS_STATIC) -MMD -c <src> -o <obj>'\n"
 	@printf ">>>> Building a static library with '$(AR) $(ARFLAGS)'\n"
 endif
@@ -678,9 +682,13 @@ ${OBJDIR}/shared:
 .PHONY: info-shared
 info-shared:
 ifneq (${NO_COLOR}, yes)
+	$(eval MDAT:=$(shell date))
+	@printf "$(MDAT)\n"
 	@printf "\033[32m>>>> Compile command for .c files is\033[1;30m '$(CC) $(CFLAGS_SHARED) -MMD -c <src> -o <obj>'\033[0m\n"
 	@printf "\033[32m>>>> Building a shared library with\033[1;30m '$(CC) $(LDFLAGS)'\033[0m\n"
 else
+	$(eval MDAT:=$(shell date))
+	@printf "$(MDAT)\n"
 	@printf ">>>> Compile command for .c files is '$(CC) $(CFLAGS_SHARED) -MMD -c <src> -o <obj>'\n"
 	@printf ">>>> Building a shared library with '$(CC) $(LDFLAGS)'\n"
 endif
@@ -1006,9 +1014,9 @@ grablock: /tmp/$(subst /,_,$(OCR_INSTALL))_lock
 .INTERMEDIATE: /tmp/$(subst /,_,$(OCR_INSTALL))_lock
 /tmp/$(subst /,_,$(OCR_INSTALL))_lock:
 ifneq (${NO_COLOR}, yes)
-	@printf "\033[32m Grabbing install lock\033[0m\n"
+	@printf "\033[32m Grabbing install lock: /tmp/$(subst /,_,$(OCR_INSTALL))_lock\033[0m\n"
 else
-	@printf " Grabbing install lock\n"
+	@printf " Grabbing install lock: /tmp/$(subst /,_,$(OCR_INSTALL))_lock\n"
 endif
 	$(AT)lockfile "/tmp/$(subst /,_,$(OCR_INSTALL))_lock";
 

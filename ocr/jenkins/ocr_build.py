@@ -8,7 +8,7 @@ jobtype_ocr_init = {
     'run-cmd': '${JJOB_INITDIR_OCR}/ocr/jenkins/scripts/init.sh',
     'param-cmd': '${JJOB_INITDIR_OCR}/jenkins/scripts/empty-cmd.sh',
     'keywords': ('ocr',),
-    'timeout': 60,
+    'timeout': 240,
     'sandbox': ('local', 'shared', 'emptyLocal', 'emptyShared', 'shareOK'),
     'req-repos': ('ocr',)
 }
