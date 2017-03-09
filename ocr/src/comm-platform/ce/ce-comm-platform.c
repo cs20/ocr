@@ -25,7 +25,7 @@
 
 #define DEBUG_TYPE COMM_PLATFORM
 
-u32 XeIrqReq[8];
+volatile u32 XeIrqReq[8];
 
 //
 // Hgh-Level Theory of Operation / Design
