@@ -651,8 +651,13 @@ ${OBJDIR}/static:
 
 .PHONY: info-static
 info-static:
+ifneq (${NO_COLOR}, yes)
 	@printf "\033[32m>>>> Compile command for .c files is\033[1;30m '$(CC) $(CFLAGS_STATIC) -MMD -c <src> -o <obj>'\033[0m\n"
 	@printf "\033[32m>>>> Building a static library with\033[1;30m '$(AR) $(ARFLAGS)'\033[0m\n"
+else
+	@printf ">>>> Compile command for .c files is '$(CC) $(CFLAGS_STATIC) -MMD -c <src> -o <obj>'\n"
+	@printf ">>>> Building a static library with '$(AR) $(ARFLAGS)'\n"
+endif
 
 $(OCRSTATIC): $(OBJS_STATIC)
 	@echo "Linking static library ${OCRSTATIC}"
@@ -672,8 +677,13 @@ ${OBJDIR}/shared:
 
 .PHONY: info-shared
 info-shared:
+ifneq (${NO_COLOR}, yes)
 	@printf "\033[32m>>>> Compile command for .c files is\033[1;30m '$(CC) $(CFLAGS_SHARED) -MMD -c <src> -o <obj>'\033[0m\n"
 	@printf "\033[32m>>>> Building a shared library with\033[1;30m '$(CC) $(LDFLAGS)'\033[0m\n"
+else
+	@printf ">>>> Compile command for .c files is '$(CC) $(CFLAGS_SHARED) -MMD -c <src> -o <obj>'\n"
+	@printf ">>>> Building a shared library with '$(CC) $(LDFLAGS)'\n"
+endif
 
 $(OCRSHARED): $(OBJS_SHARED)
 	@echo "Linking shared library ${OCRSHARED}"
@@ -693,7 +703,11 @@ ${OBJDIR}/exec:
 
 .PHONY: info-exec
 info-exec:
+ifneq (${NO_COLOR}, yes)
 	@printf "\033[32m>>>> Compile command for .c files is\033[1;30m '$(CC) $(CFLAGS_EXEC) -MMD -c <src> -o <obj>'\033[0m\n"
+else
+	@printf ">>>> Compile command for .c files is '$(CC) $(CFLAGS_EXEC) -MMD -c <src> -o <obj>'\n"
+endif
 
 $(OCREXEC): $(OBJS_EXEC)
 	@echo "Linking executable binary ${OCREXEC}"
@@ -991,18 +1005,30 @@ grablock: /tmp/$(subst /,_,$(OCR_INSTALL))_lock
 # List the lock file as intermediate so it is removed if things crash
 .INTERMEDIATE: /tmp/$(subst /,_,$(OCR_INSTALL))_lock
 /tmp/$(subst /,_,$(OCR_INSTALL))_lock:
+ifneq (${NO_COLOR}, yes)
 	@printf "\033[32m Grabbing install lock\033[0m\n"
+else
+	@printf " Grabbing install lock\n"
+endif
 	$(AT)lockfile "/tmp/$(subst /,_,$(OCR_INSTALL))_lock";
 
 .PHONY: install
 install: ${INSTALL_TARGETS} ${INSTALLED_LIBS} ${INSTALLED_EXES} ${INSTALLED_INCS} \
 	${INSTALLED_CONFIGS} ${INSTALLED_SCRIPTS}
+ifneq (${NO_COLOR}, yes)
 	@printf "\033[32m Installed OCR for $(OCR_TYPE) into '$(OCR_INSTALL)'\033[0m\n"
+else
+	@printf " Installed OCR for $(OCR_TYPE) into '$(OCR_INSTALL)'\n"
+endif
 	$(AT)if [ -d $(OCR_ROOT)/machine-configs/$(OCR_TYPE) ]; then \
 		$(RM) -f $(OCR_INSTALL)/share/ocr/config/$(OCR_TYPE)/default.cfg; \
 		$(LN) -sf ./$(DEFAULT_CONFIG) $(OCR_INSTALL)/share/ocr/config/$(OCR_TYPE)/default.cfg; \
 	fi
+ifneq (${NO_COLOR}, yes)
 	@printf "\033[32m Released lock\033[0m\n"
+else
+	@printf " Released lock\n"
+endif
 	$(AT)rm -f "/tmp/$(subst /,_,$(OCR_INSTALL))_lock";
 
 .PHONY: uninstall
