@@ -157,7 +157,6 @@ u8 ocrAffinityGetAt(ocrAffinityKind kind, u64 idx, ocrGuid_t * affinity) {
     getCurrentEnv(&pd, NULL, NULL, NULL);
     ocrPlatformModelAffinity_t * platformModel = ((ocrPlatformModelAffinity_t*)pd->platformModel);
     if(platformModel == NULL) {
-        ASSERT(idx > 0);
         affinity[0] = NULL_GUID;
         RETURN_PROFILE(OCR_EINVAL);
     }
