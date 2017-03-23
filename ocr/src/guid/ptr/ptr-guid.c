@@ -89,14 +89,14 @@ u8 ptrSwitchRunlevel(ocrGuidProvider_t *self, ocrPolicyDomain_t *PD, ocrRunlevel
 u8 ptrGuidReserve(ocrGuidProvider_t *self, ocrGuid_t* startGuid, u64* skipGuid,
                   u64 numberGuids, ocrGuidKind guidType, u32 properties) {
     // Non supported; use labeled provider
-    ASSERT(0);
+    ASSERT_CRITICAL(0 && "error: GUID reservation not supported. Use Labeled-GUID provider");
     return 0;
 }
 
 u8 ptrGuidUnreserve(ocrGuidProvider_t *self, ocrGuid_t startGuid, u64 skipGuid,
                     u64 numberGuids) {
     // Non supported; use labeled provider
-    ASSERT(0);
+    ASSERT_CRITICAL(0 && "error: GUID reservation not supported. Use Labeled-GUID provider");
     return 0;
 }
 
