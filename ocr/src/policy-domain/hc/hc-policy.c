@@ -1952,6 +1952,31 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         break;
     }
 
+#ifdef ENABLE_AMT_RESILIENCE
+    case PD_MSG_DB_PUBLISH: {
+        START_PROFILE(pd_hc_DbPublish);
+#define PD_MSG msg
+#define PD_TYPE PD_MSG_DB_PUBLISH
+        ocrFatGuid_t dbGuid;
+        dbGuid.guid = PD_MSG_FIELD_I(guid);
+        dbGuid.metaDataPtr = NULL;
+        localDeguidify(self, &dbGuid);
+        ocrDataBlock_t *db = (ocrDataBlock_t*)dbGuid.metaDataPtr;
+        ASSERT(isDatablockGuid(self, dbGuid));
+        ASSERT(db != NULL);
+        ASSERT(db->fctId == ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->factoryId);
+        salDbPublish(dbGuid.guid, db->ptr, db->size);
+        DPRINTF(DEBUG_LVL_INFO, "DB guid: "GUIDF" Published\n", GUIDA(dbGuid.guid));
+#undef PD_MSG
+#undef PD_TYPE
+        msg->type &= ~PD_MSG_REQUEST;
+        ASSERT(!(msg->type & PD_MSG_REQ_RESPONSE));
+        // msg->type |= PD_MSG_RESPONSE;
+        EXIT_PROFILE;
+        break;
+    }
+#endif
+
     case PD_MSG_MEM_ALLOC: {
         START_PROFILE(pd_hc_MemAlloc);
 #define PD_MSG msg

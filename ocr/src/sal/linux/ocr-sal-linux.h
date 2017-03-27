@@ -69,4 +69,9 @@ bool salCheckpointExists();
 bool salCheckpointExistsResumeQuery();
 #endif
 
+u8 salDbPublish(ocrGuid_t db, void *ptr, u64 size);
+void* salDbFetch(ocrGuid_t db);
+u8 salDbStorageModify(ocrGuid_t db, void *ptr);
+u64 salDbStorageSize(ocrGuid_t db);
+
 #endif /* __OCR_SAL_LINUX_H__ */

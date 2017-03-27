@@ -17,6 +17,7 @@
 #include "policy-domain/hc/hc-policy.h"
 #include "task/hc/hc-task.h"
 #endif
+#include "utils/hashtable.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -571,7 +572,211 @@ bool salCheckpointExistsResumeQuery() {
     return salCheckpointExistsInternal(true);
 }
 
+#endif /* ENABLE_RESILIENCY */
+
+hashtable_t * hashtable = NULL;
+lock_t pfLock;
+
+#ifdef ENABLE_AMT_RESILIENCE
+
+void salInitPublishFetch() {
+    ocrPolicyDomain_t *pd;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+    hashtable = newHashtableBucketLockedModulo(pd, 256);
+    pfLock = INIT_LOCK;
+}
+
+u8 salDbPublish(ocrGuid_t db, void *ptr, u64 size) {
+#if GUID_BIT_COUNT == 64
+    u64 guid = db.guid;
+#elif GUID_BIT_COUNT == 128
+    u64 guid = db.lower;
+#else
+#error Unknown type of GUID
 #endif
+    char fname[32];
+    int c = snprintf(fname, 32, "db.%lu.guid", guid);
+    if (c < 0 || c > 31) {
+        return 1;
+    }
+
+    struct stat sb;
+    if (stat(fname, &sb) != -1) {
+       fprintf(stderr, "Found existing DB [0x%lx] during publish!\n", guid);
+        ASSERT(0);
+        return 1;
+    }
+
+    int fd = open(fname, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR );
+    if (fd<0) {
+        fprintf(stderr, "open failed: (filename: %s)\n", fname);
+        ASSERT(0);
+        return 1;
+    }
+
+    int rc = ftruncate(fd, size);
+    if (rc) {
+        fprintf(stderr, "ftruncate failed: (filename: %s filedesc: %d)\n", fname, fd);
+        ASSERT(0);
+        return 1;
+    }
+
+    void *buf = mmap( NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0 );
+    if (buf == MAP_FAILED) {
+        fprintf(stderr, "mmap failed for size %lu (filename: %s filedesc: %d)\n", size, fname, fd);
+        ASSERT(0);
+        return 1;
+    }
+
+    memcpy(buf, ptr, size);
+
+    rc = msync(buf, size, MS_INVALIDATE | MS_SYNC);
+    if (rc) {
+        fprintf(stderr, "msync failed for buffer %p of size %lu\n", buf, size);
+        ASSERT(0);
+        return 1;
+    }
+
+    hashtableConcPut(hashtable, (void*)guid, buf);
+
+    return 0;
+}
+
+void* salDbFetch(ocrGuid_t db) {
+    ocrPolicyDomain_t *pd;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+#if GUID_BIT_COUNT == 64
+    u64 guid = db.guid;
+#elif GUID_BIT_COUNT == 128
+    u64 guid = db.lower;
+#else
+#error Unknown type of GUID
+#endif
+    char fname[32];
+    int c = snprintf(fname, 32, "db.%lu.guid", guid);
+    if (c < 0 || c > 31) {
+        fprintf(stderr, "failed to create filename for DB publish\n");
+        ASSERT(0);
+        return NULL;
+    }
+
+    struct stat sb;
+    if (stat(fname, &sb) == -1) {
+        return NULL;
+    }
+    u64 size = sb.st_size;
+
+    void* buf = hashtableConcGet(hashtable, (void*)guid);
+
+    hal_lock(&pfLock);
+
+    if (buf == NULL) {
+        int fd = open(fname, O_RDWR);
+        if (fd<0) {
+            fprintf(stderr, "open failed: (filename: %s)\n", fname);
+            ASSERT(0);
+            return NULL;
+        }
+
+        buf = mmap( NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0 );
+        if (buf == MAP_FAILED) {
+            fprintf(stderr, "mmap failed for size %lu (filename: %s filedesc: %d)\n", size, fname, fd);
+            ASSERT(0);
+            return NULL;
+        }
+
+        hashtableConcPut(hashtable, (void*)guid, buf);
+    } else {
+        int rc = msync(buf, size, MS_SYNC);
+        if (rc) {
+            fprintf(stderr, "msync failed for buffer %p of size %lu\n", buf, size);
+            ASSERT(0);
+            return NULL;
+        }
+    }
+
+    void * ptr = pd->fcts.pdMalloc(pd, size);
+    memcpy(ptr, buf, size);
+
+    hal_unlock(&pfLock);
+
+    return ptr;
+}
+
+u8 salDbStorageModify(ocrGuid_t db, void *ptr) {
+#if GUID_BIT_COUNT == 64
+    u64 guid = db.guid;
+#elif GUID_BIT_COUNT == 128
+    u64 guid = db.lower;
+#else
+#error Unknown type of GUID
+#endif
+    char fname[32];
+    int c = snprintf(fname, 32, "db.%lu.guid", guid);
+    if (c < 0 || c > 31) {
+        fprintf(stderr, "failed to create filename for DB publish\n");
+        ASSERT(0);
+        return 1;
+    }
+
+    struct stat sb;
+    if (stat(fname, &sb) == -1) {
+        fprintf(stderr, "DB does not exist!\n");
+        ASSERT(0);
+        return 1;
+    }
+    u64 size = sb.st_size;
+
+    void* buf = hashtableConcGet(hashtable, (void*)guid);
+
+    ASSERT(buf != ptr);
+    if (buf == NULL) {
+        fprintf(stderr, "DB does not exist!\n");
+        ASSERT(0);
+        return 1;
+    }
+
+    hal_lock(&pfLock);
+
+    memcpy(buf, ptr, size);
+
+    int rc = msync(buf, size, MS_INVALIDATE | MS_SYNC);
+    if (rc) {
+        fprintf(stderr, "msync failed for buffer %p of size %lu\n", buf, size);
+        ASSERT(0);
+        return 1;
+    }
+
+    hal_unlock(&pfLock);
+
+    return 0;
+}
+
+u64 salDbStorageSize(ocrGuid_t db) {
+#if GUID_BIT_COUNT == 64
+    u64 guid = db.guid;
+#elif GUID_BIT_COUNT == 128
+    u64 guid = db.lower;
+#else
+#error Unknown type of GUID
+#endif
+    char fname[32];
+    int c = snprintf(fname, 32, "db.%lu.guid", guid);
+    if (c < 0 || c > 31) {
+        fprintf(stderr, "failed to create filename for DB publish\n");
+        ASSERT(0);
+        return 0;
+    }
+
+    struct stat sb;
+    if (stat(fname, &sb) == -1) {
+        return 0;
+    }
+    return sb.st_size;
+}
+
+#endif
+
 
 #ifdef ENABLE_EXTENSION_PAUSE
 
@@ -795,7 +1000,6 @@ void salInjectFault(void){
 void registerSignalHandler(){
     return;
 }
-
 
 #endif /* ENABLE_EXTENSION_PAUSE  */
 #endif

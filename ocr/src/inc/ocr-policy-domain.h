@@ -118,6 +118,8 @@ typedef struct _paramListPolicyDomainInst_t {
 #define PD_MSG_DB_RELEASE       0x00054001
 /**< Frees a DB (the last free may trigger a destroy) */
 #define PD_MSG_DB_FREE          0x00085001
+/**< Publish a DB */
+#define PD_MSG_DB_PUBLISH       0x00006001
 
 /**< AND with this and if the result non-null, memory chunks
  * related operation (goes directly to allocators) */
@@ -531,6 +533,17 @@ typedef struct _ocrPolicyMsg_t {
                 } out;
             } inOrOut __attribute__ (( aligned(8) ));
         } PD_MSG_STRUCT_NAME(PD_MSG_DB_FREE);
+
+        struct {
+            union {
+                struct {
+                    ocrGuid_t guid;         /**< In: Guid of the DB to publish */
+                } in;
+                struct {
+                    u32 returnDetail;       /**< Out: Success or error code */
+                } out;
+            } inOrOut __attribute__ (( aligned(8) ));
+        } PD_MSG_STRUCT_NAME(PD_MSG_DB_PUBLISH);
 
         struct {
             union {

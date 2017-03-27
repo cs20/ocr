@@ -676,6 +676,25 @@ u8 satisfyEventHcLatch(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
     // Here the event is satisfied
     DPRINTF(DEBUG_LVL_INFO, "Satisfy %s: "GUIDF" reached zero\n", eventTypeToString(base), GUIDA(base->guid));
 
+#ifdef ENABLE_AMT_RESILIENCE
+    int i;
+    for (i = 0; i < event->dbPublishCount; i++) {
+        PD_MSG_STACK(msg2);
+        // Create the task itself by getting a GUID
+        getCurrentEnv(NULL, NULL, NULL, &msg2);
+#define PD_MSG (&msg2)
+#define PD_TYPE PD_MSG_DB_PUBLISH
+        msg2.type = PD_MSG_DB_PUBLISH | PD_MSG_REQUEST;
+        PD_MSG_FIELD_I(guid) = event->dbPublishArray[i];
+        RESULT_ASSERT(pd->fcts.processMessage(pd, &msg2, true), ==, 0);
+#undef PD_MSG
+#undef PD_TYPE
+    }
+    if (event->dbPublishCount > 0) {
+        pd->fcts.pdFree(pd, event->dbPublishArray);
+    }
+#endif
+
     u32 waitersCount = event->base.waitersCount;
     // This is only to help users find out about wrongful use of events
     event->base.waitersCount = STATE_CHECKED_IN; // Indicate that the event is satisfied

@@ -1063,6 +1063,18 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
 #undef PD_TYPE
         break;
     }
+#ifdef ENABLE_AMT_RESILIENCE
+    case PD_MSG_DB_PUBLISH:
+    {
+#define PD_MSG (msg)
+#define PD_TYPE PD_MSG_DB_PUBLISH
+        self->guidProviders[0]->fcts.getLocation(self->guidProviders[0], PD_MSG_FIELD_I(guid), &(msg->destLocation));
+        DPRINTF(DEBUG_LVL_VVERB, "DB_PUBLISH: target is %"PRId32"\n", (u32)msg->destLocation);
+#undef PD_MSG
+#undef PD_TYPE
+        break;
+    }
+#endif
     case PD_MSG_EDTTEMP_DESTROY:
     {
 #define PD_MSG (msg)
