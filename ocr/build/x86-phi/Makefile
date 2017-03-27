@@ -31,13 +31,13 @@ FORCE_CC ?= no
 
 ifeq ($(FORCE_CC), no)
   ifeq ($(CC), cc)
-    CC = icc
+    CC = /opt/intel/tools/bin/icc
   endif
 endif # End of ifeq force_cc
 
 # Conserve CFLAGS and LDFLAGS defined in environment
-ifeq (${CC}, icc)
-CFLAGS  := ${CFLAGS} -xCOMMON-AVX512
+ifeq ($(findstring icc,${CC}), icc)
+CFLAGS  := -xCOMMON-AVX512 ${CFLAGS}
 endif
 LDFLAGS := ${LDFLAGS}
 
