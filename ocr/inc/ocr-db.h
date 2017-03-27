@@ -249,6 +249,25 @@ u8 ocrDbCopy(ocrGuid_t destination, u64 destinationOffset, ocrGuid_t source,
              u64 sourceOffset, u64 size, u64 copyType, ocrGuid_t * completionEvt);
 
 /**
+ * @brief Fetch a copy of the data block from the Public-Fetch storage
+ *
+ * This call will fetch a copy of the data block from the Public-Fetch
+ * data storage. This is a blocking call.
+ *
+ * The lifetime of the copy is equal to the lifetime of the current EDT
+ * and is managed by the runtime.
+ *
+ * @param[in] db    Guid of the data block to fetch
+ *
+ * @return a pointer
+ *     - On success, the pointer to the DB copy is returned.
+ *     - On failure, NULL is returned.
+ *     - If the data block is not present in the data storage, NULL is returned.
+ *
+ */
+void* ocrDbFetch(ocrGuid_t db);
+
+/**
  * @}
  */
 #ifdef __cplusplus

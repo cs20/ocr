@@ -442,6 +442,11 @@ typedef struct _ocrTask_t {
     ocrPerfCounters_t *taskPerfsEntry;
     u32 swPerfCtrs[PERF_MAX-PERF_HW_MAX];
 #endif
+#ifdef ENABLE_AMT_RESILIENCE
+    void **dbFetchList;
+    u32 dbFetchCount;
+    u32 dbFetchArrayLength;
+#endif
 } ocrTask_t;
 
 #define OCR_TASK_FLAG_USES_HINTS            0x1 /* Identifies if the task has user hints set */

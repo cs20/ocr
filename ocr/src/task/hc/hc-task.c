@@ -740,6 +740,16 @@ u8 destructTaskHc(ocrTask_t* base) {
         }
     }
 
+#ifdef ENABLE_AMT_RESILIENCE
+    if (base->dbFetchList != NULL) {
+        u32 i;
+        for (i = 0; i < base->dbFetchCount; i++) {
+            pd->fcts.pdFree(pd, base->dbFetchList[i]);
+        }
+        pd->fcts.pdFree(pd, base->dbFetchList);
+    }
+#endif
+
 #ifdef OCR_ENABLE_STATISTICS
     {
         // Bug #225
@@ -959,6 +969,9 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
 #endif
 
 #ifdef ENABLE_AMT_RESILIENCE
+    self->dbFetchList = NULL;
+    self->dbFetchCount = 0;
+    self->dbFetchArrayLength = 0;
     if (hasProperty(properties, EDT_PROP_RESILIENT)) {
         self->flags |= OCR_TASK_FLAG_RESILIENT;
     }

@@ -314,3 +314,26 @@ u8 ocrDbFree(ocrGuid_t guid, void* addr) {
 u8 ocrDbFreeOffset(ocrGuid_t guid, u64 offset) {
     return OCR_EINVAL; /* not yet implemented */
 }
+
+#ifdef ENABLE_AMT_RESILIENCE
+void* ocrDbFetch(ocrGuid_t db) {
+    ocrPolicyDomain_t *pd = NULL;
+    ocrTask_t *task = NULL;
+    getCurrentEnv(&pd, NULL, &task, NULL);
+    void *ptr = salDbFetch(db);
+    if (task != NULL && ptr != NULL) {
+        if (task->dbFetchCount == task->dbFetchArrayLength) {
+            void **dbFetchListOld = task->dbFetchList;
+            task->dbFetchArrayLength += 4;
+            task->dbFetchList = (void**)pd->fcts.pdMalloc(pd, sizeof(void*) * task->dbFetchArrayLength);
+            if (dbFetchListOld != NULL) {
+                hal_memCopy(task->dbFetchList, dbFetchListOld, sizeof(void*) * task->dbFetchCount, 0);
+                pd->fcts.pdFree(pd, dbFetchListOld);
+            }
+        }
+        task->dbFetchList[task->dbFetchCount++] = ptr;
+    }
+    return ptr;
+}
+#endif
+
