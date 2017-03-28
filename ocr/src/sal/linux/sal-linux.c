@@ -587,6 +587,7 @@ void salInitPublishFetch() {
 }
 
 u8 salDbPublish(ocrGuid_t db, void *ptr, u64 size) {
+    ASSERT(!(ocrGuidIsNull(db)));
 #if GUID_BIT_COUNT == 64
     u64 guid = db.guid;
 #elif GUID_BIT_COUNT == 128
@@ -643,6 +644,7 @@ u8 salDbPublish(ocrGuid_t db, void *ptr, u64 size) {
 }
 
 void* salDbFetch(ocrGuid_t db) {
+    ASSERT(!(ocrGuidIsNull(db)));
     ocrPolicyDomain_t *pd;
     getCurrentEnv(&pd, NULL, NULL, NULL);
 #if GUID_BIT_COUNT == 64
@@ -703,7 +705,8 @@ void* salDbFetch(ocrGuid_t db) {
     return ptr;
 }
 
-u8 salDbStorageModify(ocrGuid_t db, void *ptr) {
+u8 salDbRepublish(ocrGuid_t db, void *ptr) {
+    ASSERT(!(ocrGuidIsNull(db)));
 #if GUID_BIT_COUNT == 64
     u64 guid = db.guid;
 #elif GUID_BIT_COUNT == 128
@@ -753,6 +756,7 @@ u8 salDbStorageModify(ocrGuid_t db, void *ptr) {
 }
 
 u64 salDbStorageSize(ocrGuid_t db) {
+    ASSERT(!(ocrGuidIsNull(db)));
 #if GUID_BIT_COUNT == 64
     u64 guid = db.guid;
 #elif GUID_BIT_COUNT == 128

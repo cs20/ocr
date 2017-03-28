@@ -538,6 +538,7 @@ typedef struct _ocrPolicyMsg_t {
             union {
                 struct {
                     ocrGuid_t guid;         /**< In: Guid of the DB to publish */
+                    u32 properties;         /**< In: Properties of the publish */
                 } in;
                 struct {
                     u32 returnDetail;       /**< Out: Success or error code */

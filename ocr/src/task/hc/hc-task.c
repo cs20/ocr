@@ -496,6 +496,10 @@ static u8 iterateDbFrontier(ocrTask_t *self) {
                 // If the below asserts, rebuild OCR with a higher OCR_MAX_MULTI_SLOT (in build/common.mk)
                 ASSERT(depv[i].slot / 64 < OCR_MAX_MULTI_SLOT);
                 rself->doNotReleaseSlots[depv[i].slot / 64] |= (1ULL << (depv[i].slot % 64));
+#ifdef ENABLE_AMT_RESILIENCE
+            } else if (salDbStorageSize(depv[i].guid) > 0) { //Check if DB has been published
+                rself->resolvedDeps[depv[i].slot].ptr = UNINITIALIZED_DB_FETCH_PTR;
+#endif
             } else {
                 // Issue acquire request
                 ocrPolicyDomain_t * pd = NULL;
@@ -511,7 +515,7 @@ static u8 iterateDbFrontier(ocrTask_t *self) {
                 PD_MSG_FIELD_IO(edt.metaDataPtr) = self;
                 PD_MSG_FIELD_IO(destLoc) = pd->myLocation;
                 PD_MSG_FIELD_IO(edtSlot) = self->depc + 1; // RT slot
-                PD_MSG_FIELD_IO(properties) = depv[i].mode;
+                PD_MSG_FIELD_IO(properties) = (self->flags & OCR_TASK_FLAG_RESILIENT) ? DB_MODE_RES : depv[i].mode;
                 u8 returnCode = pd->fcts.processMessage(pd, &msg, false);
                 // DB_ACQUIRE is potentially asynchronous, check completion.
                 // In shmem and dist HC PD, ACQUIRE is two-way, processed asynchronously
@@ -1788,6 +1792,16 @@ u8 taskExecute(ocrTask_t* base) {
         bool hasParent = !ocrGuidIsNull(base->parentLatch);
         bool hasLocalParent = hasParent && isLocalGuid(pd, base->parentLatch);
         bool needProxy = (hasParent && !hasLocalParent);
+
+#ifdef ENABLE_AMT_RESILIENCE
+        u32 i;
+        for (i = 0; i < base->depc; i++) {
+            if (depv[i].ptr == UNINITIALIZED_DB_FETCH_PTR) {
+                depv[i].ptr = salDbFetch(depv[i].guid);
+                ASSERT(depv[i].ptr != NULL);
+            }
+        }
+#endif
 
         if (hasFinish || needProxy) {
             PD_MSG_STACK(msg);

@@ -311,6 +311,8 @@ typedef enum {
  */
 #define DB_PROP_RUNTIME     ((u16)(0x2000))
 
+#define UNINITIALIZED_DB_FETCH_PTR ((void*)-3)
+
 /**
  * @brief Type of memory allocated/unallocated
  * by MEM_ALLOC and MEM_UNALLOC

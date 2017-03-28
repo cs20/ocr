@@ -152,7 +152,8 @@ typedef enum {
     DB_MODE_CONST= 0x1,   /**< Constant mode */
     DB_MODE_RW   = 0x2,   /**< Read-write (default mode) */
     DB_MODE_EW   = 0x4,   /**< Exclusive write mode */
-    DB_MODE_RO   = 0x8    /**< Read-only mode */
+    DB_MODE_RO   = 0x8,   /**< Read-only mode */
+    DB_MODE_RES  = 0x10   /**< Resilient mode */
 } ocrDbAccessMode_t; // Warning: only 5 bits starting at bit 1 (leave bit 0 as 0)
 
 #define DB_DEFAULT_MODE ((ocrDbAccessMode_t)DB_MODE_RW) /**< Default access mode */

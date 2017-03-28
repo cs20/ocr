@@ -1965,7 +1965,8 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         ASSERT(isDatablockGuid(self, dbGuid));
         ASSERT(db != NULL);
         ASSERT(db->fctId == ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->factoryId);
-        salDbPublish(dbGuid.guid, db->ptr, db->size);
+        PD_MSG_FIELD_O(returnDetail) = ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->fcts.publish(
+            db, PD_MSG_FIELD_I(properties));
         DPRINTF(DEBUG_LVL_INFO, "DB guid: "GUIDF" Published\n", GUIDA(dbGuid.guid));
 #undef PD_MSG
 #undef PD_TYPE

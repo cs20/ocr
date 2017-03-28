@@ -117,6 +117,19 @@ typedef struct _ocrDataBlockFcts_t {
      */
     u8 (*free)(struct _ocrDataBlock_t *self, ocrFatGuid_t edt, ocrLocation_t srcLoc, u32 properties);
 
+#ifdef ENABLE_AMT_RESILIENCE
+    /**
+     * @brief Requests that the block be published when possible
+     *
+     * This call will return true if the free request was successful.
+     *
+     * @param self          Pointer to this data-block
+     * @param properties    Properties of the publish
+     * @return 0 on success and an error code on failure (see ocr-db.h)
+     */
+    u8 (*publish)(struct _ocrDataBlock_t *self, u32 properties);
+#endif
+
     /**
      * @brief Register a "waiter" (aka a dependence) on the data-block
      *
