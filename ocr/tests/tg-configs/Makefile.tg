@@ -52,6 +52,10 @@ include ${APPS_ROOT}/makefiles/make-pre.inc
 # that need to be built. These will be built for ARCH
 REQ_LIBS := libc
 
+ifeq ($(WITH_NEWLIB), yes)
+  REQ_LIBS += newlib
+endif
+
 # Space separated list of source files
 # => SRCS provided as environment variable
 
@@ -65,6 +69,12 @@ REQ_LIBS := libc
 # Note that none of the specific libraries specified in
 # REQ_LIBS are included.
 # => LDFLAGS provided as environment variable
+# Add libc manually since we're using newlib
+LDFLAGS +=
+
+ifeq ($(WITH_NEWLIB), yes)
+  LDFLAGS += -lc
+endif
 
 # Targets:
 #   - all:     Build the application.

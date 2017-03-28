@@ -1,6 +1,3 @@
-- config-template.tg: the template TG configuration file to use to run the tests
-                      WARNING: The file is a template used to generate a TG config file for EVERY test invocation
-                      by appending its content to a freshly generated file.
 - Makefile.tg: The makefile used to invoke the compilation and execution of TG programs.
                The makefile is generic and a number of variables such as SRCS and TARGET
                must be set by the caller to identify which test to compile and run.

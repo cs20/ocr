@@ -21,9 +21,9 @@ jobtype_ocr_tg_regression = {
     'run-cmd': '${JJOB_INITDIR_OCR}/ocr/jenkins/scripts/regression.sh',
     'param-cmd': '${JJOB_INITDIR_OCR}/ocr/jenkins/scripts/regression.sh _params',
     'depends': ('ocr-build-builder-ce', 'ocr-build-builder-xe',
-                'ocr-build-tg-ce', 'ocr-build-tg-xe', 'apps-init-job', ),
-    'keywords': ('tg', 'ocr', 'regression', 'percommit'),
-    'timeout': 5000, # on foobar the whole build+run takes around 4000
+                'ocr-build-tg-ce', 'ocr-build-tg-xe', 'apps-tg-init-job', ),
+    'keywords': ('tg', 'ocr', 'regression'),
+    'timeout': 8000,
     'sandbox': ('local', 'shared', 'shareOK'),
     # Need the apps repo because we're using the apps
     # makefile infrastructure to run TG tests
@@ -33,6 +33,7 @@ jobtype_ocr_tg_regression = {
                   'APPS_ROOT': '${JJOB_SHARED_HOME}/apps/apps',
                   'APPS_LIBS_ROOT': '${APPS_ROOT}/libs/src',
                   'APPS_ROOT_PRIV': '${JJOB_PRIVATE_HOME}/apps/apps',
+                  'APPS_LIBS_INSTALL_ROOT': '${APPS_ROOT}/apps/apps/libs/install/',
                   'OCR_ROOT': '${JJOB_PRIVATE_HOME}/ocr/ocr',
                   'OCR_INSTALL': '${JJOB_SHARED_HOME}/ocr/ocr/install',
                   'OCR_BUILD_ROOT': '${JJOB_PRIVATE_HOME}/ocr/ocr/build',
