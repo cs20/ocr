@@ -813,6 +813,14 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
     ocrFatGuid_t currentEdt = {.guid = ((curTask) ? curTask->guid : NULL_GUID), curTask};
     ocrFatGuid_t resultGuid = *edtGuid;
     u32 hintc = hasProperty(properties, EDT_PROP_NO_HINT) ? 0 : OCR_HINT_COUNT_EDT_HC;
+#ifdef ENABLE_AMT_RESILIENCE
+    bool doResLatchDep = 0;
+    ocrGuid_t resilientLatch = (perInstance != NULL) ? ((paramListTask_t*)perInstance)->resilientLatch : NULL_GUID;
+    if (hasProperty(properties, EDT_PROP_RESILIENT) && !ocrGuidIsNull(resilientLatch)) {
+        depc++;
+        doResLatchDep = 1;
+    }
+#endif
     u32 szMd = sizeof(ocrTaskHc_t) + paramc*sizeof(u64) + depc*sizeof(regNode_t) + hintc*sizeof(u64);
 
     ocrLocation_t targetLoc = pd->myLocation;
@@ -976,14 +984,11 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
     self->dbFetchList = NULL;
     self->dbFetchCount = 0;
     self->dbFetchArrayLength = 0;
-    ASSERT(perInstance != NULL);
-    paramListTask_t *taskparams = (paramListTask_t*)perInstance;
     if (hasProperty(properties, EDT_PROP_RESILIENT)) {
         self->flags |= OCR_TASK_FLAG_RESILIENT;
-        ASSERT(ocrGuidIsNull(taskparams->resilientLatch));
         self->resilientLatch = NULL_GUID;
     } else {
-        self->resilientLatch = taskparams->resilientLatch;
+        self->resilientLatch = resilientLatch;
     }
 #endif
 
@@ -1008,6 +1013,11 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
         ASSERT(!ocrGuidIsUninitialized(self->outputEvent));
         outputEventPtr->guid = self->outputEvent;
     }
+#ifdef ENABLE_AMT_RESILIENCE
+    if (doResLatchDep) {
+        ocrAddDependence(resilientLatch, taskGuid, depc - 1, DB_MODE_NULL);
+    }
+#endif
 #undef PD_MSG
 #undef PD_TYPE
 
