@@ -680,7 +680,6 @@ u8 satisfyEventHcLatch(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
     int i;
     for (i = 0; i < event->dbPublishCount; i++) {
         PD_MSG_STACK(msg2);
-        // Create the task itself by getting a GUID
         getCurrentEnv(NULL, NULL, NULL, &msg2);
 #define PD_MSG (&msg2)
 #define PD_TYPE PD_MSG_DB_PUBLISH

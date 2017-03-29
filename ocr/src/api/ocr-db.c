@@ -43,6 +43,12 @@ u8 ocrDbCreate(ocrGuid_t *db, void** addr, u64 len, u16 flags,
         userHint = *hint;
         hint = &userHint;
     }
+#ifdef ENABLE_AMT_RESILIENCE
+    ocrGuid_t latch = (task != NULL) ? task->resilientLatch : NULL_GUID;
+    if ((flags & DB_PROP_RESILIENT) && ocrGuidIsNull(latch)) {
+        flags |= DB_PROP_PUBLISH_EAGER;
+    }
+#endif
 
 #define PD_MSG (&msg)
 #define PD_TYPE PD_MSG_DB_CREATE
@@ -88,7 +94,6 @@ u8 ocrDbCreate(ocrGuid_t *db, void** addr, u64 len, u16 flags,
 #endif
 
 #ifdef ENABLE_AMT_RESILIENCE
-    ocrGuid_t latch = (task != NULL) ? (!ocrGuidIsNull(task->finishLatch) ? task->finishLatch : task->parentLatch) : NULL_GUID;
     if ((flags & DB_PROP_RESILIENT) && (returnCode == 0) && !ocrGuidIsNull(latch)) {
 #define PD_MSG (&msg)
 #define PD_TYPE PD_MSG_DEP_SATISFY
@@ -326,7 +331,7 @@ void* ocrDbFetch(ocrGuid_t db) {
             void **dbFetchListOld = task->dbFetchList;
             task->dbFetchArrayLength += 4;
             task->dbFetchList = (void**)pd->fcts.pdMalloc(pd, sizeof(void*) * task->dbFetchArrayLength);
-            if (dbFetchListOld != NULL) {
+            if (task->dbFetchCount > 0) {
                 hal_memCopy(task->dbFetchList, dbFetchListOld, sizeof(void*) * task->dbFetchCount, 0);
                 pd->fcts.pdFree(pd, dbFetchListOld);
             }

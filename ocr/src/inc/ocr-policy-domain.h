@@ -599,6 +599,9 @@ typedef struct _ocrPolicyMsg_t {
                     ocrHint_t * hint;          /**< In: Hints passed by the user at EDT creation time */
                     ocrWorkType_t workType;    /**< In: Type of work to create */
                     u32 properties;            /**< In: properties for the creation */
+#ifdef ENABLE_AMT_RESILIENCE
+                    ocrGuid_t resilientLatch;  /**< Latch event of enclosing resilient finish latch scope */
+#endif
                 } in;
                 struct {
                     u32 returnDetail;          /**< Out: Success or error code */

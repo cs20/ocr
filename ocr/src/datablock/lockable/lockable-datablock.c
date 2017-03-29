@@ -72,6 +72,9 @@ typedef struct _dbWaiter_t {
 
 // Forward declaration
 u8 lockableDestruct(ocrDataBlock_t *self);
+#ifdef ENABLE_AMT_RESILIENCE
+static u8 lockablePublishInternal(ocrDataBlock_t *self, u32 properties);
+#endif
 
 //MD: Here we need the continuation of the acquire that
 //went off-PD, to walk the right waiter queue when resolved.
@@ -395,6 +398,11 @@ u8 lockableRelease(ocrDataBlock_t *self, ocrFatGuid_t edt, ocrLocation_t srcLoc,
 
     //IMPL: this is probably not very fair
     if (rself->attributes.numUsers == 0) {
+#ifdef ENABLE_AMT_RESILIENCE
+        if ((self->flags & DB_PROP_PUBLISH_EAGER) && (rself->attributes.modeLock == DB_LOCKED_ITW || rself->attributes.modeLock == DB_LOCKED_EW)) {
+            lockablePublishInternal(self, 0);
+        }
+#endif
         // last user of the DB, check what the transition looks like:
         // W -> W (pop the next EW waiter)
         // RO -> EW (pop the next EW waiter)
@@ -599,28 +607,34 @@ u8 lockableDestruct(ocrDataBlock_t *self) {
 }
 
 #ifdef ENABLE_AMT_RESILIENCE
+static u8 lockablePublishInternal(ocrDataBlock_t *self, u32 properties) {
+    ocrDataBlockLockable_t * rself = (ocrDataBlockLockable_t*) self;
+    salDbPublish(self->guid, self->ptr, self->size);
+    rself->attributes.published = 1;
+    if (rself->pubWaiterList != NULL) {
+        dbWaiter_t *waiter = popPubWaiter(self);
+        ocrPolicyDomain_t * pd = NULL;
+        PD_MSG_STACK(msg);
+        getCurrentEnv(&pd, NULL, NULL, NULL);
+        rself->pubWaiterList = NULL;
+        do {
+            processAcquireCallback(self, waiter, DB_MODE_RES, waiter->properties, &msg);
+            dbWaiter_t * next = waiter->next;
+            pd->fcts.pdFree(pd, waiter);
+            //PERF: Would be nice to do that outside the lock but it incurs allocating
+            // an array of messages and traversing the list of waiters again
+            RESULT_ASSERT(pd->fcts.processMessage(pd, &msg, true), ==, 0);
+            waiter = next;
+        } while (waiter != NULL);
+    }
+    return 0;
+}
+
 u8 lockablePublish(ocrDataBlock_t *self, u32 properties) {
     ocrDataBlockLockable_t * rself = (ocrDataBlockLockable_t*) self;
     if (rself->attributes.published == 0) {
         hal_lock(&(rself->lock));
-        rself->attributes.published = 1;
-        salDbPublish(self->guid, self->ptr, self->size);
-        if (rself->pubWaiterList != NULL) {
-            dbWaiter_t *waiter = popPubWaiter(self);
-            ocrPolicyDomain_t * pd = NULL;
-            PD_MSG_STACK(msg);
-            getCurrentEnv(&pd, NULL, NULL, NULL);
-            rself->pubWaiterList = NULL;
-            do {
-                processAcquireCallback(self, waiter, DB_MODE_RES, waiter->properties, &msg);
-                dbWaiter_t * next = waiter->next;
-                pd->fcts.pdFree(pd, waiter);
-                //PERF: Would be nice to do that outside the lock but it incurs allocating
-                // an array of messages and traversing the list of waiters again
-                RESULT_ASSERT(pd->fcts.processMessage(pd, &msg, true), ==, 0);
-                waiter = next;
-            } while (waiter != NULL);
-        }
+        lockablePublishInternal(self, properties);
         hal_unlock(&(rself->lock));
     }
     return 0;
@@ -741,7 +755,7 @@ u8 newDataBlockLockable(ocrDataBlockFactory_t *factory, ocrFatGuid_t *guid, ocrF
     result->base.fctId = factory->factoryId;
     // Only keep flags that represent the nature of
     // the DB as opposed to one-time usage creation flags
-    result->base.flags = (flags & (DB_PROP_SINGLE_ASSIGNMENT | DB_PROP_RT_PROXY | DB_PROP_RESILIENT));
+    result->base.flags = (flags & (DB_PROP_SINGLE_ASSIGNMENT | DB_PROP_RT_PROXY | DB_PROP_RESILIENT | DB_PROP_PUBLISH_EAGER));
     result->lock = INIT_LOCK;
     result->attributes.flags = result->base.flags;
     result->attributes.numUsers = 0;

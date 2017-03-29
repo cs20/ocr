@@ -48,6 +48,9 @@ typedef struct _paramListTaskTemplateFact_t {
 typedef struct _paramListTask_t {
     ocrParamList_t base;
     ocrWorkType_t workType;
+#ifdef ENABLE_AMT_RESILIENCE
+    ocrGuid_t resilientLatch;  /**< Latch event of enclosing resilient finish latch scope */
+#endif
 } paramListTask_t;
 
 
@@ -443,6 +446,7 @@ typedef struct _ocrTask_t {
     u32 swPerfCtrs[PERF_MAX-PERF_HW_MAX];
 #endif
 #ifdef ENABLE_AMT_RESILIENCE
+    ocrGuid_t resilientLatch;  /**< Latch event of enclosing resilient finish latch scope */
     void **dbFetchList;
     u32 dbFetchCount;
     u32 dbFetchArrayLength;

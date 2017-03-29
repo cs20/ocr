@@ -158,20 +158,21 @@ typedef enum {
 
 #define DB_DEFAULT_MODE ((ocrDbAccessMode_t)DB_MODE_RW) /**< Default access mode */
 
-#define DB_PROP_NONE       ((u16)0x0) /**< Property for a data block indicating no special behavior */
-#define DB_PROP_NO_ACQUIRE ((u16)0x10) /**< Property for a data block indicating that the data-block
-                                       *   is just being created but does not need to be acquired
-                                       *   at the same time (creation for another EDT)
-                                       */
+#define DB_PROP_NONE                ((u16)0x0)      /**< Property for a data block indicating no special behavior */
+#define DB_PROP_NO_ACQUIRE          ((u16)0x10)     /**< Property for a data block indicating that the data-block
+                                                     *   is just being created but does not need to be acquired
+                                                     *   at the same time (creation for another EDT)
+                                                     */
 
-#define DB_PROP_SINGLE_ASSIGNMENT ((u16)0x20) /**< Property for a data block indicating single-assignment
-                                               *   i.e. The user guarantees the data block is written once
-                                               *   at creation time.
-                                               *   @note This property is experimental and not
-                                               *   implemented consistently.
-                                               */
-#define DB_PROP_NO_HINT       ((u16)0x40) /**< Property for a data block indicating no hints can be set on the datablock */
-#define DB_PROP_RESILIENT     ((u16)0x80) /**< Property for a data block indicating a resilient datablock */
+#define DB_PROP_SINGLE_ASSIGNMENT   ((u16)0x20)     /**< Property for a data block indicating single-assignment
+                                                     *   i.e. The user guarantees the data block is written once
+                                                     *   at creation time.
+                                                     *   @note This property is experimental and not
+                                                     *   implemented consistently.
+                                                     */
+#define DB_PROP_NO_HINT             ((u16)0x40)     /**< Property for a data block indicating no hints can be set on the datablock */
+#define DB_PROP_RESILIENT           ((u16)0x80)     /**< Property for a data block indicating a resilient datablock */
+#define DB_PROP_PUBLISH_EAGER       ((u16)0x100)    /**< Property for a data block to be published after every release from writable mode */
 
 /**
  * @}

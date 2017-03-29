@@ -976,8 +976,14 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
     self->dbFetchList = NULL;
     self->dbFetchCount = 0;
     self->dbFetchArrayLength = 0;
+    ASSERT(perInstance != NULL);
+    paramListTask_t *taskparams = (paramListTask_t*)perInstance;
     if (hasProperty(properties, EDT_PROP_RESILIENT)) {
         self->flags |= OCR_TASK_FLAG_RESILIENT;
+        ASSERT(ocrGuidIsNull(taskparams->resilientLatch));
+        self->resilientLatch = NULL_GUID;
+    } else {
+        self->resilientLatch = taskparams->resilientLatch;
     }
 #endif
 
@@ -1826,6 +1832,12 @@ u8 taskExecute(ocrTask_t* base) {
             newFinishLatchFGuid = PD_MSG_FIELD_IO(guid);
             ASSERT(!(ocrGuidIsNull(newFinishLatchFGuid.guid)) && newFinishLatchFGuid.metaDataPtr != NULL);
             base->finishLatch = newFinishLatchFGuid.guid;
+#ifdef ENABLE_AMT_RESILIENCE
+            if (base->flags & OCR_TASK_FLAG_RESILIENT) {
+                ASSERT(ocrGuidIsNull(base->resilientLatch));
+                base->resilientLatch = newFinishLatchFGuid.guid;
+            }
+#endif
 #undef PD_MSG
 #undef PD_TYPE
 #ifndef ENABLE_EXTENSION_PARAMS_EVT

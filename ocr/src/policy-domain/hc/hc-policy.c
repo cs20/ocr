@@ -812,6 +812,9 @@ static u8 createEdtHelper(ocrPolicyDomain_t *self, ocrFatGuid_t *guid,
                       ocrFatGuid_t  edtTemplate, u32 *paramc, u64* paramv,
                       u32 *depc, u32 properties, ocrHint_t *hint,
                       ocrFatGuid_t * outputEvent, ocrTask_t * currentEdt,
+#ifdef ENABLE_AMT_RESILIENCE
+                      ocrGuid_t resilientLatch,
+#endif
                       ocrFatGuid_t parentLatch, ocrWorkType_t workType) {
     ocrTaskTemplate_t *taskTemplate = (ocrTaskTemplate_t*)edtTemplate.metaDataPtr;
     DPRINTF(DEBUG_LVL_VVERB, "Creating EDT with template GUID "GUIDF" (%p) (paramc=%"PRId32"; depc=%"PRId32")"
@@ -858,6 +861,9 @@ static u8 createEdtHelper(ocrPolicyDomain_t *self, ocrFatGuid_t *guid,
     //Setup task parameters
     paramListTask_t taskparams;
     taskparams.workType = workType;
+#ifdef ENABLE_AMT_RESILIENCE
+    taskparams.resilientLatch = resilientLatch;
+#endif
 
     u8 returnCode = ((ocrTaskFactory_t*)(self->factories[self->taskFactoryIdx]))->instantiate(
                            (ocrTaskFactory_t*)(self->factories[self->taskFactoryIdx]), guid,
@@ -2205,6 +2211,9 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
                 self, &(PD_MSG_FIELD_IO(guid)), PD_MSG_FIELD_I(templateGuid),
                 &(PD_MSG_FIELD_IO(paramc)), PD_MSG_FIELD_I(paramv), &(PD_MSG_FIELD_IO(depc)),
                 properties, hint, outputEvent, (ocrTask_t*)(PD_MSG_FIELD_I(currentEdt).metaDataPtr),
+#ifdef ENABLE_AMT_RESILIENCE
+                PD_MSG_FIELD_I(resilientLatch),
+#endif
                 PD_MSG_FIELD_I(parentLatch), PD_MSG_FIELD_I(workType));
 
         if ((properties & EDT_PROP_RT_HINT_ALLOC) && (msg->srcLocation == self->myLocation)) {
