@@ -108,6 +108,9 @@ void initializePolicyDomainOcr(ocrPolicyDomainFactory_t * factory, ocrPolicyDoma
     self->neighbors = NULL;
     self->neighborCount = 0;
     self->shutdownCode = 0;
+#ifdef ENABLE_AMT_RESILIENCE
+    self->frozen = 0;
+#endif
     self->neighborPDs = NULL;
     self->parentPD = NULL;
 }

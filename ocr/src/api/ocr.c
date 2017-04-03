@@ -48,6 +48,15 @@ void ocrAbort(u8 errorCode) {
     RETURN_PROFILE();
 }
 
+#ifdef ENABLE_AMT_RESILIENCE
+void ocrNodeFailure() {
+    ocrPolicyDomain_t *pd = NULL;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+    pd->frozen = 1;
+    while(1);
+}
+#endif
+
 u64 getArgc(void* dbPtr) {
     START_PROFILE(api_getArgc);
     DPRINTF(DEBUG_LVL_INFO, "ENTER getArgc(dbPtr=%p)\n", dbPtr);

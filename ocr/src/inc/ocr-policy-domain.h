@@ -1581,6 +1581,9 @@ typedef struct _ocrPolicyDomain_t {
     ocrLocation_t * neighbors;                  /**< Array of neighbor locations */
     u32 neighborCount;                          /**< Number of neighboring policy domains */
     u8 shutdownCode;
+#ifdef ENABLE_AMT_RESILIENCE
+    u8 frozen;
+#endif
 
     // BUG #605: Location support
     struct _ocrPolicyDomain_t **neighborPDs;

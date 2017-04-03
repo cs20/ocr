@@ -66,6 +66,10 @@ void ocrShutdown();
  */
 void ocrAbort(u8 errorCode);
 
+#ifdef ENABLE_AMT_RESILIENCE
+void ocrNodeFailure();
+#endif
+
 /**
  * @brief Retrieves the traditional 'argc' value in mainEdt.
  *
