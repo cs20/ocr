@@ -351,6 +351,8 @@ typedef struct _paramListPolicyDomainInst_t {
 #define PD_MSG_FIELD_O(field) _PD_MSG_FIELD_FULL_QUAL(PD_MSG, PD_TYPE, inOrOut.out, field)
 #define PD_MSG_INOUT_STRUCT(ptr) _PD_MSG_INOUT_STRUCT(ptr, PD_TYPE)
 
+char * pd_msg_type_to_str(int type);
+
 // Assumes that all union members start at the start of the union.
 // Works for now but may have issues with packing
 #define _PD_MSG_SIZE_ALL_SUB(type)                              \

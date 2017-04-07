@@ -19,6 +19,8 @@
 #include "ocr-sal.h"
 #endif
 
+u64 Debug_Mask = 0;
+
 #define DEBUG_TYPE POLICY
 
 // Everything in the marshalling code will be
@@ -44,6 +46,19 @@ const char * policyDomain_types [] = {
 #endif
     NULL
 };
+
+// This method returns the string representation of a message type,
+// It is declared in ocr-policy-domain.h
+char * pd_msg_type_to_str(int type) {
+    switch(type) {
+#define PER_TYPE(type)                                \
+        case type: return #type;                      \
+            break;
+#include "ocr-policy-msg-list.h"
+#undef PER_TYPE
+	default: return "ERROR";
+    }
+}
 
 void initializePolicyMessage(ocrPolicyMsg_t* msg, u64 bufferSize) {
     msg->bufferSize = bufferSize;
