@@ -892,6 +892,15 @@ ifneq (,$(findstring -DOCR_ASSERT, $(CFLAGS)))
 	$(AT)$(shell echo "#define OCR_ASSERT" >> $@)
 	$(AT)$(shell echo "#endif" >> $@)
 endif
+ifneq (,$(findstring -DOCR_TRACE_BINARY, $(CFLAGS)))
+	$(AT)$(shell echo "#ifndef OCR_TRACE_BINARY" >> $@)
+	$(AT)$(shell echo "#define OCR_TRACE_BINARY" >> $@)
+	$(AT)$(shell echo "#endif" >> $@)
+	$(AT)$(shell echo "#ifndef OCR_ENABLE_EDT_NAMING" >> $@)
+	$(AT)$(shell echo "#define OCR_ENABLE_EDT_NAMING" >> $@)
+	$(AT)$(shell echo "#endif" >> $@)
+endif
+
 	$(AT)$(shell echo "#endif /* __OCR_OPTIONS_"$(subst -,_,$(OCR_TYPE))"_H__ */" >> $@)
 else
 $(OCR_INSTALL)/include/ocr-options_$(OCR_TYPE).h: | $(OCR_INSTALL)/include

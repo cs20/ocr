@@ -210,7 +210,7 @@ if (ctrs) {
 #endif
                 //Store state at worker level to report most recent state on pause.
                 hcWorker->edtGuid = curTask->guid;
-#ifdef OCR_ENABLE_EDT_NAMING
+#if defined(OCR_ENABLE_EDT_NAMING) || defined(OCR_TRACE_BINARY)
                 hcWorker->name = curTask->name;
 #endif
 #ifdef OCR_ENABLE_SIMULATOR

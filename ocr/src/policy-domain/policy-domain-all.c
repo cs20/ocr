@@ -209,7 +209,7 @@ u8 ocrPolicyMsgGetMsgSize(ocrPolicyMsg_t *msg, u64 *baseSize,
 
     case PD_MSG_EDTTEMP_CREATE:
 #define PD_TYPE PD_MSG_EDTTEMP_CREATE
-#ifdef OCR_ENABLE_EDT_NAMING
+#if defined(OCR_ENABLE_EDT_NAMING) || defined(OCR_TRACE_BINARY)
         if(isIn) {
             *marshalledSize = PD_MSG_FIELD_I(funcNameLen)*sizeof(char);
             if(*marshalledSize) {
@@ -568,7 +568,7 @@ u8 ocrPolicyMsgMarshallMsg(ocrPolicyMsg_t* msg, u64 baseSize, u8* buffer, u32 mo
 
     case PD_MSG_EDTTEMP_CREATE: {
 #define PD_TYPE PD_MSG_EDTTEMP_CREATE
-#ifdef OCR_ENABLE_EDT_NAMING
+#if defined(OCR_ENABLE_EDT_NAMING) || defined(OCR_TRACE_BINARY)
         if(isIn) {
             // First copy things over
             // NOTE: don't assume the name is null-terminated
@@ -1198,7 +1198,7 @@ u8 ocrPolicyMsgUnMarshallMsg(u8* mainBuffer, u8* addlBuffer,
 
     case PD_MSG_EDTTEMP_CREATE: {
 #define PD_TYPE PD_MSG_EDTTEMP_CREATE
-#ifdef OCR_ENABLE_EDT_NAMING
+#if defined(OCR_ENABLE_EDT_NAMING) || defined(OCR_TRACE_BINARY)
         if(isIn) {
             if(PD_MSG_FIELD_I(funcNameLen) > 0) {
                 u64 t = (u64)(PD_MSG_FIELD_I(funcName));

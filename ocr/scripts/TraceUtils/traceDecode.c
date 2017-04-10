@@ -148,8 +148,15 @@ void translateObject(ocrTraceObj_t *trace){
 #if !defined(OCR_ENABLE_SIMULATOR)
                 ocrGuid_t taskGuid = TRACE_FIELD(TASK, taskExeBegin, trace, taskGuid);
                 ocrEdt_t funcPtr = TRACE_FIELD(TASK, taskExeBegin, trace, funcPtr);
-                printf("[TRACE] U/R: %s | PD: 0x%"PRIx64" | WORKER_ID: %"PRIu64" | EDT: "GUIDF" | TIMESTAMP: %"PRIu64" | TYPE: EDT | ACTION: EXECUTE | GUID: "GUIDF" | FUNC_PTR: 0x%"PRIx64"\n",
-                       evt_type[evtType], location, workerId, GUIDA(parent), timestamp, GUIDA(taskGuid), (u64)funcPtr);
+                u64 strLen = TRACE_FIELD(TASK, taskExeBegin, trace, strLen);
+                char *name = malloc(strLen*sizeof(char));
+                char *nameIn = TRACE_FIELD(TASK, taskExeBegin, trace, name);
+                u32 i;
+                for(i = 0; i < strLen; i++)
+                    name[i] = nameIn[i];
+
+                printf("[TRACE] U/R: %s | PD: 0x%"PRIx64" | WORKER_ID: %"PRIu64" | EDT: "GUIDF" | TIMESTAMP: %"PRIu64" | TYPE: EDT | ACTION: EXECUTE | GUID: "GUIDF" | FUNC_PTR: 0x%"PRIx64" | NAME: %s\n",
+                       evt_type[evtType], location, workerId, GUIDA(parent), timestamp, GUIDA(taskGuid), (u64)funcPtr, name);
 
 #else
                 ocrGuid_t taskGuid = TRACE_FIELD(TASK, taskExeBegin, trace, taskGuid);
@@ -176,8 +183,17 @@ void translateObject(ocrTraceObj_t *trace){
             case OCR_ACTION_FINISH:
             {
 #if !defined(OCR_ENABLE_SIMULATOR)
-                ocrGuid_t taskGuid = TRACE_FIELD(TASK, taskCreate, trace, taskGuid);
-                genericPrint(evtType, ttype, action, location, workerId, timestamp, parent);
+                ocrGuid_t taskGuid = TRACE_FIELD(TASK, taskExeEnd, trace, taskGuid);
+                u64 startTime = TRACE_FIELD(TASK, taskExeEnd, trace, startTime);
+                u64 strLen = TRACE_FIELD(TASK, taskExeEnd, trace, strLen);
+                char *name = malloc(strLen*sizeof(char));
+                char *nameIn = TRACE_FIELD(TASK, taskExeEnd, trace, name);
+                u32 i;
+                for(i = 0; i < strLen; i++)
+                    name[i] = nameIn[i];
+
+                printf("[TRACE] U/R: %s | PD: 0x%"PRIx64" | WORKER_ID: %"PRIu64" | EDT: "GUIDF" | TIMESTAMP: %"PRIu64" | TYPE: EDT | ACTION: FINISH | START_TIME: %lu | NAME: %s\n",
+                        evt_type[evtType], location, workerId, GUIDA(parent), timestamp, startTime, name);
 #else
                 ocrGuid_t taskGuid = TRACE_FIELD(TASK, taskExeEnd, trace, taskGuid);
                 u32 count = TRACE_FIELD(TASK, taskExeEnd, trace, count);

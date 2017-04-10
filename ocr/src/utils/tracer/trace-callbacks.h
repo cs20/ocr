@@ -18,6 +18,11 @@
 #include "ocr-runtime-types.h"
 #include "ocr-types.h"
 
+#ifndef OCR_EDT_NAME_SIZE
+#define OCR_EDT_NAME_SIZE 32
+#endif
+
+
 
 /**
  * @brief Callback function for tracing task creations
@@ -138,7 +143,7 @@ void traceTaskSatisfyDependence(u64 location, bool evtType, ocrTraceType_t objTy
 void traceTaskExecute(u64 location, bool evtType, ocrTraceType_t objType,
                       ocrTraceAction_t actionType, u64 workerId,
                       u64 timestamp, ocrGuid_t parent, ocrGuid_t edtGuid,
-                      ocrEdt_t fctPtr);
+                      ocrEdt_t fctPtr, char nameIn[OCR_EDT_NAME_SIZE]);
 
 
 /**
@@ -157,7 +162,8 @@ void traceTaskExecute(u64 location, bool evtType, ocrTraceType_t objType,
 
 void traceTaskFinish(u64 location, bool evtType, ocrTraceType_t objType,
                      ocrTraceAction_t actionType, u64 workerId,
-                     u64 timestamp, ocrGuid_t parent, ocrGuid_t edtGuid);
+                     u64 timestamp, ocrGuid_t parent, ocrGuid_t edtGuid,
+                     u64 startTime, char nameIn[OCR_EDT_NAME_SIZE]);
 
 
 /**

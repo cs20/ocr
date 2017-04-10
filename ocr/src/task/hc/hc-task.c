@@ -166,7 +166,7 @@ ocrTaskTemplate_t * newTaskTemplateHc(ocrTaskTemplateFactory_t* factory, ocrEdt_
     base->paramc = paramc;
     base->depc = depc;
     base->executePtr = executePtr;
-#ifdef OCR_ENABLE_EDT_NAMING
+#if defined(OCR_ENABLE_EDT_NAMING) || defined(OCR_TRACE_BINARY)
     {
         // NOTE: don't assume the name fits in the buffer!
         u32 t = ocrStrlen(fctName);
@@ -890,7 +890,7 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
     ASSERT(edtTemplate.metaDataPtr); // For now we just assume it is passed whole
     self->funcPtr = ((ocrTaskTemplate_t*)(edtTemplate.metaDataPtr))->executePtr;
     self->paramv = (paramc > 0) ? ((u64*)((u64)self + sizeof(ocrTaskHc_t))) : NULL;
-#ifdef OCR_ENABLE_EDT_NAMING
+#if defined(OCR_ENABLE_EDT_NAMING) || defined(OCR_TRACE_BINARY)
     hal_memCopy(&(self->name[0]), &(((ocrTaskTemplate_t*)(edtTemplate.metaDataPtr))->name[0]),
                 ocrStrlen(&(((ocrTaskTemplate_t*)(edtTemplate.metaDataPtr))->name[0])) + 1, false);
 #endif
@@ -1627,7 +1627,7 @@ static u8 taskEpilogue(ocrTask_t * base, ocrPolicyDomain_t *pd, ocrWorker_t * cu
 #endif /* OCR_ENABLE_STATISTICS */
     DPRINTF(DEBUG_LVL_INFO, "End_Execution "GUIDF"\n", GUIDA(base->guid));
 #if !defined(OCR_ENABLE_SIMULATOR)
-    OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_EDT, OCR_ACTION_FINISH, traceTaskFinish, base->guid);
+    OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_EDT, OCR_ACTION_FINISH, traceTaskFinish, base->guid, base->startTime, base->name);
 #endif
     // edt user code is done, if any deps, release data-blocks
     if(depc != 0) {
@@ -1900,7 +1900,10 @@ u8 taskExecute(ocrTask_t* base) {
 
         //TODO Execute can be considered user on x86, but need to differentiate processRequestEdts in x86-mpi
         DPRINTF(DEBUG_LVL_VERB, "Execute "GUIDF" paramc:%"PRId32" depc:%"PRId32"\n", GUIDA(base->guid), base->paramc, base->depc);
-        OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_EDT, OCR_ACTION_EXECUTE, traceTaskExecute, base->guid, base->funcPtr, depc, paramc, paramv);
+#ifdef OCR_TRACE_BINARY
+        base->startTime = salGetTime();
+#endif
+        OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_EDT, OCR_ACTION_EXECUTE, traceTaskExecute, base->guid, base->funcPtr, base->name, depc, paramc, paramv);
 
         ASSERT(derived->unkDbs == NULL); // Should be no dynamically acquired DBs before running
 
@@ -1942,7 +1945,7 @@ u8 taskExecute(ocrTask_t* base) {
         char location[32];
         curWorker->fcts.printLocation(curWorker, &(location[0]));
 #endif
-#ifdef OCR_ENABLE_EDT_NAMING
+#if defined(OCR_ENABLE_EDT_NAMING) || defined(OCR_TRACE_BINARY)
         TPRINTF("EDT Start: %s 0x%"PRIx64" in %s\n",
                 base->name, base->guid, location);
 #else
@@ -1973,7 +1976,7 @@ u8 taskExecute(ocrTask_t* base) {
         retGuid = base->funcPtr(paramc, paramv, depc, depv);
         EXIT_PROFILE;
 #endif /* ENABLE_POLICY_DOMAIN_HC_DIST */
-#ifdef OCR_ENABLE_EDT_NAMING
+#if defined(OCR_ENABLE_EDT_NAMING) || defined(OCR_TRACE_BINARY)
         TPRINTF("EDT End: %s 0x%"PRIx64" in %s\n",
                 base->name, base->guid, location);
 #else
@@ -1987,7 +1990,7 @@ u8 taskExecute(ocrTask_t* base) {
         while (ch < depc) {
             if (memcmp((char *)&defensiveDepv[ch], (char *)&depv[ch], sizeof(ocrEdtDep_t)) != 0) {
                 DPRINTF(DEBUG_LVL_WARN, "Warning: EDT %s "GUIDF" had depv[%"PRIu32"] modified by user code",
-#ifdef OCR_ENABLE_EDT_NAMING
+#if defined(OCR_ENABLE_EDT_NAMING) || defined(OCR_TRACE_BINARY)
                     base->name,
 #else
                     "",

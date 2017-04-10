@@ -150,8 +150,11 @@ void populateTraceObject(u64 location, bool evtType, ocrTraceType_t objType, ocr
                 void (*traceFunc)() = va_arg(ap, void *);
                 ocrGuid_t taskGuid = va_arg(ap, ocrGuid_t);
                 ocrEdt_t func = va_arg(ap, ocrEdt_t);
+                char *nameIn = va_arg(ap, char *);
+                char nameOut[OCR_EDT_NAME_SIZE];
+                memcpy(nameOut, nameIn, sizeof(nameOut));
                 //Callback
-                traceFunc(location, evtType, objType, actionType, workerId, timestamp, parent, taskGuid, func);
+                traceFunc(location, evtType, objType, actionType, workerId, timestamp, parent, taskGuid, func, nameOut);
 #else
                 INIT_TRACE_OBJECT()
                 //Get callback function ptr, but ignore; arrange trace obj manually
@@ -180,8 +183,12 @@ void populateTraceObject(u64 location, bool evtType, ocrTraceType_t objType, ocr
                 //Get var args
                 void (*traceFunc)() = va_arg(ap, void *);
                 ocrGuid_t taskGuid = va_arg(ap, ocrGuid_t);
+                u64 startTime = va_arg(ap, u64);
+                char *nameIn = va_arg(ap, char *);
+                char nameOut[OCR_EDT_NAME_SIZE];
+                memcpy(nameOut, nameIn, sizeof(nameOut));
                 //Callback
-                traceFunc(location, evtType, objType, actionType, workerId, timestamp, parent, taskGuid);
+                traceFunc(location, evtType, objType, actionType, workerId, timestamp, parent, taskGuid, startTime, nameOut);
 #else
                 INIT_TRACE_OBJECT();
                 //Get callback function ptr, but ignore; arrange trace obj manually

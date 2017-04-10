@@ -22,7 +22,7 @@
 #include "ocr-perfmon.h"
 #endif
 
-#ifdef OCR_ENABLE_EDT_NAMING
+#if defined(OCR_ENABLE_EDT_NAMING) || defined(OCR_TRACE_BINARY)
 #ifndef OCR_EDT_NAME_SIZE
 #define OCR_EDT_NAME_SIZE 32
 #endif
@@ -161,7 +161,7 @@ typedef struct _ocrTaskTemplate_t {
     // moving code around and/or different ISAs. Is this
     // going to be a problem...
     ocrEdt_t executePtr;    /**< Function pointer to execute */
-#ifdef OCR_ENABLE_EDT_NAMING
+#if defined(OCR_ENABLE_EDT_NAMING) || defined(OCR_TRACE_BINARY)
     const char name[OCR_EDT_NAME_SIZE];       /**< Name of the EDT */
 #endif
 #ifdef ENABLE_EXTENSION_PERF
@@ -427,7 +427,7 @@ typedef struct _ocrTask_t {
     ocrGuid_t templateGuid; /**< GUID for the template of this task */
     ocrEdt_t funcPtr;       /**< Function to execute */
     u64* paramv;            /**< Pointer to the paramaters; should be inside task metadata */
-#ifdef OCR_ENABLE_EDT_NAMING
+#if defined(OCR_ENABLE_EDT_NAMING) || defined(OCR_TRACE_BINARY)
     const char name[OCR_EDT_NAME_SIZE];       /**< Name of the EDT (for debugging purposes */
 #endif
     ocrGuid_t outputEvent;  /**< Event to notify when the EDT is done */
@@ -437,6 +437,9 @@ typedef struct _ocrTask_t {
     ocrEdtState_t state;    /**< State of the EDT */
     u32 paramc, depc;       /**< Number of parameters and dependences */
     u32 flags;              /**< Bit flags for the task */
+#ifdef OCR_TRACE_BINARY
+    u64 startTime;
+#endif
     u32 fctId;
 #ifdef ENABLE_EXTENSION_PERF
     ocrPerfCounters_t *taskPerfsEntry;

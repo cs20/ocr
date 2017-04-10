@@ -205,7 +205,7 @@ u8 ocrEdtTemplateCreate_internal(ocrGuid_t *guid, ocrEdt_t funcPtr,
                                  u32 paramc, u32 depc, const char* funcName);
 
 
-#ifdef OCR_ENABLE_EDT_NAMING
+#if defined(OCR_ENABLE_EDT_NAMING) || defined(OCR_TRACE_BINARY)
 /**
  * @brief Creates an EDT template
  * @see ocrEdtTemplateCreate_internal()

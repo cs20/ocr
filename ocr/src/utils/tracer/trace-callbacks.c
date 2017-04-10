@@ -62,23 +62,29 @@ void __attribute__ ((weak)) traceTaskSatisfyDependence(u64 location, bool evtTyp
 void __attribute__ ((weak)) traceTaskExecute(u64 location, bool evtType, ocrTraceType_t objType,
                                             ocrTraceAction_t actionType, u64 workerId,
                                             u64 timestamp, ocrGuid_t parent, ocrGuid_t edtGuid,
-                                            ocrEdt_t funcPtr){
+                                            ocrEdt_t funcPtr, char nameIn[OCR_EDT_NAME_SIZE]){
 
     //TRACING CALLBACKS - Task Execute
     INIT_TRACE_OBJECT();
     TRACE_FIELD(TASK, taskExeBegin, tr, taskGuid) = edtGuid;
     TRACE_FIELD(TASK, taskExeBegin, tr, funcPtr) = funcPtr;
+    TRACE_FIELD(TASK, taskExeBegin, tr, strLen) = strlen(nameIn);
+    memcpy(TRACE_FIELD(TASK, taskExeBegin, tr, name), nameIn, (sizeof(char)*OCR_EDT_NAME_SIZE));
     PUSH_TO_TRACE_DEQUE();
     return;
 }
 
 void __attribute__ ((weak)) traceTaskFinish(u64 location, bool evtType, ocrTraceType_t objType,
                                             ocrTraceAction_t actionType, u64 workerId,
-                                            u64 timestamp, ocrGuid_t parent, ocrGuid_t edtGuid){
+                                            u64 timestamp, ocrGuid_t parent, ocrGuid_t edtGuid,
+                                            u64 startTime, char nameIn[OCR_EDT_NAME_SIZE]){
 
     //TRACING CALLBACKS - Task Finish
     INIT_TRACE_OBJECT();
     TRACE_FIELD(TASK, taskExeEnd, tr, taskGuid) = edtGuid;
+    TRACE_FIELD(TASK, taskExeEnd, tr, startTime) = startTime;
+    TRACE_FIELD(TASK, taskExeEnd, tr, strLen) = strlen(nameIn);
+    memcpy(TRACE_FIELD(TASK, taskExeEnd, tr, name), nameIn, (sizeof(char)*OCR_EDT_NAME_SIZE));
     PUSH_TO_TRACE_DEQUE();
     return;
 }

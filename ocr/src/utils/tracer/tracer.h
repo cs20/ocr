@@ -24,6 +24,10 @@
 #define MAX_DEPS 32
 #endif
 
+#ifndef OCR_EDT_NAME_SIZE
+#define OCR_EDT_NAME_SIZE 32
+#endif
+
 bool isDequeFull(deque_t *deq);
 bool isSystem(ocrPolicyDomain_t *pd);
 bool isSupportedTraceType(bool evtType, ocrTraceType_t ttype, ocrTraceAction_t atype);
@@ -120,10 +124,15 @@ typedef struct {
                     u64 depc;                       /* Number of dependencies associated with task */
                     u64 paramc;                     /* Number of paramaters associated with task */
                     u64 paramv[MAX_PARAMS];         /* List of paramaters associated with task */
+                    char name[OCR_EDT_NAME_SIZE];
+                    u64 strLen;
                 }taskExeBegin;
 
                 struct{
                     ocrGuid_t taskGuid;             /* GUID of task completing */
+                    u64 startTime;
+                    char name[OCR_EDT_NAME_SIZE];
+                    u64 strLen;
                     void *edt;                      /* Pointer to EDT */
                     u32 count;                      /* Number of times this EDT has executed */
                     u64 hwCycles;                   /* Perf counter: total clock cycles */

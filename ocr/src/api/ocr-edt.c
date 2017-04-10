@@ -157,7 +157,7 @@ u8 ocrEdtTemplateCreate_internal(ocrGuid_t *guid, ocrEdt_t funcPtr, u32 paramc, 
     START_PROFILE(api_ocrEdtTemplateCreate);
     DPRINTF(DEBUG_LVL_INFO, "ENTER ocrEdtTemplateCreate(*guid="GUIDF", funcPtr=%p, paramc=%"PRId32", depc=%"PRId32", name=%s)\n",
             GUIDA(*guid), funcPtr, (s32)paramc, (s32)depc, funcName?funcName:"");
-#ifdef OCR_ENABLE_EDT_NAMING
+#if defined(OCR_ENABLE_EDT_NAMING) || defined(OCR_TRACE_BINARY)
     // Please check that OCR_ENABLE_EDT_NAMING is defined in the app's makefile
     ASSERT(funcName);
 #endif
@@ -177,7 +177,7 @@ u8 ocrEdtTemplateCreate_internal(ocrGuid_t *guid, ocrEdt_t funcPtr, u32 paramc, 
     PD_MSG_FIELD_I(paramc) = paramc;
     PD_MSG_FIELD_I(depc) = depc;
     PD_MSG_FIELD_I(properties) = 0;
-#ifdef OCR_ENABLE_EDT_NAMING
+#if defined(OCR_ENABLE_EDT_NAMING) || defined(OCR_TRACE_BINARY)
     {
         u32 t = ocrStrlen(funcName);
         if(t >= OCR_EDT_NAME_SIZE) {

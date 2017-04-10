@@ -150,7 +150,6 @@ def postProcessLog(log,):
         uniqPds.append(line.split()[PD_ID_INDEX])
         uniqWrkrs.append(line.split()[WRKR_ID_INDEX])
         if(line.split()[TRACE_TYPE_INDEX] == "EDT") and (line.split()[TRACE_ACTION_INDEX] == "CREATE"):
-            print line
             guid = line.split()[EDT_GUID_INDEX]
             pd   = line.split()[PD_ID_INDEX]
             time = int(line.split()[TIMESTAMP_INDEX])

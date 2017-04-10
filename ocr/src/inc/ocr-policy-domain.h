@@ -634,7 +634,7 @@ typedef struct _ocrPolicyMsg_t {
                     u32 paramc;            /**< In: Number of parameters for EDT */
                     u32 depc;              /**< In: Number of dependences for EDT */
                     u32 properties;        /**< In: Properties */
-#ifdef OCR_ENABLE_EDT_NAMING
+#if defined(OCR_ENABLE_EDT_NAMING) || defined(OCR_TRACE_BINARY)
                     const char * funcName; /**< In: Debug help: user identifier */
                     u64 funcNameLen;       /**< In: Number of characters (excluding '\0') in funcName */
 #endif
