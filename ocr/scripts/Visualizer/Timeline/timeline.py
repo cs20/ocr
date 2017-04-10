@@ -16,6 +16,7 @@ import math
 from operator import itemgetter
 import itertools
 
+USE_TRACE_FORMAT = False
 
 #Line split indices for each line from logs
 START_TIME_INDEX = 9
@@ -67,6 +68,27 @@ def shiftParseIndicesTG():
     PD_ID_INDEX=0
     PD_OFFSET=3
 
+
+def shiftParseIndicesTracing():
+    global START_TIME_INDEX
+    global END_TIME_INDEX
+    global FCT_NAME_INDEX
+    global WORKER_ID_INDEX
+    global PD_ID_INDEX
+    global PD_OFFSET
+    global WORKER_OFFSET
+    global GUID_INDEX
+
+    START_TIME_INDEX = 23
+    END_TIME_INDEX = 14
+    FCT_NAME_INDEX = 26
+    GUID_INDEX = 11
+    WORKER_ID_INDEX = 8
+    PD_ID_INDEX = 5
+    WORKER_OFFSET = 0
+    PD_OFFSET=0
+
+
 #========= Write EDT EXECTUION events to html file ==========
 def postProcessData(inString, outFile, offSet, lastLineFlag, counter, color):
     words = inString.split()
@@ -96,13 +118,16 @@ def postProcessData(inString, outFile, offSet, lastLineFlag, counter, color):
 #========== Strip Un-needed events from OCR debug log ========
 def runShellStripDist(dbgLog):
     os.system("egrep -w \'EDT\\(INFO\\)|EVT\\(INFO\\)\' " + str(dbgLog) + " | egrep -w \'FctName\' > " + STRIPPED_RECORDS)
-    return 0
 
 #========== Strip Un-needed events from OCR debug log ========
 def runShellStrip(dbgLog):
     os.system("egrep -w \'EDT\\(INFO\\)|EVT\\(INFO\\)\' " + str(dbgLog) + " | egrep -w \'FctName\' | grep -v '&processRequestEdt' > " + STRIPPED_RECORDS)
-    return 0
 
+def runTraceStrip(dbgLog):
+    os.system("egrep -w FINISH " + str(dbgLog) + " | grep -v processRequestEdt > " + STRIPPED_RECORDS)
+
+def runTraceStripDist(dbgLog):
+    os.system("egrep -w FINISH " + str(dbgLog) + " > " + STRIPPED_RECORDS)
 
 #========= Strip PD specific records for distributed timelines ======
 def createFilePerPD(pds, dbgLog):
@@ -759,6 +784,7 @@ def main():
     global user_flag_combine
     global max_edts_per_page
     global user_flag_force_single
+    global USE_TRACE_FORMAT
 
     if len(sys.argv) < 2 or len(sys.argv) > 5: usage()
 
@@ -769,9 +795,12 @@ def main():
     if len(sys.argv) > 2:
         if "-fsim" in sys.argv:
             shiftParseIndicesTG()
+        if "-trace" in sys.argv:
+            USE_TRACE_FORMAT = True
+            shiftParseIndicesTracing()
         for i in xrange(2, len(sys.argv)):
             a = sys.argv[i]
-            if(a != '-s' and a != '-c' and a != '-f' and a != '-fsim'): usage()
+            if(a != '-s' and a != '-c' and a != '-f' and a != '-fsim' and a != '-trace'): usage()
         if '-s' in sys.argv: user_flag_sys = True
         if '-c' in sys.argv: user_flag_combine = True
         if '-f' in sys.argv: user_flag_force_single = True
@@ -780,13 +809,16 @@ def main():
     if user_flag_force_single == True:
         max_edts_per_page = HUGE_CONSTANT
 
-    if user_flag_sys == True:
+
+
+    if user_flag_sys:
         runShellStripDist(dbgLog)
+    elif USE_TRACE_FORMAT:
+        runTraceStrip(dbgLog)
     else:
         runShellStrip(dbgLog)
     #Get Number of Policy Domains present in logfile
     nodes = getNodes(STRIPPED_RECORDS)
-
     if(len(nodes) > 1): # Multi-node trace
         if user_flag_force_single == False:
             max_edts_per_page = (max_edts_per_page/(len(nodes)))
