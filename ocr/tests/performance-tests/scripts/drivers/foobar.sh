@@ -72,12 +72,14 @@ SCRIPT_ROOT=./scripts ./scripts/perfDriver.sh -logdir ${LOGDIR} -target ${OCR_TY
 SCRIPT_ROOT=./scripts ./scripts/perfDriver.sh -logdir ${LOGDIR} -target ${OCR_TYPE} event0OnceCreate
 SCRIPT_ROOT=./scripts ./scripts/perfDriver.sh -logdir ${LOGDIR} -target ${OCR_TYPE} event0LatchCreate
 SCRIPT_ROOT=./scripts ./scripts/perfDriver.sh -logdir ${LOGDIR} -target ${OCR_TYPE} event0CountedCreate
+SCRIPT_ROOT=./scripts ./scripts/perfDriver.sh -logdir ${LOGDIR} -target ${OCR_TYPE} event0ChannelCreate
 
 export CUSTOM_BOUNDS="NB_INSTANCES=1 NB_ITERS=10000000" # 1s
 SCRIPT_ROOT=./scripts ./scripts/perfDriver.sh -logdir ${LOGDIR} -target ${OCR_TYPE} event0StickyDestroy
 SCRIPT_ROOT=./scripts ./scripts/perfDriver.sh -logdir ${LOGDIR} -target ${OCR_TYPE} event0OnceDestroy
 SCRIPT_ROOT=./scripts ./scripts/perfDriver.sh -logdir ${LOGDIR} -target ${OCR_TYPE} event0LatchDestroy
 SCRIPT_ROOT=./scripts ./scripts/perfDriver.sh -logdir ${LOGDIR} -target ${OCR_TYPE} event0CountedDestroy
+SCRIPT_ROOT=./scripts ./scripts/perfDriver.sh -logdir ${LOGDIR} -target ${OCR_TYPE} event0ChannelDestroy
 
 # Event -> EDT | Time AddDep and Satisfy
 export CUSTOM_BOUNDS="NB_ITERS=3000000 FAN_OUT=${VAL_FAN_OUT}" # 2.6
@@ -124,11 +126,13 @@ printTimePerOpNano ${LOGDIR}/report-event0StickyCreate ${outfile} ${raw_outfile}
 printTimePerOpNano ${LOGDIR}/report-event0OnceCreate ${outfile} ${raw_outfile} '* A once event creation takes:'
 printTimePerOpNano ${LOGDIR}/report-event0LatchCreate ${outfile} ${raw_outfile} '* A latch event creation takes:'
 printTimePerOpNano ${LOGDIR}/report-event0CountedCreate ${outfile} ${raw_outfile} '* A counted event creation takes:'
+printTimePerOpNano ${LOGDIR}/report-event0ChannelCreate ${outfile} ${raw_outfile} '* A channel event creation takes:'
 
 printTimePerOpNano ${LOGDIR}/report-event0StickyDestroy ${outfile} ${raw_outfile} '* A sticky event destruction takes:'
 printTimePerOpNano ${LOGDIR}/report-event0OnceDestroy ${outfile} ${raw_outfile} '* A once event destruction takes:'
 printTimePerOpNano ${LOGDIR}/report-event0LatchDestroy ${outfile} ${raw_outfile} '* A latch event destruction takes:'
 printTimePerOpNano ${LOGDIR}/report-event0CountedDestroy ${outfile} ${raw_outfile} '* A counted event destruction takes:'
+printTimePerOpNano ${LOGDIR}/report-event0ChannelDestroy ${outfile} ${raw_outfile} '* A channel event destruction takes:'
 
 printTimePerOpNano ${LOGDIR}/report-event1StickyFanOutEdtAddDep ${outfile} ${raw_outfile} "* Add dependences between a source sticky event to ${VAL_FAN_OUT} EDT's slots takes:"
 printTimePerOpNano ${LOGDIR}/report-event1OnceFanOutEdtAddDep ${outfile} ${raw_outfile} "* Add dependences between a source once event to ${VAL_FAN_OUT} EDT's slots takes:"
