@@ -87,6 +87,13 @@ while [[ $# -gt 0 ]]; do
         REPORT_OPT="yes"
         REPORT_ARG=("$@")
         shift
+    elif [[ "$1" = "-reportOnly" && $# -ge 3 ]]; then
+        shift
+        REPORT_ONLY_OPT="yes"
+        REPORT_ONLY_RUNLOG_ARG=("$@")
+        shift
+        REPORT_ONLY_REPORT_ARG=("$@")
+        shift
     elif [[ "$1" = "-target" && $# -ge 2 ]]; then
         shift
         TARGET_ARG=("$@")
@@ -114,6 +121,38 @@ while [[ $# -gt 0 ]]; do
         shift
     fi
 done
+
+
+function generateReport() {
+    # WARNING WARNING WARNING
+    # Whenever an additional print line is added here, the post-processing
+    # scripts must be updated to correctly strip out those additional lines.
+    echo "start_date: ${START_DATE}" >> ${report}
+    if [[ $defines = "" ]]; then
+        echo "defines_set: defaults.mk" >> ${report}
+    else
+        echo "defines: ${defines}" >> ${report}
+    fi
+    echo "== Scaling Report ==" >> ${report}
+
+    # Generate a report based on any filename matching ${RUNLOG_FILE}*
+    reportGenOpt=""
+    if [[ "${NOCLEAN_OPT}" = "yes" ]]; then
+        reportGenOpt="-noclean"
+    fi
+    echo "${SCRIPT_ROOT}/reportGenerator.sh ${reportGenOpt} ${runlog} >> ${report}"
+    ${SCRIPT_ROOT}/reportGenerator.sh ${reportGenOpt} ${runlog} >> ${report}
+}
+
+# This is to only run the report generation when the runs have already happened
+if [[ "${REPORT_ONLY_OPT}" = "yes" ]]; then
+    START_DATE=`date`
+    defines=""
+    runlog="${REPORT_ONLY_RUNLOG_ARG}"
+    report="${REPORT_ONLY_REPORT_ARG}"
+    generateReport
+    exit 0
+fi
 
 if [[ -z "$PROG_ARG" ]]; then
     echo "error: ${SCRIPT_NAME} is missing program argument"
@@ -144,6 +183,7 @@ if [[ -z "$REPORT_ARG" ]]; then
 else
     REPORT_ARG="${LOGDIR}/${REPORT_ARG}"
 fi
+
 
 # Utility to delete a file only when NOCLEAN is set to "no"
 function deleteFiles() {
@@ -302,7 +342,11 @@ function runApplication {
 
     # Run the program with the appropriate OCR cfg file
     echo "Run OCR Application ${prog} ${runInfo}"
-    eval ${progDefines} make -f ${OCR_MAKEFILE} OCR_CONFIG=${PWD}/${CFGARG_OUTPUT} run
+    OCR_CONFIG=${CFGARG_OUTPUT}
+    if [[ "${OCR_CONFIG}" != /* ]]; then
+        OCR_CONFIG=${PWD}/${OCR_CONFIG}
+    fi
+    eval ${progDefines} make -f ${OCR_MAKEFILE} OCR_CONFIG=${OCR_CONFIG} run
     RES=$?
     eval $__resultvar="'$RES'"
 }
@@ -430,24 +474,7 @@ function runTest() {
         let i=$i+1;
     done
 
-    # WARNING WARNING WARNING
-    # Whenever an additional porint line is added here, the post-processing
-    # scripts must be updated to correctly strip out those additional lines.
-    echo "start_date: ${START_DATE}" >> ${report}
-    if [[ $defines = "" ]]; then
-        echo "defines_set: defaults.mk" >> ${report}
-    else
-        echo "defines: ${defines}" >> ${report}
-    fi
-    echo "== Scaling Report ==" >> ${report}
-
-    # Generate a report based on any filename matching ${RUNLOG_FILE}*
-    reportGenOpt=""
-    if [[ "$NOCLEAN_OPT" = "yes" ]]; then
-        reportGenOpt="-noclean"
-    fi
-    echo "${SCRIPT_ROOT}/reportGenerator.sh ${reportGenOpt} ${runlog} >> ${report}"
-    ${SCRIPT_ROOT}/reportGenerator.sh ${reportGenOpt} ${runlog} >> ${report}
+    generateReport
 }
 
 echo "Running core scaling for ${PROG_ARG}"
