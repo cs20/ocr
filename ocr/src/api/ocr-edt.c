@@ -151,6 +151,16 @@ u8 ocrEventSatisfy(ocrGuid_t eventGuid, ocrGuid_t dataGuid /*= INVALID_GUID*/) {
     return ocrEventSatisfySlot(eventGuid, dataGuid, 0);
 }
 
+u8 ocrGetOutputEvent(ocrGuid_t *evt) {
+    ocrTask_t * curEdt = NULL;
+    getCurrentEnv(NULL, NULL, &curEdt, NULL);
+    *evt = NULL_GUID;
+    if (curEdt == NULL)
+        return OCR_EPERM;
+    *evt = curEdt->outputEvent;
+    return 0;
+}
+
 u8 ocrEdtTemplateCreate_internal(ocrGuid_t *guid, ocrEdt_t funcPtr, u32 paramc, u32 depc, const char* funcName) {
     OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_API_EDT, OCR_ACTION_TEMPLATE_CREATE, funcPtr, paramc, depc);
     START_PROFILE(api_ocrEdtTemplateCreate);

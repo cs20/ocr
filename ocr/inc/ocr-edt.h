@@ -166,6 +166,11 @@ u8 ocrEventSatisfy(ocrGuid_t eventGuid, ocrGuid_t dataGuid /*=NULL_GUID*/);
 u8 ocrEventSatisfySlot(ocrGuid_t eventGuid, ocrGuid_t dataGuid, u32 slot);
 
 /**
+ * @brief Get the output event of currently running EDT
+ */
+u8 ocrGetOutputEvent(ocrGuid_t *evt);
+
+/**
    @}
 **/
 
