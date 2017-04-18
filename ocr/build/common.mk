@@ -814,9 +814,12 @@ $(OBJDIR)/shared/%.o: %.S Makefile ../common.mk $(OBJDIR)/shared/%.d | $(OBJDIR)
 # We always attempt to re-generate this file
 # We don't change it all the time as this messes up dependence
 # checking for applications.
+# Note we sort and the cflags in-case ordering is different across builds.
+# As it is implemented there's a risk modifications to whitespace separated options will not detected.
+# This should be ok as it's mostly about include paths
 OPTIONS_FILE_UPTODATE := no
 ifneq ("$(wildcard $(OCR_INSTALL)/include/ocr-options_$(OCR_TYPE).h)", "")
-  ifeq ($(shell cat $(OCR_INSTALL)/include/ocr-options_$(OCR_TYPE).h | sed '4s/.*RT CFLAGS:\(.*\)\*\//\1/; 4!d' | xargs ), $(shell echo "$(CFLAGS)" | xargs))
+  ifeq ($(shell cat $(OCR_INSTALL)/include/ocr-options_$(OCR_TYPE).h | sed '4s/.*RT CFLAGS:\(.*\)\*\//\1/; 4!d' | tr ' ' '\n' | sort | uniq | xargs ), $(shell echo "$(CFLAGS)" | tr ' ' '\n' | sort | uniq | xargs))
     OPTIONS_FILE_UPTODATE := yes
   endif
 endif
@@ -825,7 +828,7 @@ endif
 # so that we can build without installing and not have to rebuild when we install
 OPTIONS_UPTODATE := no
 ifneq ("$(wildcard $(OCR_BUILD)/cflags)", "")
-  ifeq ($(shell cat $(OCR_BUILD)/cflags | xargs), $(shell echo "$(CFLAGS)" | xargs))
+  ifeq ($(shell cat $(OCR_BUILD)/cflags | tr ' ' '\n' | sort | uniq | xargs), $(shell echo "$(CFLAGS)" | tr ' ' '\n' | sort | uniq | xargs))
     OPTIONS_UPTODATE := yes
   endif
 endif
