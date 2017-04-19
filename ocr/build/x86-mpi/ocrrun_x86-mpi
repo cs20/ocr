@@ -102,7 +102,9 @@ if [[ "$RES" != "" ]]; then
 
     if [ "${OCRRUN_OPT_ENVKIND}" == "CLE" ] && [ "${OCR_NODEFILE}" == "" ]; then
         # For CLE need to tweak the args when it's a local run
-        OCR_MPI_OPTS+="-N ${OCR_NUM_NODES} -n ${OCR_NUM_NODES}"
+        OCR_MPI_OPTS+=" -N ${OCR_NUM_NODES} -n ${OCR_NUM_NODES}"
+    elif [ "${OCRRUN_OPT_ENVKIND}" == "SLURM" ]; then
+        OCR_MPI_OPTS+=" -N ${OCR_NUM_NODES} -n ${OCR_NUM_NODES}"
     else
         OCR_MPI_OPTS+=" ${OCRRUN_OPT_NUM_NODES} ${OCR_NUM_NODES}"
     fi
@@ -146,6 +148,12 @@ if [[ "$RES" != "" ]]; then
         PROGRAM_BIN="hpcrun -t -o ${OCRRUN_HPCTOOLKIT_MEAS} ${OCRRUN_HPCTOOLKIT_OPTS} ${PROGRAM_BIN}"
     fi
 
+    if [[ "${OCRRUN_VTUNE}" == "yes" ]]; then
+        OCRRUN_VTUNE_COLLECT=${OCRRUN_VTUNE_COLLECT-"advanced-hotspots"}
+        OCRRUN_VTUNE_RESULTDIR=${OCRRUN_VTUNE_RESULTDIR-"${PROGPATH}/vtune-trace"} #"
+        PROGRAM_BIN="amplxe-cl -collect ${OCRRUN_VTUNE_COLLECT} -trace-mpi -result-dir ${OCRRUN_VTUNE_RESULTDIR} ${PROGRAM_BIN}"
+    fi
+
     ${OCRRUN_OPT_CMD} ${OCR_MPI_OPTS} ${PROGRAM_BIN} -ocr:cfg ${OCR_CONFIG}
     RET_CODE=$?
 
@@ -164,5 +172,3 @@ fi
 ${PROGRAM_BIN} -ocr:cfg ${OCR_CONFIG}
 RET_CODE=$?
 exit ${RET_CODE}
-
-
