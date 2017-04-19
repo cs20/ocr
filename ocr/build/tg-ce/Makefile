@@ -36,7 +36,7 @@ ifeq ($(FORCE_CC), no)
 endif # End of ifeq force_cc
 
 CFLAGS  := -m64 -mcmodel=large -fno-builtin -fno-stack-protector -Wno-unused-local-typedefs \
-		-I${TG_INSTALL}/include
+		-mno-red-zone -I${TG_INSTALL}/include
 
 RM      := rm
 RMFLAGS := -rf
