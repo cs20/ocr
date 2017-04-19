@@ -42,12 +42,12 @@ ocrGuid_t mainEdt(u32 paramc, u64 paramv[], u32 depc, ocrEdtDep_t depv[]) {
     ocrDbCreate(&event_array_guid, (void**)&event_array, N*sizeof(ocrGuid_t), DB_PROP_NONE, NULL_HINT, NO_ALLOC);
     ocrEdtTemplateCreate(&A_template, A, 1, 1);
     ocrEdtTemplateCreate(&done_template, done, 0, 1);
-    ocrEventCreate(&latch_guid, OCR_EVENT_LATCH_T, FALSE);
+    ocrEventCreate(&latch_guid, OCR_EVENT_LATCH_T, EVT_PROP_NONE);
     ocrAddDependence(NULL_GUID, latch_guid, OCR_EVENT_LATCH_INCR_SLOT, DB_MODE_CONST);
     ocrEdtCreate(&done_edt, done_template, 0, NULL, 1, &latch_guid, EDT_PROP_NONE, NULL_HINT, NULL);
 
     for(i = 0; i < N; i++) {
-        ocrEventCreate(&event_array[i], OCR_EVENT_ONCE_T, FALSE);
+        ocrEventCreate(&event_array[i], OCR_EVENT_ONCE_T, EVT_PROP_NONE);
     }
 
     for(i = 0; i < N; i++) {
