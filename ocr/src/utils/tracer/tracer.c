@@ -9,6 +9,12 @@
 #include "utils/tracer/tracer.h"
 #include "worker/hc/hc-worker.h"
 
+// The flag below has been added to support tracing of memory allocation.
+// Trace uses an allocation to do it's job and when tracing allocation
+// this causes a recursive race condition resulting in stack overflow.
+// This flag allows tracing of allocations without including the trace
+// sub-system's allocation usage.
+__thread bool inside_trace = false;
 
 bool isDequeFull(deque_t *deq){
     if(deq == NULL) return false;
@@ -334,6 +340,39 @@ void populateTraceObject(u64 location, bool evtType, ocrTraceType_t objType, ocr
                 ocrGuid_t dbGuid = va_arg(ap, ocrGuid_t);
                 //Callback
                 traceFunc(location, evtType, objType, actionType, workerId, timestamp, parent, dbGuid);
+                break;
+            }
+            default:
+                break;
+        }
+        break;
+
+    case OCR_TRACE_TYPE_ALLOCATOR:
+
+        switch(actionType){
+
+            case OCR_ACTION_ALLOCATE:
+            {
+                //Get var args
+                void (*traceFunc)() = va_arg(ap, void *);
+                u64 startTime = va_arg(ap, u64);
+                u64 callFunc = va_arg(ap, u64);
+                u64 memSize = va_arg(ap, u64);
+                u64 memHint = va_arg(ap, u64);
+                void * memPtr = va_arg(ap, void *);
+                //Callback
+                traceFunc(location, evtType, objType, actionType, workerId, timestamp, parent, startTime, callFunc, memSize, memHint, memPtr);
+                break;
+            }
+            case OCR_ACTION_DEALLOCATE:
+            {
+                //Get var args
+                void (*traceFunc)() = va_arg(ap, void *);
+                u64 startTime = va_arg(ap, u64);
+                u64 callFunc = va_arg(ap, u64);
+                void * memPtr = va_arg(ap, void *);
+                //Callback
+                traceFunc(location, evtType, objType, actionType, workerId, timestamp, parent, startTime, callFunc, memPtr);
                 break;
             }
             default:

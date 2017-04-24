@@ -697,7 +697,9 @@ extern char * pd_msg_type_to_str(int type);
 
 #ifdef OCR_TRACE_BINARY
 //Call Tracing Function
+extern __thread bool inside_trace;
 #define OCR_TOOL_TRACE(...) do {             \
+    if (! inside_trace ) {                   \
     ocrTask_t *_task = NULL; ocrWorker_t *_worker = NULL;               \
     struct _ocrPolicyDomain_t *_pd = NULL;                              \
     getCurrentEnv(&_pd, &_worker, &_task, NULL);                        \
@@ -705,11 +707,17 @@ extern char * pd_msg_type_to_str(int type);
             _worker?(u64)_worker->id:0,                                 \
             _task?_task->guid:NULL_GUID,                                \
             ## __VA_ARGS__);                                            \
+    }                                                                   \
+    } while(0)
+
+#define OCR_TOOL_TRACE_GETTIME(timestamp) do {             \
+    timestamp = salGetTime();                              \
     } while(0)
 
 #else
 //NO-OP
 #define OCR_TOOL_TRACE(...)
+#define OCR_TOOL_TRACE_GETTIME()
 
 #endif /* OCR_TRACE_BINARY */
 
