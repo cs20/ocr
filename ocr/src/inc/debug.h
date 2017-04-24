@@ -80,6 +80,7 @@ extern void doTrace(u64 location, u64 wrkr, ocrGuid_t taskGuid, ...);
 extern u64 Debug_Mask;
 extern char * pd_msg_type_to_str(int type);
 #define DEBUG_MSK_MSGSTATS 0x0000000000000008
+#define DEBUG_MSK_EDTSTATS 0x0000000000000010
 
 #ifdef OCR_DEBUG_ALLOCATOR
 #define OCR_DEBUG_ALLOCATOR 1
