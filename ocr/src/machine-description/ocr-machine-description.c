@@ -754,22 +754,60 @@ s32 populate_inst(ocrParamList_t **inst_param, int inst_param_size, void **insta
         for (j = low; j<=high; j++) {
 
             compPlatformType_t mytype = -1;
-
             TO_ENUM (mytype, inststr, compPlatformType_t, compplatform_types, compPlatformMax_id);
             switch (mytype) {
 #ifdef ENABLE_COMP_PLATFORM_PTHREAD
             case compPlatformPthread_id: {
                 ALLOC_PARAM_LIST(inst_param[j], paramListCompPlatformPthread_t);
-
                 snprintf(key, MAX_KEY_SZ, "%s:%s", secname, "stacksize");
                 INI_GET_INT (key, value, -1);
                 ((paramListCompPlatformPthread_t *)inst_param[j])->stackSize = (value==-1)?0:value;
                 if (key_exists(dict, secname, "binding")) {
                     value = get_key_value(dict, secname, "binding", j-low);
-                    ((paramListCompPlatformPthread_t *)inst_param[j])->binding = value;
+                    ((paramListCompPlatformPthread_t *)inst_param[j])->bindingInfo.offset = value;
                 } else {
-                    ((paramListCompPlatformPthread_t *)inst_param[j])->binding = -1;
+                    ((paramListCompPlatformPthread_t *)inst_param[j])->bindingInfo.offset = -1;
                 }
+                u16 pdAllocPolicy = ((u16)0);
+                u8 nbPackages = ((u8)0);
+                u8 idsPerPackage = ((u8)0);
+                // Extract information from numa field
+                if (key_exists(dict, secname, "numa")) {
+                    char * strValue;
+                    snprintf(key, MAX_KEY_SZ, "%s:%s", secname, "numa");
+                    INI_GET_STR (key, strValue, "");
+                    const int strSize = 20;
+                    char strValueCpy[strSize];
+                    strncpy(strValueCpy, strValue, strSize-1);
+                    const char * delim = ":";
+                    char * pdAllocPolicyStr = strtok(strValueCpy, delim);
+                    if (!strcmp(pdAllocPolicyStr, "RR")) {
+                        pdAllocPolicy = PD_ALLOC_POLICY_RR;
+                    } else if (!strcmp(pdAllocPolicyStr, "BLOCK")) {
+                        pdAllocPolicy = PD_ALLOC_POLICY_BLOCK;
+                    } else {
+                        DPRINTF(DEBUG_LVL_WARN, "Unrecognized PD allocation policy %s for numa option\n", pdAllocPolicyStr);
+                        printf("Unrecognized PD allocation policy %s for numa option\n", pdAllocPolicyStr);
+                        return 0;
+                    }
+                    char * nbPackagesStr = strtok(NULL, delim);
+                    if (nbPackagesStr == NULL) {
+                        DPRINTF(DEBUG_LVL_WARN, "Malformed numa option (%s) is missing number of packages\n", strValueCpy);
+                        printf("Malformed numa option (%s) is missing number of packages\n", strValueCpy);
+                        return 0;
+                    }
+                    nbPackages = (u8) atoi(nbPackagesStr);
+                    char * idsPerPackageStr = strtok(NULL, delim);
+                    if (idsPerPackageStr == NULL) {
+                        DPRINTF(DEBUG_LVL_WARN, "Malformed numa option (%s) is missing number of id per package\n", strValueCpy);
+                        printf("Malformed numa option (%s) is missing number of id per package\n", strValueCpy);
+                        return 0;
+                    }
+                    idsPerPackage = (u8) atoi(idsPerPackageStr);
+                }
+                ((paramListCompPlatformPthread_t *)inst_param[j])->bindingInfo.pdAllocPolicy = pdAllocPolicy;
+                ((paramListCompPlatformPthread_t *)inst_param[j])->bindingInfo.nbPackages = nbPackages;
+                ((paramListCompPlatformPthread_t *)inst_param[j])->bindingInfo.idsPerPackage = idsPerPackage;
 #ifdef OCR_RUNTIME_PROFILER
                 bool doProfile = false;
                 snprintf(key, MAX_KEY_SZ, "%s:%s", secname, "profilethread");

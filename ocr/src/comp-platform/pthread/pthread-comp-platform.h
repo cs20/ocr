@@ -21,6 +21,7 @@
 #ifdef ENABLE_WORKPILE_CE
 #include "utils/deque.h"
 #endif
+#include "comp-platform/platform-binding-info.h"
 
 #include <pthread.h>
 
@@ -43,17 +44,20 @@ typedef struct {
     pthread_t osThread;
     perThreadStorage_t tls;
     u64 stackSize;
-    s32 binding;
+    bindingInfo_t bindingInfo;
     u32 threadStatus; // RL_NODE_MASTER or RL_PD_MASTER or 0
 #ifdef OCR_RUNTIME_PROFILER
     bool doProfile;
 #endif
 } ocrCompPlatformPthread_t;
 
+#define PD_ALLOC_POLICY_RR    ((u8)1)
+#define PD_ALLOC_POLICY_BLOCK ((u8)2)
+
 typedef struct {
     paramListCompPlatformInst_t base;
     u64 stackSize;
-    s32 binding;
+    bindingInfo_t bindingInfo;
 #ifdef OCR_RUNTIME_PROFILER
     bool doProfile;
 #endif

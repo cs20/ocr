@@ -37,12 +37,34 @@ pthread_key_t _profilerThreadData;
 
 static pthread_once_t selfKeyInitialized = PTHREAD_ONCE_INIT;
 
+// Compute numa-aware cpu binding affinity
+static s32 computeCpuId(bindingInfo_t bindingInfo, u64 pdLocation, u64 nbPdLocations) {
+    s32 offset = bindingInfo.offset;
+    u8 pdAllocPolicy = bindingInfo.pdAllocPolicy;
+    u8 nbPackages = bindingInfo.nbPackages;
+    u16 idsPerPackage = bindingInfo.idsPerPackage;
+    s32 newBinding = offset;
+    if (newBinding == -1) {
+        // Return and don't look at policies
+        return newBinding;
+    } else if (PD_ALLOC_POLICY_RR == pdAllocPolicy) {
+        newBinding = offset + (idsPerPackage * (pdLocation / (nbPdLocations / nbPackages)));
+    } else if (PD_ALLOC_POLICY_BLOCK == pdAllocPolicy) {
+        newBinding = (offset + (idsPerPackage * (pdLocation % nbPackages)));
+    } else {
+        newBinding = offset;
+    }
+    return newBinding;
+}
+
 static void * pthreadRoutineExecute(ocrWorker_t * worker) {
     return worker->fcts.run(worker);
 }
 
 static void pthreadRoutineInitializer(ocrCompPlatformPthread_t * pthreadCompPlatform) {
-    s32 cpuBind = pthreadCompPlatform->binding;
+    ocrPolicyDomain_t * pd = ((ocrCompPlatform_t *) pthreadCompPlatform)->pd;
+    s32 cpuBind = computeCpuId(pthreadCompPlatform->bindingInfo, pd->myLocation, pd->neighborCount);
+    pthreadCompPlatform->bindingInfo.offset = cpuBind;
     if(cpuBind != -1) {
         DPRINTF(DEBUG_LVL_INFO, "Binding comp-platform to cpu_id %"PRId32"\n", cpuBind);
         bindThread(cpuBind);
@@ -316,7 +338,12 @@ void initializeCompPlatformPthread(ocrCompPlatformFactory_t * factory, ocrCompPl
 
     ocrCompPlatformPthread_t *compPlatformPthread = (ocrCompPlatformPthread_t *)derived;
     compPlatformPthread->base.fcts = factory->platformFcts;
-    compPlatformPthread->binding = (params != NULL) ? params->binding : -1;
+    if (params != NULL) {
+        // Default values are inherited from the CFG file parser
+        compPlatformPthread->bindingInfo = params->bindingInfo;
+    } else {
+        compPlatformPthread->bindingInfo = (bindingInfo_t) {.offset = ((s32)-1), .idsPerPackage=((u16)0), .nbPackages=((u8)0), .pdAllocPolicy=((u8)0)};
+    }
     compPlatformPthread->stackSize = ((params != NULL) && (params->stackSize > 0)) ? params->stackSize : 8388608;
 #ifdef OCR_RUNTIME_PROFILER
     compPlatformPthread->doProfile = (params != NULL) ? params->doProfile:true;

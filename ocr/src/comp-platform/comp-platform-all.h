@@ -11,6 +11,7 @@
 #include "ocr-comp-platform.h"
 #include "ocr-config.h"
 #include "utils/ocr-utils.h"
+#include "comp-platform/platform-binding-info.h"
 
 typedef enum _compPlatformType_t {
 #ifdef ENABLE_COMP_PLATFORM_PTHREAD
@@ -34,5 +35,7 @@ extern const char * compplatform_types[];
 // Add other compute platforms using the same pattern as above
 
 ocrCompPlatformFactory_t *newCompPlatformFactory(compPlatformType_t type, ocrParamList_t *typeArg);
+
+u8 getCompPlatformBindingInfo(ocrCompPlatform_t * platform, bindingInfo_t * bindingInfo);
 
 #endif /* __COMP_PLATFORM_ALL_H__ */

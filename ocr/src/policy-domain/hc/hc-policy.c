@@ -40,6 +40,12 @@
 #include "worker/hc/hc-worker.h"
 #endif
 
+#ifdef SHOW_BINDING_INFO
+#include <unistd.h> // For gethostname
+#include "ocr-comp-platform.h"
+#include "comp-platform/platform-binding-info.h"
+#endif
+
 // Currently required to find out if self is the blessed PD
 #include "extensions/ocr-affinity.h"
 #include "ocr-errors.h"
@@ -49,6 +55,71 @@
 #define DBG_LVL_MDEVT   DEBUG_LVL_VERB
 
 extern ocrObjectFactory_t * resolveObjectFactory(ocrPolicyDomain_t *pd, ocrGuidKind kind);
+
+#ifdef SHOW_BINDING_INFO
+static void printBindingInfo(ocrPolicyDomain_t * pd) {
+    char hostname[256];
+    gethostname(hostname,255);
+    printf("[PD=%"PRIu64",host=%s,binding=", pd->myLocation, hostname);
+    u64 i = 0;
+    u64 j = 0;
+    u64 k = 0;
+    u64 ubi = pd->workerCount;
+    if (ubi > 0) {
+        s32 min = 0;
+        s32 max = 0;
+        while (i < ubi) {
+            ocrWorker_t * worker = pd->workers[i];
+            j = 0;
+            u64 ubj = worker->computeCount;
+            while (j < ubj) {
+                ocrCompTarget_t * target = worker->computes[j];
+                k = 0;
+                u64 ubk = target->platformCount;
+                while (k < ubk) {
+                    ocrCompPlatform_t * platform = target->platforms[k];
+                    bindingInfo_t bindingInfo;
+                    u8 res = getCompPlatformBindingInfo(platform, &bindingInfo);
+                    if (!res) { // binding info available
+                        s32 offset = bindingInfo.offset;
+                        if ((i | j | k) == 0) {
+                            min = offset; max = offset;
+                        } else {
+                            // Detect last printout to correctly format the output
+                            if ((i == (ubi-1)) && (j == (ubj-1)) && (k == (ubk-1))) {
+                                if ((i | j | k) != 0) {
+                                    if (offset != (max+1)) {
+                                        printf("%d,",max);
+                                        printf("%d]\n",offset);
+                                    } else {
+                                        printf("%d-%d]\n",min,offset);
+                                    }
+                                } else {
+                                    printf("%d]\n",offset);
+                                }
+                            } else {
+                                if (offset != (max+1)) { // end of consecutive sequence
+                                    if (max == min) { // singleton
+                                        printf("%d,",max);
+                                    } else { // range
+                                        printf("%d-%d,",min,max);
+                                    }
+                                    max = min = offset;
+                                } else {
+                                    max = offset;
+                                }
+                            }
+                        }
+                    }
+                    k++;
+                }
+                j++;
+            }
+            i++;
+        }
+    }
+}
+#endif
 
 // Utility function to enqueue a waiter when the metadata is being fetch
 // Impl will most likely move to runtime events
@@ -597,6 +668,9 @@ u8 hcPdSwitchRunlevel(ocrPolicyDomain_t *policy, ocrRunlevel_t runlevel, u32 pro
                 fclose(fp);
 #endif
                 queueDestroy(policy->taskPerfs);
+#endif
+#ifdef SHOW_BINDING_INFO
+                printBindingInfo(policy);
 #endif
                 //to be deprecated
                 destroyLocationPlacer(policy);

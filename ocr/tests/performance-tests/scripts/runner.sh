@@ -372,15 +372,19 @@ function scalingTest {
 
     for nodes in `echo "${NODE_SCALING}"`; do
         for cores in `echo "${CORE_SCALING}"`; do
+            if [[ -n "${CFGARG_NUMA}" ]]; then
+                OCR_NUMA_FACTOR=`echo ${CFGARG_NUMA} | cut -d':' -f2-2`
+            fi
             export nodes_all=${nodes}
-            export pes_per_node=${cores}
-            export pes_all=`echo "${cores}*${nodes}" | bc`
+            export processes_all=$(( ${nodes} * ${OCR_NUMA_FACTOR} ))
+            export pes_per_process=${cores}
+            export pes_all=`echo "${cores}*${processes_all}" | bc`
             if [[ "${OCR_TYPE}" == "x86-mpi" ]]; then
-                export pes_comp=`echo "(${cores}-1)*${nodes}" | bc`
+                export pes_comp=`echo "(${cores}-1)*${processes_all}" | bc`
             else
                 export pes_comp=${pes_all}
             fi
-            runInfo="NB_WORKERS=${cores} NB_NODES=${nodes} nodes_all=${nodes_all} pes_per_node=${pes_per_node} pes_all=${pes_all}"
+            runInfo="NB_WORKERS=${cores} NB_NODES=${nodes} nodes_all=${nodes_all} processes_all=${processes_all} pes_per_process=${pes_per_process} pes_all=${pes_all}"
             echo "======== $runInfo ======== "
 
             export OCR_NUM_NODES=${nodes}
