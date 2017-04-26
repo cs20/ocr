@@ -36,6 +36,22 @@
 
 #define DEBUG_TYPE POLICY
 
+#ifdef ENABLE_AMT_RESILIENCE
+#include <pthread.h>
+#define AMT_RESILIENCE_CHECK_FOR_FAULT(pd)                  \
+{                                                           \
+    if (pd->frozen) {                                       \
+        ocrWorker_t *worker;                                \
+        getCurrentEnv(NULL, &worker, NULL, NULL);           \
+        ocrWorkerHc_t *hcWorker = (ocrWorkerHc_t*)worker;   \
+        if (hcWorker->hcType == HC_WORKER_COMP)             \
+            pthread_exit(NULL);                             \
+    }                                                       \
+}
+#else
+#define AMT_RESILIENCE_CHECK_FOR_FAULT(pd)
+#endif
+
 #ifdef ENABLE_EXTENSION_PERF
 extern void addPerfEntry(ocrPolicyDomain_t *pd, void *executePtr,
                          ocrTaskTemplate_t *taskT);
@@ -745,9 +761,7 @@ static u8 hcDistDeferredProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *
  * Handle messages requiring remote communications, delegate locals to shared memory implementation.
  */
 u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlocking) {
-#ifdef ENABLE_AMT_RESILIENCE
-    if (self->frozen) while(1);
-#endif
+    AMT_RESILIENCE_CHECK_FOR_FAULT(self);
     // When isBlocking is false, it means the message processing is FULLY asynchronous.
     // Hence, when processMessage returns it is not guaranteed 'msg' contains the response,
     // even though PD_MSG_REQ_RESPONSE is set.
@@ -2348,9 +2362,7 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
 }
 
 u8 hcDistProcessEvent(ocrPolicyDomain_t* self, pdEvent_t **evt, u32 idx) {
-#ifdef ENABLE_AMT_RESILIENCE
-    if (self->frozen) while(1);
-#endif
+    AMT_RESILIENCE_CHECK_FOR_FAULT(self);
     // Simple version to test out micro tasks for now. This just executes a blocking
     // call to the regular process message and returns NULL
     ASSERT(idx == 0);
@@ -2464,9 +2476,6 @@ u8 hcDistPdSwitchRunlevel(ocrPolicyDomain_t *self, ocrRunlevel_t runlevel, u32 p
 
 u8 hcDistPdSendMessage(ocrPolicyDomain_t* self, ocrLocation_t target, ocrPolicyMsg_t *message,
                    ocrMsgHandle_t **handle, u32 properties) {
-#ifdef ENABLE_AMT_RESILIENCE
-    if (self->frozen) while(1);
-#endif
     ocrWorker_t * worker;
 #ifdef UTASK_COMM2
     ASSERT(0); // Should use micro-tasks to communicate
@@ -2481,9 +2490,6 @@ u8 hcDistPdSendMessage(ocrPolicyDomain_t* self, ocrLocation_t target, ocrPolicyM
 }
 
 u8 hcDistPdPollMessage(ocrPolicyDomain_t *self, ocrMsgHandle_t **handle) {
-#ifdef ENABLE_AMT_RESILIENCE
-    if (self->frozen) while(1);
-#endif
 #ifdef UTASK_COMM2
     ASSERT(0); // Should use micro-tasks to communicate
 #endif
@@ -2495,9 +2501,6 @@ u8 hcDistPdPollMessage(ocrPolicyDomain_t *self, ocrMsgHandle_t **handle) {
 }
 
 u8 hcDistPdWaitMessage(ocrPolicyDomain_t *self,  ocrMsgHandle_t **handle) {
-#ifdef ENABLE_AMT_RESILIENCE
-    if (self->frozen) while(1);
-#endif
 #ifdef UTASK_COMM2
     ASSERT(0); // Should use micro-tasks to communicate
 #endif
@@ -2510,9 +2513,6 @@ u8 hcDistPdWaitMessage(ocrPolicyDomain_t *self,  ocrMsgHandle_t **handle) {
 
 u8 hcDistPdSendMessageMT(ocrPolicyDomain_t* self, pdEvent_t **inOutEvent,
                          pdEvent_t **statusEvent, u32 idx) {
-#ifdef ENABLE_AMT_RESILIENCE
-    if (self->frozen) while(1);
-#endif
 #ifdef UTASK_COMM2
     ASSERT(0); // Should use micro-tasks to communicate
 #endif
@@ -2520,9 +2520,6 @@ u8 hcDistPdSendMessageMT(ocrPolicyDomain_t* self, pdEvent_t **inOutEvent,
 }
 
 u8 hcDistPdPollMessageMT(ocrPolicyDomain_t *self, pdEvent_t **outEvent, u32 idx) {
-#ifdef ENABLE_AMT_RESILIENCE
-    if (self->frozen) while(1);
-#endif
     // This is used by the comm worker to look for work. We just forward
     // directly to the comm platform
     ocrWorker_t *worker;
@@ -2533,9 +2530,6 @@ u8 hcDistPdPollMessageMT(ocrPolicyDomain_t *self, pdEvent_t **outEvent, u32 idx)
 }
 
 u8 hcDistPdWaitMessageMT(ocrPolicyDomain_t *self,  pdEvent_t **outEvent, u32 idx) {
-#ifdef ENABLE_AMT_RESILIENCE
-    if (self->frozen) while(1);
-#endif
     // This is used by the comm worker to look for work. We just forward
     // directly to the comm platform
     ocrWorker_t *worker;

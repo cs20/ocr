@@ -49,11 +49,12 @@ void ocrAbort(u8 errorCode) {
 }
 
 #ifdef ENABLE_AMT_RESILIENCE
+#include <pthread.h>
 void ocrNodeFailure() {
     ocrPolicyDomain_t *pd = NULL;
     getCurrentEnv(&pd, NULL, NULL, NULL);
     pd->frozen = 1;
-    while(1);
+    pthread_exit(NULL);
 }
 #endif
 
