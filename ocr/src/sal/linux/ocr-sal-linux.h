@@ -69,9 +69,26 @@ bool salCheckpointExists();
 bool salCheckpointExistsResumeQuery();
 #endif
 
-u8      salDbPublish(ocrGuid_t db, void *ptr, u64 size);
-u8      salDbRepublish(ocrGuid_t db, void *ptr);
-void*   salDbFetch(ocrGuid_t db);
-u64     salDbStorageSize(ocrGuid_t db);
+#ifdef ENABLE_AMT_RESILIENCE
+#include "ocr-task.h"
+
+void    salInitPublishFetch();
+void    salFinalizePublishFetch();
+u8      salIsPublished(ocrGuid_t guid);
+u8      salPublish(ocrGuid_t guid, void *ptr, u64 size);
+void*   salFetch(ocrGuid_t guid, u64 *size);
+u8      salRepublish(ocrGuid_t guid, void *ptr);
+u8      salRemovePublished(ocrGuid_t guid);
+u8      salPublishEdt(ocrTask_t *task);
+u8      salRemovePublishedEdt(ocrGuid_t edt);
+u8      salHandleNodeFailure(ocrLocation_t nodeId);
+#endif
+
+#if 0
+u8      salEdtStorageInsert(ocrTask_t *task);               /* Insert a task into storage */
+u8      salEdtStorageDelete(ocrGuid_t edt);                 /* Delete a task from storage */
+u64     salEdtStorageCount();                               /* The number of EDTs kept in storage */
+u8      salEdtStorageRead(ocrGuid_t *guids, u64 count);     /* Read 'count' EDTs from storage */
+#endif
 
 #endif /* __OCR_SAL_LINUX_H__ */

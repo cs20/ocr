@@ -252,20 +252,46 @@ u8 ocrDbCopy(ocrGuid_t destination, u64 destinationOffset, ocrGuid_t source,
  * @brief Fetch a copy of the data block from the Public-Fetch storage
  *
  * This call will fetch a copy of the data block from the Public-Fetch
- * data storage. This is a blocking call.
+ * data storage. This is a blocking call. However, if the data block
+ * has not been published yet, the call returns NULL.
  *
- * The lifetime of the copy is equal to the lifetime of the current EDT
- * and is managed by the runtime.
+ * The lifetime of the copy is equal to the lifetime of the EDT which
+ * makes the call. On exit from the EDT, this copy is deallocated by
+ * the runtime.
  *
- * @param[in] db    Guid of the data block to fetch
+ * @param[in]  db   Guid of the data block to fetch
+ * @param[out] size Size of the fetched DB
  *
  * @return a pointer
- *     - On success, the pointer to the DB copy is returned.
+ *     - On success, the pointer to the DB copy and its size is returned.
  *     - On failure, NULL is returned.
- *     - If the data block is not present in the data storage, NULL is returned.
  *
  */
-void* ocrDbFetch(ocrGuid_t db);
+void* ocrDbFetch(ocrGuid_t db, u64 *size);
+
+/**
+ * @brief Republish a DB to publish-fetch storage
+ *
+ * This call will update (modify) the contents of a DB in Publish-Fetch
+ * data storage. Concurrent calls will be serialized. However, maintaining
+ * data consistency is user's responsibility. This is a blocking call.
+ *
+ * CAUTION: This call should be used with extreme caution. In the event
+ * of a failure, the runtime will access the latest version of a DB in
+ * the Publish-Fetch storage to recover from failure. Hence, a republished
+ * DB may not result in a correct recovery. The user is encouraged to
+ * understand the consequences of this call before using it.
+ *
+ * @param[in]  db   Guid of the data block to fetch
+ * @param[out] size Size of the fetched DB
+ *
+ * @return a pointer
+ *     - On success, the pointer to the DB copy and its size is returned.
+ *     - On failure, NULL is returned.
+ *     - If the data block has not been published yet, NULL is returned.
+ *
+ */
+u8 ocrDbRepublish(ocrGuid_t db, void *ptr);
 
 /**
  * @}

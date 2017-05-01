@@ -370,6 +370,14 @@ u8 ocrEdtCreate(ocrGuid_t* edtGuidPtr, ocrGuid_t templateGuid,
 #endif
 #ifdef ENABLE_AMT_RESILIENCE
     PD_MSG_FIELD_I(resilientLatch) = curEdt ? curEdt->resilientLatch : NULL_GUID;
+    PD_MSG_FIELD_I(resilientEdtParent) = curEdt ? curEdt->resilientEdtParent : NULL_GUID;
+    if (properties & EDT_PROP_RECOVERY) {
+        PD_MSG_FIELD_I(currentEdt.guid) = NULL_GUID;
+        PD_MSG_FIELD_I(currentEdt.metaDataPtr) = NULL;
+        PD_MSG_FIELD_I(resilientLatch) = NULL_GUID;
+        PD_MSG_FIELD_I(resilientEdtParent) = NULL_GUID;
+        properties |= EDT_PROP_RESILIENT;
+    }
     if (properties & EDT_PROP_RESILIENT) {
         //We allow resilient EDTs to escape from their parents' scopes
         PD_MSG_FIELD_I(parentLatch.guid) = NULL_GUID;

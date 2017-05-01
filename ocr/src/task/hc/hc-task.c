@@ -9,6 +9,7 @@
 
 
 #include "debug.h"
+#include "ocr-db.h"
 #include "event/hc/hc-event.h"
 #include "ocr-datablock.h"
 #include "ocr-event.h"
@@ -344,7 +345,7 @@ static u8 doSatisfy(ocrPolicyDomain_t *pd, ocrPolicyMsg_t *msg,
     // On TG, the event is created by the CE? and the XE does the satisfy
     // Shouldn't that become blocking ?
 #else
-    ASSERT(isLocalGuid(pd, dest.guid));
+    //ASSERT(isLocalGuid(pd, dest.guid));
 #endif
 #define PD_MSG (msg)
 #define PD_TYPE PD_MSG_DEP_SATISFY
@@ -497,8 +498,10 @@ static u8 iterateDbFrontier(ocrTask_t *self) {
                 ASSERT(depv[i].slot / 64 < OCR_MAX_MULTI_SLOT);
                 rself->doNotReleaseSlots[depv[i].slot / 64] |= (1ULL << (depv[i].slot % 64));
 #ifdef ENABLE_AMT_RESILIENCE
-            } else if (salDbStorageSize(depv[i].guid) > 0) { //Check if DB has been published
+            } else if ((self->flags & OCR_TASK_FLAG_RESILIENT) || (salIsPublished(depv[i].guid))) { //For resilient tasks and DB, fetch instead of acquire
                 rself->resolvedDeps[depv[i].slot].ptr = UNINITIALIZED_DB_FETCH_PTR;
+                ASSERT(depv[i].slot / 64 < OCR_MAX_MULTI_SLOT);
+                rself->doNotReleaseSlots[depv[i].slot / 64] |= (1ULL << (depv[i].slot % 64));
 #endif
             } else {
                 // Issue acquire request
@@ -515,7 +518,7 @@ static u8 iterateDbFrontier(ocrTask_t *self) {
                 PD_MSG_FIELD_IO(edt.metaDataPtr) = self;
                 PD_MSG_FIELD_IO(destLoc) = pd->myLocation;
                 PD_MSG_FIELD_IO(edtSlot) = self->depc + 1; // RT slot
-                PD_MSG_FIELD_IO(properties) = (self->flags & OCR_TASK_FLAG_RESILIENT) ? DB_MODE_RES : depv[i].mode;
+                PD_MSG_FIELD_IO(properties) = depv[i].mode;
                 u8 returnCode = pd->fcts.processMessage(pd, &msg, false);
                 // DB_ACQUIRE is potentially asynchronous, check completion.
                 // In shmem and dist HC PD, ACQUIRE is two-way, processed asynchronously
@@ -550,6 +553,19 @@ static u8 scheduleTask(ocrTask_t *self) {
     ocrPolicyDomain_t *pd = NULL;
     PD_MSG_STACK(msg);
     getCurrentEnv(&pd, NULL, NULL, &msg);
+#ifdef ENABLE_AMT_RESILIENCE
+    if (self->flags & OCR_TASK_FLAG_RESILIENT) {
+        salPublishEdt(self);
+        if (!ocrGuidIsNull(self->resilientLatch)) {
+            PD_MSG_STACK(msg);
+            getCurrentEnv(NULL, NULL, NULL, &msg);
+            ocrFatGuid_t edtCheckin = {.guid = self->guid, .metaDataPtr = NULL};
+            ocrFatGuid_t resilientLatchFGuid = {.guid = self->resilientLatch, .metaDataPtr = NULL};
+            ocrFatGuid_t nullFGuid = {.guid = NULL_GUID, .metaDataPtr = NULL};
+            RESULT_PROPAGATE(doSatisfy(pd, &msg, edtCheckin, resilientLatchFGuid, nullFGuid, OCR_EVENT_LATCH_RESCOUNT_DECR_SLOT));
+        }
+    }
+#endif
 
 #ifdef OCR_MONITOR_SCHEDULER
     OCR_TOOL_TRACE(false, OCR_TRACE_TYPE_SCHEDULER, OCR_ACTION_SCHED_MSG_SEND, self->guid);
@@ -816,6 +832,7 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
 #ifdef ENABLE_AMT_RESILIENCE
     bool doResLatchDep = 0;
     ocrGuid_t resilientLatch = (perInstance != NULL) ? ((paramListTask_t*)perInstance)->resilientLatch : NULL_GUID;
+    ocrGuid_t resilientEdtParent = (perInstance != NULL) ? ((paramListTask_t*)perInstance)->resilientEdtParent : NULL_GUID;
     if (hasProperty(properties, EDT_PROP_RESILIENT) && !ocrGuidIsNull(resilientLatch)) {
         depc++;
         doResLatchDep = 1;
@@ -984,11 +1001,10 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
     self->dbFetchList = NULL;
     self->dbFetchCount = 0;
     self->dbFetchArrayLength = 0;
+    self->resilientLatch = resilientLatch;
+    self->resilientEdtParent = resilientEdtParent;
     if (hasProperty(properties, EDT_PROP_RESILIENT)) {
         self->flags |= OCR_TASK_FLAG_RESILIENT;
-        self->resilientLatch = NULL_GUID;
-    } else {
-        self->resilientLatch = resilientLatch;
     }
 #endif
 
@@ -1016,6 +1032,12 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
 #ifdef ENABLE_AMT_RESILIENCE
     if (doResLatchDep) {
         ocrAddDependence(resilientLatch, taskGuid, depc - 1, DB_MODE_NULL);
+        PD_MSG_STACK(msg);
+        getCurrentEnv(NULL, NULL, NULL, &msg);
+        ocrFatGuid_t edtCheckin = {.guid = taskGuid, .metaDataPtr = NULL};
+        ocrFatGuid_t resilientLatchFGuid = {.guid = resilientLatch, .metaDataPtr = NULL};
+        ocrFatGuid_t nullFGuid = {.guid = NULL_GUID, .metaDataPtr = NULL};
+        RESULT_PROPAGATE(doSatisfy(pd, &msg, edtCheckin, resilientLatchFGuid, nullFGuid, OCR_EVENT_LATCH_RESCOUNT_INCR_SLOT));
     }
 #endif
 #undef PD_MSG
@@ -1813,7 +1835,7 @@ u8 taskExecute(ocrTask_t* base) {
         u32 i;
         for (i = 0; i < base->depc; i++) {
             if (depv[i].ptr == UNINITIALIZED_DB_FETCH_PTR) {
-                depv[i].ptr = salDbFetch(depv[i].guid);
+                depv[i].ptr = ocrDbFetch(depv[i].guid, NULL);
                 ASSERT(depv[i].ptr != NULL);
             }
         }
@@ -1837,15 +1859,15 @@ u8 taskExecute(ocrTask_t* base) {
             latchParams.EVENT_LATCH.counter = 1;
             PD_MSG_FIELD_I(params) = &latchParams;
 #endif
-            PD_MSG_FIELD_I(properties) = 0;
+            PD_MSG_FIELD_I(properties) = (base->flags & OCR_TASK_FLAG_RESILIENT) ? EVT_RT_PROP_RESILIENT_LATCH : 0;
             RESULT_PROPAGATE(pd->fcts.processMessage(pd, &msg, true));
             newFinishLatchFGuid = PD_MSG_FIELD_IO(guid);
             ASSERT(!(ocrGuidIsNull(newFinishLatchFGuid.guid)) && newFinishLatchFGuid.metaDataPtr != NULL);
             base->finishLatch = newFinishLatchFGuid.guid;
 #ifdef ENABLE_AMT_RESILIENCE
             if (base->flags & OCR_TASK_FLAG_RESILIENT) {
-                ASSERT(ocrGuidIsNull(base->resilientLatch));
                 base->resilientLatch = newFinishLatchFGuid.guid;
+                base->resilientEdtParent = taskGuid;
             }
 #endif
 #undef PD_MSG

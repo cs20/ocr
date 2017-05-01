@@ -363,6 +363,11 @@ typedef enum {
 #define EDT_SLOT_NONE ((u32)-1)
 
 /**
+ * @brief Event Runtime Properties
+ */
+#define EVT_RT_PROP_RESILIENT_LATCH 0x10000
+
+/**
  * @brief Type of pop from workpiles.
  *
  * There are multiple ways to steal from a workpile

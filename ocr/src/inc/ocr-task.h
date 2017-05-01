@@ -50,6 +50,7 @@ typedef struct _paramListTask_t {
     ocrWorkType_t workType;
 #ifdef ENABLE_AMT_RESILIENCE
     ocrGuid_t resilientLatch;  /**< Latch event of enclosing resilient finish latch scope */
+    ocrGuid_t resilientEdtParent;
 #endif
 } paramListTask_t;
 
@@ -446,7 +447,8 @@ typedef struct _ocrTask_t {
     u32 swPerfCtrs[PERF_MAX-PERF_HW_MAX];
 #endif
 #ifdef ENABLE_AMT_RESILIENCE
-    ocrGuid_t resilientLatch;  /**< Latch event of enclosing resilient finish latch scope */
+    ocrGuid_t resilientLatch;       /**< Latch event of enclosing resilient finish latch scope */
+    ocrGuid_t resilientEdtParent;   /**< Parent resilient EDT or it scope which spawned this EDT */
     void **dbFetchList;
     u32 dbFetchCount;
     u32 dbFetchArrayLength;

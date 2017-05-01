@@ -880,6 +880,12 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
             RETRIEVE_LOCATION_FROM_GUID_MSG(self, msg->destLocation, IO);
         }
 
+#ifdef ENABLE_AMT_RESILIENCE
+        if(PD_MSG_FIELD_I(properties) & EDT_PROP_RECOVERY) {
+            msg->destLocation = curLoc;
+        }
+#endif
+
         if (msg->destLocation == curLoc) {
             DPRINTF(DEBUG_LVL_VVERB,"WORK_CREATE: local EDT creation for template GUID "GUIDF"\n", GUIDA(PD_MSG_FIELD_I(templateGuid.guid)));
         } else {

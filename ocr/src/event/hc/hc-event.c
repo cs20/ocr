@@ -196,6 +196,16 @@ u8 destructEventHc(ocrEvent_t *base) {
     statsEVT_DESTROY(pd, getCurrentEDT(), NULL, base->guid, base);
 #endif
 
+#ifdef ENABLE_AMT_RESILIENCE
+    if (base->kind == OCR_EVENT_LATCH_T) {
+        ocrEventHcLatch_t *latchEvt = (ocrEventHcLatch_t*)base;
+        ASSERT(latchEvt->rescounter == 0);
+        if (!ocrGuidIsNull(latchEvt->resilientEdt)) {
+            salRemovePublishedEdt(latchEvt->resilientEdt);
+        }
+    }
+#endif
+
     // Destroy datablocks linked with this event
     if (!(ocrGuidIsUninitialized(event->waitersDb.guid))) {
 #define PD_MSG (&msg)
@@ -627,6 +637,20 @@ u8 satisfyEventHcPersistSticky(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
 u8 satisfyEventHcLatch(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
     ocrEventHcLatch_t *event = (ocrEventHcLatch_t*)base;
 #ifdef ENABLE_AMT_RESILIENCE
+    if (slot == OCR_EVENT_LATCH_RESCOUNT_DECR_SLOT ||
+        slot == OCR_EVENT_LATCH_RESCOUNT_INCR_SLOT)
+    {
+        ASSERT(ocrGuidIsNull(db.guid));
+        u8 doDestroy = 0;
+        s32 incr = (slot == OCR_EVENT_LATCH_RESCOUNT_DECR_SLOT)?-1:1;
+        hal_lock(&(event->base.waitersLock));
+        event->rescounter += incr;
+        ASSERT(event->rescounter >= 0);
+        if ((event->rescounter == 0) && (event->readyToDestruct))
+            doDestroy = 1;
+        hal_unlock(&(event->base.waitersLock));
+        return (doDestroy ? destructEventHc(base) : 0);
+    }
     if (slot == OCR_EVENT_LATCH_RECORD_DB_SLOT) {
         ASSERT(!ocrGuidIsNull(db.guid));
         hal_lock(&(event->base.waitersLock));
@@ -690,6 +714,7 @@ u8 satisfyEventHcLatch(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
 #undef PD_TYPE
     }
     if (event->dbPublishCount > 0) {
+        event->dbPublishCount = 0;
         pd->fcts.pdFree(pd, event->dbPublishArray);
     }
 #endif
@@ -701,6 +726,16 @@ u8 satisfyEventHcLatch(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
     if (waitersCount) {
         RESULT_PROPAGATE(commonSatisfyWaiters(pd, base, db, waitersCount, currentEdt, &msg, false));
     }
+
+#ifdef ENABLE_AMT_RESILIENCE
+    hal_lock(&(event->base.waitersLock));
+    if (event->rescounter != 0) {
+        event->readyToDestruct = 1;
+        hal_unlock(&(event->base.waitersLock));
+        return 0;
+    }
+    hal_unlock(&(event->base.waitersLock));
+#endif
 
     // The latch is satisfied so we destroy it
     return destructEventHc(base);
@@ -1408,6 +1443,9 @@ static u8 initNewEventHc(ocrEventHc_t * event, ocrEventTypes_t eventType, ocrGui
             ((ocrEventHcLatch_t*)event)->counter = 0;
         }
 #ifdef ENABLE_AMT_RESILIENCE
+        ((ocrEventHcLatch_t*)event)->readyToDestruct = 0;
+        ((ocrEventHcLatch_t*)event)->rescounter = 0;
+        ((ocrEventHcLatch_t*)event)->resilientEdt = NULL_GUID;
         ((ocrEventHcLatch_t*)event)->dbPublishArray = NULL;
         ((ocrEventHcLatch_t*)event)->dbPublishArrayLength = 0;
         ((ocrEventHcLatch_t*)event)->dbPublishCount = 0;

@@ -53,8 +53,10 @@ void ocrAbort(u8 errorCode) {
 void ocrNodeFailure() {
     ocrPolicyDomain_t *pd = NULL;
     getCurrentEnv(&pd, NULL, NULL, NULL);
-    pd->frozen = 1;
-    pthread_exit(NULL);
+    if (pd->faultInjected == 0) {
+        pd->frozen = 1;
+        pthread_exit(NULL);
+    }
 }
 #endif
 

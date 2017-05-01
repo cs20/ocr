@@ -59,9 +59,6 @@ typedef struct _ocrDataBlockLockable_t {
     struct _dbWaiter_t * ewWaiterList;  /**< EDTs waiting for exclusive write access */
     struct _dbWaiter_t * itwWaiterList; /**< EDTs waiting for intent-to-write access */
     struct _dbWaiter_t * roWaiterList;  /**< EDTs waiting for read only access */
-#ifdef ENABLE_AMT_RESILIENCE
-    struct _dbWaiter_t * pubWaiterList;  /**< EDTs waiting for DB to be published */
-#endif
     ocrLocation_t itwLocation;
     ocrWorker_t * worker; /**< worker currently owning the DB internal lock */
     ocrRuntimeHint_t hint;

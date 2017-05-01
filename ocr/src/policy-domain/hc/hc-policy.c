@@ -813,7 +813,7 @@ static u8 createEdtHelper(ocrPolicyDomain_t *self, ocrFatGuid_t *guid,
                       u32 *depc, u32 properties, ocrHint_t *hint,
                       ocrFatGuid_t * outputEvent, ocrTask_t * currentEdt,
 #ifdef ENABLE_AMT_RESILIENCE
-                      ocrGuid_t resilientLatch,
+                      ocrGuid_t resilientLatch, ocrGuid_t resilientEdtParent,
 #endif
                       ocrFatGuid_t parentLatch, ocrWorkType_t workType) {
     ocrTaskTemplate_t *taskTemplate = (ocrTaskTemplate_t*)edtTemplate.metaDataPtr;
@@ -863,6 +863,7 @@ static u8 createEdtHelper(ocrPolicyDomain_t *self, ocrFatGuid_t *guid,
     taskparams.workType = workType;
 #ifdef ENABLE_AMT_RESILIENCE
     taskparams.resilientLatch = resilientLatch;
+    taskparams.resilientEdtParent = resilientEdtParent;
 #endif
 
     u8 returnCode = ((ocrTaskFactory_t*)(self->factories[self->taskFactoryIdx]))->instantiate(
@@ -888,9 +889,19 @@ static u8 createEdtTemplateHelper(ocrPolicyDomain_t *self, ocrFatGuid_t *guid,
 }
 
 static u8 createEventHelper(ocrPolicyDomain_t *self, ocrFatGuid_t *guid,
-                        ocrEventTypes_t type, u32 properties, ocrParamList_t * paramList) {
-    return ((ocrEventFactory_t*)(self->factories[self->eventFactoryIdx]))->instantiate(
+                        ocrEventTypes_t type, u32 properties, ocrParamList_t * paramList,
+                        ocrFatGuid_t currentEdt) {
+    u8 retCode = ((ocrEventFactory_t*)(self->factories[self->eventFactoryIdx]))->instantiate(
         (ocrEventFactory_t*)(self->factories[self->eventFactoryIdx]), guid, type, properties, paramList);
+#ifdef ENABLE_AMT_RESILIENCE
+    if (properties & EVT_RT_PROP_RESILIENT_LATCH) {
+        ASSERT(type == OCR_EVENT_LATCH_T);
+        ASSERT(!ocrGuidIsNull(currentEdt.guid));
+        ocrEventHcLatch_t *event = (ocrEventHcLatch_t*)(guid->metaDataPtr);
+        event->resilientEdt = currentEdt.guid;
+    }
+#endif
+    return retCode;
 }
 
 #ifdef REG_ASYNC_SGL
@@ -2212,7 +2223,7 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
                 &(PD_MSG_FIELD_IO(paramc)), PD_MSG_FIELD_I(paramv), &(PD_MSG_FIELD_IO(depc)),
                 properties, hint, outputEvent, (ocrTask_t*)(PD_MSG_FIELD_I(currentEdt).metaDataPtr),
 #ifdef ENABLE_AMT_RESILIENCE
-                PD_MSG_FIELD_I(resilientLatch),
+                PD_MSG_FIELD_I(resilientLatch), PD_MSG_FIELD_I(resilientEdtParent),
 #endif
                 PD_MSG_FIELD_I(parentLatch), PD_MSG_FIELD_I(workType));
 
@@ -2385,7 +2396,8 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         if (isBlocking == false) {
             u32 returnDetail = createEventHelper(
                 self, &(PD_MSG_FIELD_IO(guid)),
-                PD_MSG_FIELD_I(type), (PD_MSG_FIELD_I(properties) | GUID_PROP_TORECORD), paramList);
+                PD_MSG_FIELD_I(type), (PD_MSG_FIELD_I(properties) | GUID_PROP_TORECORD), paramList,
+                PD_MSG_FIELD_I(currentEdt));
             if (returnDetail == OCR_EGUIDEXISTS) {
                 RETURN_PROFILE(OCR_EPEND);
             } else {
@@ -2397,7 +2409,8 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
 #endif
         PD_MSG_FIELD_O(returnDetail) = createEventHelper(
             self, &(PD_MSG_FIELD_IO(guid)),
-            PD_MSG_FIELD_I(type), (PD_MSG_FIELD_I(properties) | GUID_PROP_TORECORD), paramList);
+            PD_MSG_FIELD_I(type), (PD_MSG_FIELD_I(properties) | GUID_PROP_TORECORD), paramList,
+            PD_MSG_FIELD_I(currentEdt));
             msg->type &= ~PD_MSG_REQUEST;
             msg->type |= PD_MSG_RESPONSE;
 #ifdef ENABLE_EXTENSION_BLOCKING_SUPPORT

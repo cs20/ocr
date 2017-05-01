@@ -153,7 +153,6 @@ typedef enum {
     DB_MODE_RW   = 0x2,   /**< Read-write (default mode) */
     DB_MODE_EW   = 0x4,   /**< Exclusive write mode */
     DB_MODE_RO   = 0x8,   /**< Read-only mode */
-    DB_MODE_RES  = 0x10   /**< Resilient mode */
 } ocrDbAccessMode_t; // Warning: only 5 bits starting at bit 1 (leave bit 0 as 0)
 
 #define DB_DEFAULT_MODE ((ocrDbAccessMode_t)DB_MODE_RW) /**< Default access mode */
@@ -207,8 +206,9 @@ typedef struct {
 #define EDT_PROP_FINISH  ((u16) 0x1) /**< Property bits indicating a FINISH EDT */
 #define EDT_PROP_NO_HINT ((u16) 0x2) /**< Property bits indicating the EDT does not take hints */
 #define EDT_PROP_LONG    ((u16) 0x4) /**< Property bits indicating a long running EDT */
-#define EDT_PROP_OEVT_VALID ((u16) 0x8) /** Property bits indicating an already initialized output event */
+#define EDT_PROP_OEVT_VALID ((u16) 0x8)  /**< Property bits indicating an already initialized output event */
 #define EDT_PROP_RESILIENT  ((u16) 0x10) /**< Property bits indicating resilient EDT */
+#define EDT_PROP_RECOVERY   ((u16) 0x20) /**< Property bits indicating the EDT created during fault recovery */
 
 /**
  * @brief Constant indicating that the number of parameters or dependences
@@ -317,7 +317,9 @@ typedef enum {
     OCR_EVENT_LATCH_DECR_SLOT = 0, /**< The decrement slot of a LATCH event */
     OCR_EVENT_LATCH_INCR_SLOT = 1, /**< The increment slot of a LATCH event */
 #ifdef ENABLE_AMT_RESILIENCE
-    OCR_EVENT_LATCH_RECORD_DB_SLOT = 2,  /**< The slot of a LATCH event to record data-blocks for publishing */
+    OCR_EVENT_LATCH_RESCOUNT_DECR_SLOT = 2, /**< The slot in resilient LATCH event to decrement the count of unrecorded references */
+    OCR_EVENT_LATCH_RESCOUNT_INCR_SLOT = 3, /**< The slot in resilient LATCH event to increment the count of unrecorded references */
+    OCR_EVENT_LATCH_RECORD_DB_SLOT     = 4, /**< The slot of a LATCH event to record data-blocks for publishing */
 #endif
 } ocrLatchEventSlot_t;
 

@@ -321,11 +321,12 @@ u8 ocrDbFreeOffset(ocrGuid_t guid, u64 offset) {
 }
 
 #ifdef ENABLE_AMT_RESILIENCE
-void* ocrDbFetch(ocrGuid_t db) {
+
+void* ocrDbFetch(ocrGuid_t db, u64 *size) {
     ocrPolicyDomain_t *pd = NULL;
     ocrTask_t *task = NULL;
     getCurrentEnv(&pd, NULL, &task, NULL);
-    void *ptr = salDbFetch(db);
+    void *ptr = salFetch(db, size);
     if (task != NULL && ptr != NULL) {
         if (task->dbFetchCount == task->dbFetchArrayLength) {
             void **dbFetchListOld = task->dbFetchList;
@@ -340,5 +341,22 @@ void* ocrDbFetch(ocrGuid_t db) {
     }
     return ptr;
 }
+
+u8 ocrDbRepublish(ocrGuid_t db, void *ptr) {
+    return salRepublish(db, ptr);
+}
+
+#else
+
+void* ocrDbFetch(ocrGuid_t db, u64 *size) {
+    DPRINTF(DEBUG_LVL_WARN, "Unsupported function ocrDbFetch\n");
+    return NULL;
+}
+
+u8 ocrDbRepublish(ocrGuid_t db, void *ptr) {
+    DPRINTF(DEBUG_LVL_WARN, "Unsupported function ocrDbRepublish\n");
+    return OCR_EINVAL;
+}
+
 #endif
 
