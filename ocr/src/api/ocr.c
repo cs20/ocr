@@ -58,6 +58,12 @@ void ocrNodeFailure() {
         pthread_exit(NULL);
     }
 }
+
+u64 ocrGetLocation() {
+    ocrPolicyDomain_t *pd = NULL;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+    return (u64)pd->myLocation;
+}
 #endif
 
 u64 getArgc(void* dbPtr) {

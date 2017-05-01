@@ -1178,7 +1178,6 @@ static u8 salImportPublishedEdts(ocrLocation_t nodeId) {
     getCurrentEnv(&pd, NULL, NULL, NULL);
     hashtable_t * htable = newHashtableModulo(pd, RECORD_INCR_SIZE); //Create hashtable for EDT pruning
     hashtable_t * rtable = newHashtableModulo(pd, RECORD_INCR_SIZE); //Create hashtable for EDT recovery
-fprintf(stderr, "Recovering from failed node %lu\n", (u64)nodeId);
 
     //Add current node edt state to hashtable
     {
