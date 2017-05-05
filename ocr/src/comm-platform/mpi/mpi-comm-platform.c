@@ -391,7 +391,6 @@ static void mpiCheckFaultAndHeartBeat(ocrCommPlatform_t * self) {
         ASSERT(failedRank >= 0);
         ASSERT(rankMap[failedRank] == failedRank);
         DPRINTF(DEBUG_LVL_WARN, "Node failure detected on rank %d (notified by rank %d)\n", failedRank, faultStatus.MPI_SOURCE);
-        self->pd->faultInjected = 1;
         rankMap[failedRank] = -1;
         if (failedRank == sendBuddyRank) sendBuddyFailed = 1;
         if (failedRank == recvBuddyRank) recvBuddyFailed = 1;
@@ -416,7 +415,6 @@ static void mpiCheckFaultAndHeartBeat(ocrCommPlatform_t * self) {
             hbRecvTime = curTime;
         } else if ((curTime - hbRecvTime) > OCR_HEARTBEAT_TIMEOUT) {
             DPRINTF(DEBUG_LVL_WARN, "Node failure detected on buddy rank %d\n", recvBuddyRank);
-            self->pd->faultInjected = 1;
             recvBuddyFailed = 1;
             if (recvBuddyRank == sendBuddyRank) sendBuddyFailed = 1;
             //Notify all active nodes about failure

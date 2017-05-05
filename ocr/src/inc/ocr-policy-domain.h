@@ -1584,7 +1584,6 @@ typedef struct _ocrPolicyDomain_t {
     u8 shutdownCode;
 #ifdef ENABLE_AMT_RESILIENCE
     u8 frozen;
-    u8 faultInjected;
 #endif
 
     // BUG #605: Location support

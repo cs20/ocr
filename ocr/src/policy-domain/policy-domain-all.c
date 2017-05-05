@@ -110,7 +110,6 @@ void initializePolicyDomainOcr(ocrPolicyDomainFactory_t * factory, ocrPolicyDoma
     self->shutdownCode = 0;
 #ifdef ENABLE_AMT_RESILIENCE
     self->frozen = 0;
-    self->faultInjected = 0;
 #endif
     self->neighborPDs = NULL;
     self->parentPD = NULL;

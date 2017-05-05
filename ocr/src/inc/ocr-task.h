@@ -466,6 +466,7 @@ typedef struct _ocrTask_t {
 #define OCR_TASK_FLAG_PERFMON_ME            0x20 /* Identifies if perfmon needs to be carried out for this task */
 #endif
 #define OCR_TASK_FLAG_RESILIENT             0x40 /* Task is identified as resilient. Hence, will allow only resilient input deps. */
+#define OCR_TASK_FLAG_RECOVERY              0x80 /* Task created during recovery. */
 
 /****************************************************/
 /* OCR TASK FACTORY                                 */

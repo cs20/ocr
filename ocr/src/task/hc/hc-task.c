@@ -1006,6 +1006,9 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
     if (hasProperty(properties, EDT_PROP_RESILIENT)) {
         self->flags |= OCR_TASK_FLAG_RESILIENT;
     }
+    if (hasProperty(properties, EDT_PROP_RECOVERY)) {
+        self->flags |= OCR_TASK_FLAG_RECOVERY;
+    }
 #endif
 
     // Set up HC specific stuff
