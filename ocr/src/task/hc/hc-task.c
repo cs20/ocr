@@ -541,6 +541,33 @@ static u8 iterateDbFrontier(ocrTask_t *self) {
     return false;
 }
 
+#ifdef ENABLE_AMT_RESILIENCE
+u8 resilientCheckin(ocrGuid_t edtCheckin, ocrGuid_t eventGuid, ocrGuid_t dataGuid, u32 slot) {
+    PD_MSG_STACK(msg);
+    ocrPolicyDomain_t *pd = NULL;
+    getCurrentEnv(&pd, NULL, NULL, &msg);
+#define PD_MSG (&msg)
+#define PD_TYPE PD_MSG_DEP_SATISFY
+    msg.type = PD_MSG_DEP_SATISFY | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
+    PD_MSG_FIELD_I(satisfierGuid.guid) = edtCheckin;
+    PD_MSG_FIELD_I(satisfierGuid.metaDataPtr) = NULL;
+    PD_MSG_FIELD_I(guid.guid) = eventGuid;
+    PD_MSG_FIELD_I(guid.metaDataPtr) = NULL;
+    PD_MSG_FIELD_I(payload.guid) = dataGuid;
+    PD_MSG_FIELD_I(payload.metaDataPtr) = NULL;
+    PD_MSG_FIELD_I(currentEdt.guid) = edtCheckin;
+    PD_MSG_FIELD_I(currentEdt.metaDataPtr) = NULL;
+    PD_MSG_FIELD_I(slot) = slot;
+#ifdef REG_ASYNC_SGL
+    PD_MSG_FIELD_I(mode) = -1;
+#endif
+    PD_MSG_FIELD_I(properties) = 0;
+    RESULT_ASSERT(pd->fcts.processMessage(pd, &msg, true), ==, 0);
+#undef PD_MSG
+#undef PD_TYPE
+    return 0;
+}
+#endif
 
 /**
  * @brief Give the task to the scheduler
@@ -557,12 +584,7 @@ static u8 scheduleTask(ocrTask_t *self) {
     if (self->flags & OCR_TASK_FLAG_RESILIENT) {
         salPublishEdt(self);
         if (!ocrGuidIsNull(self->resilientLatch)) {
-            PD_MSG_STACK(msg);
-            getCurrentEnv(NULL, NULL, NULL, &msg);
-            ocrFatGuid_t edtCheckin = {.guid = self->guid, .metaDataPtr = NULL};
-            ocrFatGuid_t resilientLatchFGuid = {.guid = self->resilientLatch, .metaDataPtr = NULL};
-            ocrFatGuid_t nullFGuid = {.guid = NULL_GUID, .metaDataPtr = NULL};
-            RESULT_PROPAGATE(doSatisfy(pd, &msg, edtCheckin, resilientLatchFGuid, nullFGuid, OCR_EVENT_LATCH_RESCOUNT_DECR_SLOT));
+            resilientCheckin(self->guid, self->resilientLatch, NULL_GUID, OCR_EVENT_LATCH_RESCOUNT_DECR_SLOT);
         }
     }
 #endif
@@ -1034,13 +1056,8 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
     }
 #ifdef ENABLE_AMT_RESILIENCE
     if (doResLatchDep) {
+        resilientCheckin(taskGuid, resilientLatch, NULL_GUID, OCR_EVENT_LATCH_RESCOUNT_INCR_SLOT);
         ocrAddDependence(resilientLatch, taskGuid, depc - 1, DB_MODE_NULL);
-        PD_MSG_STACK(msg);
-        getCurrentEnv(NULL, NULL, NULL, &msg);
-        ocrFatGuid_t edtCheckin = {.guid = taskGuid, .metaDataPtr = NULL};
-        ocrFatGuid_t resilientLatchFGuid = {.guid = resilientLatch, .metaDataPtr = NULL};
-        ocrFatGuid_t nullFGuid = {.guid = NULL_GUID, .metaDataPtr = NULL};
-        RESULT_PROPAGATE(doSatisfy(pd, &msg, edtCheckin, resilientLatchFGuid, nullFGuid, OCR_EVENT_LATCH_RESCOUNT_INCR_SLOT));
     }
 #endif
 #undef PD_MSG
