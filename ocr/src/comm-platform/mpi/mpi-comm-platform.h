@@ -57,6 +57,14 @@ typedef struct {
     // The state encodes the RL (top 4 bits) and the phase (bottom 4 bits)
     // This is mainly for debugging purpose
     volatile u8 curState;
+#ifdef ENABLE_AMT_RESILIENCE
+    u64 pad[8];
+    int sendBuddyRank, recvBuddyRank, failedRank;
+    u8 sendBuddyFailed, recvBuddyFailed;
+    u64 hbSendTime, hbRecvTime;
+    MPI_Request hbSendReq, hbRecvReq, faultReq;
+    int *rankMap;
+#endif
 } ocrCommPlatformMPI_t;
 
 typedef struct {

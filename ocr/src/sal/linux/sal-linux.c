@@ -25,7 +25,7 @@
 #include <limits.h>
 #include <time.h>
 
-#if defined(linux)
+#if defined(linux) || defined(__APPLE__)
 #include <unistd.h>
 #include <sys/mman.h>
 #include <sys/stat.h>        /* For mode constants */
@@ -582,9 +582,8 @@ bool salCheckpointExistsResumeQuery() {
 
 //Publish-Fetch hashtable
 static int pfIsInitialized = 0;
-hashtable_t * pfTable = NULL;
-lock_t pfLock;
-extern int *rankMap;
+static hashtable_t * pfTable = NULL;
+static lock_t pfLock;
 
 typedef struct _nodeStateHeader {
     size_t nodeStateBufSize;
@@ -598,8 +597,8 @@ typedef struct _nodeStateRecord {
     ocrGuid_t pguid;    //Guid of parent scope EDT
 } nodeStateRecord_t;
 
-void *nodeStateBuf;
-int nodeStateFD;
+static void *nodeStateBuf;
+static int nodeStateFD;
 
 //Initialize the hashtable
 void salInitPublishFetch() {
@@ -1172,7 +1171,7 @@ u8 salRemovePublishedEdt(ocrGuid_t edt) {
     return 0;
 }
 
-static u8 salImportPublishedEdts(ocrLocation_t nodeId) {
+static u8 salImportPublishedEdts(ocrLocation_t nodeId, int *rankMap) {
     u64 i, n;
     ocrPolicyDomain_t *pd;
     getCurrentEnv(&pd, NULL, NULL, NULL);
@@ -1351,10 +1350,10 @@ static u8 salImportPublishedEdts(ocrLocation_t nodeId) {
     return 0;
 }
 
-u8 salHandleNodeFailure(ocrLocation_t nodeId) {
+u8 salHandleNodeFailure(ocrLocation_t nodeId, int *rankMap) {
     if (!pfIsInitialized) return 1;
     //return 1;
-    return salImportPublishedEdts(nodeId);
+    return salImportPublishedEdts(nodeId, rankMap);
 }
 
 #endif
