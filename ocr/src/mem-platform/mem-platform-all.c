@@ -45,4 +45,5 @@ void initializeMemPlatformOcr(ocrMemPlatformFactory_t * factory, ocrMemPlatform_
     self->fcts = factory->platformFcts;
     self->size = ((paramListMemPlatformInst_t *)perInstance)->size;
     self->startAddr = self->endAddr = 0ULL;
+    self->id = 0ULL;
 }

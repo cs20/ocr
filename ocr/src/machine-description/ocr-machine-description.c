@@ -659,6 +659,7 @@ s32 populate_inst(ocrParamList_t **inst_param, int inst_param_size, void **insta
             // BUG #594
             snprintf(key, MAX_KEY_SZ, "%s:%s", secname, "start");
             ((paramListMemPlatformFsim_t*)inst_param[j])->start = (u64)iniparser_getlonglong(dict, key, 0);
+            ((paramListMemPlatformFsim_t*)inst_param[j])->memplatId = j; // j will correspond to the XE number within the block
 #endif
 
             instance[j] = (void *)((ocrMemPlatformFactory_t *)factory)->instantiate(factory, inst_param[j]);

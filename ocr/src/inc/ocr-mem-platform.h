@@ -188,6 +188,7 @@ typedef struct _ocrMemPlatformFcts_t {
 typedef struct _ocrMemPlatform_t {
     struct _ocrPolicyDomain_t *pd; /**< Policy domain that uses this mem-platform */
     u64 size, startAddr, endAddr;  /**< Size, start and end address for this instance */
+    u64 id;
     ocrMemPlatformFcts_t fcts; /**< Functions for this instance */
 } ocrMemPlatform_t;
 

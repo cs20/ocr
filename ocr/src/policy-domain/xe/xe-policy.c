@@ -134,7 +134,7 @@ static u8 helperSwitchInert(ocrPolicyDomain_t *policy, ocrRunlevel_t runlevel, p
             policy->guidProviders[i], policy, runlevel, phase, properties, NULL, 0);
     }
 
-#ifndef OCR_SHARED_XE_POLICY_DOMAIN // For now we are disabling the allocator with shared PD's
+#ifndef OCR_DISABLE_XE_L1_ALLOC
     maxCount = policy->allocatorCount;
     for(i = 0; i < maxCount; ++i) {
         toReturn |= policy->allocators[i]->fcts.switchRunlevel(
@@ -772,7 +772,7 @@ static u8 xeAllocateDb(ocrPolicyDomain_t *self, ocrFatGuid_t *guid, void** ptr, 
                        u32 properties, u64 engineIndex,
                        ocrHint_t *hint, ocrInDbAllocator_t allocator,
                        u64 prescription) {
-#ifndef OCR_SHARED_XE_POLICY_DOMAIN // For now we are disabling the allocator with shared PD's
+#ifndef OCR_DISABLE_XE_L1_ALLOC
     // This function allocates a data block for the requestor, who is either this computing agent or a
     // different one that sent us a message.  After getting that data block, it "guidifies" the results
     // which, by the way, ultimately causes xeMemAlloc (just below) to run.
@@ -781,7 +781,7 @@ static u8 xeAllocateDb(ocrPolicyDomain_t *self, ocrFatGuid_t *guid, void** ptr, 
     // eventually be eliminated here and instead, above this level, processed into the "prescription"
     // variable, which has been added to this argument list.  The prescription indicates an order in
     // which to attempt to allocate the block to a pool.
-    u64 idx = 0;
+    u64 idx = XE_PD_INDEX();
 //    void* result = allocateDddatablock (self, size, engineIndex, prescription, &idx);
 
     int preferredLevel = 0;
@@ -800,7 +800,7 @@ static u8 xeAllocateDb(ocrPolicyDomain_t *self, ocrFatGuid_t *guid, void** ptr, 
         }
     }
 
-    s8 allocatorIndex = 0;
+    s8 allocatorIndex = XE_PD_INDEX();
     *ptr = self->allocators[allocatorIndex]->fcts.allocate(self->allocators[allocatorIndex], size, 0);
     // DPRINTF(DEBUG_LVL_WARN, "xeAllocateDb successfully returning %p\n", result);
 
@@ -817,7 +817,7 @@ static u8 xeAllocateDb(ocrPolicyDomain_t *self, ocrFatGuid_t *guid, void** ptr, 
         return OCR_ENOMEM;
     }
 #else
-        return OCR_ENOSYS;
+    return OCR_ENOSYS;
 #endif
 }
 
@@ -1216,9 +1216,9 @@ u8 xePdWaitMessage(ocrPolicyDomain_t *self,  ocrMsgHandle_t **handle) {
 void* xePdMalloc(ocrPolicyDomain_t *self, u64 size) {
     START_PROFILE(pd_xe_pdMalloc);
 
-#ifndef OCR_SHARED_XE_POLICY_DOMAIN // For now we are disabling the allocator with shared PD's
+#ifndef OCR_DISABLE_XE_L1_ALLOC
     void* result;
-    s8 allocatorIndex = 0;
+    s8 allocatorIndex = XE_PD_INDEX();
     result = self->allocators[allocatorIndex]->fcts.allocate(self->allocators[allocatorIndex], size, OCR_ALLOC_HINT_PDMALLOC);
     if (result) {
         RETURN_PROFILE(result);

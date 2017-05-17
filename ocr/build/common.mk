@@ -320,6 +320,7 @@ endif
 
 # Flag to set to use shared 8 XE Policy Domain
 # CFLAGS += -DOCR_SHARED_XE_POLICY_DOMAIN
+# CFLAGS += -DOCR_DISABLE_XE_L1_ALLOC
 
 ####################################################
 # Debug flags

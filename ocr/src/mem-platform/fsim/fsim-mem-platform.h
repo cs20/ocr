@@ -35,6 +35,7 @@ typedef struct {
 typedef struct {
     paramListMemPlatformInst_t base;
     u64 start;
+    u64 memplatId;
 } paramListMemPlatformFsim_t;
 
 extern ocrMemPlatformFactory_t* newMemPlatformFactoryFsim(ocrParamList_t *perType);
