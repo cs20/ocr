@@ -37,7 +37,7 @@ else
     if [[ "${OCR_TYPE}" == "tg" ]]; then
         TEST_OPTIONS="-ext_params_evt -ext_counted_evt -ext_channel_evt"
         if [[ "${WITH_NEWLIB}" == "yes" ]]; then
-            TEST_OPTIONS+="-newlib"
+            TEST_OPTIONS+=" -newlib"
         fi
     fi
 
