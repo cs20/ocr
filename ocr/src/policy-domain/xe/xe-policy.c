@@ -134,7 +134,7 @@ static u8 helperSwitchInert(ocrPolicyDomain_t *policy, ocrRunlevel_t runlevel, p
             policy->guidProviders[i], policy, runlevel, phase, properties, NULL, 0);
     }
 
-#ifndef OCR_DISABLE_XE_L1_ALLOC
+#if !defined(OCR_DISABLE_RUNTIME_L1_ALLOC) || !defined(OCR_DISABLE_USER_L1_ALLOC)
     maxCount = policy->allocatorCount;
     for(i = 0; i < maxCount; ++i) {
         toReturn |= policy->allocators[i]->fcts.switchRunlevel(
@@ -772,7 +772,7 @@ static u8 xeAllocateDb(ocrPolicyDomain_t *self, ocrFatGuid_t *guid, void** ptr, 
                        u32 properties, u64 engineIndex,
                        ocrHint_t *hint, ocrInDbAllocator_t allocator,
                        u64 prescription) {
-#ifndef OCR_DISABLE_XE_L1_ALLOC
+#ifndef OCR_DISABLE_USER_L1_ALLOC
     // This function allocates a data block for the requestor, who is either this computing agent or a
     // different one that sent us a message.  After getting that data block, it "guidifies" the results
     // which, by the way, ultimately causes xeMemAlloc (just below) to run.
@@ -1216,7 +1216,7 @@ u8 xePdWaitMessage(ocrPolicyDomain_t *self,  ocrMsgHandle_t **handle) {
 void* xePdMalloc(ocrPolicyDomain_t *self, u64 size) {
     START_PROFILE(pd_xe_pdMalloc);
 
-#ifndef OCR_DISABLE_XE_L1_ALLOC
+#ifndef OCR_DISABLE_RUNTIME_L1_ALLOC
     void* result;
     s8 allocatorIndex = XE_PD_INDEX();
     result = self->allocators[allocatorIndex]->fcts.allocate(self->allocators[allocatorIndex], size, OCR_ALLOC_HINT_PDMALLOC);
