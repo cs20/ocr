@@ -72,16 +72,19 @@ bool salCheckpointExistsResumeQuery();
 #ifdef ENABLE_AMT_RESILIENCE
 #include "ocr-task.h"
 
-void    salInitPublishFetch();
-void    salFinalizePublishFetch();
-u8      salIsPublished(ocrGuid_t guid);
-u8      salPublish(ocrGuid_t guid, void *ptr, u64 size);
-void*   salFetch(ocrGuid_t guid, u64 *size);
-u8      salRepublish(ocrGuid_t guid, void *ptr);
-u8      salRemovePublished(ocrGuid_t guid);
-u8      salPublishEdt(ocrTask_t *task);
-u8      salRemovePublishedEdt(ocrGuid_t edt);
-u8      salHandleNodeFailure(ocrLocation_t nodeId, int *rankMap);
+void      salInitPublishFetch();
+void      salFinalizePublishFetch();
+u8        salIsPublished(ocrGuid_t guid);
+u8        salPublish(ocrGuid_t guid, void *ptr, u64 size);
+void*     salFetch(ocrGuid_t guid, u64 *size);
+u8        salRepublish(ocrGuid_t guid, void *ptr);
+u8        salRemovePublished(ocrGuid_t guid);
+u8        salPublishEdt(ocrTask_t *task);
+u8        salRemovePublishedEdt(ocrGuid_t edt);
+u8        salHandleNodeFailure(ocrLocation_t nodeId, int *rankMap);
+u8        salGuidTablePut(u64 key, ocrGuid_t val);
+u8        salGuidTableGet(u64 key, ocrGuid_t *val);
+u8        salGuidTableRemove(u64 key, ocrGuid_t *val);
 #endif
 
 #if 0

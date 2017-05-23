@@ -452,6 +452,7 @@ typedef struct _ocrTask_t {
     void **dbFetchList;
     u32 dbFetchCount;
     u32 dbFetchArrayLength;
+    u32 origDepc;
 #endif
 } ocrTask_t;
 

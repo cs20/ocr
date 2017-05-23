@@ -48,6 +48,24 @@ void ocrAbort(u8 errorCode) {
     RETURN_PROFILE();
 }
 
+u64 getArgc(void* dbPtr) {
+    START_PROFILE(api_getArgc);
+    DPRINTF(DEBUG_LVL_INFO, "ENTER getArgc(dbPtr=%p)\n", dbPtr);
+    DPRINTF(DEBUG_LVL_INFO, "EXIT getArgc -> %"PRIu64"\n", ((u64*)dbPtr)[0]);
+    RETURN_PROFILE(((u64*)dbPtr)[0]);
+
+}
+
+char* getArgv(void* dbPtr, u64 count) {
+    START_PROFILE(api_getArgv);
+    DPRINTF(DEBUG_LVL_INFO, "ENTER getArgv(dbPtr=%p, count=%"PRIu64")\n", dbPtr, count);
+    u64* dbPtrAsU64 = (u64*)dbPtr;
+    ASSERT(count < dbPtrAsU64[0]); // We can't ask for more args than total
+    u64 offset = dbPtrAsU64[1 + count];
+    DPRINTF(DEBUG_LVL_INFO, "EXIT getArgv -> %s\n", ((char*)dbPtr) + offset);
+    RETURN_PROFILE(((char*)dbPtr) + offset);
+}
+
 #ifdef ENABLE_AMT_RESILIENCE
 #include <pthread.h>
 void ocrNodeFailure() {
@@ -67,23 +85,18 @@ u64 ocrGetLocation() {
     getCurrentEnv(&pd, NULL, NULL, NULL);
     return (u64)pd->myLocation;
 }
+
+u8 ocrGuidTablePut(u64 key, ocrGuid_t val) {
+    return salGuidTablePut(key, val);
+}
+
+u8 ocrGuidTableGet(u64 key, ocrGuid_t *val) {
+    return salGuidTableGet(key, val);
+}
+
+u8 ocrGuidTableRemove(u64 key, ocrGuid_t *val) {
+    return salGuidTableRemove(key, val);
+}
+
 #endif
-
-u64 getArgc(void* dbPtr) {
-    START_PROFILE(api_getArgc);
-    DPRINTF(DEBUG_LVL_INFO, "ENTER getArgc(dbPtr=%p)\n", dbPtr);
-    DPRINTF(DEBUG_LVL_INFO, "EXIT getArgc -> %"PRIu64"\n", ((u64*)dbPtr)[0]);
-    RETURN_PROFILE(((u64*)dbPtr)[0]);
-
-}
-
-char* getArgv(void* dbPtr, u64 count) {
-    START_PROFILE(api_getArgv);
-    DPRINTF(DEBUG_LVL_INFO, "ENTER getArgv(dbPtr=%p, count=%"PRIu64")\n", dbPtr, count);
-    u64* dbPtrAsU64 = (u64*)dbPtr;
-    ASSERT(count < dbPtrAsU64[0]); // We can't ask for more args than total
-    u64 offset = dbPtrAsU64[1 + count];
-    DPRINTF(DEBUG_LVL_INFO, "EXIT getArgv -> %s\n", ((char*)dbPtr) + offset);
-    RETURN_PROFILE(((char*)dbPtr) + offset);
-}
 

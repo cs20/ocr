@@ -785,6 +785,7 @@ u8 destructTaskHc(ocrTask_t* base) {
 #ifdef ENABLE_AMT_RESILIENCE
     if (base->dbFetchList != NULL) {
         u32 i;
+        getCurrentEnv(&pd, NULL, NULL, NULL);
         for (i = 0; i < base->dbFetchCount; i++) {
             pd->fcts.pdFree(pd, base->dbFetchList[i]);
         }
@@ -853,10 +854,11 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
     u32 hintc = hasProperty(properties, EDT_PROP_NO_HINT) ? 0 : OCR_HINT_COUNT_EDT_HC;
 #ifdef ENABLE_AMT_RESILIENCE
     bool doResLatchDep = 0;
+    u32 origDepc = depc;
     ocrGuid_t resilientLatch = (perInstance != NULL) ? ((paramListTask_t*)perInstance)->resilientLatch : NULL_GUID;
     ocrGuid_t resilientEdtParent = (perInstance != NULL) ? ((paramListTask_t*)perInstance)->resilientEdtParent : NULL_GUID;
     if (hasProperty(properties, EDT_PROP_RESILIENT) && !ocrGuidIsNull(resilientLatch)) {
-        depc++;
+        depc = (2 * depc) + 1;
         doResLatchDep = 1;
     }
 #endif
@@ -1020,6 +1022,7 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
 #endif
 
 #ifdef ENABLE_AMT_RESILIENCE
+    self->origDepc = origDepc;
     self->dbFetchList = NULL;
     self->dbFetchCount = 0;
     self->dbFetchArrayLength = 0;
@@ -1170,7 +1173,12 @@ u8 registerSignalerTaskHc(ocrTask_t * base, ocrFatGuid_t signalerGuid, u32 slot,
 
 #ifndef REG_ASYNC
 
-u8 satisfyTaskHc(ocrTask_t * base, ocrFatGuid_t data, u32 slot) {
+#ifdef ENABLE_AMT_RESILIENCE
+u8 satisfyTaskHcInternal(ocrTask_t * base, ocrFatGuid_t data, u32 slot)
+#else
+u8 satisfyTaskHc(ocrTask_t * base, ocrFatGuid_t data, u32 slot)
+#endif
+{
     // An EDT has a list of signalers, but only registers
     // incrementally as signals arrive AND on non-persistent
     // events (latch or ONCE)
@@ -1307,6 +1315,34 @@ u8 satisfyTaskHc(ocrTask_t * base, ocrFatGuid_t data, u32 slot) {
     }
     return 0;
 }
+
+#ifdef ENABLE_AMT_RESILIENCE
+u8 satisfyTaskHc(ocrTask_t * base, ocrFatGuid_t data, u32 slot) {
+    ocrTaskHc_t * self = (ocrTaskHc_t *) base;
+    ocrGuid_t registerDb = (self->signalers[slot].mode == DB_MODE_NULL) ? NULL_GUID : data.guid;
+    u32 registerSlot = base->depc;
+    if ((base->flags & OCR_TASK_FLAG_RESILIENT) && (base->depc > base->origDepc) && (slot < base->origDepc)) {
+        registerSlot = base->origDepc + slot;
+        ASSERT(registerSlot >= base->origDepc && registerSlot < base->depc);
+        if (!ocrGuidIsNull(registerDb)) {
+#if GUID_BIT_COUNT == 64
+            u64 guidKey = registerDb.guid;
+#elif GUID_BIT_COUNT == 128
+            u64 guidKey = registerDb.lower;
+#else
+#error Unknown type of GUID
+#endif
+            ocrGuid_t evt;
+            RESULT_ASSERT(salGuidTableGet(guidKey, &evt), ==, 0);
+            ocrAddDependence(evt, base->guid, registerSlot, DB_MODE_NULL);
+        } else {
+            ocrAddDependence(NULL_GUID, base->guid, registerSlot, DB_MODE_NULL);
+        }
+    }
+    ASSERT(self->slotSatisfiedCount < base->depc);
+    return satisfyTaskHcInternal(base, data, slot);
+}
+#endif
 
 /**
  * Can be invoked concurrently, however each invocation should be for a different slot
@@ -1822,6 +1858,7 @@ u8 taskExecute(ocrTask_t* base) {
     u32 paramc = base->paramc;
     u64 * paramv = base->paramv;
     u32 depc = base->depc;
+    u32 rtDeps = 0;
     ocrPolicyDomain_t *pd = NULL;
     ocrWorker_t *curWorker = NULL;
     getCurrentEnv(&pd, &curWorker, NULL, NULL);
@@ -1852,11 +1889,16 @@ u8 taskExecute(ocrTask_t* base) {
         bool needProxy = (hasParent && !hasLocalParent);
 
 #ifdef ENABLE_AMT_RESILIENCE
+        rtDeps = base->depc - base->origDepc;
         u32 i;
         for (i = 0; i < base->depc; i++) {
             if (depv[i].ptr == UNINITIALIZED_DB_FETCH_PTR) {
+                ASSERT(!ocrGuidIsNull(depv[i].guid));
                 depv[i].ptr = ocrDbFetch(depv[i].guid, NULL);
-                ASSERT(depv[i].ptr != NULL);
+                if (depv[i].ptr == NULL) {
+                    DPRINTF(DEBUG_LVL_WARN, "DB Fetch failed "GUIDF"\n", GUIDA(depv[i].guid));
+                    ASSERT(0);
+                }
             }
         }
 #endif
@@ -1990,14 +2032,14 @@ u8 taskExecute(ocrTask_t* base) {
 #ifdef ENABLE_POLICY_DOMAIN_HC_DIST
         if(base->funcPtr == &processRequestEdt) {
             START_PROFILE(procIncMsg);
-            retGuid = base->funcPtr(paramc, paramv, depc, depv);
+            retGuid = base->funcPtr(paramc, paramv, (depc - rtDeps), depv);
             EXIT_PROFILE;
         } else {
 #ifdef ENABLE_RESILIENCY
             curWorker->edtDepth++;
 #endif
             START_PROFILE(userCode);
-            retGuid = base->funcPtr(paramc, paramv, depc, depv);
+            retGuid = base->funcPtr(paramc, paramv, (depc - rtDeps), depv);
             EXIT_PROFILE;
 #ifdef ENABLE_RESILIENCY
             curWorker->edtDepth--;
@@ -2005,7 +2047,7 @@ u8 taskExecute(ocrTask_t* base) {
         }
 #else
         START_PROFILE(userCode);
-        retGuid = base->funcPtr(paramc, paramv, depc, depv);
+        retGuid = base->funcPtr(paramc, paramv, (depc - rtDeps), depv);
         EXIT_PROFILE;
 #endif /* ENABLE_POLICY_DOMAIN_HC_DIST */
 #ifdef OCR_ENABLE_EDT_NAMING

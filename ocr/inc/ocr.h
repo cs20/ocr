@@ -66,11 +66,6 @@ void ocrShutdown();
  */
 void ocrAbort(u8 errorCode);
 
-#ifdef ENABLE_AMT_RESILIENCE
-void ocrNodeFailure();
-u64 ocrGetLocation();
-#endif
-
 /**
  * @brief Retrieves the traditional 'argc' value in mainEdt.
  *
@@ -101,6 +96,15 @@ u64 getArgc(void* dbPtr);
  * @return A NULL terminated string
  */
 char* getArgv(void* dbPtr, u64 count);
+
+#ifdef ENABLE_AMT_RESILIENCE
+void ocrNodeFailure();
+u64 ocrGetLocation();
+u8 ocrGuidTablePut(u64 key, ocrGuid_t val);
+u8 ocrGuidTableGet(u64 key, ocrGuid_t *val);
+u8 ocrGuidTableRemove(u64 key, ocrGuid_t *val);
+#endif
+
 #ifdef __cplusplus
 }
 #endif

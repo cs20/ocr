@@ -1356,6 +1356,142 @@ u8 salHandleNodeFailure(ocrLocation_t nodeId, int *rankMap) {
     return salImportPublishedEdts(nodeId, rankMap);
 }
 
+u8 salGuidTablePut(u64 key, ocrGuid_t val) {
+    ASSERT(!(ocrGuidIsNull(val)));
+
+    char fname[FNL];
+    int c = snprintf(fname, FNL, "%lu.key", key);
+    if (c < 0 || c >= FNL) {
+        fprintf(stderr, "failed to create filename for publish\n");
+        ASSERT(0);
+        return 1;
+    }
+
+    int fd = open(fname, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR );
+    if (fd<0) {
+        fprintf(stderr, "open failed: (filename: %s)\n", fname);
+        ASSERT(0);
+        return 1;
+    }
+
+    u64 size = sizeof(ocrGuid_t);
+    int rc = ftruncate(fd, size);
+    if (rc) {
+        fprintf(stderr, "ftruncate failed: (filename: %s filedesc: %d)\n", fname, fd);
+        ASSERT(0);
+        return 1;
+    }
+
+    void *buf = mmap( NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0 );
+    if (buf == MAP_FAILED) {
+        fprintf(stderr, "mmap failed for size %lu (filename: %s filedesc: %d)\n", size, fname, fd);
+        ASSERT(0);
+        return 1;
+    }
+
+    *((ocrGuid_t*)buf) = val;
+
+    rc = msync(buf, size, MS_INVALIDATE | MS_SYNC);
+    if (rc) {
+        fprintf(stderr, "msync failed for buffer %p of size %lu\n", buf, size);
+        ASSERT(0);
+        return 1;
+    }
+
+    rc = munmap(buf, size);
+    if (rc) {
+        fprintf(stderr, "munmap failed for buffer %p of size %lu\n", buf, size);
+        ASSERT(0);
+        return 1;
+    }
+
+    rc = close(fd);
+    if (rc) {
+        fprintf(stderr, "close failed: (filedesc: %d)\n", fd);
+        ASSERT(0);
+        return 1;
+    }
+
+    return 0;
+}
+
+u8 salGuidTableGet(u64 key, ocrGuid_t *val) {
+    ASSERT(val != NULL);
+
+    char fname[FNL];
+    int c = snprintf(fname, FNL, "%lu.key", key);
+    if (c < 0 || c >= FNL) {
+        fprintf(stderr, "failed to create filename for publish\n");
+        ASSERT(0);
+        return 1;
+    }
+
+    struct stat sb;
+    if (stat(fname, &sb) == -1) {
+        return 1;
+    }
+    u64 size = sb.st_size;
+
+    int fd = open(fname, O_RDONLY );
+    if (fd<0) {
+        fprintf(stderr, "open failed: (filename: %s)\n", fname);
+        ASSERT(0);
+        return 1;
+    }
+
+    void *buf = mmap( NULL, size, PROT_READ, MAP_SHARED, fd, 0 );
+    if (buf == MAP_FAILED) {
+        fprintf(stderr, "mmap failed for size %lu (filename: %s filedesc: %d)\n", size, fname, fd);
+        ASSERT(0);
+        return 1;
+    }
+
+    *val = *((ocrGuid_t*)buf);
+
+    int rc = munmap(buf, size);
+    if (rc) {
+        fprintf(stderr, "munmap failed for buffer %p of size %lu\n", buf, size);
+        ASSERT(0);
+        return 1;
+    }
+
+    rc = close(fd);
+    if (rc) {
+        fprintf(stderr, "close failed: (filedesc: %d)\n", fd);
+        ASSERT(0);
+        return 1;
+    }
+
+    return 0;
+}
+
+u8 salGuidTableRemove(u64 key, ocrGuid_t *val) {
+    char fname[FNL];
+    int c = snprintf(fname, FNL, "%lu.key", key);
+    if (c < 0 || c >= FNL) {
+        fprintf(stderr, "failed to create filename for publish\n");
+        ASSERT(0);
+        return 1;
+    }
+
+    if (val != NULL) {
+        if (salGuidTableGet(key, val)) {
+            fprintf(stderr, "Cannot find existing user guid %s!\n", fname);
+            ASSERT(0);
+            return 1;
+        }
+    }
+
+    int rc = unlink(fname);
+    if (rc) {
+        fprintf(stderr, "unlink failed: (filename: %s)\n", fname);
+        ASSERT(0);
+        return 1;
+    }
+
+    return 0;
+}
+
 #endif
 
 

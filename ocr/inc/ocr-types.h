@@ -496,11 +496,11 @@ typedef enum {
  * @{
  */
 #define GUID_PROP_NONE       ((u16)(0x0))   /**< No specific property */
-#define GUID_PROP_IS_LABELED ((u16)(0x100)) /**< Property to indicate the GUID passed as
+#define GUID_PROP_IS_LABELED ((u16)(0x1000)) /**< Property to indicate the GUID passed as
                                              * argument to the create call is a labeled GUID and
                                              * should not be ignored (the default behavior is
                                              * to ignore the field) */
-#define GUID_PROP_CHECK ((u16)(0x300))      /**< Property to indicate that, on creation, the
+#define GUID_PROP_CHECK ((u16)(0x3000))      /**< Property to indicate that, on creation, the
                                              * runtime should check if the GUID exists already,
                                              * and, if so, return an error code. The default behavior
                                              * is to not check (and therefore potentially create
@@ -508,7 +508,7 @@ typedef enum {
                                              * behavior). Note that checking will incur
                                              * additional overhead. This implies
                                              * GUID_PROP_IS_LABELED. */
-#define GUID_PROP_BLOCK ((u16)(0x500))      /**< Property to indicate that, on creation, the
+#define GUID_PROP_BLOCK ((u16)(0x5000))      /**< Property to indicate that, on creation, the
                                              * runtime should check if the GUID exists already, and
                                              * if so, block until it can be re-created. See
                                              * comments for #GUID_PROP_CHECK

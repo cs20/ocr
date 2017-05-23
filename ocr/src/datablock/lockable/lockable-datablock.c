@@ -74,6 +74,22 @@ typedef struct _dbWaiter_t {
 u8 lockableDestruct(ocrDataBlock_t *self);
 #ifdef ENABLE_AMT_RESILIENCE
 static u8 lockablePublishInternal(ocrDataBlock_t *self, u32 properties);
+static void satisfyPublishEvent(ocrDataBlock_t *self) {
+    ocrDataBlockLockable_t * rself = (ocrDataBlockLockable_t*) self;
+#ifdef OCR_ASSERT
+    ASSERT(rself->attributes.published == 1);
+#endif
+#if GUID_BIT_COUNT == 64
+    u64 guidKey = self->guid.guid;
+#elif GUID_BIT_COUNT == 128
+    u64 guidKey = self->guid.lower;
+#else
+#error Unknown type of GUID
+#endif
+    ocrGuid_t evt;
+    RESULT_ASSERT(salGuidTableGet(guidKey, &evt), ==, 0);
+    ocrEventSatisfy(evt, NULL_GUID);
+}
 #endif
 
 //MD: Here we need the continuation of the acquire that
@@ -359,11 +375,15 @@ u8 lockableRelease(ocrDataBlock_t *self, ocrFatGuid_t edt, ocrLocation_t srcLoc,
         DPRINTF(DEBUG_LVL_VERB, "DB (GUID "GUIDF") backed up from EDT "GUIDF"\n", GUIDA(rself->base.guid), GUIDA(edt.guid));
     }
 #endif
+#ifdef ENABLE_AMT_RESILIENCE
+    u8 isPublished = 0;
+#endif
 
     //IMPL: this is probably not very fair
     if (rself->attributes.numUsers == 0) {
 #ifdef ENABLE_AMT_RESILIENCE
         if ((self->flags & DB_PROP_PUBLISH_EAGER) && (rself->attributes.modeLock == DB_LOCKED_ITW || rself->attributes.modeLock == DB_LOCKED_EW)) {
+            isPublished = !rself->attributes.published;
             lockablePublishInternal(self, 0);
         }
 #endif
@@ -503,6 +523,9 @@ u8 lockableRelease(ocrDataBlock_t *self, ocrFatGuid_t edt, ocrLocation_t srcLoc,
     }
     rself->worker = NULL;
     hal_unlock(&(rself->lock));
+#ifdef ENABLE_AMT_RESILIENCE
+    if (isPublished) satisfyPublishEvent(self);
+#endif
     return 0;
 }
 
@@ -529,12 +552,23 @@ u8 lockableDestruct(ocrDataBlock_t *self) {
 #endif
 
 #ifdef ENABLE_AMT_RESILIENCE
-    if (salIsPublished(self->guid)) {
+    ocrDataBlockLockable_t *dself = (ocrDataBlockLockable_t*)self;
+    u8 dbIsPublished = salIsPublished(self->guid);
+    if (dbIsPublished || (dself->attributes.published == 1)) {
 #ifdef OCR_ASSERT
-        ocrDataBlockLockable_t *rself = (ocrDataBlockLockable_t*)self;
-        ASSERT(rself->attributes.published == 1);
+        ASSERT(dbIsPublished && (dself->attributes.published == 1));
 #endif
         RESULT_ASSERT(salRemovePublished(self->guid), ==, 0);
+#if GUID_BIT_COUNT == 64
+        u64 guidKey = self->guid.guid;
+#elif GUID_BIT_COUNT == 128
+        u64 guidKey = self->guid.lower;
+#else
+#error Unknown type of GUID
+#endif
+        ocrGuid_t evt;
+        RESULT_ASSERT(salGuidTableRemove(guidKey, &evt), ==, 0);
+        ocrEventDestroy(evt);
     }
 #endif
 
@@ -587,15 +621,18 @@ static u8 lockablePublishInternal(ocrDataBlock_t *self, u32 properties) {
     } else {
         RESULT_ASSERT(salPublish(self->guid, self->ptr, self->size), ==, 0);
     }
+    ocrDataBlockLockable_t * rself = (ocrDataBlockLockable_t*) self;
+    rself->attributes.published = 1;
     return 0;
 }
 
 u8 lockablePublish(ocrDataBlock_t *self, u32 properties) {
     ocrDataBlockLockable_t * rself = (ocrDataBlockLockable_t*) self;
     hal_lock(&(rself->lock));
+    u8 isPublished = !rself->attributes.published;
     lockablePublishInternal(self, properties);
-    rself->attributes.published = 1;
     hal_unlock(&(rself->lock));
+    if (isPublished) satisfyPublishEvent(self);
     return 0;
 }
 #endif
@@ -740,6 +777,22 @@ u8 newDataBlockLockable(ocrDataBlockFactory_t *factory, ocrFatGuid_t *guid, ocrF
         OCR_RUNTIME_HINT_MASK_INIT(result->hint.hintMask, OCR_HINT_DB_T, factory->factoryId);
         result->hint.hintVal = (u64*)((u64)result + sizeof(ocrDataBlockLockable_t));
     }
+
+#ifdef ENABLE_AMT_RESILIENCE
+    if (flags & DB_PROP_RESILIENT) {
+#if GUID_BIT_COUNT == 64
+        u64 guidKey = resultGuid.guid;
+#elif GUID_BIT_COUNT == 128
+        u64 guidKey = resultGuid.lower;
+#else
+#error Unknown type of GUID
+#endif
+        ocrGuid_t evt;
+        ocrEventCreate(&evt, OCR_EVENT_STICKY_T, 0);
+        RESULT_ASSERT(salGuidTablePut(guidKey, evt), ==, 0);
+    }
+#endif
+
 #ifdef OCR_ENABLE_STATISTICS
     ocrTask_t *task = NULL;
     getCurrentEnv(NULL, NULL, &task, NULL);
