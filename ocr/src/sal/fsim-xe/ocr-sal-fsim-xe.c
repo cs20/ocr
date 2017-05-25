@@ -8,9 +8,10 @@
 #include "mmio-table.h"
 
 #define DEBUG_TYPE SAL
-
-void salPdDriver(void* pdVoid) {
+void salPdDriver(void* pdVoid, u64 debug_mask, u64 debug_value) {
     ocrPolicyDomain_t *pd = (ocrPolicyDomain_t*)pdVoid;
+
+    Debug_Mask = debug_mask;
 
     RESULT_ASSERT(pd->fcts.switchRunlevel(pd, RL_CONFIG_PARSE, RL_REQUEST | RL_ASYNC
                                           | RL_BRING_UP | RL_NODE_MASTER), ==, 0);

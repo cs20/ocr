@@ -17,8 +17,10 @@
  * This function will be called by tgkrnl to start the PD for the XE
  *
  * @param[in] pd    Pointer to the policy domain to start
+ * @param[in] debug_mask  64-bit mask for Debug_Mask to control DPRINTF
+ * @param[in] debug_value 64-bit value for debug usage
  */
-void salPdDriver(void* pd);
+void salPdDriver(void* pd, u64 debug_mask, u64 debug_value);
 
 extern u32 salPause(bool isBlocking);
 
