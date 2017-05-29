@@ -916,23 +916,23 @@ endif
 UNAME := $(shell uname -s)
 ifeq ($(UNAME),Darwin)
 
-  $(OCR_INSTALL)/lib/%: $(BASE_LIBS)% | $(OCR_INSTALL)/lib grablock
+  $(OCR_INSTALL)/lib/%: $(BASE_LIBS)% | $(OCR_INSTALL)/lib
 	$(AT)$(RM) -f $@
 	$(AT)install -m 0644 $< $@
 
-  $(OCR_INSTALL)/bin/%: $(BASE_EXES)% | $(OCR_INSTALL)/bin grablock
+  $(OCR_INSTALL)/bin/%: $(BASE_EXES)% | $(OCR_INSTALL)/bin
 	$(AT)$(RM) -f $@
 	$(AT)install -m 0755 $< $@
 
-  $(OCR_INSTALL)/include/%: $(OCR_ROOT)/inc/% | $(OCR_INSTALL)/include $(OCR_INSTALL)/include/extensions grablock
+  $(OCR_INSTALL)/include/%: $(OCR_ROOT)/inc/% | $(OCR_INSTALL)/include $(OCR_INSTALL)/include/extensions
 	$(AT)$(RM) -f $@
 	$(AT)install -m 0644 $< $@
 
-  $(OCR_INSTALL)/share/ocr/config/$(OCR_TYPE)/%: $(OCR_ROOT)/machine-configs/$(OCR_TYPE)/% | $(OCR_INSTALL)/share/ocr/config/$(OCR_TYPE) grablock
+  $(OCR_INSTALL)/share/ocr/config/$(OCR_TYPE)/%: $(OCR_ROOT)/machine-configs/$(OCR_TYPE)/% | $(OCR_INSTALL)/share/ocr/config/$(OCR_TYPE)
 	$(AT)$(RM) -f $@
 	$(AT)install -m 0644 $< $@
 
-  $(OCR_INSTALL)/share/ocr/scripts/%: $(OCR_ROOT)/scripts/% | $(OCR_INSTALL)/share/ocr/scripts $(OCR_INSTALL)/share/ocr/scripts/Configs grablock
+  $(OCR_INSTALL)/share/ocr/scripts/%: $(OCR_ROOT)/scripts/% | $(OCR_INSTALL)/share/ocr/scripts $(OCR_INSTALL)/share/ocr/scripts/Configs
 	$(AT)$(RM) -f $@
 	$(AT)install -m 0755 $< $@
 
@@ -947,19 +947,19 @@ ifeq ($(UNAME),Darwin)
 
 else
 
-  $(OCR_INSTALL)/lib/%: $(BASE_LIBS)% | grablock
+  $(OCR_INSTALL)/lib/%: $(BASE_LIBS)%
 	$(AT)install -D -m 0644 $< $@
 
-  $(OCR_INSTALL)/bin/%: $(BASE_EXES)% | grablock
+  $(OCR_INSTALL)/bin/%: $(BASE_EXES)%
 	$(AT)install -D -m 0755 $< $@
 
-  $(OCR_INSTALL)/include/%: $(OCR_ROOT)/inc/% | grablock
+  $(OCR_INSTALL)/include/%: $(OCR_ROOT)/inc/%
 	$(AT)install -D -m 0644 $< $@
 
-  $(OCR_INSTALL)/share/ocr/config/$(OCR_TYPE)/%: $(OCR_ROOT)/machine-configs/$(OCR_TYPE)/% | grablock
+  $(OCR_INSTALL)/share/ocr/config/$(OCR_TYPE)/%: $(OCR_ROOT)/machine-configs/$(OCR_TYPE)/%
 	$(AT)install -D -m 0644 $< $@
 
-  $(OCR_INSTALL)/share/ocr/scripts/%: $(OCR_ROOT)/scripts/% | grablock
+  $(OCR_INSTALL)/share/ocr/scripts/%: $(OCR_ROOT)/scripts/%
 	$(AT)install -D -m 0755 $< $@
 
   # Need this for the auto-generated .h file
@@ -969,15 +969,6 @@ else
 
 endif # Darwin ifeq
 
-.PHONY: grablock
-grablock: /tmp/$(subst /,_,$(OCR_INSTALL))_lock
-
-# List the lock file as intermediate so it is removed if things crash
-.INTERMEDIATE: /tmp/$(subst /,_,$(OCR_INSTALL))_lock
-/tmp/$(subst /,_,$(OCR_INSTALL))_lock:
-	@printf "\033[32m Grabbing install lock\033[0m\n"
-	$(AT)lockfile "/tmp/$(subst /,_,$(OCR_INSTALL))_lock";
-
 .PHONY: install
 install: ${INSTALL_TARGETS} ${INSTALLED_LIBS} ${INSTALLED_EXES} ${INSTALLED_INCS} \
 	${INSTALLED_CONFIGS} ${INSTALLED_SCRIPTS}
@@ -986,8 +977,6 @@ install: ${INSTALL_TARGETS} ${INSTALLED_LIBS} ${INSTALLED_EXES} ${INSTALLED_INCS
 		$(RM) -f $(OCR_INSTALL)/share/ocr/config/$(OCR_TYPE)/default.cfg; \
 		$(LN) -sf ./$(DEFAULT_CONFIG) $(OCR_INSTALL)/share/ocr/config/$(OCR_TYPE)/default.cfg; \
 	fi
-	@printf "\033[32m Released lock\033[0m\n"
-	$(AT)rm -f "/tmp/$(subst /,_,$(OCR_INSTALL))_lock";
 
 .PHONY: uninstall
 uninstall:
