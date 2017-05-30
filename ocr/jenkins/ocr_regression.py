@@ -44,7 +44,10 @@ jobtype_ocr_tg_regression = {
                   # Note 2: Important to set here to get the right job home.
                   # They are further specialized in the non-regression test script
                   'WORKLOAD_BUILD_ROOT': '${JJOB_PRIVATE_HOME}/ocr/ocr/tests',
-                  'WORKLOAD_INSTALL_ROOT': '${JJOB_SHARED_HOME}/ocr/ocr/tests'}
+                  'WORKLOAD_INSTALL_ROOT': '${JJOB_SHARED_HOME}/ocr/ocr/tests',
+                  'MPI_ROOT': '/opt/intel/tools/impi/5.1.1.109/intel64',
+                  'PATH': '${MPI_ROOT}/bin:'+os.environ['PATH']
+              }
 }
 
 # Specific jobs
