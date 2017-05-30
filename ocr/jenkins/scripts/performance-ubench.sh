@@ -20,9 +20,10 @@ else
     DB_IMPL=$3;
 
     cp -r ${JJOB_PRIVATE_HOME}/ocr/ocr/tests ${JJOB_PRIVATE_HOME}/ocr/ocr/tests-${JJOB_ID}
-    cd ${JJOB_PRIVATE_HOME}/ocr/ocr/tests-${JJOB_ID}/performance-tests
+    WORKDIR=${JJOB_PRIVATE_HOME}/ocr/ocr/tests-${JJOB_ID}/performance-tests
+    cd ${WORKDIR}
 
-    ./scripts/drivers/foobar.sh
+    NB_RUN=5 BYPASS_OCR_BUILD="yes" SCRIPT_ROOT=${WORKDIR}/scripts ./scripts/drivers/foobar.sh
 
     # Copy results to shared folder
     if [[ ! -d ${JJOB_SHARED_HOME}/ocr/ocr/tests/performance-tests ]]; then

@@ -86,7 +86,7 @@ job_ocr_build_x86_pthread_x86_perfs = {
     'sandbox': ('inherit0',),
     'env-vars': {
             'NO_DEBUG': 'yes',
-            'CFLAGS_USER': '-DINIT_DEQUE_CAPACITY=2500000 -DELS_USER_SIZE=0',
+            'CFLAGS_USER': '-DINIT_DEQUE_CAPACITY=2500000 -DGUID_PROVIDER_NB_BUCKETS=2500000 -DELS_USER_SIZE=0',
     }
 }
 
