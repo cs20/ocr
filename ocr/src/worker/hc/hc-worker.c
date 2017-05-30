@@ -105,7 +105,7 @@ static void hcWorkShift(ocrWorker_t * worker) {
             if (GET_STATE_PHASE(worker->curState) < (RL_GET_PHASE_COUNT_DOWN(pd, RL_USER_OK)-1)) {
                 if (curTask->funcPtr != processRequestEdt) {
                     DPRINTF(DEBUG_LVL_WARN, "user-error: task with funcPtr=%p scheduled after ocrShutdown\n", curTask->funcPtr);
-                    ASSERT(false);
+                    RETURN_PROFILE(); // Ignore EDT after emitting warning & proceed
                 }
             }
 #endif
