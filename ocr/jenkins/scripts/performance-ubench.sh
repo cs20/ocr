@@ -30,7 +30,7 @@ else
         mkdir -p ${JJOB_SHARED_HOME}/ocr/ocr/tests/performance-tests
     fi
 
-    cp report-* ${JJOB_SHARED_HOME}/ocr/ocr/tests/performance-tests
+    cp logs_foobar.*/report-* ${JJOB_SHARED_HOME}/ocr/ocr/tests/performance-tests
 
     for file in `find ${JJOB_PRIVATE_HOME}/ocr -name "core.*"`; do
         rm $file
