@@ -6,8 +6,9 @@
 
 #include <ocr.h>
 
-//#define N 7
+#ifndef N
 #define N 6
+#endif
 
 ocrGuid_t done(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     ocrPrintf("done\n");

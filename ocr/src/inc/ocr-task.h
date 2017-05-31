@@ -22,6 +22,10 @@
 #include "ocr-perfmon.h"
 #endif
 
+#if ENABLE_EDT_METRICS
+#include "statistics/metrics.h"
+#endif
+
 #if defined(OCR_ENABLE_EDT_NAMING) || defined(OCR_TRACE_BINARY)
 #ifndef OCR_EDT_NAME_SIZE
 #define OCR_EDT_NAME_SIZE 32
@@ -451,6 +455,9 @@ typedef struct _ocrTask_t {
 #endif
 #ifdef TG_STAGING
     u32 spadUsage;
+#endif
+#if ENABLE_EDT_METRICS
+    EDT_MetricStore_t metricStore;
 #endif
 } ocrTask_t;
 

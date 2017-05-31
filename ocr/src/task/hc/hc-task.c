@@ -559,6 +559,9 @@ static u8 iterateDbFrontier(ocrTask_t *self) {
  * Note: static function only meant to factorize code.
  */
 static u8 scheduleTask(ocrTask_t *self) {
+#if ENABLE_EDT_METRICS
+    RECORD_TIME(&self->metricStore, EDT, EDT_METRIC_TIME_DEPV_ACQUIRED)
+#endif
     DPRINTF(DEBUG_LVL_INFO, "Schedule "GUIDF"\n", GUIDA(self->guid));
     self->state = ALLACQ_EDTSTATE;
     ocrPolicyDomain_t *pd = NULL;
@@ -609,6 +612,9 @@ static u8 scheduleSatisfiedTask(ocrTask_t *self) {
  * Note: static function only meant to factorize code.
  */
 static u8 taskAllDepvSatisfied(ocrTask_t *self) {
+#if ENABLE_EDT_METRICS
+    RECORD_TIME(&self->metricStore, EDT, EDT_METRIC_TIME_DEPV_ACQUIRED)
+#endif
     START_PROFILE(ta_hc_taskAllDepvSatisfied);
     DPRINTF(DEBUG_LVL_INFO, "All dependences satisfied for task "GUIDF"\n", GUIDA(self->guid));
     OCR_TOOL_TRACE(false, OCR_TRACE_TYPE_EDT, OCR_ACTION_RUNNABLE, traceTaskRunnable, self->guid);
@@ -771,9 +777,32 @@ u8 destructTaskHc(ocrTask_t* base) {
         statsEDT_DESTROY(pd, base->guid, base, base->guid, base);
     }
 #endif /* OCR_ENABLE_STATISTICS */
+#if ENABLE_EDT_METRICS
+    //Save metrics on the stack to be able to measure the destroy call if required
+    EDT_MetricStore_t mStore = base->metricStore;
+#endif
+    //TODO moved here because DPRINTF fails after destroy as the worker's curTask still points to the deallocated task
+#if ENABLE_EDT_METRICS
+#if ENABLE_WORKER_METRICS
+    // Aggregate EDT metric to the current worker
+    aggregateEDTMetricStoreToWorker(&mStore);
+#else
+    // Potentially invoke metric destructor here if we rely on heap allocations
+#endif
+#endif
     // Destroy the EDT GUID and metadata
     PD_MSG_STACK(msg);
     getCurrentEnv(&pd, NULL, NULL, &msg);
+#if ENABLE_EDT_METRICS
+#if ENABLE_WORKER_METRICS
+    u32 i = 0;
+    for (; i< (EDT_METRIC_DETAILED_MAX-1); i++) {
+        if (mStore.DETAILED_Metrics[i].vals != NULL) {
+            pd->fcts.pdFree(pd, mStore.DETAILED_Metrics[i].vals);
+        }
+    }
+#endif
+#endif
 #define PD_MSG (&msg)
 #define PD_TYPE PD_MSG_GUID_DESTROY
     msg.type = PD_MSG_GUID_DESTROY | PD_MSG_REQUEST;
@@ -1015,6 +1044,10 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
     if (hasProperty(properties, EDT_PROP_LONG)) {
         self->flags |= OCR_TASK_FLAG_LONG;
     }
+#endif
+
+#if ENABLE_EDT_METRICS
+    INIT_EDT_METRIC_STORE((&self->metricStore), ((u64 *) self->funcPtr))
 #endif
 
     // Set up HC specific stuff
@@ -1824,6 +1857,9 @@ void spadFree(ocrPolicyDomain_t *pd, void *ptr) {
 
 u8 taskExecute(ocrTask_t* base) {
     START_PROFILE(ta_hc_execute);
+#if ENABLE_EDT_METRICS
+    u64 startPrologue = salGetTime();
+#endif
     ocrTaskHc_t* derived = (ocrTaskHc_t*)base;
     // In this implementation each time a signaler has been satisfied, its guid
     // has been replaced by the db guid it has been satisfied with.
@@ -2001,10 +2037,14 @@ u8 taskExecute(ocrTask_t* base) {
 #endif /* OCR_ENABLE_STATISTICS */
         EXIT_PROFILE;
     }
+#if ENABLE_EDT_METRICS
+    u64 stopPrologue = salGetTime();
+    RECORD_DIFF(&base->metricStore, EDT, EDT_METRIC_TIME_PROLOGUE, startPrologue, stopPrologue)
+#endif
     ocrGuid_t retGuid = NULL_GUID;
+#ifdef ENABLE_RESILIENCY
     u8 err = 0;
     do {
-#ifdef ENABLE_RESILIENCY
         // Check for faults before EDT execution
         while(checkForFaults(base, false) != 0)
             ;
@@ -2033,8 +2073,13 @@ u8 taskExecute(ocrTask_t* base) {
 #ifdef NANNYMODE_SAFE_DEPV
         depv = defensiveDepv;
 #endif
+#if ENABLE_EDT_METRICS
+    START_TIME_SCOPED(EDT, EDT_METRIC_TIME_USER, USER_SCOPE)
+    u64 startExec = salGetTime();
+#endif
+
 #ifdef ENABLE_POLICY_DOMAIN_HC_DIST
-        if(base->funcPtr == &processRequestEdt) {
+        if(base->funcPtr == processRequestEdt) {
             START_PROFILE(procIncMsg);
             retGuid = base->funcPtr(paramc, paramv, depc, depv);
             EXIT_PROFILE;
@@ -2045,15 +2090,23 @@ u8 taskExecute(ocrTask_t* base) {
             START_PROFILE(userCode);
             retGuid = base->funcPtr(paramc, paramv, depc, depv);
             EXIT_PROFILE;
+
 #ifdef ENABLE_RESILIENCY
             curWorker->edtDepth--;
 #endif
         }
-#else
+#else /* ENABLE_POLICY_DOMAIN_HC_DIST */
         START_PROFILE(userCode);
         retGuid = base->funcPtr(paramc, paramv, depc, depv);
         EXIT_PROFILE;
 #endif /* ENABLE_POLICY_DOMAIN_HC_DIST */
+
+#if ENABLE_EDT_METRICS
+        u64 stopExec = salGetTime();
+        STOP_TIME_SCOPED(EDT, EDT_METRIC_TIME_USER, USER_SCOPE)
+        RECORD_DIFF(&base->metricStore, EDT, EDT_METRIC_TIME_FUNC, startExec, stopExec)
+#endif
+
 #if defined(OCR_ENABLE_EDT_NAMING) || defined(OCR_TRACE_BINARY)
         TPRINTF("EDT End: %s 0x%"PRIx64" in %s\n",
                 base->name, base->guid, location);
@@ -2078,7 +2131,7 @@ u8 taskExecute(ocrTask_t* base) {
             }
             ch++;
         }
-#endif
+#endif /* NANNYMODE_SAFE_DEPV */
 
 #ifdef OCR_ENABLE_VISUALIZER
         u64 endTime = salGetTime();
@@ -2102,9 +2155,12 @@ u8 taskExecute(ocrTask_t* base) {
                 return err;
             }
         }
+    } while(err);
 #endif
 
-    } while(err);
+#if ENABLE_EDT_METRICS
+    u64 startEpilogue = salGetTime();
+#endif
 
 #ifdef ENABLE_OCR_API_DEFERRABLE
 #ifdef ENABLE_OCR_API_DEFERRABLE_MT
@@ -2150,7 +2206,7 @@ u8 taskExecute(ocrTask_t* base) {
 #else
     deferredExecute(base);
     taskEpilogue(base, pd, curWorker, retGuid);
-#endif
+#endif /*ENABLE_OCR_API_DEFERRABLE_MT*/
 #else
 #ifdef TG_STAGING
 #if defined(TG_XE_TARGET)
@@ -2169,7 +2225,15 @@ u8 taskExecute(ocrTask_t* base) {
 #endif
 #endif
     taskEpilogue(base, pd, curWorker, retGuid);
+#endif /*ENABLE_OCR_API_DEFERRABLE*/
+
+#if ENABLE_EDT_METRICS
+    u64 stopEpilogue = salGetTime();
+    RECORD_DIFF(&base->metricStore, EDT, EDT_METRIC_TIME_EPILOGUE, startEpilogue, stopEpilogue)
 #endif
+    // debug for now
+    // dumpEdtMetric(curWorker, &base->metricStore, 1);
+
     RETURN_PROFILE(0);
 }
 

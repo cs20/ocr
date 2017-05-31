@@ -17,10 +17,13 @@
 #include "ocr-worker.h"
 #include "worker/hc/hc-worker.h"
 #include "policy-domain/hc/hc-policy.h"
-
 #include "experimental/ocr-platform-model.h"
 #include "extensions/ocr-affinity.h"
 #include "extensions/ocr-hints.h"
+
+#if defined(STAT_EDT_EXEC)
+#include "statistics/metrics.h"
+#endif
 
 #ifdef OCR_ENABLE_STATISTICS
 #include "ocr-statistics.h"
@@ -86,6 +89,15 @@ static void hcWorkShift(ocrWorker_t * worker) {
 #if defined(UTASK_COMM) || defined(UTASK_COMM2) || defined(ENABLE_OCR_API_DEFERRABLE_MT)
     RESULT_ASSERT(pdProcessStrands(pd, NP_WORK, 0), ==, 0);
 #endif
+
+#if ENABLE_WORKER_METRICS
+    // To identify when the metric framework should start
+    #define PHASE_RUN ((u8) 3)
+    // Only record if we are in user ok, executing user code. Avoids boot/shutdown clutter.
+    u8 recordMetrics = (GET_STATE(RL_USER_OK, PHASE_RUN) == worker->curState);
+    u64 startGetWork = salGetTime();
+#endif
+
     u8 retCode = 0;
     {
     START_PROFILE(wo_hc_getWork);
@@ -105,10 +117,18 @@ static void hcWorkShift(ocrWorker_t * worker) {
     retCode = pd->fcts.processMessage(pd, &msg, true);
     EXIT_PROFILE;
     }
+#if ENABLE_WORKER_METRICS
+    u64 stopGetWork = salGetTime();
+#endif
     if(retCode == 0) {
         // We got a response
         ocrFatGuid_t taskGuid = PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).edt;
         if(!(ocrGuidIsNull(taskGuid.guid))){
+#if ENABLE_WORKER_METRICS
+            if (recordMetrics) {
+                RECORD_DIFF(&worker->metricStore, WORKER, WORKER_METRIC_TIME_GETWORK_ACK, startGetWork, stopGetWork)
+            }
+#endif
 #ifdef ENABLE_RESILIENCY
             worker->isIdle = 0;
 #endif
@@ -149,7 +169,19 @@ static void hcWorkShift(ocrWorker_t * worker) {
                     hal_cmpswap32(&pd->slowestWorker, pd->slowestWorker, worker->id);
                 u64 edtTime = salGetTime(NULL);
 #endif
+#if ENABLE_WORKER_METRICS
+                u64 startExecEdt = salGetTime();
+#endif
                 RESULT_ASSERT(((ocrTaskFactory_t *)(pd->factories[factoryId]))->fcts.execute(curTask), ==, 0);
+#if ENABLE_WORKER_METRICS
+                if (recordMetrics) {
+                    u64 stopExecEdt = salGetTime();
+                    RECORD_DIFF(&worker->metricStore, WORKER, WORKER_METRIC_TIME_EXEC_EDT, startExecEdt, stopExecEdt)
+                    // curTask
+                    // Aggregate the EDT metrics at the worker level.
+                    // Would that be better done in the scheduler since it is the one doing the destroy ?
+                }
+#endif
                 //TODO-DEFERRED: With MT, there can be multiple workers executing curTask.
                 // Not sure we thought about that and implications
 #ifdef ENABLE_EXTENSION_PERF
@@ -242,6 +274,11 @@ if (ctrs) {
             // Important for this to be the last
             worker->curTask = NULL;
         } else {
+#if ENABLE_WORKER_METRICS
+            if (recordMetrics) {
+                RECORD_DIFF(&worker->metricStore, WORKER, WORKER_METRIC_TIME_GETWORK_NAK, startGetWork, stopGetWork)
+            }
+#endif
 #ifdef ENABLE_RESILIENCY
             if (worker->isIdle == 0 && worker->edtDepth == 0) {
                 if (pd->schedulers[0]->fcts.count(pd->schedulers[0], SCHEDULER_OBJECT_COUNT_RUNTIME_EDT) == 0) {
@@ -266,8 +303,6 @@ if (ctrs) {
 #undef PD_TYPE
     }
 #endif
-// #undef PD_MSG
-// #undef PD_TYPE
 #ifdef ENABLE_EXTENSION_PAUSE
     ocrPolicyDomainHc_t *self = (ocrPolicyDomainHc_t *)pd;
     if(self->pqrFlags.runtimePause == true) {
@@ -515,6 +550,14 @@ u8 hcWorkerSwitchRunlevel(ocrWorker_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_
 #ifdef ENABLE_EXTENSION_PERF
             hcWorker->perfCtrs = PD->fcts.pdMalloc(PD, PERF_HW_MAX*sizeof(salPerfCounter));
 #endif
+#if ENABLE_WORKER_METRICS
+            INIT_METRIC_STORE(&(self->metricStore), WORKER)
+#if ENABLE_EDT_METRICS
+            self->edtMetricStores = NULL;
+            self->edtMetricStoresCount = 0;
+            self->edtMetricStoresCountMax = 0;
+#endif
+#endif
         } else if((properties & RL_TEAR_DOWN) && (RL_IS_LAST_PHASE_DOWN(PD, RL_GUID_OK, phase))) {
 #ifdef ENABLE_EXTENSION_PERF
             PD->fcts.pdFree(PD, hcWorker->perfCtrs);
@@ -559,6 +602,9 @@ u8 hcWorkerSwitchRunlevel(ocrWorker_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_
             toReturn |= self->computes[0]->fcts.switchRunlevel(self->computes[0], PD, runlevel, phase, properties,
                                                                NULL, 0);
             if(RL_IS_LAST_PHASE_DOWN(PD, RL_COMPUTE_OK, phase)) {
+#if ENABLE_WORKER_METRICS
+                dumpWorkerMetric(self, &(self->metricStore));
+#endif
                 // Destroy GUID
                 PD_MSG_STACK(msg);
                 getCurrentEnv(NULL, NULL, NULL, &msg);
