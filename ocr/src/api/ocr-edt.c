@@ -159,7 +159,7 @@ u8 ocrEdtTemplateCreate_internal(ocrGuid_t *guid, ocrEdt_t funcPtr, u32 paramc, 
             GUIDA(*guid), funcPtr, (s32)paramc, (s32)depc, funcName?funcName:"");
 #if defined(OCR_ENABLE_EDT_NAMING) || defined(OCR_TRACE_BINARY)
     // Please check that OCR_ENABLE_EDT_NAMING is defined in the app's makefile
-    ASSERT(funcName);
+    ASSERT(funcName && "error: Check that OCR_ENABLE_EDT_NAMING is defined in the app's makefile");
 #endif
     PD_MSG_STACK(msg);
     ocrPolicyDomain_t *pd = NULL;
