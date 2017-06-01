@@ -39,6 +39,14 @@
 #define RL_BARRIER_STATE_PARENT_RESPONSE  0x8  // Parent has responded thereby releasing us
                                                // and children
 
+/** Maximum size allocation that is attempted in an XE's local cache.
+ *  A maximum value might be 60K since that is close to the L1 pool size. */
+u64 AllocXeL1MaxSize = 4 * 1024; // 4K
+/** Maximum size allocatoin that is attempted in a block's L2 cache by
+ *  an XE.
+ *  A maximum value might be 2M or just under whatever the L2 size is. */
+u64 AllocXeL2MaxSize = 32 * 1024; // 32K
+
 // Determine which XE in the PD we are
 #ifdef OCR_SHARED_XE_POLICY_DOMAIN
 #define MY_XE_LOCATION ((*(u64*)(AR_MSR_BASE + CORE_LOCATION_NUM * sizeof(u64))))
@@ -781,7 +789,7 @@ static u8 xeAllocateDb(ocrPolicyDomain_t *self, ocrFatGuid_t *guid, void** ptr, 
     // eventually be eliminated here and instead, above this level, processed into the "prescription"
     // variable, which has been added to this argument list.  The prescription indicates an order in
     // which to attempt to allocate the block to a pool.
-    u64 idx = XE_PD_INDEX();
+    u64 idx = 0;
 //    void* result = allocateDddatablock (self, size, engineIndex, prescription, &idx);
 
     int preferredLevel = 0;
@@ -801,8 +809,29 @@ static u8 xeAllocateDb(ocrPolicyDomain_t *self, ocrFatGuid_t *guid, void** ptr, 
     }
 
     s8 allocatorIndex = XE_PD_INDEX();
-    *ptr = self->allocators[allocatorIndex]->fcts.allocate(self->allocators[allocatorIndex], size, 0);
-    // DPRINTF(DEBUG_LVL_WARN, "xeAllocateDb successfully returning %p\n", result);
+    // If less than max size limit
+    if (size <= AllocXeL1MaxSize) {
+        *ptr = self->allocators[allocatorIndex]->fcts.allocate(self->allocators[allocatorIndex], size, 0);
+        if (*ptr) DPRINTF(DEBUG_LVL_VERB, "xeAllocateDb successfully allocated from L1 size = %"PRIu64"\n", size);
+        idx = allocatorIndex;
+    }
+    else
+        DPRINTF(DEBUG_LVL_VERB, "%s: size (%"PRIu64") requested > AllocXeL1MaxSize (%"PRIu64")\n", __FUNCTION__, size, AllocXeL1MaxSize);
+#ifdef OCR_ENABLE_XE_L2_ALLOC
+    if (*ptr == 0) {
+        allocatorIndex = self->allocatorCount - 1;
+        // If larger than acceptable L2 size then return failure and request
+        // should be handed off to CE for processing
+        if (size > AllocXeL2MaxSize) {
+            DPRINTF(DEBUG_LVL_VERB, "%s: size (%"PRIu64") requested > AllocXeL2MaxSize (%"PRIu64")\n", __FUNCTION__, size, AllocXeL2MaxSize);
+            return OCR_ENOMEM;
+        }
+
+        *ptr = self->allocators[allocatorIndex]->fcts.allocate(self->allocators[allocatorIndex], size, 0);
+        if (*ptr) DPRINTF(DEBUG_LVL_VERB, "xeAllocateDb successfully allocated from L2 size = %"PRIu64"\n", size);
+        idx = allocatorIndex;
+    }
+#endif
 
     if (*ptr) {
         u8 returnValue = 0;

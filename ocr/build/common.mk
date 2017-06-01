@@ -322,10 +322,17 @@ endif
 # CFLAGS += -DOCR_SHARED_XE_POLICY_DOMAIN
 # CFLAGS += -DOCR_DISABLE_USER_L1_ALLOC
 # CFLAGS += -DOCR_DISABLE_RUNTIME_L1_ALLOC
+# CFLAGS += -DOCR_ENABLE_XE_L2_ALLOC
 
 ####################################################
 # Debug flags
 ####################################################
+
+ifneq (,$(findstring OCR_ENABLE_XE_L2_ALLOC, $(CFLAGS)))
+  ifeq (,$(findstring OCR_SHARED_XE_POLICY_DOMAIN, $(CFLAGS)))
+    $(error if OCR_ENABLE_XE_L2_ALLOC, then OCR_SHARED_XE_POLICY_DOMAIN must be defined)
+  endif
+endif
 
 # Debugging support
 ifneq (${NO_DEBUG}, yes)
@@ -934,8 +941,18 @@ ifeq (x86-phi,$(findstring $(OCR_TYPE),x86-phi))
 endif
 
 ifneq (,$(findstring OCR_SHARED_XE_POLICY_DOMAIN,$(CFLAGS)))
-  ifeq (tg-xe,$(findstring $(OCR_TYPE),tg-xe))
-    DEFAULT_CONFIG    := xe-8-default.cfg
+  ifneq (,$(findstring OCR_ENABLE_XE_L2_ALLOC,$(CFLAGS)))
+    ifeq (tg-xe,$(findstring $(OCR_TYPE),tg-xe))
+      DEFAULT_CONFIG    := xe-8-wL2-default.cfg
+    else
+      ifeq (tg-ce,$(findstring $(OCR_TYPE),tg-ce))
+        DEFAULT_CONFIG    := ce-nL2-default.cfg
+      endif
+    endif
+  else
+    ifeq (tg-xe,$(findstring $(OCR_TYPE),tg-xe))
+      DEFAULT_CONFIG    := xe-8-default.cfg
+    endif
   endif
 endif
 

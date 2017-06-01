@@ -81,15 +81,22 @@ u8 fsimSwitchRunlevel(ocrMemPlatform_t *self, ocrPolicyDomain_t *PD, ocrRunlevel
             DPRINTF(DEBUG_LVL_VERB, "Initializing memory range %"PRIx64" to %"PRIx64"\n", self->startAddr, self->endAddr);
             ocrMemPlatformFsim_t *rself = (ocrMemPlatformFsim_t*)self;
 #if defined(SAL_FSIM_XE) && defined(OCR_SHARED_XE_POLICY_DOMAIN)
-            u64 rangeStart, rangeEnd;
-            // If range is agent relative, then convert it to block relative
-            // if we are using the OCR_SHARED_XE_POLICY_DOMAIN.
-            rangeStart = (self->startAddr - AR_L1_BASE)
-                        + BR_L1_BASE(ID_AGENT_XE(self->id));
-            rangeEnd   = (self->endAddr   - AR_L1_BASE)
-                        + BR_L1_BASE(ID_AGENT_XE(self->id));
-            rself->pRangeTracker = initializeRange(16, rangeStart,
-                    rangeEnd, USER_FREE_TAG);
+            if ((self->startAddr & ~AR_L1_BASE) < AR_L1_BASE) {
+                u64 rangeStart, rangeEnd;
+                // If range is agent relative, then convert it to block relative
+                // if we are using the OCR_SHARED_XE_POLICY_DOMAIN.
+                rangeStart = (self->startAddr - AR_L1_BASE)
+                            + BR_L1_BASE(ID_AGENT_XE(self->id));
+                rangeEnd   = (self->endAddr   - AR_L1_BASE)
+                            + BR_L1_BASE(ID_AGENT_XE(self->id));
+                rself->pRangeTracker = initializeRange(16, rangeStart,
+                        rangeEnd, USER_FREE_TAG);
+            }
+#ifdef OCR_ENABLE_XE_L2_ALLOC
+            else
+                rself->pRangeTracker = initializeRange(16, self->startAddr,
+                        self->endAddr, USER_FREE_TAG);
+#endif
 #else // OCR_SHARED_XE_POLICY_DOMAIN
             rself->pRangeTracker = initializeRange(16, self->startAddr,
                     self->endAddr, USER_FREE_TAG);
