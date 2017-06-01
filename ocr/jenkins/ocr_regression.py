@@ -23,7 +23,7 @@ jobtype_ocr_tg_regression = {
     'depends': ('ocr-build-builder-ce', 'ocr-build-builder-xe',
                 'ocr-build-tg-ce', 'ocr-build-tg-xe', 'apps-tg-init-job', ),
     'keywords': ('tg', 'ocr', 'regression'),
-    'timeout': 8000,
+    'timeout': 16000,
     'sandbox': ('local', 'shared', 'shareOK'),
     # Need the apps repo because we're using the apps
     # makefile infrastructure to run TG tests
