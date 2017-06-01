@@ -601,7 +601,7 @@ static bool scheduleLocalPendingAcquire(ocrDataBlock_t * self, ocrDataBlockLocka
     ASSERT((dbMode != DB_EW) ? (waitQueues[dbMode] == NULL) : 1);
     if (waitQueues[DB_RO] != NULL) {
         // RO just piggybacks on the other state/mode
-        waitQueues[DB_RO] = processLocalAcquireCallbacks(self, waiters, /*all=*/true);
+        waitQueues[DB_RO] = processLocalAcquireCallbacks(self, waitQueues[DB_RO], /*all=*/true);
         ASSERT(waitQueues[DB_RO] == NULL);
     }
     return true;
