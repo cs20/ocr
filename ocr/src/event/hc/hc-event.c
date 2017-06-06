@@ -447,8 +447,8 @@ static u8 commonSatisfyWaiters(ocrPolicyDomain_t *pd, ocrEvent_t *base, ocrFatGu
         u8 res __attribute__((unused)) = pd->fcts.processMessage(pd, msg, true);
         ASSERT(!res);
         regNode_t * waiters = (regNode_t*)PD_MSG_FIELD_O(ptr);
-        //BUG #273: related to 273: we should not get an updated deguidification...
-        dbWaiters = PD_MSG_FIELD_IO(guid); //Get updated deguidifcation if needed
+        //BUG #273: we should not get an updated deguidification...
+        dbWaiters = PD_MSG_FIELD_IO(guid); //Get updated deguidification if needed
         ASSERT(waiters);
 #undef PD_TYPE
 
@@ -506,9 +506,6 @@ u8 satisfyEventHcOnce(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
         DPRINTF(DEBUG_LVL_WARN, "Once event "GUIDF" satisfied with no dependences\n", GUIDA(base->guid));
     }
 #endif
-
-
-
     // Since this a ONCE event, we need to destroy it as well
     // This is safe to do so at this point as all the messages have been sent
     return destructEventHc(base);
@@ -603,13 +600,23 @@ u8 satisfyEventHcCounted(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
     ASSERT_BLOCK_BEGIN(waitersCount <= devt->nbDeps)
     DPRINTF(DBG_HCEVT_ERR, "User-level error detected: too many registrations on counted-event "GUIDF"\n", GUIDA(base->guid));
     ASSERT_BLOCK_END
-
-    devt->nbDeps -= waitersCount;
-    destroy = ((devt->nbDeps) == 0);
+    // Do not substract to nbDeps else concurrent registerWaiter
+    // could reach zero and destruct the event while this code
+    // unlocks and try to satisfy already registered waiters
     hal_unlock(&(event->waitersLock));
-    u8 ret = commonSatisfyEventHcPersist(base, db, slot, waitersCount);
-    if (destroy) {
-        ret = destructEventHc(base);
+    // Nobody can be added to the event now...
+    u8 ret = 0;
+    if (waitersCount != 0) {
+        ret = commonSatisfyEventHcPersist(base, db, slot, waitersCount);
+        // ... and we're competing with registerWaiter for the
+        //     event destruction through the lock.
+        hal_lock(&(event->waitersLock));
+        devt->nbDeps -= waitersCount;
+        destroy = (devt->nbDeps == 0);
+        hal_unlock(&(event->waitersLock));
+        if (destroy) {
+            ret = destructEventHc(base);
+        }
     }
     return ret;
 }
@@ -654,14 +661,7 @@ u8 satisfyEventHcPersistIdem(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
         // Notify peers
         satisfyEventHcPeers(base, db.guid, slot, curHead);
         // Notify waiters
-        u8 res = commonSatisfyEventHcPersist(base, db, slot, waitersCount);
-        ASSERT(!res);
-        // Set destruction flag
-        hal_fence();// make sure all operations are done
-        // This is to signal a concurrent destruct currently
-        // waiting on the satisfaction being done it can now
-        // proceed.
-        ((ocrEventHc_t*)base)->waitersCount = STATE_CHECKED_OUT;
+        commonSatisfyEventHcPersist(base, db, slot, waitersCount);
     }
     return 0;
 }
@@ -677,14 +677,7 @@ u8 satisfyEventHcPersistSticky(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
     // Notify peers
     satisfyEventHcPeers(base, db.guid, slot, curHead);
     // Notify waiters
-    u8 res = commonSatisfyEventHcPersist(base, db, slot, waitersCount);
-    ASSERT(!res);
-    // Set destruction flag
-    hal_fence();// make sure all operations are done
-    // This is to signal a concurrent destruct currently
-    // waiting on the satisfaction being done it can now
-    // proceed.
-    ((ocrEventHc_t*)base)->waitersCount = STATE_CHECKED_OUT;
+    commonSatisfyEventHcPersist(base, db, slot, waitersCount);
     return 0;
 }
 
