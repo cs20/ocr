@@ -81,6 +81,7 @@ u8        salRepublish(ocrGuid_t guid, void *ptr);
 u8        salRemovePublished(ocrGuid_t guid);
 u8        salPublishEdt(ocrTask_t *task);
 u8        salRemovePublishedEdt(ocrGuid_t edt);
+u8        salRecordEdt(ocrGuid_t edt);
 u8        salHandleNodeFailure(ocrLocation_t nodeId, int *rankMap);
 u8        salGuidTablePut(u64 key, ocrGuid_t val);
 u8        salGuidTableGet(u64 key, ocrGuid_t *val);

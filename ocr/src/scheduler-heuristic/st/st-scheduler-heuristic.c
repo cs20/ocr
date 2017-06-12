@@ -1906,6 +1906,9 @@ static u8 stSchedulerHeuristicTransactDb(ocrSchedulerHeuristic_t *self, ocrSched
     PD_MSG_FIELD_IO(destLoc) = pd->myLocation;
     PD_MSG_FIELD_IO(edtSlot) = EDT_SLOT_NONE;
     PD_MSG_FIELD_IO(properties) = DB_MODE_RW | DB_PROP_RT_PD_ACQUIRE;
+#ifdef ENABLE_AMT_RESILIENCE
+    PD_MSG_FIELD_IO(resilientEdtParent) = NULL_GUID;
+#endif
     RESULT_ASSERT(pd->fcts.processMessage(pd, &msg, true), ==, 0); //blocking call to acquire
     ASSERT(PD_MSG_FIELD_O(ptr) && PD_MSG_FIELD_O(size) == dbSize);
     ASSERT(dbPtr == NULL);

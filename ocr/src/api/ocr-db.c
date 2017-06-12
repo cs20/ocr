@@ -67,6 +67,9 @@ u8 ocrDbCreate(ocrGuid_t *db, void** addr, u64 len, u16 flags,
         PD_MSG_FIELD_I(dbType) = USER_DBTYPE;
     }
     PD_MSG_FIELD_I(allocator) = allocator;
+#ifdef ENABLE_AMT_RESILIENCE
+    PD_MSG_FIELD_I(resilientEdtParent) = (task == NULL) ? NULL_GUID : task->resilientEdtParent;
+#endif
 #ifdef ENABLE_OCR_API_DEFERRABLE
     tagDeferredMsg(&msg, task);
 #endif
@@ -112,6 +115,9 @@ u8 ocrDbCreate(ocrGuid_t *db, void** addr, u64 len, u16 flags,
         PD_MSG_FIELD_I(mode) = -1;
 #endif
         PD_MSG_FIELD_I(properties) = 0;
+#ifdef ENABLE_AMT_RESILIENCE
+        PD_MSG_FIELD_I(resilientEdtParent) = (task == NULL) ? NULL_GUID : task->resilientEdtParent;
+#endif
 #ifdef ENABLE_OCR_API_DEFERRABLE
         tagDeferredMsg(&msg, task);
 #endif

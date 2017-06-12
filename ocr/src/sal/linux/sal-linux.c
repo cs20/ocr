@@ -583,7 +583,9 @@ bool salCheckpointExistsResumeQuery() {
 //Publish-Fetch hashtable
 static int pfIsInitialized = 0;
 static hashtable_t * pfTable = NULL;
+static hashtable_t * rectable = NULL;
 static lock_t pfLock;
+static lock_t recLock;
 
 typedef struct _nodeStateHeader {
     size_t nodeStateBufSize;
@@ -605,7 +607,9 @@ void salInitPublishFetch() {
     ocrPolicyDomain_t *pd;
     getCurrentEnv(&pd, NULL, NULL, NULL);
     pfTable = newHashtableBucketLockedModulo(pd, RECORD_INCR_SIZE);
+    rectable = newHashtableBucketLockedModulo(pd, RECORD_INCR_SIZE);
     pfLock = INIT_LOCK;
+    recLock = INIT_LOCK;
 
     //Initialize node state buffer
     char fname[FNL];
@@ -1080,93 +1084,132 @@ u8 salPublishEdt(ocrTask_t *task) {
         edt->depv[i] = hcTask->resolvedDeps[i].guid;
     }
     salPublishInternal(task->guid, buf, size, 0);
-
-    //Add new entry to state file
-    hal_lock(&pfLock);
-
-    nodeStateHeader_t *nsHeader = (nodeStateHeader_t*)nodeStateBuf;
-    ASSERT(nsHeader->numRecords < nsHeader->maxRecords);
-    nodeStateRecord_t *records = (nodeStateRecord_t*)(((size_t)nodeStateBuf) + sizeof(nodeStateHeader_t));
-    u64 recIdx = nsHeader->numRecords++;
-    records[recIdx].guid = task->guid;
-    records[recIdx].pguid = task->resilientEdtParent;
-    int rc = msync(nodeStateBuf, nsHeader->nodeStateBufSize, MS_INVALIDATE | MS_SYNC);
-    if (rc) {
-        fprintf(stderr, "msync failed for buffer %p of size %lu\n", nodeStateBuf, sizeof(nodeStateHeader_t));
-        ASSERT(0);
-        return 1;
-    }
-
-    if (nsHeader->numRecords == nsHeader->maxRecords) {
-        u64 nodeStateBufSize = nsHeader->nodeStateBufSize;
-        rc = munmap(nodeStateBuf, nodeStateBufSize);
-        if (rc) {
-            fprintf(stderr, "munmap failed for buffer %p of size %lu\n", buf, size);
-            ASSERT(0);
-            return 1;
-        }
-
-        nodeStateBufSize += (RECORD_INCR_SIZE * sizeof(nodeStateRecord_t));
-        rc = ftruncate(nodeStateFD, nodeStateBufSize);
-        if (rc) {
-            fprintf(stderr, "ftruncate failed: (filedesc: %d)\n", nodeStateFD);
-            ASSERT(0);
-            return 1;
-        }
-
-        nodeStateBuf = mmap( nodeStateBuf, nodeStateBufSize, PROT_READ | PROT_WRITE, MAP_SHARED, nodeStateFD, 0 );
-        if (nodeStateBuf == MAP_FAILED) {
-            fprintf(stderr, "mmap failed for size %lu (filedesc: %d)\n", nodeStateBufSize, nodeStateFD);
-            ASSERT(0);
-            return 1;
-        }
-
-        nsHeader = (nodeStateHeader_t*)nodeStateBuf;
-        nsHeader->nodeStateBufSize = nodeStateBufSize;
-        nsHeader->maxRecords += RECORD_INCR_SIZE;
-
-        rc = msync(nodeStateBuf, sizeof(nodeStateHeader_t), MS_INVALIDATE | MS_SYNC);
-        if (rc) {
-            fprintf(stderr, "msync failed for buffer %p of size %lu\n", nodeStateBuf, nodeStateBufSize);
-            ASSERT(0);
-            return 1;
-        }
-    }
-
-    hal_unlock(&pfLock);
-
+    salRecordEdt(task->guid);
     return 0;
 }
 
 u8 salRemovePublishedEdt(ocrGuid_t edt) {
+    u64 i;
     if (!pfIsInitialized) return 1;
     ASSERT(!ocrGuidIsNull(edt));
-    u64 i;
 
-    //Remove state file entry
-    hal_lock(&pfLock);
+    //Remove EDT metadata from storage
+    salRemovePublished(edt);
 
-    nodeStateHeader_t *nsHeader = (nodeStateHeader_t*)nodeStateBuf;
-    nodeStateRecord_t *records = (nodeStateRecord_t*)(((size_t)nodeStateBuf) + sizeof(nodeStateHeader_t));
-    u64 numRecords = nsHeader->numRecords;
-    for (i = 0; i < numRecords; i++) {
-        if (ocrGuidIsEq(records[i].guid, edt)) {
-            records[i] = records[numRecords - 1];
-            nsHeader->numRecords--;
-            int rc = msync(nodeStateBuf, nsHeader->nodeStateBufSize, MS_INVALIDATE | MS_SYNC);
+    //Now remove the records of this EDT in every node that was impacted by it
+#if GUID_BIT_COUNT == 64
+    u64 guid = edt.guid;
+#elif GUID_BIT_COUNT == 128
+    u64 guid = edt.lower;
+#else
+#error Unknown type of GUID
+#endif
+    //Remove from current node
+    ASSERT(hashtableConcBucketLockedRemove(rectable, (void*)guid, NULL));
+    ocrPolicyDomain_t *pd;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+    char fname[FNL];
+    int c = snprintf(fname, FNL, "%lu.node%lu", guid, (u64)pd->myLocation);
+    if (c < 0 || c >= FNL) {
+        fprintf(stderr, "failed to create filename for EDT record\n");
+        ASSERT(0);
+        return 1;
+    }
+
+    struct stat sb;
+    if (stat(fname, &sb) == -1) {
+        fprintf(stderr, "Cannot find existing guid [0x%lx] during remove!\n", guid);
+        ASSERT(0);
+        return 1;
+    }
+
+    int rc = unlink(fname);
+    if (rc) {
+        fprintf(stderr, "unlink failed: (filename: %s)\n", fname);
+        ASSERT(0);
+        return 1;
+    }
+
+    //Remove from all other nodes
+    u64 nbRanks = pd->neighborCount + 1;
+    for (i = 0; i < nbRanks; i++) {
+        if (i == (u64)pd->myLocation) continue;
+
+        int c = snprintf(fname, FNL, "%lu.node%lu", guid, (u64)i);
+        if (c < 0 || c >= FNL) {
+            fprintf(stderr, "failed to create filename for EDT record\n");
+            ASSERT(0);
+            return 1;
+        }
+        struct stat sb;
+        if (stat(fname, &sb) == 0) {
+            int rc = unlink(fname);
             if (rc) {
-                fprintf(stderr, "msync failed for buffer %p of size %lu\n", nodeStateBuf, sizeof(nodeStateHeader_t));
+                fprintf(stderr, "unlink failed: (filename: %s)\n", fname);
                 ASSERT(0);
                 return 1;
             }
-            break;
         }
     }
-    ASSERT(i < numRecords);
+    return 0;
+}
 
-    hal_unlock(&pfLock);
+u8 salRecordEdt(ocrGuid_t g) {
+    if (!pfIsInitialized) return 1;
+    ASSERT(!(ocrGuidIsNull(g)));
+#if GUID_BIT_COUNT == 64
+    u64 guid = g.guid;
+#elif GUID_BIT_COUNT == 128
+    u64 guid = g.lower;
+#else
+#error Unknown type of GUID
+#endif
+    if (hashtableConcBucketLockedGet(rectable, (void*)guid) != NULL)
+        return 0; //Found existing record
 
-    salRemovePublished(edt);
+    ocrPolicyDomain_t *pd;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+    char fname[FNL];
+    int c = snprintf(fname, FNL, "%lu.node%lu", guid, (u64)pd->myLocation);
+    if (c < 0 || c >= FNL) {
+        fprintf(stderr, "failed to create filename for EDT record\n");
+        ASSERT(0);
+        return 1;
+    }
+
+    hal_lock(&recLock);
+
+    struct stat sb;
+    if (stat(fname, &sb) == 0) {
+        ASSERT(hashtableConcBucketLockedGet(rectable, (void*)guid) != NULL);
+        hal_unlock(&recLock);
+        return 0; //Found existing record
+    }
+
+    int fd = open(fname, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR );
+    if (fd<0) {
+        fprintf(stderr, "open failed: (filename: %s)\n", fname);
+        ASSERT(0);
+        return 1;
+    }
+    ASSERT(hashtableConcBucketLockedGet(rectable, (void*)guid) == NULL);
+    hashtableConcBucketLockedPut(rectable, (void*)guid, (void*)((u64)fd));
+
+    int rc = ftruncate(fd, 0);
+    if (rc) {
+        fprintf(stderr, "ftruncate failed: (filename: %s filedesc: %d)\n", fname, fd);
+        ASSERT(0);
+        return 1;
+    }
+
+    rc = close(fd);
+    if (rc) {
+        fprintf(stderr, "close failed: (filedesc: %d)\n", fd);
+        ASSERT(0);
+        return 1;
+    }
+
+    hal_unlock(&recLock);
 
     return 0;
 }

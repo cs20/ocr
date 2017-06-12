@@ -1630,3 +1630,33 @@ void tagDeferredMsg(ocrPolicyMsg_t * msg, ocrTask_t * task) {
     }
 }
 #endif
+
+#ifdef ENABLE_AMT_RESILIENCE
+u8 resilientLatchUpdate(ocrGuid_t latchGuid, u32 slot) {
+    PD_MSG_STACK(msg);
+    ocrPolicyDomain_t *pd = NULL;
+    getCurrentEnv(&pd, NULL, NULL, &msg);
+#define PD_MSG (&msg)
+#define PD_TYPE PD_MSG_DEP_SATISFY
+    msg.type = PD_MSG_DEP_SATISFY | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
+    PD_MSG_FIELD_I(satisfierGuid.guid) = NULL_GUID;
+    PD_MSG_FIELD_I(satisfierGuid.metaDataPtr) = NULL;
+    PD_MSG_FIELD_I(guid.guid) = latchGuid;
+    PD_MSG_FIELD_I(guid.metaDataPtr) = NULL;
+    PD_MSG_FIELD_I(payload.guid) = NULL_GUID;
+    PD_MSG_FIELD_I(payload.metaDataPtr) = NULL;
+    PD_MSG_FIELD_I(currentEdt.guid) = NULL_GUID;
+    PD_MSG_FIELD_I(currentEdt.metaDataPtr) = NULL;
+    PD_MSG_FIELD_I(slot) = slot;
+#ifdef REG_ASYNC_SGL
+    PD_MSG_FIELD_I(mode) = -1;
+#endif
+    PD_MSG_FIELD_I(properties) = 0;
+    PD_MSG_FIELD_I(resilientEdtParent) = NULL_GUID;
+    RESULT_ASSERT(pd->fcts.processMessage(pd, &msg, true), ==, 0);
+#undef PD_MSG
+#undef PD_TYPE
+    return 0;
+}
+#endif
+

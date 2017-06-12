@@ -104,6 +104,10 @@ static u8 createProcessRequestEdt(ocrPolicyDomain_t * pd, ocrGuid_t templateGuid
     PD_MSG_FIELD_I(depv) = NULL;
     PD_MSG_FIELD_I(workType) = workType;
     PD_MSG_FIELD_I(properties) = properties;
+#ifdef ENABLE_AMT_RESILIENCE
+    PD_MSG_FIELD_I(resilientLatch) = NULL_GUID;
+    PD_MSG_FIELD_I(resilientEdtParent) = NULL_GUID;
+#endif
     returnCode = pd->fcts.processMessage(pd, &msg, true);
     if(returnCode) {
         DPRINTF(DEBUG_LVL_VVERB,"hc-comm-worker: Created processRequest EDT GUID "GUIDF"\n", GUIDA(PD_MSG_FIELD_IO(guid.guid)));

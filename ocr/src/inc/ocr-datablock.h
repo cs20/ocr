@@ -268,6 +268,9 @@ typedef struct _ocrDataBlock_t {
     void* bkPtr;
     ocrGuid_t singleAssigner;
 #endif
+#ifdef ENABLE_AMT_RESILIENCE
+    ocrGuid_t resilientEdtParent;   /**< Parent resilient EDT or it scope which spawned this EDT */
+#endif
 } ocrDataBlock_t;
 
 // User DB properties

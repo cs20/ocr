@@ -308,6 +308,9 @@ static void processAcquireCallback(ocrDataBlock_t *self, dbWaiter_t * waiter, oc
     // In this implementation properties encodes the MODE + isInternal +
     // any additional flags set by the PD (such as the FETCH flag)
     PD_MSG_FIELD_IO(properties) = properties;
+#ifdef ENABLE_AMT_RESILIENCE
+    PD_MSG_FIELD_IO(resilientEdtParent) = self->resilientEdtParent;
+#endif
     // A response msg is being built, must set all the OUT fields
     PD_MSG_FIELD_O(size) = self->size;
     PD_MSG_FIELD_O(returnDetail) = 0;
@@ -752,6 +755,9 @@ u8 newDataBlockLockable(ocrDataBlockFactory_t *factory, ocrFatGuid_t *guid, ocrF
     // Only keep flags that represent the nature of
     // the DB as opposed to one-time usage creation flags
     result->base.flags = (flags & (DB_PROP_SINGLE_ASSIGNMENT | DB_PROP_RT_PROXY | DB_PROP_RESILIENT | DB_PROP_PUBLISH_EAGER));
+#ifdef ENABLE_AMT_RESILIENCE
+    result->base.resilientEdtParent = NULL_GUID;
+#endif
     result->lock = INIT_LOCK;
     result->attributes.flags = result->base.flags;
     result->attributes.numUsers = 0;

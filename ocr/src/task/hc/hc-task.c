@@ -359,6 +359,9 @@ static u8 doSatisfy(ocrPolicyDomain_t *pd, ocrPolicyMsg_t *msg,
     PD_MSG_FIELD_I(mode) = -1;
 #endif
     PD_MSG_FIELD_I(properties) = 0;
+#ifdef ENABLE_AMT_RESILIENCE
+    PD_MSG_FIELD_I(resilientEdtParent) = NULL_GUID;
+#endif
     RESULT_PROPAGATE(pd->fcts.processMessage(pd, msg, true));
 #undef PD_TYPE
 #undef PD_MSG
@@ -377,6 +380,9 @@ static u8 doAddDep(ocrPolicyDomain_t *pd, ocrPolicyMsg_t *msg,
     PD_MSG_FIELD_I(currentEdt.guid) = NULL_GUID;
     PD_MSG_FIELD_I(currentEdt.metaDataPtr) = NULL;
     PD_MSG_FIELD_IO(properties) = DB_MODE_CONST;
+#ifdef ENABLE_AMT_RESILIENCE
+    PD_MSG_FIELD_I(resilientEdtParent) = NULL_GUID;
+#endif
     RESULT_PROPAGATE(pd->fcts.processMessage(pd, msg, false));
 #undef PD_MSG
 #undef PD_TYPE
@@ -403,6 +409,9 @@ static u8 registerOnFrontier(ocrTaskHc_t *self, ocrPolicyDomain_t *pd,
     PD_MSG_FIELD_I(dest.metaDataPtr) = NULL;
     PD_MSG_FIELD_I(slot) = self->signalers[slot].slot;
     PD_MSG_FIELD_I(properties) = false; // not called from add-dependence
+#ifdef ENABLE_AMT_RESILIENCE
+    PD_MSG_FIELD_I(resilientEdtParent) = self->base.resilientEdtParent;
+#endif
     RESULT_PROPAGATE(pd->fcts.processMessage(pd, msg, true));
 #undef PD_MSG
 #undef PD_TYPE
@@ -519,6 +528,9 @@ static u8 iterateDbFrontier(ocrTask_t *self) {
                 PD_MSG_FIELD_IO(destLoc) = pd->myLocation;
                 PD_MSG_FIELD_IO(edtSlot) = self->depc + 1; // RT slot
                 PD_MSG_FIELD_IO(properties) = depv[i].mode;
+#ifdef ENABLE_AMT_RESILIENCE
+                PD_MSG_FIELD_IO(resilientEdtParent) = self->resilientEdtParent;
+#endif
                 u8 returnCode = pd->fcts.processMessage(pd, &msg, false);
                 // DB_ACQUIRE is potentially asynchronous, check completion.
                 // In shmem and dist HC PD, ACQUIRE is two-way, processed asynchronously
@@ -541,34 +553,6 @@ static u8 iterateDbFrontier(ocrTask_t *self) {
     return false;
 }
 
-#ifdef ENABLE_AMT_RESILIENCE
-u8 resilientCheckin(ocrGuid_t edtCheckin, ocrGuid_t eventGuid, ocrGuid_t dataGuid, u32 slot) {
-    PD_MSG_STACK(msg);
-    ocrPolicyDomain_t *pd = NULL;
-    getCurrentEnv(&pd, NULL, NULL, &msg);
-#define PD_MSG (&msg)
-#define PD_TYPE PD_MSG_DEP_SATISFY
-    msg.type = PD_MSG_DEP_SATISFY | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
-    PD_MSG_FIELD_I(satisfierGuid.guid) = edtCheckin;
-    PD_MSG_FIELD_I(satisfierGuid.metaDataPtr) = NULL;
-    PD_MSG_FIELD_I(guid.guid) = eventGuid;
-    PD_MSG_FIELD_I(guid.metaDataPtr) = NULL;
-    PD_MSG_FIELD_I(payload.guid) = dataGuid;
-    PD_MSG_FIELD_I(payload.metaDataPtr) = NULL;
-    PD_MSG_FIELD_I(currentEdt.guid) = edtCheckin;
-    PD_MSG_FIELD_I(currentEdt.metaDataPtr) = NULL;
-    PD_MSG_FIELD_I(slot) = slot;
-#ifdef REG_ASYNC_SGL
-    PD_MSG_FIELD_I(mode) = -1;
-#endif
-    PD_MSG_FIELD_I(properties) = 0;
-    RESULT_ASSERT(pd->fcts.processMessage(pd, &msg, true), ==, 0);
-#undef PD_MSG
-#undef PD_TYPE
-    return 0;
-}
-#endif
-
 /**
  * @brief Give the task to the scheduler
  * Warning: The caller must ensure all dependencies have been satisfied
@@ -583,9 +567,7 @@ static u8 scheduleTask(ocrTask_t *self) {
 #ifdef ENABLE_AMT_RESILIENCE
     if (self->flags & OCR_TASK_FLAG_RESILIENT) {
         salPublishEdt(self);
-        if (!ocrGuidIsNull(self->resilientLatch)) {
-            resilientCheckin(self->guid, self->resilientLatch, NULL_GUID, OCR_EVENT_LATCH_RESCOUNT_DECR_SLOT);
-        }
+        if (!ocrGuidIsNull(self->resilientLatch)) resilientLatchUpdate(self->resilientLatch, OCR_EVENT_LATCH_RESCOUNT_DECR_SLOT);
     }
 #endif
 
@@ -761,6 +743,9 @@ u8 destructTaskHc(ocrTask_t* base) {
                 PD_MSG_FIELD_I(mode) = -1; //Doesn't matter for latch
 #endif
                 PD_MSG_FIELD_I(properties) = 0;
+#ifdef ENABLE_AMT_RESILIENCE
+                PD_MSG_FIELD_I(resilientEdtParent) = NULL_GUID;
+#endif
                 u8 returnCode __attribute__((unused)) = pd->fcts.processMessage(pd, &msg, false);
                 ASSERT(returnCode == 0);
 #undef PD_MSG
@@ -921,6 +906,10 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
         PD_MSG_FIELD_IO(guid.guid) = outputEventPtr->guid; // InOut depending on props
         PD_MSG_FIELD_IO(guid.metaDataPtr) = NULL;
         PD_MSG_FIELD_I(currentEdt) = currentEdt;
+#ifdef ENABLE_AMT_RESILIENCE
+        PD_MSG_FIELD_I(resilientLatch) = NULL_GUID;
+        PD_MSG_FIELD_I(resilientEdtParent) = NULL_GUID;
+#endif
 #ifdef ENABLE_EXTENSION_PARAMS_EVT
         PD_MSG_FIELD_I(params) = NULL;
 #endif
@@ -1057,14 +1046,31 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
         ASSERT(!ocrGuidIsUninitialized(self->outputEvent));
         outputEventPtr->guid = self->outputEvent;
     }
-#ifdef ENABLE_AMT_RESILIENCE
-    if (doResLatchDep) {
-        resilientCheckin(taskGuid, resilientLatch, NULL_GUID, OCR_EVENT_LATCH_RESCOUNT_INCR_SLOT);
-        ocrAddDependence(resilientLatch, taskGuid, depc - 1, DB_MODE_NULL);
-    }
-#endif
 #undef PD_MSG
 #undef PD_TYPE
+
+#ifdef ENABLE_AMT_RESILIENCE
+    if (doResLatchDep) {
+        //ocrAddDependence(resilientLatch, taskGuid, depc - 1, DB_MODE_NULL);
+        PD_MSG_STACK(msg);
+        getCurrentEnv(NULL, NULL, NULL, &msg);
+#define PD_MSG (&msg)
+#define PD_TYPE PD_MSG_DEP_ADD
+        msg.type = PD_MSG_DEP_ADD | PD_MSG_REQUEST;
+        PD_MSG_FIELD_I(source.guid) = resilientLatch;
+        PD_MSG_FIELD_I(source.metaDataPtr) = NULL;
+        PD_MSG_FIELD_I(dest.guid) = taskGuid;
+        PD_MSG_FIELD_I(dest.metaDataPtr) = NULL;
+        PD_MSG_FIELD_I(slot) = depc - 1;
+        PD_MSG_FIELD_I(currentEdt.guid) = NULL_GUID;
+        PD_MSG_FIELD_I(currentEdt.metaDataPtr) = NULL;
+        PD_MSG_FIELD_IO(properties) = DB_MODE_NULL;
+        PD_MSG_FIELD_I(resilientEdtParent) = resilientEdtParent;
+        RESULT_PROPAGATE(pd->fcts.processMessage(pd, &msg, true));
+#undef PD_MSG
+#undef PD_TYPE
+    }
+#endif
 
 #ifdef OCR_ENABLE_STATISTICS
     // Bug #225
@@ -1324,6 +1330,7 @@ u8 satisfyTaskHc(ocrTask_t * base, ocrFatGuid_t data, u32 slot) {
     if ((base->flags & OCR_TASK_FLAG_RESILIENT) && (base->depc > base->origDepc) && (slot < base->origDepc)) {
         registerSlot = base->origDepc + slot;
         ASSERT(registerSlot >= base->origDepc && registerSlot < base->depc);
+        ocrGuid_t evtGuid = NULL_GUID;
         if (!ocrGuidIsNull(registerDb)) {
 #if GUID_BIT_COUNT == 64
             u64 guidKey = registerDb.guid;
@@ -1332,12 +1339,27 @@ u8 satisfyTaskHc(ocrTask_t * base, ocrFatGuid_t data, u32 slot) {
 #else
 #error Unknown type of GUID
 #endif
-            ocrGuid_t evt;
-            RESULT_ASSERT(salGuidTableGet(guidKey, &evt), ==, 0);
-            ocrAddDependence(evt, base->guid, registerSlot, DB_MODE_NULL);
-        } else {
-            ocrAddDependence(NULL_GUID, base->guid, registerSlot, DB_MODE_NULL);
+            RESULT_ASSERT(salGuidTableGet(guidKey, &evtGuid), ==, 0);
         }
+        //ocrAddDependence(evtGuid, base->guid, registerSlot, DB_MODE_NULL);
+        ocrPolicyDomain_t *pd = NULL;
+        PD_MSG_STACK(msg);
+        getCurrentEnv(&pd, NULL, NULL, &msg);
+#define PD_MSG (&msg)
+#define PD_TYPE PD_MSG_DEP_ADD
+        msg.type = PD_MSG_DEP_ADD | PD_MSG_REQUEST;
+        PD_MSG_FIELD_I(source.guid) = evtGuid;
+        PD_MSG_FIELD_I(source.metaDataPtr) = NULL;
+        PD_MSG_FIELD_I(dest.guid) = base->guid;
+        PD_MSG_FIELD_I(dest.metaDataPtr) = base;
+        PD_MSG_FIELD_I(slot) = registerSlot;
+        PD_MSG_FIELD_I(currentEdt.guid) = NULL_GUID;
+        PD_MSG_FIELD_I(currentEdt.metaDataPtr) = NULL;
+        PD_MSG_FIELD_IO(properties) = DB_MODE_NULL;
+        PD_MSG_FIELD_I(resilientEdtParent) = base->resilientEdtParent;
+        RESULT_PROPAGATE(pd->fcts.processMessage(pd, &msg, true));
+#undef PD_MSG
+#undef PD_TYPE
     }
     ASSERT(self->slotSatisfiedCount < base->depc);
     return satisfyTaskHcInternal(base, data, slot);
@@ -1423,6 +1445,9 @@ u8 registerSignalerTaskHc(ocrTask_t * base, ocrFatGuid_t signalerGuid, u32 slot,
         PD_MSG_FIELD_I(currentEdt) = currentEdt;
         PD_MSG_FIELD_I(slot) = slot;
         PD_MSG_FIELD_I(properties) = 0;
+#ifdef ENABLE_AMT_RESILIENCE
+        PD_MSG_FIELD_I(resilientEdtParent) = NULL_GUID;
+#endif
         RESULT_PROPAGATE(pd->fcts.processMessage(pd, &registerMsg, true));
     #undef PD_MSG
     #undef PD_TYPE
@@ -1916,6 +1941,10 @@ u8 taskExecute(ocrTask_t* base) {
             PD_MSG_FIELD_IO(guid) = newFinishLatchFGuid;
             PD_MSG_FIELD_I(currentEdt) = currentEdt;
             PD_MSG_FIELD_I(type) = OCR_EVENT_LATCH_T;
+#ifdef ENABLE_AMT_RESILIENCE
+            PD_MSG_FIELD_I(resilientLatch) = NULL_GUID;
+            PD_MSG_FIELD_I(resilientEdtParent) = NULL_GUID;
+#endif
 #ifdef ENABLE_EXTENSION_PARAMS_EVT
             ocrEventParams_t latchParams;
             latchParams.EVENT_LATCH.counter = 1;

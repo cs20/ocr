@@ -36,6 +36,10 @@ u8 ocrEventCreateParams(ocrGuid_t *guid, ocrEventTypes_t eventType, u16 properti
     PD_MSG_FIELD_IO(guid.metaDataPtr) = NULL;
     PD_MSG_FIELD_I(currentEdt.guid) = curEdt ? curEdt->guid : NULL_GUID;
     PD_MSG_FIELD_I(currentEdt.metaDataPtr) = curEdt;
+#ifdef ENABLE_AMT_RESILIENCE
+    PD_MSG_FIELD_I(resilientLatch) = curEdt ? curEdt->resilientLatch : NULL_GUID;
+    PD_MSG_FIELD_I(resilientEdtParent) = curEdt ? curEdt->resilientEdtParent : NULL_GUID;
+#endif
 #ifdef ENABLE_EXTENSION_PARAMS_EVT
     PD_MSG_FIELD_I(params) = params;
 #endif
@@ -132,6 +136,9 @@ u8 ocrEventSatisfySlot(ocrGuid_t eventGuid, ocrGuid_t dataGuid /*= INVALID_GUID*
     PD_MSG_FIELD_I(mode) = -1;
 #endif
     PD_MSG_FIELD_I(properties) = 0;
+#ifdef ENABLE_AMT_RESILIENCE
+    PD_MSG_FIELD_I(resilientEdtParent) = (curEdt == NULL) ? NULL_GUID : curEdt->resilientEdtParent;
+#endif
 #ifdef ENABLE_OCR_API_DEFERRABLE
     tagDeferredMsg(&msg, curEdt);
 #endif
@@ -505,6 +512,9 @@ u8 ocrAddDependence(ocrGuid_t source, ocrGuid_t destination, u32 slot,
         PD_MSG_FIELD_IO(properties) = mode;
         PD_MSG_FIELD_I(currentEdt.guid) = curEdt ? curEdt->guid : NULL_GUID;
         PD_MSG_FIELD_I(currentEdt.metaDataPtr) = curEdt;
+#ifdef ENABLE_AMT_RESILIENCE
+        PD_MSG_FIELD_I(resilientEdtParent) = (curEdt == NULL) ? NULL_GUID : curEdt->resilientEdtParent;
+#endif
 #ifdef ENABLE_OCR_API_DEFERRABLE
         tagDeferredMsg(&msg, curEdt);
 #endif
@@ -527,6 +537,9 @@ u8 ocrAddDependence(ocrGuid_t source, ocrGuid_t destination, u32 slot,
         PD_MSG_FIELD_IO(properties) = mode;
         PD_MSG_FIELD_I(currentEdt.guid) = curEdt ? curEdt->guid : NULL_GUID;
         PD_MSG_FIELD_I(currentEdt.metaDataPtr) = curEdt;
+#ifdef ENABLE_AMT_RESILIENCE
+        PD_MSG_FIELD_I(resilientEdtParent) = (curEdt == NULL) ? NULL_GUID : curEdt->resilientEdtParent;
+#endif
 #ifdef ENABLE_OCR_API_DEFERRABLE
         tagDeferredMsg(&msg, curEdt);
 #endif
@@ -555,6 +568,9 @@ u8 ocrAddDependence(ocrGuid_t source, ocrGuid_t destination, u32 slot,
         PD_MSG_FIELD_I(mode) = mode;
 #endif
         PD_MSG_FIELD_I(properties) = 0;
+#ifdef ENABLE_AMT_RESILIENCE
+        PD_MSG_FIELD_I(resilientEdtParent) = (curEdt == NULL) ? NULL_GUID : curEdt->resilientEdtParent;
+#endif
 #ifdef ENABLE_OCR_API_DEFERRABLE
         tagDeferredMsg(&msg, curEdt);
 #endif

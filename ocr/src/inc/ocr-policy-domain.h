@@ -462,6 +462,9 @@ typedef struct _ocrPolicyMsg_t {
                     ocrDataBlockType_t dbType;    /**< In: Type of memory requested */
                     ocrInDbAllocator_t allocator; /**< In: In-DB allocator */
                     ocrHint_t * hint;             /**< In: Hints passed by the user at DB creation time */
+#ifdef ENABLE_AMT_RESILIENCE
+                    ocrGuid_t resilientEdtParent;   /**< Resilient scope parent EDT */
+#endif
                 } in;
                 struct {
                     void* ptr;                    /**< Out: Address of created DB */
@@ -492,6 +495,9 @@ typedef struct _ocrPolicyMsg_t {
             ocrLocation_t destLoc;     /**< In: Destination location for the acquire */
             u32 edtSlot;               /**< In: EDT's slot if applicable else EDT_SLOT_NONE */
             u32 properties;            /**< In: Properties for acquire. Bit 0: 1 if runtime acquire */
+#ifdef ENABLE_AMT_RESILIENCE
+            ocrGuid_t resilientEdtParent;   /**< Resilient scope parent EDT */
+#endif
             union {
                 struct {
                 } in;
@@ -600,8 +606,8 @@ typedef struct _ocrPolicyMsg_t {
                     ocrWorkType_t workType;    /**< In: Type of work to create */
                     u32 properties;            /**< In: properties for the creation */
 #ifdef ENABLE_AMT_RESILIENCE
-                    ocrGuid_t resilientLatch;  /**< Latch event of enclosing resilient finish latch scope */
-                    ocrGuid_t resilientEdtParent;
+                    ocrGuid_t resilientLatch;       /**< Latch event of enclosing resilient finish latch scope */
+                    ocrGuid_t resilientEdtParent;   /**< Resilient scope parent EDT */
 #endif
                 } in;
                 struct {
@@ -673,6 +679,10 @@ typedef struct _ocrPolicyMsg_t {
             union {
                 struct {
                     ocrFatGuid_t currentEdt;   /**< In: EDT that is creating event */
+#ifdef ENABLE_AMT_RESILIENCE
+                    ocrGuid_t resilientLatch;       /**< Latch event of enclosing resilient finish latch scope */
+                    ocrGuid_t resilientEdtParent;   /**< Resilient scope parent EDT */
+#endif
 #ifdef ENABLE_EXTENSION_PARAMS_EVT
                     ocrEventParams_t * params;
 #endif
@@ -955,6 +965,9 @@ typedef struct _ocrPolicyMsg_t {
                     ocrFatGuid_t dest;   /**< In: Destination of the dependence */
                     ocrFatGuid_t currentEdt;   /**< In: EDT that is adding dep */
                     u32 slot;            /**< In: Slot of dest to connect the dep to */
+#ifdef ENABLE_AMT_RESILIENCE
+                    ocrGuid_t resilientEdtParent;   /**< Resilient scope parent EDT */
+#endif
                 } in;
                 struct {
                     u32 returnDetail;    /**< Out: Success or error code */
@@ -970,6 +983,9 @@ typedef struct _ocrPolicyMsg_t {
                     u32 slot;               /**< In: Slot on dest to register the signaler on */
                     ocrDbAccessMode_t mode; /**< In: Access mode for the dependence's datablock */
                     u32 properties;         /**< In: Properties */
+#ifdef ENABLE_AMT_RESILIENCE
+                    ocrGuid_t resilientEdtParent;   /**< Resilient scope parent EDT */
+#endif
                 } in;
                 struct {
                     u32 returnDetail;      /**< Out: Success or error code */
@@ -988,6 +1004,9 @@ typedef struct _ocrPolicyMsg_t {
                                                      it will get satisfied */
 #endif
                     u32 properties;        /**< In: Properties */
+#ifdef ENABLE_AMT_RESILIENCE
+                    ocrGuid_t resilientEdtParent;   /**< Resilient scope parent EDT */
+#endif
                 } in;
                 struct {
                     u32 returnDetail;      /**< Out: Success or error code */
@@ -1008,6 +1027,9 @@ typedef struct _ocrPolicyMsg_t {
                     ocrDbAccessMode_t mode;
 #endif
                     u32 properties;       /**< In: Properties for the satisfaction */
+#ifdef ENABLE_AMT_RESILIENCE
+                    ocrGuid_t resilientEdtParent;   /**< Resilient scope parent EDT */
+#endif
                 } in;
                 struct {
                     u32 returnDetail;     /**< Out: Success or error code */
@@ -1820,6 +1842,10 @@ bool isLocalGuid(ocrPolicyDomain_t *pd, ocrGuid_t guid);
 
 #ifdef ENABLE_OCR_API_DEFERRABLE
 void tagDeferredMsg(ocrPolicyMsg_t * msg, ocrTask_t * task);
+#endif
+
+#ifdef ENABLE_AMT_RESILIENCE
+u8 resilientLatchUpdate(ocrGuid_t latchGuid, u32 slot);
 #endif
 
 #define __GUID_END_MARKER__

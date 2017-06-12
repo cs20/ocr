@@ -328,21 +328,21 @@ ocrFatGuid_t getEventHc(ocrEvent_t *base) {
 }
 
 static u8 commonSatisfyRegNode(ocrPolicyDomain_t * pd, ocrPolicyMsg_t * msg,
-                         ocrGuid_t evtGuid,
+                         ocrEvent_t *evt,
                          ocrFatGuid_t db, ocrFatGuid_t currentEdt,
                          regNode_t * node) {
 #ifdef OCR_ENABLE_STATISTICS
     //TODO the null should be the base but it's a race
-    statsDEP_SATISFYFromEvt(pd, evtGuid, NULL, node->guid,
+    statsDEP_SATISFYFromEvt(pd, evt->guid, NULL, node->guid,
                             db.guid, node->slot);
 #endif
-    DPRINTF(DEBUG_LVL_INFO, "SatisfyFromEvent: src: "GUIDF" dst: "GUIDF" \n", GUIDA(evtGuid), GUIDA(node->guid));
+    DPRINTF(DEBUG_LVL_INFO, "SatisfyFromEvent: src: "GUIDF" dst: "GUIDF" \n", GUIDA(evt->guid), GUIDA(node->guid));
 #define PD_MSG (msg)
 #define PD_TYPE PD_MSG_DEP_SATISFY
     getCurrentEnv(NULL, NULL, NULL, msg);
     msg->type = PD_MSG_DEP_SATISFY | PD_MSG_REQUEST;
     // Need to refill because out may overwrite some of the in fields
-    PD_MSG_FIELD_I(satisfierGuid.guid) = evtGuid;
+    PD_MSG_FIELD_I(satisfierGuid.guid) = evt->guid;
     // Passing NULL since base may become invalid
     PD_MSG_FIELD_I(satisfierGuid.metaDataPtr) = NULL;
     PD_MSG_FIELD_I(guid.guid) = node->guid;
@@ -354,6 +354,9 @@ static u8 commonSatisfyRegNode(ocrPolicyDomain_t * pd, ocrPolicyMsg_t * msg,
     PD_MSG_FIELD_I(mode) = node->mode;
 #endif
     PD_MSG_FIELD_I(properties) = 0;
+#ifdef ENABLE_AMT_RESILIENCE
+    PD_MSG_FIELD_I(resilientEdtParent) = NULL_GUID; //TODO (evt == NULL) ? NULL_GUID : evt->resilientEdtParent;
+#endif
     RESULT_PROPAGATE(pd->fcts.processMessage(pd, msg, false));
 #undef PD_MSG
 #undef PD_TYPE
@@ -374,7 +377,7 @@ static u8 commonSatisfyWaiters(ocrPolicyDomain_t *pd, ocrEvent_t *base, ocrFatGu
     u32 ub = ((waitersCount < HCEVT_WAITER_STATIC_COUNT) ? waitersCount : HCEVT_WAITER_STATIC_COUNT);
     // Do static waiters first
     for(i = 0; i < ub; ++i) {
-        RESULT_PROPAGATE(commonSatisfyRegNode(pd, msg, base->guid, db, currentEdt, &event->waiters[i]));
+        RESULT_PROPAGATE(commonSatisfyRegNode(pd, msg, base, db, currentEdt, &event->waiters[i]));
     }
     waitersCount -= ub;
 #endif
@@ -396,6 +399,9 @@ static u8 commonSatisfyWaiters(ocrPolicyDomain_t *pd, ocrEvent_t *base, ocrFatGu
         } else {
             PD_MSG_FIELD_IO(properties) = DB_MODE_CONST | DB_PROP_RT_ACQUIRE;
         }
+#ifdef ENABLE_AMT_RESILIENCE
+        PD_MSG_FIELD_IO(resilientEdtParent) = NULL_GUID;
+#endif
         u8 res __attribute__((unused)) = pd->fcts.processMessage(pd, msg, true);
         ASSERT(!res);
         regNode_t * waiters = (regNode_t*)PD_MSG_FIELD_O(ptr);
@@ -406,7 +412,7 @@ static u8 commonSatisfyWaiters(ocrPolicyDomain_t *pd, ocrEvent_t *base, ocrFatGu
 
         // Second, call satisfy on all the waiters
         for(i = 0; i < waitersCount; ++i) {
-            RESULT_PROPAGATE(commonSatisfyRegNode(pd, msg, base->guid, db, currentEdt, &waiters[i]));
+            RESULT_PROPAGATE(commonSatisfyRegNode(pd, msg, base, db, currentEdt, &waiters[i]));
         }
 
         // Release the DB
@@ -454,6 +460,9 @@ u8 satisfyEventHcOnce(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
         RESULT_PROPAGATE(commonSatisfyWaiters(pd, base, db, waitersCount, currentEdt, &msg, false));
     }
 
+#ifdef ENABLE_AMT_RESILIENCE
+    if (!ocrGuidIsNull(base->resilientLatch)) resilientLatchUpdate(base->resilientLatch, OCR_EVENT_LATCH_RESCOUNT_DECR_SLOT);
+#endif
     // Since this a ONCE event, we need to destroy it as well
     // This is safe to do so at this point as all the messages have been sent
     return destructEventHc(base);
@@ -607,6 +616,9 @@ u8 satisfyEventHcPersistIdem(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
         // waiting on the satisfaction being done it can now
         // proceed.
         ((ocrEventHc_t*)base)->waitersCount = STATE_CHECKED_OUT;
+#ifdef ENABLE_AMT_RESILIENCE
+        if (!ocrGuidIsNull(base->resilientLatch)) resilientLatchUpdate(base->resilientLatch, OCR_EVENT_LATCH_RESCOUNT_DECR_SLOT);
+#endif
     }
     return 0;
 }
@@ -630,6 +642,9 @@ u8 satisfyEventHcPersistSticky(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
     // waiting on the satisfaction being done it can now
     // proceed.
     ((ocrEventHc_t*)base)->waitersCount = STATE_CHECKED_OUT;
+#ifdef ENABLE_AMT_RESILIENCE
+    if (!ocrGuidIsNull(base->resilientLatch)) resilientLatchUpdate(base->resilientLatch, OCR_EVENT_LATCH_RESCOUNT_DECR_SLOT);
+#endif
     return 0;
 }
 
@@ -728,6 +743,7 @@ u8 satisfyEventHcLatch(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
     }
 
 #ifdef ENABLE_AMT_RESILIENCE
+    if (!ocrGuidIsNull(base->resilientLatch)) resilientLatchUpdate(base->resilientLatch, OCR_EVENT_LATCH_RESCOUNT_DECR_SLOT);
     hal_lock(&(event->base.waitersLock));
     if (event->rescounter != 0) {
         event->readyToDestruct = 1;
@@ -802,6 +818,9 @@ static u8 commonEnqueueWaiter(ocrPolicyDomain_t *pd, ocrEvent_t *base, ocrFatGui
             PD_MSG_FIELD_IO(destLoc) = pd->myLocation;
             PD_MSG_FIELD_IO(edtSlot) = EDT_SLOT_NONE;
             PD_MSG_FIELD_IO(properties) = DB_MODE_RW | DB_PROP_RT_ACQUIRE;
+#ifdef ENABLE_AMT_RESILIENCE
+            PD_MSG_FIELD_IO(resilientEdtParent) = NULL_GUID;
+#endif
             //Should be a local DB
             if((toReturn = pd->fcts.processMessage(pd, msg, true))) {
                 // should be the only writer active on the waiter DB since we have the lock
@@ -1007,7 +1026,7 @@ u8 registerWaiterEventHcPersist(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot,
         regNode_t node = {.guid = waiter.guid, .slot = slot};
 #endif
         // We send a message saying that we satisfy whatever tried to wait on us
-        return commonSatisfyRegNode(pd, &msg, base->guid, dataGuid, currentEdt, &node);
+        return commonSatisfyRegNode(pd, &msg, base, dataGuid, currentEdt, &node);
     }
 
     // Lock is released by commonEnqueueWaiter
@@ -1074,7 +1093,7 @@ u8 registerWaiterEventHcCounted(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot,
         regNode_t node = {.guid = waiter.guid, .slot = slot};
 #endif
         // We send a message saying that we satisfy whatever tried to wait on us
-        RESULT_PROPAGATE(commonSatisfyRegNode(pd, &msg, base->guid, dataGuid, currentEdt, &node));
+        RESULT_PROPAGATE(commonSatisfyRegNode(pd, &msg, base, dataGuid, currentEdt, &node));
         // Here it is still safe to use the base pointer because the satisfy
         // call cannot trigger the destruction of the event. For counted-events
         // the runtime takes care of it
@@ -1133,6 +1152,9 @@ u8 unregisterWaiterEventHc(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot, bool
     PD_MSG_FIELD_IO(destLoc) = pd->myLocation;
     PD_MSG_FIELD_IO(edtSlot) = EDT_SLOT_NONE;
     PD_MSG_FIELD_IO(properties) = DB_MODE_RW | DB_PROP_RT_ACQUIRE;
+#ifdef ENABLE_AMT_RESILIENCE
+    PD_MSG_FIELD_IO(resilientEdtParent) = NULL_GUID;
+#endif
     //Should be a local DB
     u8 res __attribute__((unused)) = pd->fcts.processMessage(pd, &msg, true);
     ASSERT(!res); // Possible corruption of waitersDb
@@ -1204,6 +1226,9 @@ u8 unregisterWaiterEventHcPersist(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slo
     PD_MSG_FIELD_IO(destLoc) = pd->myLocation;
     PD_MSG_FIELD_IO(edtSlot) = EDT_SLOT_NONE;
     PD_MSG_FIELD_IO(properties) = DB_MODE_RW | DB_PROP_RT_ACQUIRE;
+#ifdef ENABLE_AMT_RESILIENCE
+    PD_MSG_FIELD_IO(resilientEdtParent) = NULL_GUID;
+#endif
     //Should be a local DB
     if((toReturn = pd->fcts.processMessage(pd, &msg, true))) {
         ASSERT(!toReturn); // Possible corruption of waitersDb
@@ -1411,12 +1436,16 @@ static void mdPullHcDist(ocrGuid_t guid, u32 mode, u32 factoryId) {
 /******************************************************/
 
 
-static u8 initNewEventHc(ocrEventHc_t * event, ocrEventTypes_t eventType, ocrGuid_t data, ocrEventFactory_t * factory, u32 sizeOfGuid, ocrParamList_t *perInstance) {
+static u8 initNewEventHc(ocrEventHc_t * event, ocrEventTypes_t eventType, ocrGuid_t data, ocrEventFactory_t * factory,
+                         u32 sizeOfGuid, ocrParamList_t *userArg, ocrParamList_t *perInstance) {
     ocrEvent_t * base = (ocrEvent_t*) event;
     base->kind = eventType;
     u32 factoryId = factory->factoryId;
     base->base.fctId = factoryId;
     base->fctId = factoryId;
+#ifdef ENABLE_AMT_RESILIENCE
+    base->resilientLatch = (perInstance != NULL) ? ((paramListEvent_t*)perInstance)->resilientLatch : NULL_GUID;
+#endif
 
     // Set-up HC specific structures
     event->waitersCount = 0;
@@ -1433,10 +1462,10 @@ static u8 initNewEventHc(ocrEventHc_t * event, ocrEventTypes_t eventType, ocrGui
 
     if(eventType == OCR_EVENT_LATCH_T) {
         // Initialize the counter
-        if (perInstance != NULL) {
+        if (userArg != NULL) {
 #ifdef ENABLE_EXTENSION_PARAMS_EVT
             // Expecting ocrEventParams_t as the paramlist
-            ocrEventParams_t * params = (ocrEventParams_t *) perInstance;
+            ocrEventParams_t * params = (ocrEventParams_t *) userArg;
             ((ocrEventHcLatch_t*)event)->counter = params->EVENT_LATCH.counter;
 #endif
         } else {
@@ -1445,7 +1474,7 @@ static u8 initNewEventHc(ocrEventHc_t * event, ocrEventTypes_t eventType, ocrGui
 #ifdef ENABLE_AMT_RESILIENCE
         ((ocrEventHcLatch_t*)event)->readyToDestruct = 0;
         ((ocrEventHcLatch_t*)event)->rescounter = 0;
-        ((ocrEventHcLatch_t*)event)->resilientEdt = NULL_GUID;
+        ((ocrEventHcLatch_t*)event)->resilientEdt = (perInstance != NULL) ? ((paramListEvent_t*)perInstance)->resilientEdt : NULL_GUID;
         ((ocrEventHcLatch_t*)event)->dbPublishArray = NULL;
         ((ocrEventHcLatch_t*)event)->dbPublishArrayLength = 0;
         ((ocrEventHcLatch_t*)event)->dbPublishCount = 0;
@@ -1471,7 +1500,7 @@ static u8 initNewEventHc(ocrEventHc_t * event, ocrEventTypes_t eventType, ocrGui
         // Check current extension implementation restrictions
         ocrEventHcChannel_t * devt = ((ocrEventHcChannel_t*)event);
         // Expecting ocrEventParams_t as the paramlist
-        ocrEventParams_t * params = (ocrEventParams_t *) perInstance;
+        ocrEventParams_t * params = (ocrEventParams_t *) userArg;
         ASSERT((params->EVENT_CHANNEL.nbSat == 1) && "Channel-event limitation nbSat must be set to 1");
         ASSERT((params->EVENT_CHANNEL.nbDeps == 1) && "Channel-event limitation nbDeps must be set to 1");
         ASSERT((params->EVENT_CHANNEL.maxGen != 0) && "Channel-event maxGen=0 invalid value");
@@ -1531,9 +1560,9 @@ static u8 initNewEventHc(ocrEventHc_t * event, ocrEventTypes_t eventType, ocrGui
 #ifdef ENABLE_EXTENSION_COUNTED_EVT
     if(eventType == OCR_EVENT_COUNTED_T) {
         // Initialize the counter for dependencies tracking
-        ocrEventParams_t * params = (ocrEventParams_t *) perInstance;
-        if ((params != NULL) && (((ocrEventParams_t *) perInstance)->EVENT_COUNTED.nbDeps != 0)) {
-            ((ocrEventHcCounted_t*)event)->nbDeps = (perInstance == NULL) ? 0 : params->EVENT_COUNTED.nbDeps;
+        ocrEventParams_t * params = (ocrEventParams_t *) userArg;
+        if ((params != NULL) && (((ocrEventParams_t *) userArg)->EVENT_COUNTED.nbDeps != 0)) {
+            ((ocrEventHcCounted_t*)event)->nbDeps = (userArg == NULL) ? 0 : params->EVENT_COUNTED.nbDeps;
         } else {
             DPRINTF(DBG_HCEVT_ERR, "error: Illegal nbDeps value (zero) for OCR_EVENT_COUNTED_T 0x"GUIDF"\n", GUIDA(base->guid));
             factory->fcts[OCR_EVENT_COUNTED_T].destruct(base);
@@ -1545,7 +1574,7 @@ static u8 initNewEventHc(ocrEventHc_t * event, ocrEventTypes_t eventType, ocrGui
     return 0;
 }
 
-static u8 allocateNewEventHc(ocrGuidKind guidKind, ocrFatGuid_t * resultGuid, u32 * sizeofMd, u32 properties, ocrParamList_t *perInstance) {
+static u8 allocateNewEventHc(ocrGuidKind guidKind, ocrFatGuid_t * resultGuid, u32 * sizeofMd, u32 properties, ocrParamList_t *userArg, ocrParamList_t *perInstance) {
     ocrPolicyDomain_t *pd = NULL;
     PD_MSG_STACK(msg);
     getCurrentEnv(&pd, NULL, NULL, &msg);
@@ -1567,9 +1596,9 @@ static u8 allocateNewEventHc(ocrGuidKind guidKind, ocrFatGuid_t * resultGuid, u3
 #ifndef ENABLE_EXTENSION_PARAMS_EVT
         ASSERT(false && "ENABLE_EXTENSION_PARAMS_EVT must be defined to use Channel-events");
 #endif
-        ASSERT((perInstance != NULL) && "error: No parameters specified at Channel-event creation");
+        ASSERT((userArg != NULL) && "error: No parameters specified at Channel-event creation");
         // Expecting ocrEventParams_t as the paramlist
-        ocrEventParams_t * params = (ocrEventParams_t *) perInstance;
+        ocrEventParams_t * params = (ocrEventParams_t *) userArg;
         // Allocate extra space to store backing data-structures that are parameter-dependent
         u32 xtraSpace = 0;
         if (params->EVENT_CHANNEL.maxGen != EVENT_CHANNEL_UNBOUNDED) {
@@ -1627,9 +1656,9 @@ static u8 newEventHcDist(ocrFatGuid_t * fguid, ocrGuid_t data, ocrEventFactory_t
     returnValue = pd->guidProviders[0]->fcts.getLocation(pd->guidProviders[0], fguid->guid, &guidLoc);
     ASSERT(!returnValue);
     u32 sizeOfMd;
-    returnValue = allocateNewEventHc(guidKind, fguid, &sizeOfMd, GUID_PROP_IS_LABELED/*prop*/, NULL);
+    returnValue = allocateNewEventHc(guidKind, fguid, &sizeOfMd, GUID_PROP_IS_LABELED/*prop*/, NULL, NULL);
     ocrEventHc_t *event = (ocrEventHc_t*) fguid->metaDataPtr;
-    u8 ret = initNewEventHc(event, eventType, data, factory, sizeOfMd, NULL);
+    u8 ret = initNewEventHc(event, eventType, data, factory, sizeOfMd, NULL, NULL);
     if (ret) { return ret; }
     if (pd->myLocation != guidLoc) {
         event->mdClass.peers = NULL;
@@ -1728,14 +1757,15 @@ u8 serializeEventFactoryHc(ocrObjectFactory_t * factory, ocrGuid_t guid, ocrObje
 
 u8 newEventHc(ocrEventFactory_t * factory, ocrFatGuid_t *fguid,
               ocrEventTypes_t eventType, u32 properties,
+              ocrParamList_t *userArg,
               ocrParamList_t *perInstance) {
     u32 sizeOfMd;
     ocrGuidKind guidKind = eventTypeToGuidKind(eventType);
-    u8 returnValue = allocateNewEventHc(guidKind, fguid, &sizeOfMd, properties, perInstance);
+    u8 returnValue = allocateNewEventHc(guidKind, fguid, &sizeOfMd, properties, userArg, perInstance);
     if (returnValue) { ASSERT(returnValue == OCR_EGUIDEXISTS); return returnValue; }
 
     ocrEventHc_t *event = (ocrEventHc_t*) fguid->metaDataPtr;
-    returnValue = initNewEventHc(event, eventType, UNINITIALIZED_GUID, factory, sizeOfMd, perInstance);
+    returnValue = initNewEventHc(event, eventType, UNINITIALIZED_GUID, factory, sizeOfMd, userArg, perInstance);
     if (returnValue) { return returnValue; }
 
     // Do this at the very end; it indicates that the object
@@ -1945,7 +1975,7 @@ u8 registerWaiterEventHcChannel(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot,
         db.metaDataPtr = NULL;
         DPRINTF(DEBUG_LVL_CHANNEL, "registerWaiterEventHcChannel satisfy edt with DB="GUIDF"\n",
                 GUIDA(data));
-        return commonSatisfyRegNode(pd, &msg, base->guid, db, currentEdt, &regnode);
+        return commonSatisfyRegNode(pd, &msg, base, db, currentEdt, &regnode);
     } else {
         DPRINTF(DEBUG_LVL_CHANNEL, "registerWaiterEventHcChannel "GUIDF" push dependence curSize=%"PRIu32"\n",
                 GUIDA(base->guid), channelWaiterCount(devt));
@@ -1978,7 +2008,7 @@ u8 satisfyEventHcChannel(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
         currentEdt.metaDataPtr = curTask;
         DPRINTF(DEBUG_LVL_CHANNEL, "satisfyEventHcChannel satisfy edt with DB="GUIDF"\n",
                 GUIDA(db.guid));
-        return commonSatisfyRegNode(pd, &msg, base->guid, db, currentEdt, &regnode);
+        return commonSatisfyRegNode(pd, &msg, base, db, currentEdt, &regnode);
     } else {
         DPRINTF(DEBUG_LVL_CHANNEL, "satisfyEventHcChannel "GUIDF" satisfy enqueued curSize=%"PRIu32"\n",
                 GUIDA(base->guid), channelSatisfyCount(devt));
@@ -2309,7 +2339,7 @@ ocrEventFactory_t * newEventFactoryHc(ocrParamList_t *perType, u32 factoryId) {
 
     ocrEventFactory_t *base = (ocrEventFactory_t*) bbase;
     base->instantiate = FUNC_ADDR(u8 (*)(ocrEventFactory_t*, ocrFatGuid_t*,
-                                  ocrEventTypes_t, u32, ocrParamList_t*), newEventHc);
+                                  ocrEventTypes_t, u32, ocrParamList_t*, ocrParamList_t*), newEventHc);
     base->base.destruct =  FUNC_ADDR(void (*)(ocrObjectFactory_t*), destructEventFactoryHc);
 
     // Initialize the base's base
