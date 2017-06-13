@@ -1494,6 +1494,7 @@ u8 cePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
                     GUIDA(PD_MSG_FIELD_IO(guid.guid)));
             ASSERT(db->fctId == ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->factoryId);
             //ASSERT(!(msg->type & PD_MSG_REQ_RESPONSE));
+            ASSERT((((ocrDbAccessMode_t)(PD_MSG_FIELD_IO(properties) & (u32)DB_ACCESS_MODE_MASK)) != DB_MODE_EW) && "EW DB mode not supported on TG");
             PD_MSG_FIELD_O(returnDetail) = ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->fcts.acquire(
                                 db, &(PD_MSG_FIELD_O(ptr)), PD_MSG_FIELD_IO(edt),  PD_MSG_FIELD_IO(destLoc), PD_MSG_FIELD_IO(edtSlot),
                 (ocrDbAccessMode_t)(PD_MSG_FIELD_IO(properties) & (u32)DB_ACCESS_MODE_MASK),

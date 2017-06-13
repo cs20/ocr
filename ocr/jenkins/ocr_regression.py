@@ -92,7 +92,7 @@ job_ocr_regression_fsim_tg = {
     'name': 'ocr-regression-fsim-tg',
     'jobtype': 'ocr-tg-regression',
     # TG gets default CFGs from install folder. IGNORED_CFG_ARG has no meaning.
-    'run-args': 'tg IGNORED_CFG_ARG lockableDB',
+    'run-args': 'tg IGNORED_CFG_ARG regularDB',
     'sandbox': ('inherit0',)
 }
 

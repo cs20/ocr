@@ -1,0 +1,18 @@
+edtFinishForkBomb.c
+edtForkBomb.c
+testRtOcrNbWorkers.c
+testRtOcrInformLegacyBlocking.c
+# See redmine bug 1010 for the following tests:
+edtMainDepv1.c
+edtMainDepv.c
+testAbort.c
+testArgcArgv0.c
+testDistAffinity0.c
+testDistAffinity1.c
+testDistDbEwRo2.c
+testAddDep2.c
+testDistDbEwRo3.c
+testDistDbEw1.c
+testDistDbEw0.c
+testDistDbEw4.c
+testDistDbEw2.c
