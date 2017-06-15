@@ -266,7 +266,21 @@ static u8 ceSchedulerHeuristicWorkEdtUserInvoke(ocrSchedulerHeuristic_t *self, o
     case OCR_SCHED_WORK_MULTI_EDTS_USER:
         {
             ocrFatGuid_t *fguids = taskArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_MULTI_EDTS_USER).edts;
-            u32 guidCount = taskArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_MULTI_EDTS_USER).guidCount;
+            u32 reqGuidCount = taskArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_MULTI_EDTS_USER).guidCount;
+            u32 guidCount = 0;
+            if(derived->workCount > 1) {
+              if(derived->workCount <= reqGuidCount*2){
+                guidCount = derived->workCount/2;
+              } else {
+                guidCount = reqGuidCount;
+              }
+            } else {
+              if(derived->workCount == 0){
+                 retVal = 1;
+              }
+              guidCount = derived->workCount;
+            }
+
             u32 idx, actualCount = 0;
             DPRINTF(DEBUG_LVL_VVERB, "Trying to steal %d EDTs\n", guidCount);
             for (idx = 0; idx < guidCount && retVal == 0; idx++, actualCount++) {
@@ -339,20 +353,8 @@ static u8 handleEmptyResponse(ocrSchedulerHeuristic_t *self, ocrSchedulerHeurist
     return 0;
 }
 
-static u8 ceSchedulerHeuristicNotifyEdtReadyInvoke(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicContext_t *context, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
-    ocrSchedulerHeuristicCe_t *derived = (ocrSchedulerHeuristicCe_t*)self;
-    // We should definitely not have EDTs becoming ready after the shutdown is called
-    // Maybe if the shutdown is not the last EDT but even then...
-    ASSERT(!derived->shutdownMode);
-    DPRINTF(DEBUG_LVL_VVERB, "GIVE WORK INVOKE from %"PRIx64"\n", opArgs->location);
-    ocrSchedulerOpNotifyArgs_t *notifyArgs = (ocrSchedulerOpNotifyArgs_t*)opArgs;
+static ocrSchedulerHeuristicContext_t* ceAffinitizeTask(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicContext_t *context, ocrFatGuid_t fguid) {
     ocrPolicyDomain_t *pd = self->scheduler->pd;
-    ocrFatGuid_t fguid = notifyArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_EDT_READY).guid;
-
-    if (ocrGuidIsNull(fguid.guid)) {
-        return handleEmptyResponse(self, context);
-    }
-
     ocrTask_t *task = (ocrTask_t*)fguid.metaDataPtr;
     ASSERT(task);
 
@@ -398,7 +400,12 @@ static u8 ceSchedulerHeuristicNotifyEdtReadyInvoke(ocrSchedulerHeuristic_t *self
             ASSERT(found);
         }
     }
+    return insertContext;
+}
 
+static u8 ceInsertTask(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicContext_t *context, ocrSchedulerHeuristicContext_t *insertContext, ocrFatGuid_t fguid) {
+    ocrSchedulerHeuristicCe_t *derived = (ocrSchedulerHeuristicCe_t*)self;
+    ocrPolicyDomain_t *pd = self->scheduler->pd;
     ocrSchedulerHeuristicContextCe_t *ceInsertContext = (ocrSchedulerHeuristicContextCe_t*)insertContext;
     ocrSchedulerObject_t *insertSchedObj = ceInsertContext->mySchedulerObject;
     ASSERT(insertSchedObj);
@@ -408,13 +415,59 @@ static u8 ceSchedulerHeuristicNotifyEdtReadyInvoke(ocrSchedulerHeuristic_t *self
     ocrSchedulerObjectFactory_t *fact = pd->schedulerObjectFactories[insertSchedObj->fctId];
     RESULT_ASSERT(fact->fcts.insert(fact, insertSchedObj, &edtObj, NULL, (SCHEDULER_OBJECT_INSERT_AFTER | SCHEDULER_OBJECT_INSERT_POSITION_TAIL)), ==, 0);
     derived->workCount++;
+    DPRINTF(DEBUG_LVL_VVERB, "GIVEN WORK to context %"PRIx64"\n", insertContext->location);
+
+    return 0;
+}
+
+static u8 ceSchedulerHeuristicNotifyEdtReadyInvoke(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicContext_t *context, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
+    ocrSchedulerHeuristicCe_t *derived = (ocrSchedulerHeuristicCe_t*)self;
+    // We should definitely not have EDTs becoming ready after the shutdown is called
+    // Maybe if the shutdown is not the last EDT but even then...
+    ASSERT(!derived->shutdownMode);
+    DPRINTF(DEBUG_LVL_VVERB, "GIVE WORK INVOKE from %"PRIx64"\n", opArgs->location);
+    ocrSchedulerOpNotifyArgs_t *notifyArgs = (ocrSchedulerOpNotifyArgs_t*)opArgs;
+    ocrSchedulerHeuristicContext_t *insertContext = NULL;
+
+    switch(notifyArgs->kind) {
+    case OCR_SCHED_NOTIFY_EDT_READY:
+        {
+            DPRINTF(DEBUG_LVL_VVERB, "One EDT ready\n");
+            ocrFatGuid_t fguid = notifyArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_EDT_READY).guid;
+            if (ocrGuidIsNull(fguid.guid)) {
+                return handleEmptyResponse(self, context);
+            }
+            insertContext = ceAffinitizeTask(self, context, fguid);
+            ceInsertTask(self, context, insertContext, fguid);
+        }
+        break;
+    case OCR_SCHED_NOTIFY_MULTI_EDTS_READY:
+        {
+            u32 idx, actualCount = 0;
+            u32 guidCount = notifyArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_MULTI_EDTS_READY).guidCount;
+            DPRINTF(DEBUG_LVL_VVERB, "%d EDTs ready\n", guidCount);
+            for (idx = 0; idx < guidCount; idx++, actualCount++) {
+                ocrFatGuid_t fguid = notifyArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_MULTI_EDTS_READY).guids[idx];
+                if (ocrGuidIsNull(fguid.guid)) {
+                    return handleEmptyResponse(self, context);
+                }
+                insertContext = ceAffinitizeTask(self, context, fguid);
+                ceInsertTask(self, context, insertContext, fguid);
+            }
+        }
+        break;
+    default:
+        ASSERT(0);
+        return OCR_ENOTSUP;
+    }
+
     if (AGENT_FROM_ID(context->location) == ID_AGENT_CE) {
         ocrSchedulerHeuristicContextCe_t *ceContext = (ocrSchedulerHeuristicContextCe_t*)context;
         ASSERT(ceContext->outWorkRequestPending);
         ceContext->outWorkRequestPending = false;
         derived->outWorkVictimsAvailable++;
     }
-    DPRINTF(DEBUG_LVL_VVERB, "GIVEN WORK to context %"PRIx64"\n", insertContext->location);
+
     return 0;
 }
 
@@ -424,6 +477,7 @@ u8 ceSchedulerHeuristicNotifyInvoke(ocrSchedulerHeuristic_t *self, ocrSchedulerO
     ocrSchedulerOpNotifyArgs_t *notifyArgs = (ocrSchedulerOpNotifyArgs_t*)opArgs;
     switch(notifyArgs->kind) {
     case OCR_SCHED_NOTIFY_EDT_READY:
+    case OCR_SCHED_NOTIFY_MULTI_EDTS_READY:
         return ceSchedulerHeuristicNotifyEdtReadyInvoke(self, context, opArgs, hints);
     case OCR_SCHED_NOTIFY_EDT_DONE:
         {
@@ -494,9 +548,15 @@ static u8 makeWorkRequest(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicCo
 #define PD_MSG (&msg)
 #define PD_TYPE PD_MSG_SCHED_GET_WORK
     msg.type = PD_MSG_SCHED_GET_WORK | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
+#ifdef OCR_ENABLE_CE_GET_MULTI_WORK
+    PD_MSG_FIELD_IO(schedArgs).kind = OCR_SCHED_WORK_MULTI_EDTS_USER;
+    PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_MULTI_EDTS_USER).guidCount = CE_GET_MULTI_WORK_MAX_SIZE;
+    PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_MULTI_EDTS_USER).edts = NULL;
+#else /* !OCR_ENABLE_CE_GET_MULTI_WORK */
     PD_MSG_FIELD_IO(schedArgs).kind = OCR_SCHED_WORK_EDT_USER;
     PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).edt.guid = NULL_GUID;
     PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).edt.metaDataPtr = NULL;
+#endif
     PD_MSG_FIELD_I(properties) = 0;
 
     if (isBlocking) {

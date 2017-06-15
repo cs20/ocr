@@ -2422,22 +2422,44 @@ u8 cePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         } else {
             ASSERT(msg->type & PD_MSG_RESPONSE);
             ocrSchedulerOpWorkArgs_t *workArgs = &PD_MSG_FIELD_IO(schedArgs);
-            ocrFatGuid_t fguid = workArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).edt;
-            workArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).edt.guid = NULL_GUID;
-            workArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).edt.metaDataPtr = NULL;
-            if (!ocrGuidIsNull(fguid.guid)) {
-                DPRINTF(DEBUG_LVL_VERB, "Got work from 0x%"PRIx64": EDT GUID "GUIDF"\n",
-                        msg->srcLocation, GUIDA(fguid.guid));
-                localDeguidify(self, &fguid, NULL);
-                ASSERT(fguid.metaDataPtr);
-            } else {
-                DPRINTF(DEBUG_LVL_VERB, "Got NULL work from 0x%"PRIx64" -- passing on\n",
-                        msg->srcLocation);
-            }
             ocrSchedulerOpNotifyArgs_t notifyArgs;
+            if (PD_MSG_FIELD_IO(schedArgs.kind) == OCR_SCHED_WORK_EDT_USER) {
+                ocrFatGuid_t fguid = workArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).edt;
+                workArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).edt.guid = NULL_GUID;
+                workArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).edt.metaDataPtr = NULL;
+                if (!ocrGuidIsNull(fguid.guid)) {
+                    DPRINTF(DEBUG_LVL_VERB, "Got work from 0x%"PRIx64": EDT GUID "GUIDF"\n",
+                            msg->srcLocation, GUIDA(fguid.guid));
+                    localDeguidify(self, &fguid, NULL);
+                    ASSERT(fguid.metaDataPtr);
+                } else {
+                    DPRINTF(DEBUG_LVL_VERB, "Got NULL work from 0x%"PRIx64" -- passing on\n",
+                            msg->srcLocation);
+                }
+                notifyArgs.kind = OCR_SCHED_NOTIFY_EDT_READY;
+                notifyArgs.OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_EDT_READY).guid = fguid;
+            }
+            else if (PD_MSG_FIELD_IO(schedArgs.kind) == OCR_SCHED_WORK_MULTI_EDTS_USER) {
+                ocrFatGuid_t *fguids = workArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_MULTI_EDTS_USER).edts;
+                u32 guidCount = workArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_MULTI_EDTS_USER).guidCount;
+                u32 idx;
+                for (idx = 0; idx < guidCount; idx++) {
+                    if (!ocrGuidIsNull(fguids[idx].guid)) {
+                        DPRINTF(DEBUG_LVL_VERB, "Got work from 0x%"PRIx64": EDT GUID "GUIDF"\n",
+                                msg->srcLocation, GUIDA(fguids[idx].guid));
+                        localDeguidify(self, &(fguids[idx]), NULL);
+                        ASSERT(fguids[idx].metaDataPtr);
+                    } else {
+                        DPRINTF(DEBUG_LVL_VERB, "Got NULL work from 0x%"PRIx64" -- passing on\n",
+                                msg->srcLocation);
+                    }
+                }
+                notifyArgs.OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_MULTI_EDTS_READY).guids = fguids;
+                notifyArgs.OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_MULTI_EDTS_READY).guidCount = guidCount;
+                notifyArgs.kind = OCR_SCHED_NOTIFY_MULTI_EDTS_READY;
+            }
+
             notifyArgs.base.location = msg->srcLocation;
-            notifyArgs.kind = OCR_SCHED_NOTIFY_EDT_READY;
-            notifyArgs.OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_EDT_READY).guid = fguid;
             returnCode = self->schedulers[0]->fcts.op[OCR_SCHEDULER_OP_NOTIFY].invoke(
                 self->schedulers[0], (ocrSchedulerOpArgs_t*)(&notifyArgs), NULL);
         }

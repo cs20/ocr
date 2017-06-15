@@ -524,6 +524,7 @@ typedef enum {
                                                   * created. If yes check if it has been satisfied. Returns
                                                   * immediately with OCR_EINVAL in either case */
 #define GET_MULTI_WORK_MAX_SIZE 8        //max # of tasks that can be sent to XE PD in one msg
+#define CE_GET_MULTI_WORK_MAX_SIZE 4     //max # of tasks that can be sent between CEs in one msg
 /**
  * @}
  */
