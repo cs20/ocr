@@ -125,6 +125,10 @@ u8 delegateCommSendMessage(ocrCommApi_t *self, ocrLocation_t target,
     // Message source/destination is corrupted
     ASSERT((pd->myLocation == message->srcLocation) && (target == message->destLocation));
     ASSERT(pd->myLocation != target); // Do not support sending to 'itself' (current PD).
+#ifdef ENABLE_AMT_RESILIENCE
+    if (checkPlatformModelLocationFault(target))
+        abortCurrentWork();
+#endif
     // If the message is not persistent and the marshall mode is set, we do the specified
     // copy. Otherwise it is just the mode the buffer has been copied in the first place.
 
@@ -228,8 +232,19 @@ u8 delegateCommPollMessage(ocrCommApi_t *self, ocrMsgHandle_t **handle) {
 u8 delegateCommWaitMessage(ocrCommApi_t *self, ocrMsgHandle_t **handle) {
     START_PROFILE(commapi_delegateCommWaitMessage);
     u8 ret = POLL_NO_MESSAGE;
+#ifdef ENABLE_AMT_RESILIENCE
+    ocrLocation_t waitloc = self->pd->myLocation;
+    if (handle != NULL && *handle != NULL) {
+        ocrPolicyMsg_t *message = (*handle)->msg;
+        ASSERT((self->pd->myLocation == message->srcLocation) && (self->pd->myLocation != message->destLocation));
+        waitloc = message->destLocation;
+    }
+#endif
     //BUG #130 Is there a use case to wait for a one-way to complete ?
     while(ret == POLL_NO_MESSAGE) {
+#ifdef ENABLE_AMT_RESILIENCE
+        u8 faultDetected = checkPlatformModelLocationFault(waitloc);
+#endif
         // Try to poll a little
         u64 i = 0;
         while ((i < MAX_ACTIVE_WAIT) && (ret == POLL_NO_MESSAGE)) {
@@ -237,6 +252,9 @@ u8 delegateCommWaitMessage(ocrCommApi_t *self, ocrMsgHandle_t **handle) {
             i++;
         }
         if (ret == POLL_NO_MESSAGE) {
+#ifdef ENABLE_AMT_RESILIENCE
+            if (faultDetected) abortCurrentWork();
+#endif
             // If nothing shows up, transfer control to the scheduler for monitoring progress
             ocrPolicyDomain_t * pd;
             PD_MSG_STACK(msg);

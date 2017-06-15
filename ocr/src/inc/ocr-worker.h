@@ -13,6 +13,9 @@
 #include "ocr-scheduler.h"
 #include "ocr-types.h"
 #include "ocr-hal.h"
+#ifdef ENABLE_AMT_RESILIENCE
+#include <setjmp.h>
+#endif
 
 #ifdef OCR_ENABLE_STATISTICS
 #include "ocr-statistics.h"
@@ -140,6 +143,9 @@ typedef struct _ocrWorker_t {
     volatile ocrEdtDep_t *activeDepv;
     lock_t notifyLock;
 #endif
+#ifdef ENABLE_AMT_RESILIENCE
+    jmp_buf *jmpbuf;
+#endif
 } ocrWorker_t;
 
 
@@ -156,5 +162,9 @@ typedef struct _ocrWorkerFactory_t {
 } ocrWorkerFactory_t;
 
 void initializeWorkerOcr(ocrWorkerFactory_t * factory, ocrWorker_t * self, ocrParamList_t *perInstance);
+
+#ifdef ENABLE_AMT_RESILIENCE
+void abortCurrentWork();
+#endif
 
 #endif /* __OCR_WORKER_H__ */

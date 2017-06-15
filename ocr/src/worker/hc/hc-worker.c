@@ -256,6 +256,24 @@ static void hcWorkShift(ocrWorker_t * worker) {
     RETURN_PROFILE();
 }
 
+#ifdef ENABLE_AMT_RESILIENCE
+static void hcWorkShiftResilient(ocrWorker_t * worker) {
+    jmp_buf buf;
+    jmp_buf *oldbuf = worker->jmpbuf;
+    int rc = setjmp(buf);
+    if (rc == 0) {
+        worker->jmpbuf = &buf;
+        hcWorkShift(worker);
+    } else {
+        ASSERT(worker->curTask != NULL);
+        DPRINTF(DEBUG_LVL_INFO, "Worker aborted executing EDT "GUIDF"\n", GUIDA(worker->curTask->guid));
+        worker->curTask = NULL;
+    }
+    ASSERT(worker->curTask == NULL);
+    worker->jmpbuf = oldbuf;
+}
+#endif
+
 #ifdef ENABLE_RESILIENCY
 extern bool doCheckpointResume(ocrPolicyDomain_t *pd);
 #endif
@@ -709,7 +727,11 @@ ocrWorkerFactory_t * newOcrWorkerFactoryHc(ocrParamList_t * perType) {
     base->workerFcts.switchRunlevel = FUNC_ADDR(u8 (*)(ocrWorker_t*, ocrPolicyDomain_t*, ocrRunlevel_t,
                                                        phase_t, u32, void (*)(ocrPolicyDomain_t*, u64), u64), hcWorkerSwitchRunlevel);
     base->workerFcts.run = FUNC_ADDR(void* (*) (ocrWorker_t *), hcRunWorker);
+#ifdef ENABLE_AMT_RESILIENCE
+    base->workerFcts.workShift = FUNC_ADDR(void* (*) (ocrWorker_t *), hcWorkShiftResilient);
+#else
     base->workerFcts.workShift = FUNC_ADDR(void* (*) (ocrWorker_t *), hcWorkShift);
+#endif
     base->workerFcts.isRunning = FUNC_ADDR(bool (*) (ocrWorker_t *), hcIsRunningWorker);
     base->workerFcts.printLocation = FUNC_ADDR(void (*)(ocrWorker_t*, char*), hcPrintLocation);
     return base;

@@ -92,5 +92,18 @@ void initializeWorkerOcr(ocrWorkerFactory_t * factory, ocrWorker_t * self, ocrPa
     self->activeDepv = NULL;
     self->notifyLock = INIT_LOCK;
 #endif
+#ifdef ENABLE_AMT_RESILIENCE
+    self->jmpbuf = NULL;
+#endif
 }
+
+#ifdef ENABLE_AMT_RESILIENCE
+#include "ocr-errors.h"
+void abortCurrentWork() {
+    ocrWorker_t *worker = NULL;
+    getCurrentEnv(NULL, &worker, NULL, NULL);
+    ASSERT(worker->jmpbuf != NULL);
+    longjmp(*(worker->jmpbuf), OCR_EFAULT);
+}
+#endif
 

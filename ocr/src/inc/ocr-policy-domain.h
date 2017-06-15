@@ -1605,7 +1605,7 @@ typedef struct _ocrPolicyDomain_t {
     u32 neighborCount;                          /**< Number of neighboring policy domains */
     u8 shutdownCode;
 #ifdef ENABLE_AMT_RESILIENCE
-    u8 frozen;
+    u8 faultCode;
 #endif
 
     // BUG #605: Location support

@@ -73,7 +73,7 @@ void ocrNodeFailure() {
     ocrTask_t * curTask = NULL;
     getCurrentEnv(&pd, NULL, &curTask, NULL);
     if ((curTask != NULL) && ((curTask->flags & OCR_TASK_FLAG_RECOVERY) == 0)) {
-        pd->frozen = 1;
+        pd->faultCode = OCR_NODE_FAILURE_SELF;
         pthread_exit(NULL);
     } else {
         DPRINTF(DEBUG_LVL_WARN, "Fault injection failed: masked during recovery\n");

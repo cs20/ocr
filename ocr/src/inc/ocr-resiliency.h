@@ -8,6 +8,12 @@
 #ifndef OCR_RESILIENCY_H_
 #define OCR_RESILIENCY_H_
 
+#ifdef ENABLE_AMT_RESILIENCE
+#define OCR_FAILURE_NONE        0
+#define OCR_NODE_FAILURE_SELF   1
+#define OCR_NODE_FAILURE_OTHER  2
+#endif
+
 #define OCR_FAULT_ARG_NAME(name) _arg_##name
 #define OCR_FAULT_ARG_FIELD(kind) data.OCR_FAULT_ARG_NAME(kind)
 

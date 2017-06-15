@@ -379,15 +379,29 @@ static void mpiFreezeAndExit(ocrCommPlatform_t * self) {
 
 static void mpiCheckFaultAndHeartBeat(ocrCommPlatform_t * self) {
     ocrCommPlatformMPI_t * mpiComm = ((ocrCommPlatformMPI_t *) self);
+    ocrPolicyDomain_t * pd = self->pd;
+    u64 curTime = salGetTime();
+
+    //Send heartbeat to buddy
+    if (!mpiComm->sendBuddyFailed && ((curTime - mpiComm->hbSendTime) > OCR_HEARTBEAT_INTERVAL)) {
+        int flag = 0;
+        MPI_Test(&mpiComm->hbSendReq, &flag, MPI_STATUS_IGNORE);
+        if (flag) {
+            MPI_Isend(NULL, 0, MPI_BYTE, mpiComm->sendBuddyRank, MPI_TAG_HEARTBEAT, MPI_COMM_WORLD, &mpiComm->hbSendReq);
+            mpiComm->hbSendTime = curTime;
+        }
+    }
+
     //Check for system fault notifications
     int faultFlag = 0;
     MPI_Status faultStatus;
     MPI_Test(&mpiComm->faultReq, &faultFlag, &faultStatus);
     if (faultFlag) {
         ASSERT(mpiComm->failedRank >= 0);
-        ASSERT(mpiComm->rankMap[mpiComm->failedRank] == mpiComm->failedRank);
+        ocrLocation_t failedLocation = mpiRankToLocation(mpiComm->failedRank);
+        ASSERT(!checkPlatformModelLocationFault(failedLocation));
         DPRINTF(DEBUG_LVL_WARN, "Node failure detected on rank %d (notified by rank %d)\n", mpiComm->failedRank, faultStatus.MPI_SOURCE);
-        mpiComm->rankMap[mpiComm->failedRank] = -1;
+        salProcessNodeFailure(failedLocation);
         if (mpiComm->failedRank == mpiComm->sendBuddyRank) mpiComm->sendBuddyFailed = 1;
         if (mpiComm->failedRank == mpiComm->recvBuddyRank) mpiComm->recvBuddyFailed = 1;
         //Acknowledge receipt of fault notification
@@ -401,8 +415,7 @@ static void mpiCheckFaultAndHeartBeat(ocrCommPlatform_t * self) {
         MPI_Irecv(&mpiComm->failedRank, 1, MPI_INT, MPI_ANY_SOURCE, MPI_TAG_FAULT, MPI_COMM_WORLD, &mpiComm->faultReq);
     }
 
-    //Check for heartbeat faults
-    u64 curTime = salGetTime();
+    //Check for heartbeat timeouts
     if (!mpiComm->recvBuddyFailed && ((curTime - mpiComm->hbRecvTime) > OCR_HEARTBEAT_INTERVAL)) {
         int flag = 0;
         MPI_Test(&mpiComm->hbRecvReq, &flag, MPI_STATUS_IGNORE);
@@ -413,57 +426,58 @@ static void mpiCheckFaultAndHeartBeat(ocrCommPlatform_t * self) {
             DPRINTF(DEBUG_LVL_WARN, "Node failure detected on buddy rank %d\n", mpiComm->recvBuddyRank);
             mpiComm->recvBuddyFailed = 1;
             if (mpiComm->recvBuddyRank == mpiComm->sendBuddyRank) mpiComm->sendBuddyFailed = 1;
+
             //Notify all active nodes about failure
-            int i;
-            for (i = 0; i < self->pd->neighborCount; i++) {
-                int rank = (int) locationToMpiRank(self->pd->neighbors[i]);
-                if (rank != mpiComm->recvBuddyRank && mpiComm->rankMap[rank] != -1) {
-                    MPI_Send(&mpiComm->recvBuddyRank, 1, MPI_INT, rank, MPI_TAG_FAULT, MPI_COMM_WORLD);
+            MPI_Request *reqArray = pd->fcts.pdMalloc(pd, sizeof(MPI_Request) * pd->neighborCount);
+            int i, reqCount;
+            for (i = 0, reqCount = 0; i < pd->neighborCount; i++) {
+                int rank = (int) locationToMpiRank(pd->neighbors[i]);
+                if (rank != mpiComm->recvBuddyRank && !checkPlatformModelLocationFault(pd->neighbors[i])) {
+                    MPI_Isend(&mpiComm->recvBuddyRank, 1, MPI_INT, rank, MPI_TAG_FAULT, MPI_COMM_WORLD, &reqArray[reqCount++]);
                 }
             }
-            //Wait for fault notify ack
-            for (i = 0; i < self->pd->neighborCount; i++) {
-                int rank = (int) locationToMpiRank(self->pd->neighbors[i]);
-                if (rank != mpiComm->recvBuddyRank && mpiComm->rankMap[rank] != -1) {
+
+            //Handle failure in this rank
+            ocrLocation_t failedLocation = mpiRankToLocation(mpiComm->recvBuddyRank);
+            salProcessNodeFailure(failedLocation);
+
+            //Wait for fault notify send and ack
+            MPI_Waitall(reqCount, reqArray, MPI_STATUSES_IGNORE);
+            for (i = 0; i < pd->neighborCount; i++) {
+                int rank = (int) locationToMpiRank(pd->neighbors[i]);
+                if (rank != mpiComm->recvBuddyRank && !checkPlatformModelLocationFault(pd->neighbors[i])) {
                     MPI_Recv(NULL, 0, MPI_BYTE, rank, MPI_TAG_FAULT_ACK, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
                 }
             }
-            DPRINTF(DEBUG_LVL_WARN, "Recovery in progress...\n");
+
             //Do recovery
-            ocrLocation_t failedLocation = mpiRankToLocation(mpiComm->recvBuddyRank);
-            u8 err = salHandleNodeFailure(failedLocation, mpiComm->rankMap);
-            ASSERT(mpiComm->rankMap[mpiComm->recvBuddyRank] == -1);
+            DPRINTF(DEBUG_LVL_WARN, "Recovery in progress...\n");
+            u8 err = salRecoverNodeFailure(failedLocation);
             if (!err) {
                 DPRINTF(DEBUG_LVL_WARN, "Successfully recovered from failure on rank %d\n", mpiComm->recvBuddyRank);
                 //Send recovery notification
-                for (i = 0; i < self->pd->neighborCount; i++) {
-                    int rank = (int) locationToMpiRank(self->pd->neighbors[i]);
-                    if (rank != mpiComm->recvBuddyRank && mpiComm->rankMap[rank] != -1) {
-                        MPI_Send(NULL, 0, MPI_BYTE, rank, MPI_TAG_RECOVERY, MPI_COMM_WORLD);
+                for (i = 0, reqCount = 0; i < pd->neighborCount; i++) {
+                    int rank = (int) locationToMpiRank(pd->neighbors[i]);
+                    if (rank != mpiComm->recvBuddyRank && !checkPlatformModelLocationFault(pd->neighbors[i])) {
+                        MPI_Isend(NULL, 0, MPI_BYTE, rank, MPI_TAG_RECOVERY, MPI_COMM_WORLD, &reqArray[reqCount++]);
                     }
                 }
+                MPI_Waitall(reqCount, reqArray, MPI_STATUSES_IGNORE);
             } else {
                 DPRINTF(DEBUG_LVL_WARN, "Unable to recover from failure on rank %d. Aborting!\n", mpiComm->recvBuddyRank);
                 MPI_Abort(MPI_COMM_WORLD, 1);
             }
-        }
-    }
-
-    //Send heartbeat to buddy
-    if (!mpiComm->sendBuddyFailed && ((curTime - mpiComm->hbSendTime) > OCR_HEARTBEAT_INTERVAL)) {
-        int flag = 0;
-        MPI_Test(&mpiComm->hbSendReq, &flag, MPI_STATUS_IGNORE);
-        if (flag) {
-            MPI_Isend(NULL, 0, MPI_BYTE, mpiComm->sendBuddyRank, MPI_TAG_HEARTBEAT, MPI_COMM_WORLD, &mpiComm->hbSendReq);
-            mpiComm->hbSendTime = curTime;
+            pd->fcts.pdFree(pd, reqArray);
         }
     }
 }
 
-#define AMT_RESILIENCE_CHECK_FOR_FAULT(s)       \
-{                                               \
-    if (s->pd->frozen) mpiFreezeAndExit(s);     \
-    mpiCheckFaultAndHeartBeat(s);               \
+#define AMT_RESILIENCE_CHECK_FOR_FAULT(s)               \
+{                                                       \
+    if (s->pd->faultCode == OCR_NODE_FAILURE_SELF) {    \
+        mpiFreezeAndExit(s);                            \
+    }                                                   \
+    mpiCheckFaultAndHeartBeat(s);                       \
 }
 
 #else
@@ -1559,8 +1573,6 @@ static u8 MPICommSwitchRunlevel(ocrCommPlatform_t *self, ocrPolicyDomain_t *PD, 
             mpiComm->recvBuddyRank = (myRank + nbRanks - 1) % nbRanks;
             mpiComm->sendBuddyFailed = (nbRanks > 1) ? 0 : 1;
             mpiComm->recvBuddyFailed = (nbRanks > 1) ? 0 : 1;
-            mpiComm->rankMap = (int*)PD->fcts.pdMalloc(PD, sizeof(int) * nbRanks);
-            for (k = 0; k < nbRanks; k++) mpiComm->rankMap[k] = k;
             mpiComm->failedRank = -1;
             if (nbRanks > 1) {
                 MPI_Isend(NULL, 0, MPI_BYTE, mpiComm->sendBuddyRank, MPI_TAG_HEARTBEAT, MPI_COMM_WORLD, &mpiComm->hbSendReq);

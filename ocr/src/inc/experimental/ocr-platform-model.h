@@ -30,11 +30,19 @@ typedef struct _ocrPlatformModelAffinity_t {
     u64 pdLocAffinitiesSize; /**< Count of available locations */
     u32 current;
     ocrGuid_t * pdLocAffinities;
+#ifdef ENABLE_AMT_RESILIENCE
+    u64 *nodevec; //bit-vector to mark failed nodes
+    u64 veclen;
+#endif
 } ocrPlatformModelAffinity_t;
 
 struct _ocrPolicyDomain_t;
 
 u8 affinityToLocation(ocrLocation_t* result, ocrGuid_t affinityGuid);
+#ifdef ENABLE_AMT_RESILIENCE
+u8 notifyPlatformModelLocationFault(ocrLocation_t loc);
+u8 checkPlatformModelLocationFault(ocrLocation_t loc);
+#endif
 ocrPlatformModel_t * createPlatformModelAffinity(struct _ocrPolicyDomain_t * pd);
 #ifdef TG_XE_TARGET
 ocrPlatformModel_t * createPlatformModelAffinityXE(struct _ocrPolicyDomain_t * pd);

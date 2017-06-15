@@ -30,6 +30,7 @@
 #include <sys/mman.h>
 #include <sys/stat.h>        /* For mode constants */
 #include <fcntl.h>           /* For O_* constants */
+#include <dirent.h>
 #endif
 
 #ifdef __MACH__
@@ -582,10 +583,12 @@ bool salCheckpointExistsResumeQuery() {
 
 //Publish-Fetch hashtable
 static int pfIsInitialized = 0;
-static hashtable_t * pfTable = NULL;
-static hashtable_t * rectable = NULL;
+static hashtable_t * pfTable = NULL;    //Hashtable containing pointers to published data
+static hashtable_t * recTable = NULL;   //Hashtable containing EDT guids invested in this node
+static hashtable_t * faultTable = NULL; //Hashtable containing EDT guids which have encountered faults
 static lock_t pfLock;
 static lock_t recLock;
+static char * nodeExt;
 
 typedef struct _nodeStateHeader {
     size_t nodeStateBufSize;
@@ -607,9 +610,11 @@ void salInitPublishFetch() {
     ocrPolicyDomain_t *pd;
     getCurrentEnv(&pd, NULL, NULL, NULL);
     pfTable = newHashtableBucketLockedModulo(pd, RECORD_INCR_SIZE);
-    rectable = newHashtableBucketLockedModulo(pd, RECORD_INCR_SIZE);
+    recTable = newHashtableBucketLockedModulo(pd, RECORD_INCR_SIZE);
+    faultTable = newHashtableModulo(pd, RECORD_INCR_SIZE);
     pfLock = INIT_LOCK;
     recLock = INIT_LOCK;
+    nodeExt = NULL;
 
     //Initialize node state buffer
     char fname[FNL];
@@ -1057,6 +1062,7 @@ u8 salRemovePublished(ocrGuid_t g) {
 typedef struct _edtStorage {
     ocrEdt_t funcPtr;
     u32 paramc, depc;
+    ocrGuid_t resilientEdtParent;
     u64* paramv;
     ocrGuid_t *depv;
 } edtStorage_t;
@@ -1076,6 +1082,7 @@ u8 salPublishEdt(ocrTask_t *task) {
     edt->funcPtr = task->funcPtr;
     edt->paramc = task->paramc;
     edt->depc = task->depc;
+    edt->resilientEdtParent = task->resilientEdtParent;
     edt->paramv = (u64*)(buf + sizeof(edtStorage_t));
     memcpy(edt->paramv, task->paramv, sizeof(u64) * task->paramc);
     edt->depv = (ocrGuid_t*)(buf + sizeof(edtStorage_t) + sizeof(u64) * task->paramc);
@@ -1105,7 +1112,7 @@ u8 salRemovePublishedEdt(ocrGuid_t edt) {
 #error Unknown type of GUID
 #endif
     //Remove from current node
-    ASSERT(hashtableConcBucketLockedRemove(rectable, (void*)guid, NULL));
+    ASSERT(hashtableConcBucketLockedRemove(recTable, (void*)guid, NULL));
     ocrPolicyDomain_t *pd;
     getCurrentEnv(&pd, NULL, NULL, NULL);
     char fname[FNL];
@@ -1164,7 +1171,7 @@ u8 salRecordEdt(ocrGuid_t g) {
 #else
 #error Unknown type of GUID
 #endif
-    if (hashtableConcBucketLockedGet(rectable, (void*)guid) != NULL)
+    if (hashtableConcBucketLockedGet(recTable, (void*)guid) != NULL)
         return 0; //Found existing record
 
     ocrPolicyDomain_t *pd;
@@ -1181,7 +1188,7 @@ u8 salRecordEdt(ocrGuid_t g) {
 
     struct stat sb;
     if (stat(fname, &sb) == 0) {
-        ASSERT(hashtableConcBucketLockedGet(rectable, (void*)guid) != NULL);
+        ASSERT(hashtableConcBucketLockedGet(recTable, (void*)guid) != NULL);
         hal_unlock(&recLock);
         return 0; //Found existing record
     }
@@ -1192,8 +1199,8 @@ u8 salRecordEdt(ocrGuid_t g) {
         ASSERT(0);
         return 1;
     }
-    ASSERT(hashtableConcBucketLockedGet(rectable, (void*)guid) == NULL);
-    hashtableConcBucketLockedPut(rectable, (void*)guid, (void*)((u64)fd));
+    ASSERT(hashtableConcBucketLockedGet(recTable, (void*)guid) == NULL);
+    hashtableConcBucketLockedPut(recTable, (void*)guid, (void*)((u64)fd));
 
     int rc = ftruncate(fd, 0);
     if (rc) {
@@ -1214,189 +1221,143 @@ u8 salRecordEdt(ocrGuid_t g) {
     return 0;
 }
 
-static u8 salImportPublishedEdts(ocrLocation_t nodeId, int *rankMap) {
-    u64 i, n;
-    ocrPolicyDomain_t *pd;
-    getCurrentEnv(&pd, NULL, NULL, NULL);
-    hashtable_t * htable = newHashtableModulo(pd, RECORD_INCR_SIZE); //Create hashtable for EDT pruning
-    hashtable_t * rtable = newHashtableModulo(pd, RECORD_INCR_SIZE); //Create hashtable for EDT recovery
-
-    //Add current node edt state to hashtable
-    {
-        nodeStateHeader_t *nsHeader = (nodeStateHeader_t*)nodeStateBuf;
-        nodeStateRecord_t *records = (nodeStateRecord_t*)((size_t)nodeStateBuf + sizeof(nodeStateHeader_t));
-        u64 numRecords = nsHeader->numRecords;
-        for (i = 0; i < numRecords; i++) {
-            ocrGuid_t guid = records[i].guid;
-#if GUID_BIT_COUNT == 64
-            u64 guidVal = guid.guid;
-#elif GUID_BIT_COUNT == 128
-            u64 guidVal = guid.lower;
-#else
-#error Unknown type of GUID
-#endif
-            void* ptr = hashtableNonConcGet(htable, (void*)guidVal);
-            if (ptr == NULL) {
-                hashtableNonConcPut(htable, (void*)guidVal, (void*)(&records[i]));
-            }
-        }
-    }
-
-    //Add remaining node edt states to hashtable
-    void *failedNodeStateBuf = NULL;
-    u64 failedNodeStateBufSize = 0;
-    u64 nbRanks = pd->neighborCount + 1;
-    for (n = 0; n < nbRanks; n++) {
-        if (n != (u64)pd->myLocation && rankMap[n] != -1) {
-            char fname[FNL];
-            int c = snprintf(fname, FNL, "node%lu.state", (u64)n);
-            if (c < 0 || c >= FNL) {
-                fprintf(stderr, "failed to create filename for node state\n");
-                ASSERT(0);
-                return 1;
-            }
-
-            struct stat sb;
-            if (stat(fname, &sb) == -1) {
-                fprintf(stderr, "Cannot find existing node state %s!\n", fname);
-                ASSERT(0);
-                return 1;
-            }
-            u64 size = sb.st_size;
-            ASSERT(size > 0);
-
-            int fd = open(fname, O_RDWR);
-            if (fd<0) {
-                fprintf(stderr, "open failed: (filename: %s)\n", fname);
-                ASSERT(0);
-                return 1;
-            }
-
-            void *buf = mmap( NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0 );
-            if (buf == MAP_FAILED) {
-                fprintf(stderr, "mmap failed for size %lu (filename: %s filedesc: %d)\n", size, fname, fd);
-                ASSERT(0);
-                return 1;
-            }
-            ASSERT(buf != NULL);
-            if (n == (u64)nodeId) {
-                failedNodeStateBuf = buf;
-                failedNodeStateBufSize = size;
-            }
-
-            nodeStateHeader_t *nsHeader = (nodeStateHeader_t*)buf;
-            nodeStateRecord_t *records = (nodeStateRecord_t*)((size_t)buf + sizeof(nodeStateHeader_t));
-            u64 numRecords = nsHeader->numRecords;
-            for (i = 0; i < numRecords; i++) {
-                ocrGuid_t guid = records[i].guid;
-#if GUID_BIT_COUNT == 64
-                u64 guidVal = guid.guid;
-#elif GUID_BIT_COUNT == 128
-                u64 guidVal = guid.lower;
-#else
-#error Unknown type of GUID
-#endif
-                void* ptr = hashtableNonConcGet(htable, (void*)guidVal);
-                if (ptr == NULL) {
-                    hashtableNonConcPut(htable, (void*)guidVal, (void*)(&records[i]));
-                }
-            }
-
-            int rc = close(fd);
-            if (rc) {
-                fprintf(stderr, "close failed: (filedesc: %d)\n", fd);
-                ASSERT(0);
-                return 1;
-            }
-        }
-    }
-
-    //Find dominators of failed node state EDTs and repeat execution of those EDTs
-    ASSERT(failedNodeStateBuf != NULL);
-    nodeStateHeader_t *nsHeader = (nodeStateHeader_t*)failedNodeStateBuf;
-    nodeStateRecord_t *records = (nodeStateRecord_t*)((size_t)failedNodeStateBuf + sizeof(nodeStateHeader_t));
-    u64 numRecords = nsHeader->numRecords;
-    for (i = 0; i < numRecords; i++) {
-        ocrGuid_t edtGuid = NULL_GUID;
-        ocrGuid_t guid = records[i].guid;
-        ocrGuid_t pguid = records[i].pguid;
-#if GUID_BIT_COUNT == 64
-        u64 pguidVal = pguid.guid;
-#elif GUID_BIT_COUNT == 128
-        u64 pguidVal = pguid.lower;
-#else
-#error Unknown type of GUID
-#endif
-        void* ptr = hashtableNonConcGet(htable, (void*)pguidVal);
-        if (ptr == NULL) {
-            edtGuid = guid;
-        } else {
-            nodeStateRecord_t *precord = (nodeStateRecord_t*)ptr;
-            ocrGuid_t ppguid = precord->pguid;
-#if GUID_BIT_COUNT == 64
-            u64 ppguidVal = ppguid.guid;
-#elif GUID_BIT_COUNT == 128
-            u64 ppguidVal = ppguid.lower;
-#else
-#error Unknown type of GUID
-#endif
-            if (hashtableNonConcGet(htable, (void*)ppguidVal) != NULL) {
-                fprintf(stderr, "Node state is corrupt; recovery failed for node %lu\n", nodeId);
-                return 1;
-            }
-            if (hashtableNonConcGet(rtable, (void*)pguidVal) == NULL) {
-                edtGuid = pguid;
-            }
-        }
-        if (!ocrGuidIsNull(edtGuid)) {
-            //Create EDT
-            u64 bufsize = 0;
-            edtStorage_t *edtBuf = (edtStorage_t*)salFetchInternal(edtGuid, &bufsize, 0, 0);
-            if (edtBuf == NULL) {
-                fprintf(stderr, "Node state is corrupt; recovery failed for node %lu\n", nodeId);
-                return 1;
-            }
-            edtBuf->paramv = (u64*)((size_t)edtBuf + sizeof(edtStorage_t));
-            edtBuf->depv = (ocrGuid_t*)((size_t)edtBuf + sizeof(edtStorage_t) + (edtBuf->paramc * sizeof(u64)));
-
-            ocrGuid_t tmpl;
-            ocrEdtTemplateCreate(&tmpl, edtBuf->funcPtr, edtBuf->paramc, edtBuf->depc);
-            ocrGuid_t edt, oEvt;
-            ocrEdtCreate(&edt, tmpl, edtBuf->paramc, edtBuf->paramv, edtBuf->depc, edtBuf->depv, EDT_PROP_RESILIENT | EDT_PROP_RECOVERY, NULL_HINT, &oEvt);
-        }
-    }
-
-    //Remove failed node state
-    rankMap[nodeId] = -1;
-
-    int rc = munmap(failedNodeStateBuf, failedNodeStateBufSize);
-    if (rc) {
-        fprintf(stderr, "munmap failed for buffer %p of size %lu\n", failedNodeStateBuf, failedNodeStateBufSize);
-        ASSERT(0);
-        return 1;
-    }
-
-    char fname[FNL];
-    int c = snprintf(fname, FNL, "node%lu.state", (u64)nodeId);
-    if (c < 0 || c >= FNL) {
-        fprintf(stderr, "failed to create filename for node state\n");
-        ASSERT(0);
-        return 1;
-    }
-
-    rc = unlink(fname);
-    if (rc) {
-        fprintf(stderr, "unlink failed: (filename: %s)\n", fname);
-        ASSERT(0);
-        return 1;
+/* when return 1, scandir will put this dirent to the list */
+static int parse_ext(const struct dirent *dir)
+{
+    if(dir == NULL) return 0;
+    if(dir->d_type == DT_REG) { /* only deal with regular file */
+        const char *ext = strrchr(dir->d_name,'.');
+        if((ext == NULL) || (ext == dir->d_name))
+            return 0;
+        if(strcmp(ext, (const char *)nodeExt) == 0)
+            return 1;
     }
     return 0;
 }
 
-u8 salHandleNodeFailure(ocrLocation_t nodeId, int *rankMap) {
+u8 salProcessNodeFailure(ocrLocation_t nodeId) {
     if (!pfIsInitialized) return 1;
-    //return 1;
-    return salImportPublishedEdts(nodeId, rankMap);
+    notifyPlatformModelLocationFault(nodeId);
+    hal_fence();
+
+    ocrPolicyDomain_t *pd;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+    char extension[FNL];
+    int c = snprintf(extension, FNL, ".node%lu", (u64)nodeId);
+    if (c < 0 || c >= FNL) {
+        fprintf(stderr, "failed to create filename for EDT record\n");
+        ASSERT(0);
+        return 1;
+    }
+    nodeExt = extension;
+
+    struct dirent **namelist;
+    int n = scandir(".", &namelist, parse_ext, alphasort);
+    if (n < 0) {
+        perror("scandir");
+        return 1;
+    }
+    while (n--) {
+        //printf("%s\n", namelist[n]->d_name);
+        char *s = strchr(namelist[n]->d_name,'.');
+        *s = '\0';
+        u64 guid = strtoul(namelist[n]->d_name, NULL, 10);
+        ASSERT(guid > 0);
+#if 1
+        char fname[FNL];
+        int c = snprintf(fname, FNL, "%lu.node%lu", guid, (u64)nodeId);
+        if (c < 0 || c >= FNL) {
+            fprintf(stderr, "failed to create filename for EDT record\n");
+            ASSERT(0);
+            return 1;
+        }
+
+        struct stat sb;
+        if (stat(fname, &sb) == -1) {
+            fprintf(stderr, "Cannot find existing node state %s!\n", fname);
+            ASSERT(0);
+            return 1;
+        }
+        ASSERT(sb.st_size == 0);
+#endif
+        c = snprintf(fname, FNL, "%lu.guid", guid);
+        if (c < 0 || c >= FNL) {
+            fprintf(stderr, "failed to create filename for EDT guid\n");
+            ASSERT(0);
+            return 1;
+        }
+
+        if (stat(fname, &sb) == 0) {
+            hashtableNonConcPut(faultTable, (void*)guid, (void*)guid);
+        }
+        free(namelist[n]);
+    }
+    free(namelist);
+
+    //Set faultCode for PD
+    hal_fence();
+    pd->faultCode = OCR_NODE_FAILURE_OTHER;
+    return 0;
+}
+
+void salImportEdt(void * key, void * value, void * args) {
+    ASSERT((u64)key == (u64)value);
+    u64 guid = (u64)key;
+    hashtable_t * faultTable = (hashtable_t*)args;
+#if GUID_BIT_COUNT == 64
+    ocrGuid_t edtGuid;
+    edtGuid.guid = guid;
+#else
+#error Unknown type of GUID
+#endif
+
+    u64 bufsize = 0;
+    edtStorage_t *edtBuf = (edtStorage_t*)salFetchInternal(edtGuid, &bufsize, 0, 0);
+    if (edtBuf == NULL) {
+        fprintf(stderr, "Node state is corrupt; recovery failed\n");
+        ASSERT(0);
+    }
+
+    if (!ocrGuidIsNull(edtBuf->resilientEdtParent)) {
+#if GUID_BIT_COUNT == 64
+        u64 pguid = edtBuf->resilientEdtParent.guid;
+#elif GUID_BIT_COUNT == 128
+        u64 pguid = edtBuf->resilientEdtParent.lower;
+#else
+#error Unknown type of GUID
+#endif
+        if (hashtableNonConcGet(faultTable, (void*)pguid) != NULL)
+            return; //Found existing parent
+    }
+
+    //Create EDT
+    edtBuf->paramv = (u64*)((size_t)edtBuf + sizeof(edtStorage_t));
+    edtBuf->depv = (ocrGuid_t*)((size_t)edtBuf + sizeof(edtStorage_t) + (edtBuf->paramc * sizeof(u64)));
+
+    ocrGuid_t tmpl;
+    ocrEdtTemplateCreate(&tmpl, edtBuf->funcPtr, edtBuf->paramc, edtBuf->depc);
+    ocrGuid_t edt, oEvt;
+    ocrEdtCreate(&edt, tmpl, edtBuf->paramc, edtBuf->paramv, edtBuf->depc, edtBuf->depv, EDT_PROP_RESILIENT | EDT_PROP_RECOVERY, NULL_HINT, &oEvt);
+}
+
+u8 salRecoverNodeFailure(ocrLocation_t nodeId) {
+    iterateHashtable(faultTable, salImportEdt, (void*)faultTable);
+    return 0;
+}
+
+u8 salCheckEdtFault(ocrGuid_t g) {
+    if (!pfIsInitialized) return 0;
+    if (ocrGuidIsNull(g)) return 0;
+#if GUID_BIT_COUNT == 64
+    u64 guid = g.guid;
+#elif GUID_BIT_COUNT == 128
+    u64 guid = g.lower;
+#else
+#error Unknown type of GUID
+#endif
+    if (hashtableNonConcGet(faultTable, (void*)guid) != NULL)
+        return 1; //Found existing record
+    return 0;
 }
 
 u8 salGuidTablePut(u64 key, ocrGuid_t val) {

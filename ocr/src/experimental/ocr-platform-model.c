@@ -79,16 +79,69 @@ u8 affinityToLocation(ocrLocation_t* result, ocrGuid_t affinityGuid) {
     return 0;
 }
 
+#ifdef ENABLE_AMT_RESILIENCE
+u8 notifyPlatformModelLocationFault(ocrLocation_t loc) {
+    u64 i, j;
+    ocrPolicyDomain_t * pd;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+    ocrPlatformModelAffinity_t * model = (ocrPlatformModelAffinity_t *) (pd->platformModel);
+    ASSERT((model->nodevec[loc/64] & (0x1UL << (loc % 64))) == 0);
+    model->nodevec[loc/64] |= (0x1UL << (loc % 64));
+    u64 countAff = pd->neighborCount + 1;
+    for(i = 0; i < countAff; i++) {
+        ocrGuid_t affinityGuid = model->pdLocAffinities[i];
+        ocrFatGuid_t fguid;
+        fguid.guid = affinityGuid;
+        fguid.metaDataPtr = NULL;
+        resolveRemoteMetaData(pd, &fguid, NULL, true);
+        ASSERT((fguid.metaDataPtr != NULL) && "ERROR: cannot deguidify affinity GUID");
+        ocrAffinity_t *aff = (ocrAffinity_t *) fguid.metaDataPtr;
+        if (aff->place == loc) {
+            u8 found = 0;
+            for (j = 1; j < countAff; j++) {
+                u64 indx = (i+j) % countAff;
+                ocrGuid_t nextGuid = model->pdLocAffinities[indx];
+                ocrFatGuid_t nguid;
+                nguid.guid = nextGuid;
+                nguid.metaDataPtr = NULL;
+                resolveRemoteMetaData(pd, &nguid, NULL, true);
+                ASSERT((nguid.metaDataPtr != NULL) && "ERROR: cannot deguidify affinity GUID");
+                ocrLocation_t newplace = ((ocrAffinity_t *) nguid.metaDataPtr)->place;
+                if (newplace != loc) {
+                    aff->place = newplace;
+                    found = 1;
+                    break;
+                }
+            }
+            ASSERT(found);
+        }
+    }
+    return 0;
+}
+
+u8 checkPlatformModelLocationFault(ocrLocation_t loc) {
+    ocrPolicyDomain_t * pd;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+    ocrPlatformModelAffinity_t * model = (ocrPlatformModelAffinity_t *) (pd->platformModel);
+    return (model->nodevec[loc/64] & (0x1UL << (loc % 64))) ? 1 : 0;
+}
+#endif
 
 ocrPlatformModel_t * createPlatformModelAffinity(ocrPolicyDomain_t *pd) {
+    u64 i=0;
     ocrPlatformModelAffinity_t * model = pd->fcts.pdMalloc(pd, sizeof(ocrPlatformModelAffinity_t));
     u64 countAff = pd->neighborCount + 1;
     model->pdLocAffinities = NULL;
     model->pdLocAffinitiesSize = countAff;
     model->pdLocAffinities = pd->fcts.pdMalloc(pd, sizeof(ocrGuid_t)*countAff);
+#ifdef ENABLE_AMT_RESILIENCE
+    u64 veclen = (countAff / 64) + 1;
+    model->veclen = veclen;
+    model->nodevec = pd->fcts.pdMalloc(pd, sizeof(u64)*veclen);
+    for (i = 0; i < veclen; i++) model->nodevec[i] = 0;
+#endif
     // Returns an array of affinity where each affinity maps to a PD.
     // The array is ordered by PD's location (rank in mpi/gasnet)
-    u64 i=0;
     // pd->neighbors is initialized at boot before creating the affinity list
     // These are the known neighbors at startup
     for(i=0; i < pd->neighborCount; i++) {

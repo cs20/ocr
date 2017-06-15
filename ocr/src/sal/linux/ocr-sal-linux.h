@@ -71,7 +71,7 @@ bool salCheckpointExistsResumeQuery();
 
 #ifdef ENABLE_AMT_RESILIENCE
 #include "ocr-task.h"
-
+//Publish-Fetch api
 void      salInitPublishFetch();
 void      salFinalizePublishFetch();
 u8        salIsPublished(ocrGuid_t guid);
@@ -82,7 +82,11 @@ u8        salRemovePublished(ocrGuid_t guid);
 u8        salPublishEdt(ocrTask_t *task);
 u8        salRemovePublishedEdt(ocrGuid_t edt);
 u8        salRecordEdt(ocrGuid_t edt);
-u8        salHandleNodeFailure(ocrLocation_t nodeId, int *rankMap);
+//Node failure api
+u8        salProcessNodeFailure(ocrLocation_t nodeId);
+u8        salRecoverNodeFailure(ocrLocation_t nodeId);
+u8        salCheckEdtFault(ocrGuid_t edt);
+//Guid table api
 u8        salGuidTablePut(u64 key, ocrGuid_t val);
 u8        salGuidTableGet(u64 key, ocrGuid_t *val);
 u8        salGuidTableRemove(u64 key, ocrGuid_t *val);

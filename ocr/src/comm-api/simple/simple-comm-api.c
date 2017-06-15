@@ -60,7 +60,12 @@ u8 sendMessageSimpleCommApi(ocrCommApi_t *self, ocrLocation_t target, ocrPolicyM
                         ocrMsgHandle_t **handle, u32 properties) {
     START_PROFILE(commapi_sendMessageSimpleCommApi);
     ocrCommApiSimple_t * commApiSimple = (ocrCommApiSimple_t *) self;
+    u8 ret = 0;
 
+#ifdef ENABLE_AMT_RESILIENCE
+    if (checkPlatformModelLocationFault(target))
+        RETURN_PROFILE(ret);
+#endif
     // Debug and check if we should push this in the in/out patch or runlevel
     if (!(properties & PERSIST_MSG_PROP)) {
         //NOTE: In a delegation based implementation, all messages issued by comp-workers
@@ -82,7 +87,7 @@ u8 sendMessageSimpleCommApi(ocrCommApi_t *self, ocrLocation_t target, ocrPolicyM
     // This is weird but otherwise the compiler complains...
     u64 id = 0;
 
-    u8 ret = self->commPlatform->fcts.sendMessage(self->commPlatform, target, message,
+    ret = self->commPlatform->fcts.sendMessage(self->commPlatform, target, message,
                                                   &id, properties, SIMPLE_COMM_NO_MASK);
     if (ret == 0) {
         if (handle != NULL) {

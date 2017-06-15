@@ -38,15 +38,24 @@
 
 #ifdef ENABLE_AMT_RESILIENCE
 #include <pthread.h>
-#define AMT_RESILIENCE_CHECK_FOR_FAULT(pd)                  \
-{                                                           \
-    if (pd->frozen) {                                       \
-        ocrWorker_t *worker;                                \
-        getCurrentEnv(NULL, &worker, NULL, NULL);           \
-        ocrWorkerHc_t *hcWorker = (ocrWorkerHc_t*)worker;   \
-        if (hcWorker->hcType == HC_WORKER_COMP)             \
-            pthread_exit(NULL);                             \
-    }                                                       \
+#define AMT_RESILIENCE_CHECK_FOR_FAULT(pd)                                  \
+{                                                                           \
+    if (pd->faultCode) {                                                    \
+        ocrWorker_t *worker = NULL;                                         \
+        ocrTask_t *task = NULL;                                             \
+        getCurrentEnv(NULL, &worker, &task, NULL);                          \
+        ocrWorkerHc_t *hcWorker = (ocrWorkerHc_t*)worker;                   \
+        if (hcWorker->hcType == HC_WORKER_COMP) {                           \
+            if (pd->faultCode == OCR_NODE_FAILURE_SELF) {                   \
+                pthread_exit(NULL);                                         \
+            }                                                               \
+            if (pd->faultCode == OCR_NODE_FAILURE_OTHER) {                  \
+                if (task != NULL && salCheckEdtFault(task->resilientEdtParent)) {   \
+                    abortCurrentWork();                                     \
+                }                                                           \
+            }                                                               \
+        }                                                                   \
+    }                                                                       \
 }
 #else
 #define AMT_RESILIENCE_CHECK_FOR_FAULT(pd)
