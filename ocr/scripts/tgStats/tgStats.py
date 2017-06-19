@@ -373,8 +373,14 @@ def getNetworkMachineLevel(fname):
 
 def getNetworkAgents(netObj, srcTag, dstTag):
 
+    if srcTag == "NLNI" and "XE" in dstTag:
+        srcIdx = INV_SRC_TAGS[srcTag]
+        dstIdx = INV_DEST_TAGS["REMOTE SL1"]
+        return srcIdx, dstIdx
+
     if srcTag not in INV_SRC_TAGS or (srcTag == "NLNI" and dstTag not in INV_DEST_TAGS):
         return -1, -1
+
     if "XE" in srcTag or "CE" in srcTag:
         srcIdx = INV_SRC_TAGS[srcTag]
         if srcTag == dstTag:
