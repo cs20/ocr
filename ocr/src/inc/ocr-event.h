@@ -83,8 +83,13 @@ typedef struct _ocrEventFcts_t {
      *                          if due to a standalone call
      * @return 0 on success and a non-zero value on failure
      */
+#ifdef ENABLE_EXTENSION_MULTI_OUTPUT_SLOT
+    u8 (*registerSignaler)(struct _ocrEvent_t *self, u32 sslot, ocrFatGuid_t signaler, u32 slot,
+                           ocrDbAccessMode_t mode, bool isDepAdd);
+#else
     u8 (*registerSignaler)(struct _ocrEvent_t *self, ocrFatGuid_t signaler, u32 slot,
                            ocrDbAccessMode_t mode, bool isDepAdd);
+#endif
 
     /**
      * @brief Oppositor of registerSignaler()
@@ -99,9 +104,13 @@ typedef struct _ocrEventFcts_t {
      * @param[in] isDepRem      True if this call is part of removing a dependence
      * @return 0 on success and a non-zero value on failure
      */
+#ifdef ENABLE_EXTENSION_MULTI_OUTPUT_SLOT
+    u8 (*unregisterSignaler)(struct _ocrEvent_t *self, u32 sslot, ocrFatGuid_t signaler, u32 slot,
+                             bool isDepRem);
+#else
     u8 (*unregisterSignaler)(struct _ocrEvent_t *self, ocrFatGuid_t signaler, u32 slot,
                              bool isDepRem);
-
+#endif
     /**
      * @brief Register a "waiter" (aka a dependence) on the event
      *
@@ -121,8 +130,13 @@ typedef struct _ocrEventFcts_t {
      * @return 0 on success and a non-zero code on failure
      */
 #ifdef REG_ASYNC_SGL
-    u8 (*registerWaiter)(struct _ocrEvent_t *self, ocrFatGuid_t waiter, u32 slot,
+#ifdef ENABLE_EXTENSION_MULTI_OUTPUT_SLOT
+    u8 (*registerWaiter)(struct _ocrEvent_t *self, u32 sslot, ocrFatGuid_t waiter, u32 slot,
                          bool isDepAdd, ocrDbAccessMode_t mode);
+#else
+    u8 (*registerWaiter)(struct _ocrEvent_t *self, u32 slot, ocrFatGuid_t waiter, u32 slot,
+                         bool isDepAdd, ocrDbAccessMode_t mode);
+#endif
 #else
     u8 (*registerWaiter)(struct _ocrEvent_t *self, ocrFatGuid_t waiter, u32 slot,
                          bool isDepAdd);
@@ -140,8 +154,13 @@ typedef struct _ocrEventFcts_t {
      * @param[in] isDepRem      True if part of removing a dependence
      * @return 0 on success and a non-zero code on failure
      */
+#ifdef ENABLE_EXTENSION_MULTI_OUTPUT_SLOT
+    u8 (*unregisterWaiter)(struct _ocrEvent_t *self, u32 sslot, ocrFatGuid_t waiter, u32 slot,
+                           bool isDepRem);
+#else
     u8 (*unregisterWaiter)(struct _ocrEvent_t *self, ocrFatGuid_t waiter, u32 slot,
                            bool isDepRem);
+#endif
 } ocrEventFcts_t;
 
 typedef struct _ocrEventCommonFcts_t {

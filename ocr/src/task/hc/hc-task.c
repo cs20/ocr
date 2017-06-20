@@ -1228,6 +1228,7 @@ u8 satisfyTaskHc(ocrTask_t * base, ocrFatGuid_t data, u32 slot) {
                 signalerGuid.metaDataPtr = NULL; // should be ok because guid encodes the kind in distributed
                 ocrGuidKind signalerKind = OCR_GUID_NONE;
                 deguidify(pd, &signalerGuid, &signalerKind);
+                //TODO-RED
                 bool cond = (signalerKind == OCR_GUID_EVENT_STICKY) || (signalerKind == OCR_GUID_EVENT_IDEM);
 #ifdef ENABLE_EXTENSION_COUNTED_EVT
                 cond |= (signalerKind == OCR_GUID_EVENT_COUNTED);
@@ -1290,6 +1291,7 @@ u8 registerSignalerTaskHc(ocrTask_t * base, ocrFatGuid_t signalerGuid, u32 slot,
     //BUG #162 metadata cloning: Had to introduce new kinds of guids because we don't
     //         have support for cloning metadata around yet
     if(signalerKind & OCR_GUID_EVENT) {
+        //TODO-RED
         bool cond = (signalerKind == OCR_GUID_EVENT_ONCE) || (signalerKind == OCR_GUID_EVENT_LATCH);
 #ifdef ENABLE_EXTENSION_CHANNEL_EVT
         cond = cond || (signalerKind == OCR_GUID_EVENT_CHANNEL);

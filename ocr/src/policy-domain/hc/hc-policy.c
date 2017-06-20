@@ -3055,6 +3055,9 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         ocrFatGuid_t dest = PD_MSG_FIELD_I(dest);
         ocrDbAccessMode_t mode = (PD_MSG_FIELD_IO(properties) & DB_ACCESS_MODE_MASK); //lower bits is the mode //BUG 550: not pretty
         u32 slot = PD_MSG_FIELD_I(slot);
+#ifdef ENABLE_EXTENSION_MULTI_OUTPUT_SLOT
+        u32 sslot = PD_MSG_FIELD_I(sslot);
+#endif
 #ifdef ENABLE_EXTENSION_CHANNEL_EVT
 #if defined(XP_CHANNEL_EVT_NONFIFO) || defined(COMMWRK_PROCESS_SATISFY_CHANNEL_ONLY)
         bool sync = false;
@@ -3088,6 +3091,9 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
                 // Registers sourceGuid (signaler) onto destGuid
                 PD_MSG_FIELD_I(signaler) = src;
                 PD_MSG_FIELD_I(dest) = dest;
+#ifdef ENABLE_EXTENSION_MULTI_OUTPUT_SLOT
+                PD_MSG_FIELD_I(sslot) = sslot;
+#endif
                 PD_MSG_FIELD_I(slot) = slot;
                 PD_MSG_FIELD_I(mode) = DB_MODE_NULL;
                 PD_MSG_FIELD_I(properties) = true; // Specify context is add-dependence
@@ -3140,6 +3146,9 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
                 // Registers sourceGuid (signaler) onto destGuid
                 PD_MSG_FIELD_I(signaler) = src;
                 PD_MSG_FIELD_I(dest) = dest;
+#ifdef ENABLE_EXTENSION_MULTI_OUTPUT_SLOT
+                PD_MSG_FIELD_I(sslot) = sslot;
+#endif
                 PD_MSG_FIELD_I(slot) = slot;
                 PD_MSG_FIELD_I(mode) = mode;
                 PD_MSG_FIELD_I(properties) = true; // Specify context is add-dependence
@@ -3214,6 +3223,9 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
                 // Registers sourceGuid (signaler) onto destGuid
                 PD_MSG_FIELD_I(signaler) = src;
                 PD_MSG_FIELD_I(dest) = dest;
+#ifdef ENABLE_EXTENSION_MULTI_OUTPUT_SLOT
+                PD_MSG_FIELD_I(sslot) = sslot;
+#endif
                 PD_MSG_FIELD_I(slot) = slot;
                 PD_MSG_FIELD_I(mode) = mode;
                 PD_MSG_FIELD_I(properties) = true; // Specify context is add-dependence
@@ -3221,7 +3233,10 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
                 u8 returnDetail = (returnCode == 0) ? PD_MSG_FIELD_O(returnDetail) : returnCode;
                 DPRINTF(DEBUG_LVL_INFO,
                         "Dependence added (src: "GUIDF", dest: "GUIDF") -> %"PRIu32"\n", GUIDA(src.guid), GUIDA(dest.guid), returnCode);
-                OCR_TOOL_TRACE(false, OCR_TRACE_TYPE_EDT, OCR_ACTION_ADD_DEP, traceTaskAddDependence, src.guid, dest.guid);
+#if !defined(ENABLE_EXTENSION_MULTI_OUTPUT_SLOT) && defined(OCR_TRACE_BINARY)
+                u32 sslot = 0;
+#endif
+                OCR_TOOL_TRACE(false, OCR_TRACE_TYPE_EDT, OCR_ACTION_ADD_DEP, traceTaskAddDependence, src.guid, dest.guid, sslot, slot, mode);
             #undef PD_MSG
             #undef PD_TYPE
             #define PD_MSG msg
@@ -3264,6 +3279,9 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
 #ifdef REG_ASYNC_SGL
                 PD_MSG_FIELD_I(mode) = mode;
 #endif
+#ifdef ENABLE_EXTENSION_MULTI_OUTPUT_SLOT
+                PD_MSG_FIELD_I(sslot) = sslot;
+#endif
                 PD_MSG_FIELD_I(slot) = slot;
                 PD_MSG_FIELD_I(properties) = true; // Specify context is add-dependence
                 u8 returnCode = self->fcts.processMessage(self, &registerMsg, true);
@@ -3275,7 +3293,10 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
                 DPRINTF(DEBUG_LVL_INFO,
                         "Dependence added (src: "GUIDF", dest: "GUIDF") -> %"PRIu32"\n", GUIDA(src.guid),
                         GUIDA(dest.guid), returnCode);
-                OCR_TOOL_TRACE(false, OCR_TRACE_TYPE_EVENT, OCR_ACTION_ADD_DEP, traceEventAddDependence, src.guid, dest.guid);
+#if !defined(ENABLE_EXTENSION_MULTI_OUTPUT_SLOT) && defined(OCR_TRACE_BINARY)
+                u32 sslot = 0;
+#endif
+                OCR_TOOL_TRACE(false, OCR_TRACE_TYPE_EVENT, OCR_ACTION_ADD_DEP, traceEventAddDependence, src.guid, dest.guid, sslot, slot, mode);
             #undef PD_MSG
             #undef PD_TYPE
             #define PD_MSG msg
@@ -3316,19 +3337,32 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         ocrFatGuid_t signaler = PD_MSG_FIELD_I(signaler);
         ocrFatGuid_t dest = PD_MSG_FIELD_I(dest);
         bool isAddDep = PD_MSG_FIELD_I(properties);
-
+        u32 slot = PD_MSG_FIELD_I(slot);
+        ocrDbAccessMode_t mode = PD_MSG_FIELD_I(mode);
+#ifdef ENABLE_EXTENSION_MULTI_OUTPUT_SLOT
+        u32 sslot = PD_MSG_FIELD_I(sslot);
+#else
+#ifdef OCR_TRACE_BINARY
+        u32 sslot = 0;
+#endif
+#endif
         if (dstKind & OCR_GUID_EVENT) {
             ASSERT(false && "We never register signaler on an event");
             ocrEvent_t *evt = (ocrEvent_t*)(dest.metaDataPtr);
             ASSERT(evt->fctId == ((ocrEventFactory_t*)(self->factories[self->eventFactoryIdx]))->factoryId);
+#ifdef ENABLE_EXTENSION_MULTI_OUTPUT_SLOT
             PD_MSG_FIELD_O(returnDetail) = ((ocrEventFactory_t*)(self->factories[self->eventFactoryIdx]))->fcts[evt->kind].registerSignaler(
-                evt, signaler, PD_MSG_FIELD_I(slot), PD_MSG_FIELD_I(mode), isAddDep);
+                evt, sslot, signaler, slot, mode, isAddDep);
+#else
+            PD_MSG_FIELD_O(returnDetail) = ((ocrEventFactory_t*)(self->factories[self->eventFactoryIdx]))->fcts[evt->kind].registerSignaler(
+                evt, signaler, slot, mode, isAddDep);
+#endif
         } else if (dstKind == OCR_GUID_EDT) {
             DPRINTF(DEBUG_LVL_VERB, "Add Dep to EDT (GUID: "GUIDF")\n", GUIDA(dest.guid));
             ocrTask_t *edt = (ocrTask_t*)(dest.metaDataPtr);
             ASSERT(edt->fctId == ((ocrTaskFactory_t*)(self->factories[self->taskFactoryIdx]))->factoryId);
             PD_MSG_FIELD_O(returnDetail) = ((ocrTaskFactory_t*)(self->factories[self->taskFactoryIdx]))->fcts.registerSignaler(
-                edt, signaler, PD_MSG_FIELD_I(slot), PD_MSG_FIELD_I(mode), isAddDep);
+                edt, signaler, slot, mode, isAddDep);
         } else {
             DPRINTF(DEBUG_LVL_WARN, "Attempt to register signaler on %"PRIx32" which is not of type EDT or Event\n", dstKind);
             ASSERT(0); // No other things we can register signalers on
@@ -3339,7 +3373,7 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         DPRINTF(DEBUG_LVL_INFO,
                 "Dependence added (src: "GUIDF", dest: "GUIDF") -> %"PRIu32"\n", GUIDA(signaler.guid),
                 GUIDA(dest.guid), returnCode);
-        OCR_TOOL_TRACE(false, OCR_TRACE_TYPE_EDT, OCR_ACTION_ADD_DEP, traceTaskAddDependence, signaler.guid, dest.guid);
+        OCR_TOOL_TRACE(false, OCR_TRACE_TYPE_EDT, OCR_ACTION_ADD_DEP, traceTaskAddDependence, signaler.guid, dest.guid, sslot, slot, mode);
 
 #undef PD_MSG
 #undef PD_TYPE
@@ -3375,8 +3409,13 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
             ASSERT(evt->fctId == ((ocrEventFactory_t*)(self->factories[self->eventFactoryIdx]))->factoryId);
             // Warning: A counted-event can be destroyed by this call
 #ifdef REG_ASYNC_SGL
+#ifdef ENABLE_EXTENSION_MULTI_OUTPUT_SLOT
+            PD_MSG_FIELD_O(returnDetail) = ((ocrEventFactory_t*)(self->factories[self->eventFactoryIdx]))->fcts[evt->kind].registerWaiter(
+                evt, PD_MSG_FIELD_I(sslot), waiter, PD_MSG_FIELD_I(slot), isAddDep, PD_MSG_FIELD_I(mode));
+#else
             PD_MSG_FIELD_O(returnDetail) = ((ocrEventFactory_t*)(self->factories[self->eventFactoryIdx]))->fcts[evt->kind].registerWaiter(
                 evt, waiter, PD_MSG_FIELD_I(slot), isAddDep, PD_MSG_FIELD_I(mode));
+#endif
 #else
             PD_MSG_FIELD_O(returnDetail) = ((ocrEventFactory_t*)(self->factories[self->eventFactoryIdx]))->fcts[evt->kind].registerWaiter(
                 evt, waiter, PD_MSG_FIELD_I(slot), isAddDep);

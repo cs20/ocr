@@ -135,13 +135,16 @@
 // Channel Events support
 #define ENABLE_EXTENSION_CHANNEL_EVT
 
+// Support for multiple output slots
+//#define ENABLE_EXTENSION_MULTI_OUTPUT_SLOT
+
 // OCR legacy support
 #define ENABLE_EXTENSION_LEGACY
 
 // Affinity support
 #define ENABLE_EXTENSION_AFFINITY
 
-//GUID Labeling
+// GUID Labeling
 #define ENABLE_EXTENSION_LABELING
 
 // Build pause support

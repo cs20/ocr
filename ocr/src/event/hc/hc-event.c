@@ -130,6 +130,12 @@ static void mdPushHcDist(ocrGuid_t evtGuid, ocrLocation_t loc, ocrGuid_t dbGuid,
 /******************************************************/
 /* OCR-HC Events Implementation                       */
 /******************************************************/
+#ifdef ENABLE_EXTENSION_MULTI_OUTPUT_SLOT
+#define ARG_SSLOT u32 sslot,
+#else
+#define ARG_SSLOT
+#endif
+#define FSIG_UNREGISTERSIGNALER struct _ocrEvent_t *self, ARG_SSLOT ocrFatGuid_t signaler, u32 slot, bool isDepRem
 
 static u8 createDbRegNode(ocrFatGuid_t * dbFatGuid, u32 nbElems, bool doRelease, regNode_t ** node) {
     ocrPolicyDomain_t *pd = NULL;
@@ -725,13 +731,16 @@ u8 satisfyEventHcLatch(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
     return destructEventHc(base);
 }
 
-u8 registerSignalerHc(ocrEvent_t *self, ocrFatGuid_t signaler, u32 slot,
-                      ocrDbAccessMode_t mode, bool isDepAdd) {
+#ifdef ENABLE_EXTENSION_MULTI_OUTPUT_SLOT
+u8 registerSignalerHc(ocrEvent_t *self, u32 sslot, ocrFatGuid_t signaler, u32 slot, ocrDbAccessMode_t mode, bool isDepAdd) {
+#else
+u8 registerSignalerHc(ocrEvent_t *self, ocrFatGuid_t signaler, u32 slot, ocrDbAccessMode_t mode, bool isDepAdd) {
+#endif
     return 0; // We do not do anything for signalers
 }
 
-u8 unregisterSignalerHc(ocrEvent_t *self, ocrFatGuid_t signaler, u32 slot,
-                        bool isDepRem) {
+
+u8 unregisterSignalerHc(FSIG_UNREGISTERSIGNALER) {
     return 0; // We do not do anything for signalers
 }
 
@@ -900,13 +909,16 @@ static u8 commonEnqueueWaiter(ocrPolicyDomain_t *pd, ocrEvent_t *base, ocrFatGui
  * By construction, users must ensure a ONCE event is registered before satisfy is called.
  */
 #ifdef REG_ASYNC_SGL
+#ifdef ENABLE_EXTENSION_MULTI_OUTPUT_SLOT
+u8 registerWaiterEventHc(ocrEvent_t *base, u32 sslot, ocrFatGuid_t waiter, u32 slot, bool isDepAdd, ocrDbAccessMode_t mode) {
+#else
 u8 registerWaiterEventHc(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot, bool isDepAdd, ocrDbAccessMode_t mode) {
+#endif
 #else
 u8 registerWaiterEventHc(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot, bool isDepAdd) {
 #endif
     // Here we always add the waiter to our list so we ignore isDepAdd
     ocrEventHc_t *event = (ocrEventHc_t*)base;
-
     DPRINTF(DEBUG_LVL_INFO, "Register waiter %s: "GUIDF" with waiter "GUIDF" on slot %"PRId32"\n",
             eventTypeToString(base), GUIDA(base->guid), GUIDA(waiter.guid), slot);
 
@@ -943,7 +955,11 @@ u8 registerWaiterEventHc(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot, bool i
  * Returns non-zero if the registerWaiter requires registerSignaler to be called there-after
  */
 #ifdef REG_ASYNC_SGL
+#ifdef ENABLE_EXTENSION_MULTI_OUTPUT_SLOT
+u8 registerWaiterEventHcPersist(ocrEvent_t *base, u32 sslot, ocrFatGuid_t waiter, u32 slot, bool isDepAdd, ocrDbAccessMode_t mode) {
+#else
 u8 registerWaiterEventHcPersist(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot, bool isDepAdd, ocrDbAccessMode_t mode) {
+#endif
 #else
 u8 registerWaiterEventHcPersist(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot, bool isDepAdd) {
 #endif
@@ -1011,7 +1027,11 @@ u8 registerWaiterEventHcPersist(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot,
  */
 #ifdef ENABLE_EXTENSION_COUNTED_EVT
 #ifdef REG_ASYNC_SGL
+#ifdef ENABLE_EXTENSION_MULTI_OUTPUT_SLOT
+u8 registerWaiterEventHcCounted(ocrEvent_t *base, u32 sslot, ocrFatGuid_t waiter, u32 slot, bool isDepAdd, ocrDbAccessMode_t mode) {
+#else
 u8 registerWaiterEventHcCounted(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot, bool isDepAdd, ocrDbAccessMode_t mode) {
+#endif
 #else
 u8 registerWaiterEventHcCounted(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot, bool isDepAdd) {
 #endif
@@ -1090,7 +1110,11 @@ u8 registerWaiterEventHcCounted(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot,
 
 
 // In this call, we do not contend with satisfy
+#ifdef ENABLE_EXTENSION_MULTI_OUTPUT_SLOT
+u8 unregisterWaiterEventHc(ocrEvent_t *base, u32 sslot, ocrFatGuid_t waiter, u32 slot, bool isDepRem) {
+#else
 u8 unregisterWaiterEventHc(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot, bool isDepRem) {
+#endif
     // Always search for the waiter because we don't know if it registered or not so
     // ignore isDepRem
     ocrEventHc_t *event = (ocrEventHc_t*)base;
@@ -1155,7 +1179,11 @@ u8 unregisterWaiterEventHc(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot, bool
 
 
 // In this call, we can have concurrent satisfy
+#ifdef ENABLE_EXTENSION_MULTI_OUTPUT_SLOT
+u8 unregisterWaiterEventHcPersist(ocrEvent_t *base, u32 sslot, ocrFatGuid_t waiter, u32 slot) {
+#else
 u8 unregisterWaiterEventHcPersist(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot) {
+#endif
     ocrEventHcPersist_t *event = (ocrEventHcPersist_t*)base;
 
 
@@ -1890,7 +1918,11 @@ static void channelSatisfyResize(ocrEventHcChannel_t * devt) {
 }
 
 #ifdef REG_ASYNC_SGL
+#ifdef ENABLE_EXTENSION_MULTI_OUTPUT_SLOT
+u8 registerWaiterEventHcChannel(ocrEvent_t *base, u32 sslot, ocrFatGuid_t waiter, u32 slot, bool isDepAdd, ocrDbAccessMode_t mode) {
+#else
 u8 registerWaiterEventHcChannel(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot, bool isDepAdd, ocrDbAccessMode_t mode) {
+#endif
 #else
 u8 registerWaiterEventHcChannel(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot, bool isDepAdd) {
 #endif
@@ -1977,8 +2009,12 @@ u8 satisfyEventHcChannel(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
     RETURN_PROFILE(0);
 }
 
+#ifdef ENABLE_EXTENSION_MULTI_OUTPUT_SLOT
+u8 unregisterWaiterEventHcChannel(ocrEvent_t *base, u32 sslot, ocrFatGuid_t waiter, u32 slot, bool isDepRem) {
+#else
 u8 unregisterWaiterEventHcChannel(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot, bool isDepRem) {
     ASSERT(false && "Not supported");
+#endif
     return 0;
 }
 
@@ -2321,9 +2357,15 @@ ocrEventFactory_t * newEventFactoryHc(ocrParamList_t *perType, u32 factoryId) {
     for(i = 0; i < (u32)OCR_EVENT_T_MAX; ++i) {
         base->fcts[i].destruct = FUNC_ADDR(u8 (*)(ocrEvent_t*), destructEventHc);
         base->fcts[i].get = FUNC_ADDR(ocrFatGuid_t (*)(ocrEvent_t*), getEventHc);
-        base->fcts[i].registerSignaler = FUNC_ADDR(u8 (*)(ocrEvent_t*, ocrFatGuid_t, u32, ocrDbAccessMode_t, bool),
-            registerSignalerHc);
-        base->fcts[i].unregisterSignaler = FUNC_ADDR(u8 (*)(ocrEvent_t*, ocrFatGuid_t, u32, bool), unregisterSignalerHc);
+#ifdef ENABLE_EXTENSION_MULTI_OUTPUT_SLOT
+#define REGISTERSIGNALER_SIG u8 (*)(ocrEvent_t*, u32, ocrFatGuid_t, u32, ocrDbAccessMode_t, bool)
+#define UNREGISTERSIGNALER_SIG u8 (*)(ocrEvent_t*, u32, ocrFatGuid_t, u32, bool)
+#else
+#define REGISTERSIGNALER_SIG u8 (*)(ocrEvent_t*, ocrFatGuid_t, u32, ocrDbAccessMode_t, bool)
+#define UNREGISTERSIGNALER_SIG u8 (*)(ocrEvent_t*, ocrFatGuid_t, u32, bool)
+#endif
+        base->fcts[i].registerSignaler = FUNC_ADDR(REGISTERSIGNALER_SIG, registerSignalerHc);
+        base->fcts[i].unregisterSignaler = FUNC_ADDR(UNREGISTERSIGNALER_SIG, unregisterSignalerHc);
     }
     base->fcts[OCR_EVENT_STICKY_T].destruct =
     base->fcts[OCR_EVENT_IDEM_T].destruct = FUNC_ADDR(u8 (*)(ocrEvent_t*), destructEventHcPersist);
@@ -2346,22 +2388,28 @@ ocrEventFactory_t * newEventFactoryHc(ocrParamList_t *perType, u32 factoryId) {
     base->fcts[OCR_EVENT_STICKY_T].satisfy =
         FUNC_ADDR(u8 (*)(ocrEvent_t*, ocrFatGuid_t, u32), satisfyEventHcPersistSticky);
 #ifdef REG_ASYNC_SGL
+#ifdef ENABLE_EXTENSION_MULTI_OUTPUT_SLOT
+#define REGISTER_WAITER_SIG() u8 (*)(ocrEvent_t*, u32, ocrFatGuid_t, u32, bool, ocrDbAccessMode_t)
+#else
+#define REGISTER_WAITER_SIG() u8 (*)(ocrEvent_t*, ocrFatGuid_t, u32, bool, ocrDbAccessMode_t)
+#endif
     // Setup registration function pointers
     base->fcts[OCR_EVENT_ONCE_T].registerWaiter =
     base->fcts[OCR_EVENT_LATCH_T].registerWaiter =
-         FUNC_ADDR(u8 (*)(ocrEvent_t*, ocrFatGuid_t, u32, bool, ocrDbAccessMode_t), registerWaiterEventHc);
+         FUNC_ADDR(REGISTER_WAITER_SIG(), registerWaiterEventHc);
     base->fcts[OCR_EVENT_IDEM_T].registerWaiter =
     base->fcts[OCR_EVENT_STICKY_T].registerWaiter =
-        FUNC_ADDR(u8 (*)(ocrEvent_t*, ocrFatGuid_t, u32, bool, ocrDbAccessMode_t), registerWaiterEventHcPersist);
+        FUNC_ADDR(REGISTER_WAITER_SIG(), registerWaiterEventHcPersist);
 #ifdef ENABLE_EXTENSION_COUNTED_EVT
     base->fcts[OCR_EVENT_COUNTED_T].registerWaiter =
-        FUNC_ADDR(u8 (*)(ocrEvent_t*, ocrFatGuid_t, u32, bool, ocrDbAccessMode_t), registerWaiterEventHcCounted);
+        FUNC_ADDR(REGISTER_WAITER_SIG(), registerWaiterEventHcCounted);
 #endif
 #ifdef ENABLE_EXTENSION_CHANNEL_EVT
     base->fcts[OCR_EVENT_CHANNEL_T].registerWaiter =
-        FUNC_ADDR(u8 (*)(ocrEvent_t*, ocrFatGuid_t, u32, bool, ocrDbAccessMode_t), registerWaiterEventHcChannel);
+        FUNC_ADDR(REGISTER_WAITER_SIG(), registerWaiterEventHcChannel);
 #endif
-#else
+
+#else /*not REG_ASYNC_SGL**/
     base->fcts[OCR_EVENT_ONCE_T].registerWaiter =
     base->fcts[OCR_EVENT_LATCH_T].registerWaiter =
          FUNC_ADDR(u8 (*)(ocrEvent_t*, ocrFatGuid_t, u32, bool), registerWaiterEventHc);
@@ -2377,18 +2425,23 @@ ocrEventFactory_t * newEventFactoryHc(ocrParamList_t *perType, u32 factoryId) {
         FUNC_ADDR(u8 (*)(ocrEvent_t*, ocrFatGuid_t, u32, bool), registerWaiterEventHcChannel);
 #endif
 #endif
+#ifdef ENABLE_EXTENSION_MULTI_OUTPUT_SLOT
+#define UNREGISTERWAITER_SIG u8 (*)(ocrEvent_t*, u32, ocrFatGuid_t, u32, bool)
+#else
+#define UNREGISTERWAITER_SIG u8 (*)(ocrEvent_t*, ocrFatGuid_t, u32, bool)
+#endif
     base->fcts[OCR_EVENT_ONCE_T].unregisterWaiter =
     base->fcts[OCR_EVENT_LATCH_T].unregisterWaiter =
-        FUNC_ADDR(u8 (*)(ocrEvent_t*, ocrFatGuid_t, u32, bool), unregisterWaiterEventHc);
+        FUNC_ADDR(UNREGISTERWAITER_SIG, unregisterWaiterEventHc);
     base->fcts[OCR_EVENT_IDEM_T].unregisterWaiter =
 #ifdef ENABLE_EXTENSION_COUNTED_EVT
     base->fcts[OCR_EVENT_COUNTED_T].unregisterWaiter =
 #endif
     base->fcts[OCR_EVENT_STICKY_T].unregisterWaiter =
-        FUNC_ADDR(u8 (*)(ocrEvent_t*, ocrFatGuid_t, u32, bool), unregisterWaiterEventHcPersist);
+        FUNC_ADDR(UNREGISTERWAITER_SIG, unregisterWaiterEventHcPersist);
 #ifdef ENABLE_EXTENSION_CHANNEL_EVT
     base->fcts[OCR_EVENT_CHANNEL_T].unregisterWaiter =
-        FUNC_ADDR(u8 (*)(ocrEvent_t*, ocrFatGuid_t, u32, bool), unregisterWaiterEventHcChannel);
+        FUNC_ADDR(UNREGISTERWAITER_SIG, unregisterWaiterEventHcChannel);
 #endif
     base->factoryId = factoryId;
 

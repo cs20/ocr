@@ -946,6 +946,9 @@ typedef struct _ocrPolicyMsg_t {
                     ocrFatGuid_t source; /**< In: Source of the dependence */
                     ocrFatGuid_t dest;   /**< In: Destination of the dependence */
                     ocrFatGuid_t currentEdt;   /**< In: EDT that is adding dep */
+#ifdef ENABLE_EXTENSION_MULTI_OUTPUT_SLOT
+                    u32 sslot;           /**< In: Slot of src to connect the dep to */
+#endif
                     u32 slot;            /**< In: Slot of dest to connect the dep to */
                 } in;
                 struct {
@@ -959,6 +962,9 @@ typedef struct _ocrPolicyMsg_t {
                 struct {
                     ocrFatGuid_t signaler;  /**< In: Signaler to register */
                     ocrFatGuid_t dest;      /**< In: Object to register the signaler on */
+#ifdef ENABLE_EXTENSION_MULTI_OUTPUT_SLOT
+                    u32 sslot;
+#endif
                     u32 slot;               /**< In: Slot on dest to register the signaler on */
                     ocrDbAccessMode_t mode; /**< In: Access mode for the dependence's datablock */
                     u32 properties;         /**< In: Properties */
@@ -974,6 +980,9 @@ typedef struct _ocrPolicyMsg_t {
                 struct {
                     ocrFatGuid_t waiter;   /**< In: Waiter to register */
                     ocrFatGuid_t dest;     /**< In: Object to register the waiter on */
+#ifdef ENABLE_EXTENSION_MULTI_OUTPUT_SLOT
+                    u32 sslot;
+#endif
                     u32 slot;              /**< In: The slot on waiter that will be notified */
 #ifdef REG_ASYNC_SGL
                     ocrDbAccessMode_t mode; /**< In: Caching the mode the destination should use when

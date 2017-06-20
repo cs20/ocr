@@ -101,6 +101,9 @@ typedef struct {
                 struct{
                     ocrGuid_t src;                  /* Source GUID of dependence being added */
                     ocrGuid_t dest;                 /* Destination GUID of dependence being added*/
+                    u32 sslot;                      /* Source slot number */
+                    u32 dslot;                      /* Destination slot number */
+                    ocrDbAccessMode_t accessMode;   /* Access mode of associated dependence */
                 }taskDepReady;
 
                 struct{
@@ -226,6 +229,9 @@ typedef struct {
                 struct{
                     ocrGuid_t src;                  /* Source GUID of dependence being added */
                     ocrGuid_t dest;                 /* Destination GUID of dependence being added */
+                    u32 sslot;                      /* Source slot number of event where dependence being added on API entry */
+                    u32 dslot;                      /* Destination slot number of event where dependence being added on API entry */
+                    ocrDbAccessMode_t accessMode;   /* Access mode of associated dependence on API entry */
                 }eventDepAdd;
 
                 struct{
@@ -324,7 +330,8 @@ typedef struct {
                 struct{
                     ocrGuid_t source;                   /* OCR object having dependence added on API entry */
                     ocrGuid_t destination;              /* OCR object bieng depended on by source on API entry */
-                    u32 slot;                           /* Slot number of event where dependence being added on API entry */
+                    u32 sslot;                          /* Source slot number of event where dependence being added on API entry */
+                    u32 dslot;                          /* Destination slot number of event where dependence being added on API entry */
                     ocrDbAccessMode_t accessMode;       /* Access mode of associated dependence on API entry */
                 }simEventAddDep;
 

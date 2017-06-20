@@ -137,9 +137,12 @@ void translateObject(ocrTraceObj_t *trace){
             {
                 ocrGuid_t src = TRACE_FIELD(TASK, taskDepReady, trace, src);
                 ocrGuid_t dest = TRACE_FIELD(TASK, taskDepReady, trace, dest);
+                u32 sslot = TRACE_FIELD(TASK, taskDepReady, trace, sslot);
+                u32 dslot = TRACE_FIELD(TASK, taskDepReady, trace, dslot);
 
-                printf("[TRACE] U/R: %s | PD: 0x%"PRIx64" | WORKER_ID: %"PRIu64" | EDT: "GUIDF" | TIMESTAMP: %"PRIu64" | TYPE: EDT | ACTION: ADD_DEP | SRC: "GUIDF" | DEST: "GUIDF"\n",
-                        evt_type[evtType], location, workerId, GUIDA(parent), timestamp, GUIDA(src), GUIDA(dest));
+
+                printf("[TRACE] U/R: %s | PD: 0x%"PRIx64" | WORKER_ID: %"PRIu64" | EDT: "GUIDF" | TIMESTAMP: %"PRIu64" | TYPE: EDT | ACTION: ADD_DEP | SRC: "GUIDF" | DEST: "GUIDF" | SSLOT: %"PRIu32" | DSLOT: %"PRIu32"\n",
+                        evt_type[evtType], location, workerId, GUIDA(parent), timestamp, GUIDA(src), GUIDA(dest), sslot, dslot);
                 break;
             }
             case OCR_ACTION_EXECUTE:
@@ -273,9 +276,11 @@ void translateObject(ocrTraceObj_t *trace){
             {
                 ocrGuid_t src = TRACE_FIELD(EVENT, eventDepAdd, trace, src);
                 ocrGuid_t dest = TRACE_FIELD(EVENT, eventDepAdd, trace, dest);
+                u32 sslot = TRACE_FIELD(TASK, taskDepReady, trace, sslot);
+                u32 dslot = TRACE_FIELD(TASK, taskDepReady, trace, dslot);
 
-                printf("[TRACE] U/R: %s | PD: 0x%"PRIx64" | WORKER_ID: %"PRIu64" | EDT: "GUIDF" | TIMESTAMP: %"PRIu64" | TYPE: EVENT | ACTION: ADD_DEP | SRC: "GUIDF" | DEST: "GUIDF"\n",
-                        evt_type[evtType], location, workerId, GUIDA(parent), timestamp, GUIDA(src), GUIDA(dest));
+                printf("[TRACE] U/R: %s | PD: 0x%"PRIx64" | WORKER_ID: %"PRIu64" | EDT: "GUIDF" | TIMESTAMP: %"PRIu64" | TYPE: EVENT | ACTION: ADD_DEP | SRC: "GUIDF" | DEST: "GUIDF" | SSLOT: %"PRIu32" | DSLOT: %"PRIu32"\n",
+                        evt_type[evtType], location, workerId, GUIDA(parent), timestamp, GUIDA(src), GUIDA(dest), sslot, dslot);
                 break;
             }
 
@@ -494,11 +499,12 @@ void translateObject(ocrTraceObj_t *trace){
 
                 ocrGuid_t src = TRACE_FIELD(API_EVENT, simEventAddDep, trace, source);
                 ocrGuid_t dest = TRACE_FIELD(API_EVENT, simEventAddDep, trace, destination);
-                u32 slot = TRACE_FIELD(API_EVENT, simEventAddDep, trace, slot);
+                u32 sslot = TRACE_FIELD(TASK, taskDepReady, trace, sslot);
+                u32 dslot = TRACE_FIELD(TASK, taskDepReady, trace, dslot);
                 ocrDbAccessMode_t accessMode = TRACE_FIELD(API_EVENT, simEventAddDep, trace, accessMode);
 
-                printf("[TRACE] U/R: %s | PD: 0x%"PRIx64" | WORKER_ID: %"PRIu64" | EDT: "GUIDF" | TIMESTAMP: %"PRIu64" | TYPE: API_EVENT | ACTION: ADD_DEP | SRC: "GUIDF" | DEST: "GUIDF" | SLOT: %"PRId32" | ACCESS_MODE: 0x%"PRIx64"\n",
-                        evt_type[evtType], location, workerId, GUIDA(parent), timestamp, GUIDA(src), GUIDA(dest), slot, accessMode);
+                printf("[TRACE] U/R: %s | PD: 0x%"PRIx64" | WORKER_ID: %"PRIu64" | EDT: "GUIDF" | TIMESTAMP: %"PRIu64" | TYPE: API_EVENT | ACTION: ADD_DEP | SRC: "GUIDF" | DEST: "GUIDF" | SSLOT: %"PRId32" | DSLOT: %"PRIu32" | ACCESS_MODE: 0x%"PRIx64"\n",
+                        evt_type[evtType], location, workerId, GUIDA(parent), timestamp, GUIDA(src), GUIDA(dest), sslot, dslot, accessMode);
                 break;
             }
             case OCR_ACTION_DESTROY:

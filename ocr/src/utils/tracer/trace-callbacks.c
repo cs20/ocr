@@ -36,12 +36,15 @@ void __attribute__ ((weak)) traceTaskRunnable(u64 location, bool evtType, ocrTra
 
 void __attribute__ ((weak)) traceTaskAddDependence(u64 location, bool evtType, ocrTraceType_t objType,
                                                    ocrTraceAction_t actionType, u64 workerId,
-                                                   u64 timestamp, ocrGuid_t parent, ocrGuid_t src, ocrGuid_t dest){
+                                                   u64 timestamp, ocrGuid_t parent, ocrGuid_t src, ocrGuid_t dest, u32 sslot, u32 dslot, ocrDbAccessMode_t accessMode){
 
     //TRACING CALLBACKS - Task Add Dependence
     INIT_TRACE_OBJECT();
     TRACE_FIELD(TASK, taskDepReady, tr, src) = src;
     TRACE_FIELD(TASK, taskDepReady, tr, dest) = dest;
+    TRACE_FIELD(TASK, taskDepReady, tr, sslot) = sslot;
+    TRACE_FIELD(TASK, taskDepReady, tr, dslot) = dslot;
+    TRACE_FIELD(TASK, taskDepReady, tr, accessMode) = accessMode;
     PUSH_TO_TRACE_DEQUE();
     return;
 }
@@ -166,12 +169,15 @@ void __attribute__ ((weak)) traceEventSatisfyDependence(u64 location, bool evtTy
 void __attribute__ ((weak)) traceEventAddDependence(u64 location, bool evtType, ocrTraceType_t objType,
                                                     ocrTraceAction_t actionType, u64 workerId,
                                                     u64 timestamp, ocrGuid_t parent, ocrGuid_t src,
-                                                    ocrGuid_t dest){
+                                                    ocrGuid_t dest, u32 sslot, u32 dslot, ocrDbAccessMode_t accessMode){
 
     //TRACING CALLBACKS - Event Add Dependence
     INIT_TRACE_OBJECT();
     TRACE_FIELD(EVENT, eventDepAdd, tr, src) = src;
     TRACE_FIELD(EVENT, eventDepAdd, tr, dest) = dest;
+    TRACE_FIELD(EVENT, eventDepAdd, tr, sslot) = sslot;
+    TRACE_FIELD(EVENT, eventDepAdd, tr, dslot) = dslot;
+    TRACE_FIELD(EVENT, eventDepAdd, tr, accessMode) = accessMode;
     PUSH_TO_TRACE_DEQUE();
     return;
 }

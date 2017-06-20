@@ -101,7 +101,7 @@ void traceTaskRunnable(u64 location, bool evtType, ocrTraceType_t objType,
 void traceTaskAddDependence(u64 location, bool evtType, ocrTraceType_t objType,
                             ocrTraceAction_t actionType, u64 workerId,
                             u64 timestamp, ocrGuid_t parent, ocrGuid_t src,
-                            ocrGuid_t dest);
+                            ocrGuid_t dest, u32 sslot, u32 dslot, ocrDbAccessMode_t mode);
 
 
 /**
@@ -282,12 +282,15 @@ void traceEventSatisfyDependence(u64 location, bool evtType, ocrTraceType_t objT
  * @param parent        Parent task executing when trace occured
  * @param src           Source GUID of the dependence bieng added
  * @param dest          Destination GUID of the dependence being added
+ * @param sslot         Source slot of the dependence bieng added
+ * @param dslot         Destination slot of the dependence being added
+ * @param mode          Datablock access mode requested
  */
 
 void traceEventAddDependence(u64 location, bool evtType, ocrTraceType_t objType,
                              ocrTraceAction_t actionType, u64 workerId,
                              u64 timestamp, ocrGuid_t parent, ocrGuid_t src,
-                             ocrGuid_t dest);
+                             ocrGuid_t dest, u32 sslot, u32 dslot, ocrDbAccessMode_t accessMode);
 
 
 /**

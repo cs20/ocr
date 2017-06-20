@@ -447,14 +447,22 @@ u8 ocrEdtDestroy(ocrGuid_t edtGuid) {
 #undef PD_TYPE
 }
 
-u8 ocrAddDependence(ocrGuid_t source, ocrGuid_t destination, u32 slot,
+#ifdef ENABLE_EXTENSION_MULTI_OUTPUT_SLOT
+u8 ocrAddDependenceSlot(ocrGuid_t source, u32 sslot, ocrGuid_t destination, u32 dslot,
                     ocrDbAccessMode_t mode) {
-    OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_API_EVENT, OCR_ACTION_ADD_DEP, source, destination, slot, mode);
+#else
+u8 ocrAddDependence(ocrGuid_t source, ocrGuid_t destination, u32 dslot,
+                    ocrDbAccessMode_t mode) {
+#endif
+#if !defined(ENABLE_EXTENSION_MULTI_OUTPUT_SLOT) && defined(OCR_TRACE_BINARY)
+    u32 sslot = 0;
+#endif
+    OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_API_EVENT, OCR_ACTION_ADD_DEP, source, destination, sslot, dslot, mode);
     if( ocrGuidIsNull(source) && ocrGuidIsNull(destination) )
         return 0;
     START_PROFILE(api_ocrAddDependence);
-    DPRINTF(DEBUG_LVL_INFO, "ENTER ocrAddDependence(src="GUIDF", dest="GUIDF", slot=%"PRIu32", mode=%"PRId32")\n",
-            GUIDA(source), GUIDA(destination), slot, (s32)mode);
+    DPRINTF(DEBUG_LVL_INFO, "ENTER ocrAddDependence(src="GUIDF", dest="GUIDF", dslot=%"PRIu32", mode=%"PRId32")\n",
+            GUIDA(source), GUIDA(destination), dslot, (s32)mode);
     PD_MSG_STACK(msg);
     ocrPolicyDomain_t *pd = NULL;
     ocrTask_t * curEdt = NULL;
@@ -468,7 +476,10 @@ u8 ocrAddDependence(ocrGuid_t source, ocrGuid_t destination, u32 slot,
         PD_MSG_FIELD_I(source.metaDataPtr) = NULL;
         PD_MSG_FIELD_I(dest.guid) = destination;
         PD_MSG_FIELD_I(dest.metaDataPtr) = NULL;
-        PD_MSG_FIELD_I(slot) = slot;
+#ifdef ENABLE_EXTENSION_MULTI_OUTPUT_SLOT
+        PD_MSG_FIELD_I(sslot) = sslot;
+#endif
+        PD_MSG_FIELD_I(slot) = dslot;
         PD_MSG_FIELD_IO(properties) = mode;
         PD_MSG_FIELD_I(currentEdt.guid) = curEdt ? curEdt->guid : NULL_GUID;
         PD_MSG_FIELD_I(currentEdt.metaDataPtr) = curEdt;
@@ -490,7 +501,10 @@ u8 ocrAddDependence(ocrGuid_t source, ocrGuid_t destination, u32 slot,
         PD_MSG_FIELD_I(source.metaDataPtr) = NULL;
         PD_MSG_FIELD_I(dest.guid) = destination;
         PD_MSG_FIELD_I(dest.metaDataPtr) = NULL;
-        PD_MSG_FIELD_I(slot) = slot;
+#ifdef ENABLE_EXTENSION_MULTI_OUTPUT_SLOT
+        PD_MSG_FIELD_I(sslot) = sslot;
+#endif
+        PD_MSG_FIELD_I(slot) = dslot;
         PD_MSG_FIELD_IO(properties) = mode;
         PD_MSG_FIELD_I(currentEdt.guid) = curEdt ? curEdt->guid : NULL_GUID;
         PD_MSG_FIELD_I(currentEdt.metaDataPtr) = curEdt;
@@ -517,7 +531,7 @@ u8 ocrAddDependence(ocrGuid_t source, ocrGuid_t destination, u32 slot,
         PD_MSG_FIELD_I(payload.metaDataPtr) = NULL;
         PD_MSG_FIELD_I(currentEdt.guid) = curEdt ? curEdt->guid : NULL_GUID;
         PD_MSG_FIELD_I(currentEdt.metaDataPtr) = curEdt;
-        PD_MSG_FIELD_I(slot) = slot;
+        PD_MSG_FIELD_I(slot) = dslot;
 #ifdef REG_ASYNC_SGL
         PD_MSG_FIELD_I(mode) = mode;
 #endif
@@ -538,3 +552,10 @@ u8 ocrAddDependence(ocrGuid_t source, ocrGuid_t destination, u32 slot,
                      "EXIT ocrAddDependence(src="GUIDF", dest="GUIDF") -> %"PRIu32"\n", GUIDA(source), GUIDA(destination), returnCode);
     RETURN_PROFILE(returnCode);
 }
+
+#ifdef ENABLE_EXTENSION_MULTI_OUTPUT_SLOT
+u8 ocrAddDependence(ocrGuid_t source, ocrGuid_t destination, u32 slot,
+                    ocrDbAccessMode_t mode) {
+    return ocrAddDependenceSlot(source, 0, destination, slot, mode);
+}
+#endif

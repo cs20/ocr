@@ -140,8 +140,11 @@ void populateTraceObject(u64 location, bool evtType, ocrTraceType_t objType, ocr
                 void (*traceFunc)() = va_arg(ap, void *);
                 ocrGuid_t src = va_arg(ap, ocrGuid_t);
                 ocrGuid_t dest = va_arg(ap, ocrGuid_t);
+                u32 sslot = va_arg(ap, u32);
+                u32 dslot = va_arg(ap, u32);
+                ocrDbAccessMode_t accessMode = va_arg(ap, ocrDbAccessMode_t);
                 //Callback
-                traceFunc(location, evtType, objType, actionType, workerId, timestamp, parent, src, dest);
+                traceFunc(location, evtType, objType, actionType, workerId, timestamp, parent, src, dest, sslot, dslot, accessMode);
                 break;
             }
             case OCR_ACTION_EXECUTE:
@@ -272,8 +275,11 @@ void populateTraceObject(u64 location, bool evtType, ocrTraceType_t objType, ocr
                 void (*traceFunc)() = va_arg(ap, void *);
                 ocrGuid_t src = va_arg(ap, ocrGuid_t);
                 ocrGuid_t dest = va_arg(ap, ocrGuid_t);
+                u32 sslot = va_arg(ap, u32);
+                u32 dslot = va_arg(ap, u32);
+                ocrDbAccessMode_t accessMode = va_arg(ap, ocrDbAccessMode_t);
                 //Callback
-                traceFunc(location, evtType, objType, actionType, workerId, timestamp, parent, src, dest);
+                traceFunc(location, evtType, objType, actionType, workerId, timestamp, parent, src, dest, sslot, dslot, accessMode);
                 break;
             }
             case OCR_ACTION_SATISFY:
@@ -529,11 +535,13 @@ void populateTraceObject(u64 location, bool evtType, ocrTraceType_t objType, ocr
                 INIT_TRACE_OBJECT();
                 ocrGuid_t source = va_arg(ap, ocrGuid_t);
                 ocrGuid_t dest = va_arg(ap, ocrGuid_t);
-                u32 slot = va_arg(ap, u32);
+                u32 sslot = va_arg(ap, u32);
+                u32 dslot = va_arg(ap, u32);
                 ocrDbAccessMode_t accessMode = va_arg(ap, ocrDbAccessMode_t);
                 TRACE_FIELD(API_EVENT, simEventAddDep, tr, source) = source;
                 TRACE_FIELD(API_EVENT, simEventAddDep, tr, destination) = dest;
-                TRACE_FIELD(API_EVENT, simEventAddDep, tr, slot) = slot;
+                TRACE_FIELD(API_EVENT, simEventAddDep, tr, sslot) = sslot;
+                TRACE_FIELD(API_EVENT, simEventAddDep, tr, dslot) = dslot;
                 TRACE_FIELD(API_EVENT, simEventAddDep, tr, accessMode) = accessMode;
                 PUSH_TO_TRACE_DEQUE();
                 break;
