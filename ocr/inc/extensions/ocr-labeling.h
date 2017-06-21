@@ -32,7 +32,10 @@ typedef enum {
 #endif
     GUID_USER_EVENT_IDEM = 19,
     GUID_USER_EVENT_STICKY = 21,
-    GUID_USER_EVENT_LATCH = 22
+    GUID_USER_EVENT_LATCH = 22,
+#ifdef ENABLE_EXTENSION_COLLECTIVE_EVT
+    GUID_USER_EVENT_COLLECTIVE = 24,
+#endif
 } ocrGuidUserKind;
 
 /**

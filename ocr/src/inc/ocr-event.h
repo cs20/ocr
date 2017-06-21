@@ -134,7 +134,7 @@ typedef struct _ocrEventFcts_t {
     u8 (*registerWaiter)(struct _ocrEvent_t *self, u32 sslot, ocrFatGuid_t waiter, u32 slot,
                          bool isDepAdd, ocrDbAccessMode_t mode);
 #else
-    u8 (*registerWaiter)(struct _ocrEvent_t *self, u32 slot, ocrFatGuid_t waiter, u32 slot,
+    u8 (*registerWaiter)(struct _ocrEvent_t *self, ocrFatGuid_t waiter, u32 slot,
                          bool isDepAdd, ocrDbAccessMode_t mode);
 #endif
 #else

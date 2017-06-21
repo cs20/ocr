@@ -99,6 +99,40 @@ typedef struct _ocrEventHcChannel_t {
     regNode_t * waiters; // An array of registration node, possibly multi-dimensional and linearized
 } ocrEventHcChannel_t;
 
+#ifdef ENABLE_EXTENSION_COLLECTIVE_EVT
+
+struct _contributor_t;
+
+typedef void (*ocrReduceFct_t)(void*, void*, u32);
+
+// Use a reduction tree to handle contributions from other PDs
+#define COLEVT_TREE_CONTRIB 1
+// Enable sections of code pertaining to distributed operations
+#define COLEVT_DIST_REDUCE  1
+// Control the reduction strategy for local contributions
+#define COLEVT_LAZY_REDUCE  1
+
+typedef struct _ocrEventHcCollective_t {
+    ocrEventHc_t base;
+    ocrEventCollectiveParams_t params;
+    ocrReduceFct_t reduce;
+    ocrLocation_t myLoc;
+    u16 nbOfDescendants;
+    //These loc are initialized by the cloning/registration protocol
+    ocrLocation_t ancestorLoc;
+    ocrLocation_t * descendantsLoc;
+    u32 * phaseLocalContribCounters; /*maxGen*/
+    struct _collectiveDbRecord_t * phaseDbResult; /*maxGen*/
+#ifdef COLEVT_TREE_CONTRIB
+    u16 * inOrderIdxToArrayIdx;
+    struct _remoteContrib_t * remoteContribs; /*maxGen*(nbDescendants+1)*/
+#endif
+    // local contributors
+    struct _contributor_t * contributors;
+} ocrEventHcCollective_t;
+
+#endif
+
 ocrGuidKind eventTypeToGuidKind(ocrEventTypes_t eventType);
 
 ocrEventFactory_t* newEventFactoryHc(ocrParamList_t *perType, u32 factoryId);

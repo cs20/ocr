@@ -62,6 +62,11 @@ while [[ $# -gt 0 ]]; do
         TEST_EXT_PARAMS_EVT=yes
         TEST_EXT_COUNTED_EVT=yes
         TEST_EXT_CHANNEL_EVT=yes
+    elif [[ "$1" = "-ext_collective_evt" ]]; then
+        shift
+        TEST_EXT_LABELING=yes
+        TEST_EXT_PARAMS_EVT=yes
+        TEST_EXT_COLLECTIVE_EVT=yes
     elif [[ "$1" = "-ext_db_info" ]]; then
         shift
         TEST_EXT_DB_INFO=yes
@@ -148,6 +153,10 @@ fi
 
 if [ -n "${TEST_EXT_CHANNEL_EVT}" ]; then
     CFLAGS="$CFLAGS -DENABLE_EXTENSION_CHANNEL_EVT"
+fi
+
+if [ -n "${TEST_EXT_COLLECTIVE_EVT}" ]; then
+    CFLAGS="$CFLAGS -DENABLE_EXTENSION_MULTI_OUTPUT_SLOT -DENABLE_EXTENSION_COLLECTIVE_EVT"
 fi
 
 if [ -n "${TEST_EXT_DB_INFO}" ]; then

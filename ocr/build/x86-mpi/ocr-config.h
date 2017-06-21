@@ -138,6 +138,10 @@
 // Support for multiple output slots
 //#define ENABLE_EXTENSION_MULTI_OUTPUT_SLOT
 
+// Collective Events support
+//#define ENABLE_EXTENSION_DISTRIBUTED_LABELED
+//#define ENABLE_EXTENSION_COLLECTIVE_EVT
+
 // OCR legacy support
 #define ENABLE_EXTENSION_LEGACY
 

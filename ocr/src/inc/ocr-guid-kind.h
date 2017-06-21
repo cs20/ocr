@@ -44,7 +44,10 @@ typedef enum {
 #ifdef ENABLE_EXTENSION_CHANNEL_EVT
     OCR_GUID_EVENT_CHANNEL = 23,
 #endif
-    OCR_GUID_MAX = 24 // Not a guid kind, just a marker
+#ifdef ENABLE_EXTENSION_COLLECTIVE_EVT
+    OCR_GUID_EVENT_COLLECTIVE = 24,
+#endif
+    OCR_GUID_MAX = 25 // Not a guid kind, just a marker
 } ocrGuidKind;
 
 char * ocrGuidKindToChar(ocrGuidKind kind);

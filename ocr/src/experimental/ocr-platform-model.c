@@ -33,7 +33,7 @@
 //
 
 extern u8 resolveRemoteMetaData(ocrPolicyDomain_t * pd, ocrFatGuid_t * fatGuid,
-                                ocrPolicyMsg_t * msg, bool isBlocking);
+                                ocrPolicyMsg_t * msg, bool isBlocking, bool fetch);
 
 u8 affinityToLocation(ocrLocation_t* result, ocrGuid_t affinityGuid) {
     START_PROFILE(plt_affinityToLocation);
@@ -41,7 +41,7 @@ u8 affinityToLocation(ocrLocation_t* result, ocrGuid_t affinityGuid) {
     fguid.guid = affinityGuid;
     ocrPolicyDomain_t * pd;
     getCurrentEnv(&pd, NULL, NULL, NULL);
-    resolveRemoteMetaData(pd, &fguid, NULL, true);
+    resolveRemoteMetaData(pd, &fguid, NULL, true, true);
     ASSERT((fguid.metaDataPtr != NULL) && "ERROR: cannot deguidify affinity GUID");
     *result = ((ocrAffinity_t *) fguid.metaDataPtr)->place;
     RETURN_PROFILE(0);

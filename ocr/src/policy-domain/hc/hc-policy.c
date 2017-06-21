@@ -128,7 +128,6 @@ static u64 enqueueMdProxyWaiter(ocrPolicyDomain_t * pd, MdProxy_t * mdProxy, ocr
         MdProxyNode_t * node = (MdProxyNode_t *) pd->fcts.pdMalloc(pd, sizeof(MdProxyNode_t));
     // This is fugly. acquire we know are on the stack so require copies. Others should be incoming
     if ((msg->type & PD_MSG_TYPE_ONLY) == PD_MSG_DB_ACQUIRE) {
-        // MdProxyNode_t * node = (MdProxyNode_t *) pd->fcts.pdMalloc(pd, sizeof(MdProxyNode_t));
         u64 msgSz = ocrPolicyMsgGetMsgBaseSize(msg, /*isIn=*/true);
         // Make a copy of the message since this is an asynchronous context
         ocrPolicyMsg_t * msgCpy = (ocrPolicyMsg_t *) pd->fcts.pdMalloc(pd, msgSz);
@@ -163,21 +162,42 @@ static u64 enqueueMdProxyWaiter(ocrPolicyDomain_t * pd, MdProxy_t * mdProxy, ocr
     return 0;
 }
 
+//NOTE: TG compiles a different implementation
 u8 resolveRemoteMetaData(ocrPolicyDomain_t * pd, ocrFatGuid_t * fatGuid,
-                                ocrPolicyMsg_t * msg, bool isBlocking) {
-    //TODO if defined(TG_XE_TARGET) || defined(TG_CE_TARGET)
+                                ocrPolicyMsg_t * msg, bool isBlocking, bool fetch) {
     // Check if known locally
     u64 val;
     MdProxy_t * mdProxy = NULL;
     //getVal - resolve
-    u8 res = pd->guidProviders[0]->fcts.getVal(pd->guidProviders[0], fatGuid->guid, &val, NULL, MD_FETCH, &mdProxy);
+    u8 res = pd->guidProviders[0]->fcts.getVal(pd->guidProviders[0], fatGuid->guid, &val, NULL, (fetch ? MD_FETCH : MD_PROXY), &mdProxy);
+#if defined(ENABLE_EXTENSION_DISTRIBUTED_LABELED)
+    if ((val == 0) || (val == ((u64)-1))) {
+        // Checking for -1 addresses the race stemming from local worker
+        // threads competing to create a reduction event. They compete first
+        // on the proxy creation, however some caller cannot create the instance
+        // (incoming msg). Hence, there's a second level of competition casing the
+        // proxy's mdPtr to -1 to win the right to allocate the event
+        // Catching this here, allows to prevent any incoming MD_COMM messages to be
+        // processed before the proxy ptr is valid.
+#else
     if (val == 0) {
+#endif
         //TODO-STUFF getVal could return EPERM and val!=0
         //Should look at BT see who's depending on that EPERM
         if (res == OCR_EPERM) {
             return OCR_EPERM;
         }
-        ASSERT(res == OCR_EPEND);
+#ifdef OCR_ASSERT
+        ocrGuidKind guidKind;
+        RESULT_ASSERT(pd->guidProviders[0]->fcts.getKind(pd->guidProviders[0], fatGuid->guid, &guidKind), == , 0);
+        // The reduction event may not be have been created in the current PD yet.
+        // That's why getVal may return no reference (val == 0) but return res == 0.
+        bool check = (res == OCR_EPEND);
+#ifdef ENABLE_EXTENSION_COLLECTIVE_EVT
+        check = check || ((res == 0) && (guidKind == OCR_GUID_EVENT_COLLECTIVE));
+#endif
+        ASSERT(check);
+#endif
         // The metadata is absent and the GUID provider is fetching it
         if (isBlocking) {
             // Busy-wait and return only when the metadata is resolved
@@ -196,8 +216,11 @@ u8 resolveRemoteMetaData(ocrPolicyDomain_t * pd, ocrFatGuid_t * fatGuid,
 #undef PD_TYPE
                 //getVal - resolve
                 pd->guidProviders[0]->fcts.getVal(pd->guidProviders[0], fatGuid->guid, &val, NULL, MD_LOCAL, NULL);
+#if defined(ENABLE_EXTENSION_DISTRIBUTED_LABELED)
+            } while ((val == 0) || (val == ((u64)-1)));
+#else
             } while(val == 0);
-            fatGuid->metaDataPtr = (void *) val;
+#endif
             DPRINTF(DEBUG_LVL_VVERB,"Resolving metadata: exit busy-wait for blocking call\n");
         } else {
             ASSERT(msg != NULL);
@@ -207,8 +230,14 @@ u8 resolveRemoteMetaData(ocrPolicyDomain_t * pd, ocrFatGuid_t * fatGuid,
             val = enqueueMdProxyWaiter(pd, mdProxy, msg);
             // Warning: At this point we cannot access the msg pointer anymore.
             // This code becomes concurrent with the continuation being invoked, possibly destroying 'msg'.
+            //TODO that sounds like a bug for red event no ?
         }
     }
+#if defined(ENABLE_EXTENSION_DISTRIBUTED_LABELED)
+    // if reach here with -1 it means there a race between the enqueue operation
+    // and properly setting the MD's metaDataPtr before CASing the waiter queue
+    ASSERT(val != ((u64)-1));
+#endif
     fatGuid->metaDataPtr = (void *) val;
     return ((val) ? 0 : OCR_EPEND);
 }
@@ -2234,12 +2263,15 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         // - Resolve the factory pointer (from the kind and factoryId)
         u32 factoryId = PD_MSG_FIELD_I(factoryId);
         ocrObjectFactory_t * factory = self->factories[factoryId];
-
-        if (guidKind == OCR_GUID_DB) {
+        bool shouldProcess = (guidKind == OCR_GUID_DB);
+#ifdef ENABLE_EXTENSION_COLLECTIVE_EVT
+        shouldProcess |= (guidKind == OCR_GUID_EVENT_COLLECTIVE);
+#endif
+        if (shouldProcess) {
             // Rely on the DB's MD 'process' implementation. The call may be asynchronous.
             u64 val = 0;
             self->guidProviders[0]->fcts.getVal(self->guidProviders[0], guid, &val, NULL, MD_LOCAL, NULL);
-            ocrObject_t * mdPtr = (ocrObject_t *) val;
+            ocrObject_t * mdPtr = (ocrObject_t *) val;             // ASSERT(val != ((u64)0xffffffffffffffff));
             // This is potentially asynchronous as the MD may not be able to carry out the operation immediately
             returnCode = factory->process(factory, guid, mdPtr, msg);
             // If pending we return here as it may indicate the msg is now
@@ -2389,14 +2421,19 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
                     u64 val = 0;
                     // Get the metadata pointer
                     u8 retCode = self->guidProviders[0]->fcts.getVal(self->guidProviders[0], guid, &val, NULL, MD_LOCAL, &proxy);
-                    ASSERT(proxy != NULL);
                     // ASSERT(retCode == 0); => This can be EPEND if the push message we're receiving is the metadata to be stored as 'val'
                     ocrObject_t * dest = (void *) val;
                     // Note: 'dest' is NULL means it's an initial clone. We have nothing to deserialize too so the
                     // deserialize code has to allocate memory to deserialize the payload to.
                     factory->deserialize(factory, guid, &dest, PD_MSG_FIELD_I(mode), (void *) &PD_MSG_FIELD_I(payload), (u64) PD_MSG_FIELD_I(sizePayload));
                     //If the ptr is null we don't know about the MD and install it in the PD
-                    if (proxy->ptr == ((u64) 0)) {
+                    //Proxy can be null when deserialize receives metadata update for an object whose current PD is home.
+                    if (proxy == NULL) {
+                        ocrLocation_t cmpLoc;
+                        ASSERT(self->guidProviders[0]->fcts.getLocation(self->guidProviders[0], guid, &cmpLoc) == 0);
+                        ASSERT(cmpLoc == self->myLocation);
+                    }
+                    if (proxy && (proxy->ptr == ((u64) 0))) {
                         ASSERT((dest != NULL) && "error: PD_MSG_METADATA_COMM deserialize operation failed");
                         // NOTE: Implementation ensures there's a single message generated for the initial clone
                         // so that this registration is not concurrent with others for the same GUID
@@ -3019,21 +3056,20 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         //(but fragile) because the HC event/task does not try to use it
         //Querying the kind through the PD's interface should be ok as it's
         //the problem of the guid provider to give this information
-        // First resolve KIND information
         u8 resolveCode = 1;
         if (ocrGuidIsNull(PD_MSG_FIELD_I(source.guid))) {
             srcKind = OCR_GUID_NONE;
         } else {
+            if (ENABLE_EVENT_MDC) {
+                RESULT_ASSERT(self->guidProviders[0]->fcts.getKind(self->guidProviders[0], PD_MSG_FIELD_I(source.guid), &srcKind), == , 0);
+            }
             // Second, check if MDC is on
             if (MDC_SUPPORT_EVT(srcKind)) {
-                PD_MSG_STACK(tmsg);
-                getCurrentEnv(NULL, NULL, NULL, &tmsg);
                 DPRINTF(DBG_LVL_MDEVT, "event-md: PD_MSG_DEP_ADD resolving remote source "GUIDF"\n", GUIDA(PD_MSG_FIELD_I(source.guid)));
-                resolveCode = resolveRemoteMetaData(self, &PD_MSG_FIELD_I(source), &tmsg, true);
+                resolveCode = resolveRemoteMetaData(self, &PD_MSG_FIELD_I(source), NULL, true, true);
             }
-            // When the GP doesn't support the cloning it returns OCR_EPERM and falls back
-            // on regular GUID lookup. So far this only applies to labelled GUIDs since we
-            // do not handle their metadata-cloning.
+            // When the GP doesn't support the cloning it falls back on regular GUID lookup.
+            // So far this only applies to labelled GUIDs since we do not handle their metadata-cloning.
             if (resolveCode) {
                 ASSERT((resolveCode == 1) || (resolveCode == OCR_EPERM));
                 //getVal - resolve
@@ -3045,11 +3081,12 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         }
 
         resolveCode = 1;
+        if (ENABLE_EVENT_MDC) {
+            RESULT_ASSERT(self->guidProviders[0]->fcts.getKind(self->guidProviders[0], PD_MSG_FIELD_I(dest.guid), &dstKind), == , 0);
+        }
         if (MDC_SUPPORT_EVT(dstKind)) {
-            PD_MSG_STACK(tmsg);
-            getCurrentEnv(NULL, NULL, NULL, &tmsg);
             DPRINTF(DBG_LVL_MDEVT, "event-md: PD_MSG_DEP_ADD resolving remote dest "GUIDF"\n", GUIDA(PD_MSG_FIELD_I(dest.guid)));
-            resolveCode = resolveRemoteMetaData(self, &PD_MSG_FIELD_I(dest), &tmsg, true);
+            resolveCode = resolveRemoteMetaData(self, &PD_MSG_FIELD_I(dest), NULL, true, true);
         }
         if (resolveCode) {
             ASSERT((resolveCode == 1) || (resolveCode == OCR_EPERM));
@@ -3409,10 +3446,18 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         if (dstKind & OCR_GUID_EVENT) {
             ocrEvent_t *evt = (ocrEvent_t*)(dest.metaDataPtr);
 #ifdef OCR_ASSERT
+#ifdef ENABLE_EXTENSION_COLLECTIVE_EVT
+            if ((dstKind != OCR_GUID_EVENT_COLLECTIVE) && (!MDC_SUPPORT_EVT(dstKind))) {
+#endif
             ocrLocation_t tmpL;
             self->guidProviders[0]->fcts.getLocation(
                 self->guidProviders[0], dest.guid, &tmpL);
             ASSERT(tmpL == self->myLocation);
+#ifdef ENABLE_EXTENSION_COLLECTIVE_EVT
+            } else {
+                ASSERT(PD_MSG_FIELD_I(dest.metaDataPtr) != NULL);
+            }
+#endif
 #endif
             ASSERT(evt->fctId == ((ocrEventFactory_t*)(self->factories[self->eventFactoryIdx]))->factoryId);
             // Warning: A counted-event can be destroyed by this call

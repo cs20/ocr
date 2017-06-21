@@ -93,6 +93,10 @@ char * ocrGuidKindToChar(ocrGuidKind kind) {
         case OCR_GUID_EVENT_CHANNEL:
         return "event-channel";
 #endif
+#ifdef ENABLE_EXTENSION_COLLECTIVE_EVT
+        case OCR_GUID_EVENT_COLLECTIVE:
+        return "event-collective";
+#endif
         default:
         return "unknown kind";
     }

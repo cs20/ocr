@@ -24,8 +24,11 @@ extern "C" {
    @{
 **/
 
-
 #ifdef ENABLE_EXTENSION_PARAMS_EVT
+
+#ifdef ENABLE_EXTENSION_COLLECTIVE_EVT
+#include "extensions/ocr-reduction-event.h"
+#endif
 
 typedef struct {
     u64 counter;
@@ -48,6 +51,20 @@ typedef struct {
 } ocrEventChannelParams_t;
 #endif
 
+#ifdef ENABLE_EXTENSION_COLLECTIVE_EVT
+typedef struct _ocrEventCollectiveParams_t {
+    u32 maxGen;                 // Maximum number of generations simultaneously in flight
+    u32 nbContribs;             // Overall number of contributions expected the reduction
+    u32 nbContribsPd;           // Nb of contributions from the current PD
+    u16 nbDatum;                // Expected number of datum contributed by each contributor. TODO: is that a hint ?
+    u8 arity;                   // Reduction tree's arity. Only reduction algorithm available for now.
+    redOp_t op;                 // See redOp_t
+    collectiveType_t type;      // See collectiveType_t
+    bool reuseDbPerGen;         // Allows the runtime to reuse the same result DB every maxGen
+                                // iterations invocations else systematically allocate a new one.
+} ocrEventCollectiveParams_t;
+#endif
+
 typedef struct {
     union {
         ocrEventLatchParams_t EVENT_LATCH;
@@ -56,6 +73,9 @@ typedef struct {
 #endif
 #ifdef ENABLE_EXTENSION_CHANNEL_EVT
         ocrEventChannelParams_t EVENT_CHANNEL;
+#endif
+#ifdef ENABLE_EXTENSION_COLLECTIVE_EVT
+        ocrEventCollectiveParams_t EVENT_COLLECTIVE;
 #endif
     };
 } ocrEventParams_t;

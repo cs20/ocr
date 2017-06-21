@@ -7,7 +7,7 @@
 #include "ocr.h"
 
 /**
- * DESC: Counted-event: one dependence is satisfied and the descendent EDT add remaining deps
+ * DESC: Counted-event: one dependence is satisfied and the descendant EDT add remaining deps
  */
 
 #ifdef ENABLE_EXTENSION_COUNTED_EVT

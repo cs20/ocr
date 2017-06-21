@@ -59,7 +59,10 @@ CFLAGS += -DCACHE_LINE_SZB=64
 # CFLAGS += -DREG_ASYNC
 
 # Single-steps asynchronous registration
-# CFLAGS += -DREG_ASYNC_SGL
+ifeq ($(OCR_TYPE), x86-mpi)
+# trades off larger memory footprint in favor of more parallelism
+CFLAGS += -DREG_ASYNC_SGL
+endif
 
 # **** Events Parameters ****
 

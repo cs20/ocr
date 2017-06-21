@@ -1740,7 +1740,7 @@ u8 createProcessRequestEdtDistPolicy(ocrPolicyDomain_t * pd, ocrGuid_t templateG
 
 #ifndef ENABLE_POLICY_DOMAIN_HC
 u8 resolveRemoteMetaData(ocrPolicyDomain_t * pd, ocrFatGuid_t * fatGuid,
-                                ocrPolicyMsg_t * msg, bool isBlocking) {
+                                ocrPolicyMsg_t * msg, bool isBlocking, bool fetch) {
     u64 val;
     // On the XE, we don't have a GUID provider and on the CE, we do some mean trick to get
     // the right value (pretending to be another CE)
@@ -1761,7 +1761,7 @@ u8 resolveRemoteMetaData(ocrPolicyDomain_t * pd, ocrFatGuid_t * fatGuid,
 #undef PD_TYPE
 #else
     MdProxy_t * mdProxy = NULL;
-    u8 res __attribute__((unused)) = pd->guidProviders[0]->fcts.getVal(pd->guidProviders[0], fatGuid->guid, &val, NULL, MD_FETCH, &mdProxy);
+    u8 res __attribute__((unused)) = pd->guidProviders[0]->fcts.getVal(pd->guidProviders[0], fatGuid->guid, &val, NULL, (fetch ? MD_FETCH : MD_PROXY), &mdProxy);
 #endif
     ASSERT(val != 0);
     ASSERT(res == 0);

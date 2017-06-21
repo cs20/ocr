@@ -14,9 +14,9 @@ unset OCR_CONFIG
 
 
 if [[ -z "${OCRRUN_OPT_TPL_NODEFILE}" ]]; then
-	if [[ -f "${PWD}/nodelist" ]]; then
-		export OCRRUN_OPT_TPL_NODEFILE="$PWD/nodelist"
-	fi
+    if [[ -f "${PWD}/nodelist" ]]; then
+        export OCRRUN_OPT_TPL_NODEFILE="$PWD/nodelist"
+    fi
 fi
 
 export NB_RUN=10

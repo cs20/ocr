@@ -52,7 +52,7 @@ static inline u8 guidLocationShort(struct _ocrPolicyDomain_t * pd, ocrFatGuid_t 
 
 
 extern u8 resolveRemoteMetaData(ocrPolicyDomain_t * pd, ocrFatGuid_t * fatGuid,
-                                ocrPolicyMsg_t * msg, bool isBlocking);
+                                ocrPolicyMsg_t * msg, bool isBlocking, bool fetch);
 
 #define RETRIEVE_LOCATION_FROM_MSG(pd, fname, dstLoc, DIR) \
     ocrFatGuid_t fatGuid__ = PD_MSG_FIELD_##DIR(fname); \
@@ -322,7 +322,7 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
         ocrLocation_t srcLocation = msg->srcLocation;
 #endif
         //TODO-MD-MT could create a continuation for that
-        u8 res = resolveRemoteMetaData(self, &PD_MSG_FIELD_I(templateGuid), msg, (msg->srcLocation == self->myLocation));
+        u8 res = resolveRemoteMetaData(self, &PD_MSG_FIELD_I(templateGuid), msg, (msg->srcLocation == self->myLocation), true);
         if (res == OCR_EPEND) {
             // We do not handle pending if it is an edt spawned locally as there's
             // context on the call stack we can't just return from.
@@ -436,6 +436,29 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
             DPRINTF(DEBUG_LVL_VERB, "Sending MD_COMM to %"PRIu64" mode=%"PRIu64" for "GUIDF"\n", msg->destLocation, PD_MSG_FIELD_I(mode), GUIDA(PD_MSG_FIELD_I(guid)));
         } else {
             DPRINTF(DEBUG_LVL_VERB, "Receiving MD_COMM from %"PRIu64" mode=%"PRIu64" for "GUIDF"\n", msg->srcLocation, PD_MSG_FIELD_I(mode), GUIDA(PD_MSG_FIELD_I(guid)));
+            ASSERT((msg->srcLocation != self->myLocation));
+            ocrGuidKind guidKind;
+            RESULT_ASSERT(self->guidProviders[0]->fcts.getKind(self->guidProviders[0], PD_MSG_FIELD_I(guid), &guidKind), == , 0);
+            //Handle races when reduction event traffic reaches a PD that hasn't created its reduction event yet.
+            //In that case we use the remote metadata resolve mecanism, but do not require a fetch, so that the
+            //current message is enqueued if the metadata is not present.
+            //Other MD implementation just fall-through and go through the factory to proceed with their MD protocol,
+            //typically a M_CLONE operation that will create an instance in this PD.
+#ifdef ENABLE_EXTENSION_COLLECTIVE_EVT
+            if (guidKind == OCR_GUID_EVENT_COLLECTIVE) {
+                //COL-EVTX: Revisit this if we change the init/usage of reduction events. We may have to do a fetch instead
+                //TODO-MD-MT could create a continuation for that
+                ocrFatGuid_t fguid = {.guid = PD_MSG_FIELD_I(guid), .metaDataPtr = NULL};
+                u8 res = resolveRemoteMetaData(self, &fguid, msg, /*isBlocking=*/false, /*fetch=*/false);
+                if (res == OCR_EPEND) {
+                    // We do not handle pending if it is an edt spawned locally as
+                    // there's context on the call stack we can't just return from.
+                    ASSERT(msg->srcLocation != curLoc);
+                    // metadata not available, message processing will be rescheduled.
+                    PROCESS_MESSAGE_RETURN_NOW(self, OCR_EPEND);
+                }
+            }
+#endif
         }
         // Fall-through:
         // - Outgoing: just forward as a one-way
@@ -469,7 +492,14 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
     {
 #define PD_MSG msg
 #define PD_TYPE PD_MSG_EVT_CREATE
+#ifdef ENABLE_EXTENSION_COLLECTIVE_EVT
+        ocrGuidKind guidKind;
+        self->guidProviders[0]->fcts.getKind(self->guidProviders[0], PD_MSG_FIELD_IO(guid.guid), &guidKind);
+        bool GUID_PROP_IS_LOCAL_LABELED = (guidKind == OCR_GUID_EVENT_COLLECTIVE);
+        if ((PD_MSG_FIELD_I(properties) & GUID_PROP_IS_LABELED) && (!GUID_PROP_IS_LOCAL_LABELED)) {
+#else
         if (PD_MSG_FIELD_I(properties) & GUID_PROP_IS_LABELED) {
+#endif
             // We need to resolve location because of labeled GUIDs.
             RETRIEVE_LOCATION_FROM_GUID_MSG(self, msg->destLocation, IO);
         } else {
@@ -503,7 +533,15 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
     {
 #define PD_MSG (msg)
 #define PD_TYPE PD_MSG_DEP_SATISFY
+#ifdef ENABLE_EXTENSION_COLLECTIVE_EVT
+        ocrGuidKind guidKind;
+        RESULT_ASSERT(self->guidProviders[0]->fcts.getKind(self->guidProviders[0], PD_MSG_FIELD_I(guid.guid), &guidKind), == , 0);
+        if (guidKind != OCR_GUID_EVENT_COLLECTIVE) {
+            RETRIEVE_LOCATION_FROM_GUID_MSG(self, msg->destLocation, I);
+        }// else satisfy involving reduction events are always local
+#else
         RETRIEVE_LOCATION_FROM_GUID_MSG(self, msg->destLocation, I);
+#endif
         DPRINTF(DEBUG_LVL_VVERB,"DEP_SATISFY: target is %"PRId32"\n", (u32) msg->destLocation);
 #ifdef ENABLE_EXTENSION_CHANNEL_EVT
 #ifndef XP_CHANNEL_EVT_NONFIFO
@@ -661,7 +699,7 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
         self->guidProviders[0]->fcts.getVal(self->guidProviders[0], PD_MSG_FIELD_IO(guid.guid), &val, &kind, MD_LOCAL, NULL);
         if ((val == 0) && (kind == OCR_GUID_GUIDMAP)) {
             //BUG #536: cloning - piggy back on the mecanism that fetches templates
-            RESULT_ASSERT(resolveRemoteMetaData(self, &PD_MSG_FIELD_IO(guid), msg, true), ==, 0);
+            RESULT_ASSERT(resolveRemoteMetaData(self, &PD_MSG_FIELD_IO(guid), msg, true, true), ==, 0);
         } else {
             //BUG #536: cloning: What's the meaning of guid info in distributed ?
             msg->destLocation = curLoc;
@@ -888,7 +926,7 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
             ocrFatGuid_t fguid = PD_MSG_FIELD_IO(guid);
             // TODO: Do we want blocking to be driven by the blocking parameter of processMessage ?
             // TODO: Ideally disambiguation here based on LowLevel MD if operation should pull the MD or delegate to where GUID lives
-            u8 ret = resolveRemoteMetaData(self, &fguid, msg, /*isBlocking=*/false);
+            u8 ret = resolveRemoteMetaData(self, &fguid, msg, /*isBlocking=*/false, true);
 
             // NOTE: PD_MSG_DB_ACQUIRE messages never leaves the policy domain.
             // Acquisition protocol is implemented by the metadata.
@@ -940,7 +978,15 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
     {
 #define PD_MSG (msg)
 #define PD_TYPE PD_MSG_DEP_REGWAITER
+#if defined(ENABLE_EXTENSION_COLLECTIVE_EVT) || (defined(ENABLE_EVENT_MDC_FORGE) && (ENABLE_EVENT_MDC_FORGE == 1))
+        ocrGuidKind guidKind;
+        RESULT_ASSERT(self->guidProviders[0]->fcts.getKind(self->guidProviders[0], PD_MSG_FIELD_I(dest.guid), &guidKind), == , 0);
+        if ((guidKind != OCR_GUID_EVENT_COLLECTIVE) && (!MDC_SUPPORT_EVT(guidKind))) {
+#endif
         RETRIEVE_LOCATION_FROM_MSG(self, dest, msg->destLocation, I);
+#if defined(ENABLE_EXTENSION_COLLECTIVE_EVT) || (defined(ENABLE_EVENT_MDC_FORGE) && (ENABLE_EVENT_MDC_FORGE == 1))
+        }
+#endif
         DPRINTF(DEBUG_LVL_VVERB, "DEP_REGWAITER: destGuid is "GUIDF" target is %"PRId32"\n",
                                 GUIDA(PD_MSG_FIELD_I(dest.guid)), (u32)msg->destLocation);
 #undef PD_MSG
@@ -1595,11 +1641,11 @@ u8 hcDistPdWaitMessage(ocrPolicyDomain_t *self,  ocrMsgHandle_t **handle) {
     getCurrentEnv(NULL, &worker, NULL, NULL);
     u32 id = worker->id;
 #ifdef OCR_ENABLE_SIMULATOR
-worker->workerTime |= OCR_SIM_ALLOW_PROGRESS;
+    worker->workerTime |= OCR_SIM_ALLOW_PROGRESS;
 #endif
     u8 ret = self->commApis[id]->fcts.waitMessage(self->commApis[id], handle);
 #ifdef OCR_ENABLE_SIMULATOR
-worker->workerTime &= ~OCR_SIM_ALLOW_PROGRESS;
+    worker->workerTime &= ~OCR_SIM_ALLOW_PROGRESS;
 #endif
     return ret;
 }

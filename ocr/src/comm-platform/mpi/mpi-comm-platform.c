@@ -785,7 +785,6 @@ static u8 MPICommSendMessage(ocrCommPlatform_t * self,
 #ifdef OCR_MONITOR_NETWORK
     messageBuffer->sendTime = salGetTime();
 #endif
-
     int res = MPI_Isend(messageBuffer, (int) fullMsgSize, datatype, targetRank, tag, comm, status);
 
     if (res == MPI_SUCCESS) {
@@ -1275,7 +1274,6 @@ static u8 MPICommSendMessageMT(ocrCommPlatform_t * self,
 #ifdef OCR_MONITOR_NETWORK
     message->sendTime = salGetTime();
 #endif
-
     int res = MPI_Isend(message, (int) fullMsgSize, datatype, targetRank, tag, comm, status);
 
     if(res == MPI_SUCCESS) {

@@ -104,11 +104,10 @@ u8 ocrEventDestroy(ocrGuid_t eventGuid) {
 #undef PD_TYPE
 }
 
-u8 ocrEventSatisfySlot(ocrGuid_t eventGuid, ocrGuid_t dataGuid /*= INVALID_GUID*/, u32 slot) {
-
+static u8 ocrEventSatisfySlotInternal(ocrGuid_t eventGuid, ocrFatGuid_t dataGuid /*= INVALID_GUID*/, u32 slot) {
     START_PROFILE(api_ocrEventSatisfySlot);
     DPRINTF(DEBUG_LVL_INFO, "ENTER ocrEventSatisfySlot(evt="GUIDF", data="GUIDF", slot=%"PRIu32")\n",
-            GUIDA(eventGuid), GUIDA(dataGuid), slot);
+            GUIDA(eventGuid), GUIDA(dataGuid.guid), slot);
     PD_MSG_STACK(msg);
     ocrPolicyDomain_t *pd = NULL;
     ocrTask_t * curEdt = NULL;
@@ -124,8 +123,7 @@ u8 ocrEventSatisfySlot(ocrGuid_t eventGuid, ocrGuid_t dataGuid /*= INVALID_GUID*
     PD_MSG_FIELD_I(satisfierGuid.metaDataPtr) = satisfierGuid.metaDataPtr;
     PD_MSG_FIELD_I(guid.guid) = eventGuid;
     PD_MSG_FIELD_I(guid.metaDataPtr) = NULL;
-    PD_MSG_FIELD_I(payload.guid) = dataGuid;
-    PD_MSG_FIELD_I(payload.metaDataPtr) = NULL;
+    PD_MSG_FIELD_I(payload) = dataGuid;
     PD_MSG_FIELD_I(currentEdt.guid) = satisfierGuid.guid;
     PD_MSG_FIELD_I(currentEdt.metaDataPtr) = satisfierGuid.metaDataPtr;
     PD_MSG_FIELD_I(slot) = slot;
@@ -143,6 +141,22 @@ u8 ocrEventSatisfySlot(ocrGuid_t eventGuid, ocrGuid_t dataGuid /*= INVALID_GUID*
     RETURN_PROFILE(returnCode);
 #undef PD_MSG
 #undef PD_TYPE
+}
+
+#ifdef ENABLE_EXTENSION_COLLECTIVE_EVT
+u8 ocrEventCollectiveSatisfySlot(ocrGuid_t eventGuid, void * dataPtr, u32 islot) {
+    ocrFatGuid_t dataFGuid;
+    dataFGuid.guid = UNINITIALIZED_GUID;
+    dataFGuid.metaDataPtr = dataPtr;
+    return ocrEventSatisfySlotInternal(eventGuid, dataFGuid, islot);
+}
+#endif
+
+u8 ocrEventSatisfySlot(ocrGuid_t eventGuid, ocrGuid_t dataGuid /*= INVALID_GUID*/, u32 slot) {
+    ocrFatGuid_t dataFGuid;
+    dataFGuid.guid = dataGuid;
+    dataFGuid.metaDataPtr = NULL;
+    return ocrEventSatisfySlotInternal(eventGuid, dataFGuid, slot);
 }
 
 u8 ocrEventSatisfy(ocrGuid_t eventGuid, ocrGuid_t dataGuid /*= INVALID_GUID*/) {

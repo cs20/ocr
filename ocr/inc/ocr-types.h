@@ -299,7 +299,13 @@ typedef enum {
                           */
 #endif
 #ifdef ENABLE_EXTENSION_CHANNEL_EVT
-    OCR_EVENT_CHANNEL_T = 6, /**< TODO
+    OCR_EVENT_CHANNEL_T = 6, /**< A CHANNEL event triggers when a number of satisfy calls match
+                                  with a number of add dependence call.
+                          */
+#endif
+#ifdef ENABLE_EXTENSION_COLLECTIVE_EVT
+    OCR_EVENT_COLLECTIVE_T = 7, /**< A COLLECTIVE event carries out collective operations on
+                                     their input/output slots.
                           */
 #endif
     OCR_EVENT_T_MAX      /**< This is *NOT* an event and is only used to count

@@ -1,0 +1,233 @@
+
+/**
+ * DESC: Collective event template for creation and initialisation
+ */
+
+#ifndef TEST_MAXGEN
+#define TEST_MAXGEN 1
+#endif
+#ifndef TEST_IT_MAX
+#define TEST_IT_MAX 1
+#endif
+#ifndef TEST_NBCONTRIBSPD
+#define TEST_NBCONTRIBSPD 8
+#endif
+#ifndef TEST_NBDATUM
+#define TEST_NBDATUM 1
+#endif
+#ifndef TEST_ARITY
+#define TEST_ARITY 2
+#endif
+#ifndef TEST_OP
+#define TEST_OP REDOP_U8_ADD
+#endif
+#ifndef TEST_TYPE
+#define TEST_TYPE COL_ALLREDUCE
+#endif
+#ifndef TEST_REUSEDBPERGEN
+#define TEST_REUSEDBPERGEN true
+#endif
+
+// Number of dependences expected by the continuation EDT for that rank EDT
+#define TEST_EDT_CONT_DEPC (TEST_MAXGEN)
+
+// How many input expected by the continuation EDT - Usually nb of rank EDT per PD
+#ifndef TEST_EDT_CONT_DEPC
+#error TEST_EDT_CONT_DEPC is not defined
+#endif
+
+#if defined(ENABLE_EXTENSION_COLLECTIVE_EVT) && defined(ENABLE_EXTENSION_LABELING)
+
+#include "extensions/ocr-labeling.h"
+#include "extensions/ocr-affinity.h"
+
+void test(ocrGuid_t evtGuid, ocrEventParams_t params, u64 rankId, u64 it, ocrGuid_t latchGuid);
+void testCheck(u32 it, ocrEventParams_t params,  u32 valueCount, void ** values);
+
+typedef struct _ctrl_db_t {
+    u64 rankId;
+    u32 it;
+    ocrGuid_t redGuid;
+    ocrGuid_t latchGuid;
+    ocrGuid_t rankWorkEdtTpl;
+    ocrGuid_t rankAffGuid;
+    ocrEventParams_t params;
+} ctrl_db_t;
+
+void createReductionEvent(ocrGuid_t * evtGuid, ocrEventParams_t * params, u64 nbContribs) {
+    params->EVENT_COLLECTIVE.maxGen        = TEST_MAXGEN;
+    params->EVENT_COLLECTIVE.nbContribs    = nbContribs * TEST_NBCONTRIBSPD;
+    params->EVENT_COLLECTIVE.nbContribsPd  = TEST_NBCONTRIBSPD;
+    params->EVENT_COLLECTIVE.nbDatum       = TEST_NBDATUM;
+    params->EVENT_COLLECTIVE.arity         = TEST_ARITY;
+    params->EVENT_COLLECTIVE.op            = TEST_OP;
+    params->EVENT_COLLECTIVE.type          = TEST_TYPE;
+    params->EVENT_COLLECTIVE.reuseDbPerGen = TEST_REUSEDBPERGEN;
+    ocrEventCreateParams(evtGuid, OCR_EVENT_COLLECTIVE_T, GUID_PROP_IS_LABELED, params);
+}
+
+ocrGuid_t rankWorkEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
+    // 0 to depc-2 gets previous work edt reduction results
+    ocrGuid_t ctrlDb = depv[depc-1].guid;
+    ctrl_db_t * ctrlPtr = (ctrl_db_t *) depv[depc-1].ptr;
+    u32 i = 0;
+    void * values[depc-1];
+    while (i < depc-1) {
+        values[i] = depv[i].ptr;
+        i++;
+    }
+
+    testCheck(ctrlPtr->it-1, ctrlPtr->params, depc-1, values);
+
+    if (ctrlPtr->it == TEST_IT_MAX) {
+        PRINTF("rankWorkEdt executing - max iteration reached\n");
+        ocrEventSatisfySlot(ctrlPtr->latchGuid, NULL_GUID, OCR_EVENT_LATCH_DECR_SLOT);
+    } else {
+        PRINTF("rankWorkEdt executing - it=%"PRIu32"\n", ctrlPtr->it);
+        u64 it = ctrlPtr->it++;
+        u64 rankId = ctrlPtr->rankId;
+        ocrGuid_t redGuid = ctrlPtr->redGuid;
+        ocrGuid_t rankWorkEdtTpl = ctrlPtr->rankWorkEdtTpl;
+        ocrGuid_t rankAffGuid = ctrlPtr->rankAffGuid;
+        ocrEventParams_t params = ctrlPtr->params;
+        ocrDbRelease(ctrlDb);
+        // Create continuation
+        ocrHint_t edtHint;
+        ocrHintInit(&edtHint, OCR_HINT_EDT_T);
+        ocrSetHintValue(&edtHint, OCR_HINT_EDT_AFFINITY, ocrAffinityToHintValue(rankAffGuid));
+        ocrGuid_t contEdtGuid;
+        ocrEdtCreate(&contEdtGuid, rankWorkEdtTpl, EDT_PARAM_DEF, NULL, EDT_PARAM_DEF, NULL, EDT_PROP_NONE, &edtHint, NULL);
+        ocrAddDependence(ctrlDb, contEdtGuid, TEST_EDT_CONT_DEPC, DB_MODE_RW);
+        // Invoke the kernel
+        test(redGuid, params, rankId, it, contEdtGuid);
+    }
+    return NULL_GUID;
+}
+
+ocrGuid_t rankHeadEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
+    ocrGuid_t rangeGuid = ((ocrGuid_t*)depv[0].ptr)[0];
+    ocrGuid_t latchGuid = ((ocrGuid_t*)depv[0].ptr)[1];
+    // Always create a labeled GUID since this is required for
+    // distributed and it doesn't really matter for shmem
+    //TODO why would I query that from the rangeGuid when I can just pass the reduction event GUID directly down ?
+    ocrGuid_t redGuid;
+    ocrGuidFromIndex(&redGuid, rangeGuid, 0);
+    u64 affinityCount;
+    ocrAffinityCount(AFFINITY_PD, &affinityCount);
+    PRINTF("Create event for rankID=%"PRIu64"\n", paramv[0]);
+    ocrEventParams_t params;
+    createReductionEvent(&redGuid, &params, affinityCount);
+    //Rank EDT work template
+    ocrGuid_t rankWorkEdtTpl;
+    ocrEdtTemplateCreate(&rankWorkEdtTpl, rankWorkEdt, 0, TEST_EDT_CONT_DEPC+1); //+1 for ctrl db at the end
+    ocrGuid_t rankAffGuid;
+    ocrAffinityGetCurrent(&rankAffGuid);
+    //Create rank control DB
+    ocrGuid_t ctrlDb;
+    ctrl_db_t * ctrlPtr;
+    ocrDbCreate(&ctrlDb, (void**)&ctrlPtr, sizeof(ctrl_db_t), DB_PROP_NONE, NULL_HINT, NO_ALLOC);
+    u64 rankId = paramv[0];
+    ctrlPtr->rankId = rankId;
+    ctrlPtr->it = 1; // to account for 'test' call in this EDT
+    ctrlPtr->redGuid = redGuid;
+    ctrlPtr->latchGuid = latchGuid;
+    ctrlPtr->rankWorkEdtTpl = rankWorkEdtTpl;
+    ctrlPtr->rankAffGuid = rankAffGuid;
+    ctrlPtr->params = params;
+    ocrDbRelease(ctrlDb);
+    // Create work EDT continuation and invoke the kernel
+    ocrHint_t edtHint;
+    ocrHintInit(&edtHint, OCR_HINT_EDT_T);
+    ocrSetHintValue(&edtHint, OCR_HINT_EDT_AFFINITY, ocrAffinityToHintValue(rankAffGuid));
+    ocrGuid_t contEdtGuid;
+    ocrEdtCreate(&contEdtGuid, rankWorkEdtTpl, EDT_PARAM_DEF, NULL, EDT_PARAM_DEF, NULL, EDT_PROP_NONE, &edtHint, NULL);
+    ocrAddDependence(ctrlDb, contEdtGuid, TEST_EDT_CONT_DEPC, DB_MODE_RW);
+    // Invoke the kernel
+    test(redGuid, params, rankId, 0, contEdtGuid);
+    return NULL_GUID;
+}
+
+ocrGuid_t pdHeadEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
+    ocrGuid_t dbGuid = depv[0].guid;
+    ocrGuid_t rankAffGuid;
+    ocrAffinityGetCurrent(&rankAffGuid);
+    ocrGuid_t rankHeadEdtTpl;
+    ocrEdtTemplateCreate(&rankHeadEdtTpl, rankHeadEdt, 1, 1);
+    u64 affinityCount;
+    ocrAffinityCount(AFFINITY_PD, &affinityCount);
+    ocrGuid_t affinities[affinityCount];
+    ocrAffinityGet(AFFINITY_PD, &affinityCount, affinities);
+    u32 pdId = 0;
+    while (pdId < affinityCount) {
+        if (IS_GUID_EQUAL(rankAffGuid, affinities[pdId])) {
+            break;
+        }
+        pdId++;
+    }
+    u32 i = 0;
+    while (i < TEST_NBCONTRIBSPD) {
+        u64 rankId = (TEST_NBCONTRIBSPD * pdId) + i;
+        PRINTF("Creating rank EDT %"PRIu64" at PD=%"PRIu32"\n", rankId, pdId);
+        u64 paramv = rankId;
+        ocrHint_t edtHint;
+        ocrHintInit(&edtHint, OCR_HINT_EDT_T);
+        ocrSetHintValue(&edtHint, OCR_HINT_EDT_AFFINITY, ocrAffinityToHintValue(rankAffGuid));
+        ocrGuid_t edtGuid;
+        ocrEdtCreate(&edtGuid, rankHeadEdtTpl, EDT_PARAM_DEF, &paramv, EDT_PARAM_DEF, &dbGuid, EDT_PROP_NONE, &edtHint, NULL);
+        i++;
+    }
+    ocrEdtTemplateDestroy(rankHeadEdtTpl);
+    return NULL_GUID;
+}
+
+ocrGuid_t shutEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
+    ocrShutdown();
+    return NULL_GUID;
+}
+
+ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
+    ocrGuid_t rangeGuid;
+    ocrGuidRangeCreate(&rangeGuid, 1, GUID_USER_EVENT_COLLECTIVE);
+    u64 affinityCount;
+    ocrAffinityCount(AFFINITY_PD, &affinityCount);
+    ASSERT(affinityCount >= 1);
+    ocrGuid_t affinities[affinityCount];
+    ocrAffinityGet(AFFINITY_PD, &affinityCount, affinities);
+    ocrGuid_t pdHeadEdtTpl;
+    ocrEdtTemplateCreate(&pdHeadEdtTpl, pdHeadEdt, 0, 1);
+    ocrGuid_t latchGuid;
+    ocrEventParams_t params;
+    params.EVENT_LATCH.counter = affinityCount * TEST_NBCONTRIBSPD;
+    ocrEventCreateParams(&latchGuid, OCR_EVENT_LATCH_T, false, &params);
+    ocrGuid_t dbGuid;
+    ocrGuid_t * dbPtr;
+    ocrDbCreate(&dbGuid, (void**)&dbPtr, sizeof(ocrGuid_t)*2, DB_PROP_NONE, NULL_HINT, NO_ALLOC);
+    dbPtr[0] = rangeGuid;
+    dbPtr[1] = latchGuid;
+    ocrDbRelease(dbGuid);
+    ocrGuid_t shutGuidTpl;
+    ocrEdtTemplateCreate(&shutGuidTpl, shutEdt, 0, 1);
+    ocrGuid_t shutGuid;
+    ocrEdtCreate(&shutGuid, shutGuidTpl, EDT_PARAM_DEF, NULL, EDT_PARAM_DEF, &latchGuid, EDT_PROP_NONE, NULL_HINT, NULL);
+    u32 i = 0;
+    while (i < affinityCount) {
+        PRINTF("Creating head EDT at PD=%"PRIu32"\n", i);
+        ocrHint_t edtHint;
+        ocrHintInit(&edtHint, OCR_HINT_EDT_T);
+        ocrSetHintValue(&edtHint, OCR_HINT_EDT_AFFINITY, ocrAffinityToHintValue(affinities[i]));
+        ocrGuid_t edtGuid;
+        ocrEdtCreate(&edtGuid, pdHeadEdtTpl, EDT_PARAM_DEF, NULL, EDT_PARAM_DEF, &dbGuid, EDT_PROP_NONE, &edtHint, NULL);
+        i++;
+    }
+    return NULL_GUID;
+}
+
+#else
+
+ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
+    PRINTF("Test disabled - ENABLE_EXTENSION_COLLECTIVE_EVT not defined\n");
+    ocrShutdown();
+    return NULL_GUID;
+}
+
+#endif

@@ -1196,7 +1196,7 @@ u8 satisfyTaskHc(ocrTask_t * base, ocrFatGuid_t data, u32 slot) {
         self->signalers[slot].guid = data.guid;
 
     if(self->slotSatisfiedCount == base->depc) {
-        DPRINTF(DEBUG_LVL_VERB, "Scheduling task "GUIDF", satisfied dependences %"PRId32"/%"PRId32"\n",
+        DPRINTF(DEBUG_LVL_INFO, "Scheduling task "GUIDF", satisfied dependences %"PRId32"/%"PRId32"\n",
                 GUIDA(self->base.guid), self->slotSatisfiedCount , base->depc);
 
         hal_unlock(&(self->lock));
@@ -1257,13 +1257,15 @@ u8 satisfyTaskHc(ocrTask_t * base, ocrFatGuid_t data, u32 slot) {
                 signalerGuid.metaDataPtr = NULL; // should be ok because guid encodes the kind in distributed
                 ocrGuidKind signalerKind = OCR_GUID_NONE;
                 deguidify(pd, &signalerGuid, &signalerKind);
-                //TODO-RED
                 bool cond = (signalerKind == OCR_GUID_EVENT_STICKY) || (signalerKind == OCR_GUID_EVENT_IDEM);
 #ifdef ENABLE_EXTENSION_COUNTED_EVT
                 cond |= (signalerKind == OCR_GUID_EVENT_COUNTED);
 #endif
 #ifdef ENABLE_EXTENSION_CHANNEL_EVT
                 cond |= (signalerKind == OCR_GUID_EVENT_CHANNEL);
+#endif
+#ifdef ENABLE_EXTENSION_COLLECTIVE_EVT
+                cond |= (signalerKind == OCR_GUID_EVENT_COLLECTIVE);
 #endif
                 ASSERT(cond);
 #endif
@@ -1320,10 +1322,12 @@ u8 registerSignalerTaskHc(ocrTask_t * base, ocrFatGuid_t signalerGuid, u32 slot,
     //BUG #162 metadata cloning: Had to introduce new kinds of guids because we don't
     //         have support for cloning metadata around yet
     if(signalerKind & OCR_GUID_EVENT) {
-        //TODO-RED
         bool cond = (signalerKind == OCR_GUID_EVENT_ONCE) || (signalerKind == OCR_GUID_EVENT_LATCH);
 #ifdef ENABLE_EXTENSION_CHANNEL_EVT
         cond = cond || (signalerKind == OCR_GUID_EVENT_CHANNEL);
+#endif
+#ifdef ENABLE_EXTENSION_COLLECTIVE_EVT
+        cond = cond || (signalerKind == OCR_GUID_EVENT_COLLECTIVE);
 #endif
         if(cond) {
             node->slot = SLOT_REGISTERED_EPHEMERAL_EVT; // To record this slot is for a once event

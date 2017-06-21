@@ -811,7 +811,7 @@ static bool localAcquirePrime(ocrDataBlock_t * self, ocrDataBlockLockableAttr_t 
         return true;
     }
 
-    if ((attr->dbMode == DB_RW) && (othMode == DB_RW)) {
+    if ((attr->dbMode == DB_RW) && ((othMode == DB_RW) || (othMode == DB_RO))) {
         return true;
     }
     ASSERT(!attr->isEager);
@@ -966,7 +966,7 @@ void localReleaseIdle(ocrDataBlock_t * self, ocrDataBlockLockableAttr_t * attr) 
 #ifdef OCR_ASSERT
 static bool remoteAcquireIdle(ocrDataBlock_t * self, ocrDataBlockLockableAttr_t * attr, u8 othMode) {
     // Remote acquire when we are in idle mode.
-    // Can't happen since a slave never receives remote acquries
+    // Can't happen since a slave never receives remote acquires
     ASSERT(false);
     return false;
 }

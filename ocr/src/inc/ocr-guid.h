@@ -44,6 +44,9 @@ typedef struct _paramListGuidProviderInst_t {
 struct _ocrGuidProvider_t;
 struct _ocrPolicyDomain_t;
 
+#if defined(ENABLE_EXTENSION_DISTRIBUTED_LABELED) && defined(ENABLE_EXTENSION_COLLECTIVE_EVT)
+#define MD_ALLOC 3
+#endif
 #define MD_PROXY 2
 #define MD_FETCH 1
 #define MD_LOCAL 0
