@@ -359,9 +359,6 @@ static u8 doSatisfy(ocrPolicyDomain_t *pd, ocrPolicyMsg_t *msg,
     PD_MSG_FIELD_I(mode) = -1;
 #endif
     PD_MSG_FIELD_I(properties) = 0;
-#ifdef ENABLE_AMT_RESILIENCE
-    PD_MSG_FIELD_I(resilientEdtParent) = NULL_GUID;
-#endif
     RESULT_PROPAGATE(pd->fcts.processMessage(pd, msg, true));
 #undef PD_TYPE
 #undef PD_MSG
@@ -380,9 +377,6 @@ static u8 doAddDep(ocrPolicyDomain_t *pd, ocrPolicyMsg_t *msg,
     PD_MSG_FIELD_I(currentEdt.guid) = NULL_GUID;
     PD_MSG_FIELD_I(currentEdt.metaDataPtr) = NULL;
     PD_MSG_FIELD_IO(properties) = DB_MODE_CONST;
-#ifdef ENABLE_AMT_RESILIENCE
-    PD_MSG_FIELD_I(resilientEdtParent) = NULL_GUID;
-#endif
     RESULT_PROPAGATE(pd->fcts.processMessage(pd, msg, false));
 #undef PD_MSG
 #undef PD_TYPE
@@ -409,9 +403,6 @@ static u8 registerOnFrontier(ocrTaskHc_t *self, ocrPolicyDomain_t *pd,
     PD_MSG_FIELD_I(dest.metaDataPtr) = NULL;
     PD_MSG_FIELD_I(slot) = self->signalers[slot].slot;
     PD_MSG_FIELD_I(properties) = false; // not called from add-dependence
-#ifdef ENABLE_AMT_RESILIENCE
-    PD_MSG_FIELD_I(resilientEdtParent) = self->base.resilientEdtParent;
-#endif
     RESULT_PROPAGATE(pd->fcts.processMessage(pd, msg, true));
 #undef PD_MSG
 #undef PD_TYPE
@@ -528,9 +519,6 @@ static u8 iterateDbFrontier(ocrTask_t *self) {
                 PD_MSG_FIELD_IO(destLoc) = pd->myLocation;
                 PD_MSG_FIELD_IO(edtSlot) = self->depc + 1; // RT slot
                 PD_MSG_FIELD_IO(properties) = depv[i].mode;
-#ifdef ENABLE_AMT_RESILIENCE
-                PD_MSG_FIELD_IO(resilientEdtParent) = self->resilientEdtParent;
-#endif
                 u8 returnCode = pd->fcts.processMessage(pd, &msg, false);
                 // DB_ACQUIRE is potentially asynchronous, check completion.
                 // In shmem and dist HC PD, ACQUIRE is two-way, processed asynchronously
@@ -567,7 +555,8 @@ static u8 scheduleTask(ocrTask_t *self) {
 #ifdef ENABLE_AMT_RESILIENCE
     if (self->flags & OCR_TASK_FLAG_RESILIENT) {
         salPublishEdt(self);
-        if (!ocrGuidIsNull(self->resilientLatch)) resilientLatchUpdate(self->resilientLatch, OCR_EVENT_LATCH_RESCOUNT_DECR_SLOT);
+        if (!ocrGuidIsNull(self->resilientLatch))
+            resilientLatchUpdate(self->resilientLatch, OCR_EVENT_LATCH_RESCOUNT_DECR_SLOT);
     }
 #endif
 
@@ -743,9 +732,6 @@ u8 destructTaskHc(ocrTask_t* base) {
                 PD_MSG_FIELD_I(mode) = -1; //Doesn't matter for latch
 #endif
                 PD_MSG_FIELD_I(properties) = 0;
-#ifdef ENABLE_AMT_RESILIENCE
-                PD_MSG_FIELD_I(resilientEdtParent) = NULL_GUID;
-#endif
                 u8 returnCode __attribute__((unused)) = pd->fcts.processMessage(pd, &msg, false);
                 ASSERT(returnCode == 0);
 #undef PD_MSG
@@ -838,13 +824,13 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
     ocrFatGuid_t resultGuid = *edtGuid;
     u32 hintc = hasProperty(properties, EDT_PROP_NO_HINT) ? 0 : OCR_HINT_COUNT_EDT_HC;
 #ifdef ENABLE_AMT_RESILIENCE
-    bool doResLatchDep = 0;
+    bool doResDep = 0;
     u32 origDepc = depc;
     ocrGuid_t resilientLatch = (perInstance != NULL) ? ((paramListTask_t*)perInstance)->resilientLatch : NULL_GUID;
     ocrGuid_t resilientEdtParent = (perInstance != NULL) ? ((paramListTask_t*)perInstance)->resilientEdtParent : NULL_GUID;
-    if (hasProperty(properties, EDT_PROP_RESILIENT) && !ocrGuidIsNull(resilientLatch)) {
-        depc = (2 * depc) + 1;
-        doResLatchDep = 1;
+    if (hasProperty(properties, EDT_PROP_RESILIENT) && !ocrGuidIsNull(resilientEdtParent)) {
+        depc++;
+        doResDep = 1;
     }
 #endif
     u32 szMd = sizeof(ocrTaskHc_t) + paramc*sizeof(u64) + depc*sizeof(regNode_t) + hintc*sizeof(u64);
@@ -906,10 +892,6 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
         PD_MSG_FIELD_IO(guid.guid) = outputEventPtr->guid; // InOut depending on props
         PD_MSG_FIELD_IO(guid.metaDataPtr) = NULL;
         PD_MSG_FIELD_I(currentEdt) = currentEdt;
-#ifdef ENABLE_AMT_RESILIENCE
-        PD_MSG_FIELD_I(resilientLatch) = NULL_GUID;
-        PD_MSG_FIELD_I(resilientEdtParent) = NULL_GUID;
-#endif
 #ifdef ENABLE_EXTENSION_PARAMS_EVT
         PD_MSG_FIELD_I(params) = NULL;
 #endif
@@ -1050,25 +1032,11 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
 #undef PD_TYPE
 
 #ifdef ENABLE_AMT_RESILIENCE
-    if (doResLatchDep) {
-        //ocrAddDependence(resilientLatch, taskGuid, depc - 1, DB_MODE_NULL);
-        PD_MSG_STACK(msg);
-        getCurrentEnv(NULL, NULL, NULL, &msg);
-#define PD_MSG (&msg)
-#define PD_TYPE PD_MSG_DEP_ADD
-        msg.type = PD_MSG_DEP_ADD | PD_MSG_REQUEST;
-        PD_MSG_FIELD_I(source.guid) = resilientLatch;
-        PD_MSG_FIELD_I(source.metaDataPtr) = NULL;
-        PD_MSG_FIELD_I(dest.guid) = taskGuid;
-        PD_MSG_FIELD_I(dest.metaDataPtr) = NULL;
-        PD_MSG_FIELD_I(slot) = depc - 1;
-        PD_MSG_FIELD_I(currentEdt.guid) = NULL_GUID;
-        PD_MSG_FIELD_I(currentEdt.metaDataPtr) = NULL;
-        PD_MSG_FIELD_IO(properties) = DB_MODE_NULL;
-        PD_MSG_FIELD_I(resilientEdtParent) = resilientEdtParent;
-        RESULT_PROPAGATE(pd->fcts.processMessage(pd, &msg, true));
-#undef PD_MSG
-#undef PD_TYPE
+    if (hasProperty(properties, EDT_PROP_RESILIENT)) {
+        salNewResilientEdt(taskGuid);
+    }
+    if (doResDep) {
+        RESULT_PROPAGATE(salPublishAddDependence(resilientEdtParent, taskGuid, (depc - 1)));
     }
 #endif
 
@@ -1179,11 +1147,7 @@ u8 registerSignalerTaskHc(ocrTask_t * base, ocrFatGuid_t signalerGuid, u32 slot,
 
 #ifndef REG_ASYNC
 
-#ifdef ENABLE_AMT_RESILIENCE
-u8 satisfyTaskHcInternal(ocrTask_t * base, ocrFatGuid_t data, u32 slot)
-#else
 u8 satisfyTaskHc(ocrTask_t * base, ocrFatGuid_t data, u32 slot)
-#endif
 {
     // An EDT has a list of signalers, but only registers
     // incrementally as signals arrive AND on non-persistent
@@ -1199,6 +1163,13 @@ u8 satisfyTaskHc(ocrTask_t * base, ocrFatGuid_t data, u32 slot)
     ASSERT_BLOCK_BEGIN((slot >= 0) && (slot < base->depc))
     DPRINTF(DEBUG_LVL_WARN, "error: EDT "GUIDF" is satisfied on slot=%"PRIu32" but depc is %"PRIu32"\n", GUIDA(base->guid), slot, base->depc);
     ASSERT_BLOCK_END
+
+#ifdef ENABLE_AMT_RESILIENCE
+    if ((base->flags & OCR_TASK_FLAG_RESILIENT) && !ocrGuidIsNull(data.guid) && !salIsPublished(data.guid)) {
+        RESULT_ASSERT(salPublishAddDependence(data.guid, base->guid, slot), ==, 0);
+        return 0;
+    }
+#endif
 
     // Replace the signaler's guid by the data guid, this is to avoid
     // further references to the event's guid, which is good in general
@@ -1322,14 +1293,14 @@ u8 satisfyTaskHc(ocrTask_t * base, ocrFatGuid_t data, u32 slot)
     return 0;
 }
 
+#if 0
 #ifdef ENABLE_AMT_RESILIENCE
 u8 satisfyTaskHc(ocrTask_t * base, ocrFatGuid_t data, u32 slot) {
     ocrTaskHc_t * self = (ocrTaskHc_t *) base;
-    ocrGuid_t registerDb = (self->signalers[slot].mode == DB_MODE_NULL) ? NULL_GUID : data.guid;
-    u32 registerSlot = base->depc;
     if ((base->flags & OCR_TASK_FLAG_RESILIENT) && (base->depc > base->origDepc) && (slot < base->origDepc)) {
-        registerSlot = base->origDepc + slot;
+        u32 registerSlot = base->origDepc + slot;
         ASSERT(registerSlot >= base->origDepc && registerSlot < base->depc);
+        ocrGuid_t registerDb = (self->signalers[slot].mode == DB_MODE_NULL) ? NULL_GUID : data.guid;
         ocrGuid_t evtGuid = NULL_GUID;
         if (!ocrGuidIsNull(registerDb)) {
 #if GUID_BIT_COUNT == 64
@@ -1356,7 +1327,6 @@ u8 satisfyTaskHc(ocrTask_t * base, ocrFatGuid_t data, u32 slot) {
         PD_MSG_FIELD_I(currentEdt.guid) = NULL_GUID;
         PD_MSG_FIELD_I(currentEdt.metaDataPtr) = NULL;
         PD_MSG_FIELD_IO(properties) = DB_MODE_NULL;
-        PD_MSG_FIELD_I(resilientEdtParent) = base->resilientEdtParent;
         RESULT_PROPAGATE(pd->fcts.processMessage(pd, &msg, true));
 #undef PD_MSG
 #undef PD_TYPE
@@ -1364,6 +1334,7 @@ u8 satisfyTaskHc(ocrTask_t * base, ocrFatGuid_t data, u32 slot) {
     ASSERT(self->slotSatisfiedCount < base->depc);
     return satisfyTaskHcInternal(base, data, slot);
 }
+#endif
 #endif
 
 /**
@@ -1445,9 +1416,6 @@ u8 registerSignalerTaskHc(ocrTask_t * base, ocrFatGuid_t signalerGuid, u32 slot,
         PD_MSG_FIELD_I(currentEdt) = currentEdt;
         PD_MSG_FIELD_I(slot) = slot;
         PD_MSG_FIELD_I(properties) = 0;
-#ifdef ENABLE_AMT_RESILIENCE
-        PD_MSG_FIELD_I(resilientEdtParent) = NULL_GUID;
-#endif
         RESULT_PROPAGATE(pd->fcts.processMessage(pd, &registerMsg, true));
     #undef PD_MSG
     #undef PD_TYPE
@@ -1941,10 +1909,6 @@ u8 taskExecute(ocrTask_t* base) {
             PD_MSG_FIELD_IO(guid) = newFinishLatchFGuid;
             PD_MSG_FIELD_I(currentEdt) = currentEdt;
             PD_MSG_FIELD_I(type) = OCR_EVENT_LATCH_T;
-#ifdef ENABLE_AMT_RESILIENCE
-            PD_MSG_FIELD_I(resilientLatch) = NULL_GUID;
-            PD_MSG_FIELD_I(resilientEdtParent) = NULL_GUID;
-#endif
 #ifdef ENABLE_EXTENSION_PARAMS_EVT
             ocrEventParams_t latchParams;
             latchParams.EVENT_LATCH.counter = 1;
@@ -2005,7 +1969,7 @@ u8 taskExecute(ocrTask_t* base) {
         base->state = RUNNING_EDTSTATE;
 
         //TODO Execute can be considered user on x86, but need to differentiate processRequestEdts in x86-mpi
-        DPRINTF(DEBUG_LVL_VERB, "Execute "GUIDF" paramc:%"PRId32" depc:%"PRId32"\n", GUIDA(base->guid), base->paramc, base->depc);
+        DPRINTF(DEBUG_LVL_INFO, "Execute "GUIDF" paramc:%"PRId32" depc:%"PRId32"\n", GUIDA(base->guid), base->paramc, base->depc);
         OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_EDT, OCR_ACTION_EXECUTE, traceTaskExecute, base->guid, base->funcPtr, depc, paramc, paramv);
 
         ASSERT(derived->unkDbs == NULL); // Should be no dynamically acquired DBs before running

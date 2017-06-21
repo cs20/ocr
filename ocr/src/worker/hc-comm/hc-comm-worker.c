@@ -105,8 +105,8 @@ static u8 createProcessRequestEdt(ocrPolicyDomain_t * pd, ocrGuid_t templateGuid
     PD_MSG_FIELD_I(workType) = workType;
     PD_MSG_FIELD_I(properties) = properties;
 #ifdef ENABLE_AMT_RESILIENCE
+    ASSERT(ocrGuidIsNull(msg.resilientEdtParent));
     PD_MSG_FIELD_I(resilientLatch) = NULL_GUID;
-    PD_MSG_FIELD_I(resilientEdtParent) = NULL_GUID;
 #endif
     returnCode = pd->fcts.processMessage(pd, &msg, true);
     if(returnCode) {

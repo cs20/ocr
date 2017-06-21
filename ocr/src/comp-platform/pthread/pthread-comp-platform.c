@@ -361,6 +361,12 @@ void getCurrentEnv(ocrPolicyDomain_t** pd, ocrWorker_t** worker,
         msg->srcLocation = tls->pd->myLocation;
         msg->destLocation = msg->srcLocation;
         msg->usefulSize = 0; // Convention to say that the size is not yet set
+#ifdef ENABLE_AMT_RESILIENCE
+        msg->resilientEdtParent = NULL_GUID;
+        if ((tls->worker != NULL) && (tls->worker->curTask != NULL)) {
+            msg->resilientEdtParent = tls->worker->curTask->resilientEdtParent;
+        }
+#endif
     }
     RETURN_PROFILE();
 }

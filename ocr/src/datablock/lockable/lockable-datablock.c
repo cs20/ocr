@@ -74,22 +74,6 @@ typedef struct _dbWaiter_t {
 u8 lockableDestruct(ocrDataBlock_t *self);
 #ifdef ENABLE_AMT_RESILIENCE
 static u8 lockablePublishInternal(ocrDataBlock_t *self, u32 properties);
-static void satisfyPublishEvent(ocrDataBlock_t *self) {
-    ocrDataBlockLockable_t * rself = (ocrDataBlockLockable_t*) self;
-#ifdef OCR_ASSERT
-    ASSERT(rself->attributes.published == 1);
-#endif
-#if GUID_BIT_COUNT == 64
-    u64 guidKey = self->guid.guid;
-#elif GUID_BIT_COUNT == 128
-    u64 guidKey = self->guid.lower;
-#else
-#error Unknown type of GUID
-#endif
-    ocrGuid_t evt;
-    RESULT_ASSERT(salGuidTableGet(guidKey, &evt), ==, 0);
-    ocrEventSatisfy(evt, NULL_GUID);
-}
 #endif
 
 //MD: Here we need the continuation of the acquire that
@@ -308,9 +292,6 @@ static void processAcquireCallback(ocrDataBlock_t *self, dbWaiter_t * waiter, oc
     // In this implementation properties encodes the MODE + isInternal +
     // any additional flags set by the PD (such as the FETCH flag)
     PD_MSG_FIELD_IO(properties) = properties;
-#ifdef ENABLE_AMT_RESILIENCE
-    PD_MSG_FIELD_IO(resilientEdtParent) = self->resilientEdtParent;
-#endif
     // A response msg is being built, must set all the OUT fields
     PD_MSG_FIELD_O(size) = self->size;
     PD_MSG_FIELD_O(returnDetail) = 0;
@@ -378,15 +359,11 @@ u8 lockableRelease(ocrDataBlock_t *self, ocrFatGuid_t edt, ocrLocation_t srcLoc,
         DPRINTF(DEBUG_LVL_VERB, "DB (GUID "GUIDF") backed up from EDT "GUIDF"\n", GUIDA(rself->base.guid), GUIDA(edt.guid));
     }
 #endif
-#ifdef ENABLE_AMT_RESILIENCE
-    u8 isPublished = 0;
-#endif
 
     //IMPL: this is probably not very fair
     if (rself->attributes.numUsers == 0) {
 #ifdef ENABLE_AMT_RESILIENCE
         if ((self->flags & DB_PROP_PUBLISH_EAGER) && (rself->attributes.modeLock == DB_LOCKED_ITW || rself->attributes.modeLock == DB_LOCKED_EW)) {
-            isPublished = !rself->attributes.published;
             lockablePublishInternal(self, 0);
         }
 #endif
@@ -526,9 +503,6 @@ u8 lockableRelease(ocrDataBlock_t *self, ocrFatGuid_t edt, ocrLocation_t srcLoc,
     }
     rself->worker = NULL;
     hal_unlock(&(rself->lock));
-#ifdef ENABLE_AMT_RESILIENCE
-    if (isPublished) satisfyPublishEvent(self);
-#endif
     return 0;
 }
 
@@ -562,16 +536,6 @@ u8 lockableDestruct(ocrDataBlock_t *self) {
         ASSERT(dbIsPublished && (dself->attributes.published == 1));
 #endif
         RESULT_ASSERT(salRemovePublished(self->guid), ==, 0);
-#if GUID_BIT_COUNT == 64
-        u64 guidKey = self->guid.guid;
-#elif GUID_BIT_COUNT == 128
-        u64 guidKey = self->guid.lower;
-#else
-#error Unknown type of GUID
-#endif
-        ocrGuid_t evt;
-        RESULT_ASSERT(salGuidTableRemove(guidKey, &evt), ==, 0);
-        ocrEventDestroy(evt);
     }
 #endif
 
@@ -632,10 +596,8 @@ static u8 lockablePublishInternal(ocrDataBlock_t *self, u32 properties) {
 u8 lockablePublish(ocrDataBlock_t *self, u32 properties) {
     ocrDataBlockLockable_t * rself = (ocrDataBlockLockable_t*) self;
     hal_lock(&(rself->lock));
-    u8 isPublished = !rself->attributes.published;
     lockablePublishInternal(self, properties);
     hal_unlock(&(rself->lock));
-    if (isPublished) satisfyPublishEvent(self);
     return 0;
 }
 #endif
@@ -755,9 +717,6 @@ u8 newDataBlockLockable(ocrDataBlockFactory_t *factory, ocrFatGuid_t *guid, ocrF
     // Only keep flags that represent the nature of
     // the DB as opposed to one-time usage creation flags
     result->base.flags = (flags & (DB_PROP_SINGLE_ASSIGNMENT | DB_PROP_RT_PROXY | DB_PROP_RESILIENT | DB_PROP_PUBLISH_EAGER));
-#ifdef ENABLE_AMT_RESILIENCE
-    result->base.resilientEdtParent = NULL_GUID;
-#endif
     result->lock = INIT_LOCK;
     result->attributes.flags = result->base.flags;
     result->attributes.numUsers = 0;
@@ -786,16 +745,7 @@ u8 newDataBlockLockable(ocrDataBlockFactory_t *factory, ocrFatGuid_t *guid, ocrF
 
 #ifdef ENABLE_AMT_RESILIENCE
     if (flags & DB_PROP_RESILIENT) {
-#if GUID_BIT_COUNT == 64
-        u64 guidKey = resultGuid.guid;
-#elif GUID_BIT_COUNT == 128
-        u64 guidKey = resultGuid.lower;
-#else
-#error Unknown type of GUID
-#endif
-        ocrGuid_t evt;
-        ocrEventCreate(&evt, OCR_EVENT_STICKY_T, 0);
-        RESULT_ASSERT(salGuidTablePut(guidKey, evt), ==, 0);
+        //salPublishDep(resultGuid);
     }
 #endif
 

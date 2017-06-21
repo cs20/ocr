@@ -37,23 +37,14 @@
 #define DEBUG_TYPE POLICY
 
 #ifdef ENABLE_AMT_RESILIENCE
-#include <pthread.h>
 #define AMT_RESILIENCE_CHECK_FOR_FAULT(pd)                                  \
 {                                                                           \
     if (pd->faultCode) {                                                    \
         ocrWorker_t *worker = NULL;                                         \
-        ocrTask_t *task = NULL;                                             \
-        getCurrentEnv(NULL, &worker, &task, NULL);                          \
+        getCurrentEnv(NULL, &worker, NULL, NULL);                           \
         ocrWorkerHc_t *hcWorker = (ocrWorkerHc_t*)worker;                   \
         if (hcWorker->hcType == HC_WORKER_COMP) {                           \
-            if (pd->faultCode == OCR_NODE_FAILURE_SELF) {                   \
-                pthread_exit(NULL);                                         \
-            }                                                               \
-            if (pd->faultCode == OCR_NODE_FAILURE_OTHER) {                  \
-                if (task != NULL && salCheckEdtFault(task->resilientEdtParent)) {   \
-                    abortCurrentWork();                                     \
-                }                                                           \
-            }                                                               \
+            processFailure();                                               \
         }                                                                   \
     }                                                                       \
 }
@@ -251,8 +242,8 @@ u8 createProcessRequestEdtDistPolicy(ocrPolicyDomain_t * pd, ocrGuid_t templateG
     PD_MSG_FIELD_I(properties) = properties;
     PD_MSG_FIELD_I(workType) = workType;
 #ifdef ENABLE_AMT_RESILIENCE
+    ASSERT(ocrGuidIsNull(msg.resilientEdtParent));
     PD_MSG_FIELD_I(resilientLatch) = NULL_GUID;
-    PD_MSG_FIELD_I(resilientEdtParent) = NULL_GUID;
 #endif
     // This is a "fake" EDT so it has no "parent"
     PD_MSG_FIELD_I(currentEdt.guid) = NULL_GUID;
@@ -719,9 +710,6 @@ static void * acquireLocalDbOblivious(ocrPolicyDomain_t * pd, ocrGuid_t dbGuid) 
     PD_MSG_FIELD_IO(destLoc) = pd->myLocation;
     PD_MSG_FIELD_IO(edtSlot) = EDT_SLOT_NONE;
     PD_MSG_FIELD_IO(properties) = DB_PROP_RT_OBLIVIOUS; // Runtime acquire
-#ifdef ENABLE_AMT_RESILIENCE
-    PD_MSG_FIELD_IO(resilientEdtParent) = NULL_GUID;
-#endif
     if(pd->fcts.processMessage(pd, &msg, true)) {
         ASSERT(false); // debug
         return NULL;
@@ -955,9 +943,6 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
                 PD_MSG_FIELD_I(mode) = -1; //Doesn't matter for latch
 #endif
                 PD_MSG_FIELD_I(properties) = 0;
-#ifdef ENABLE_AMT_RESILIENCE
-                PD_MSG_FIELD_I(resilientEdtParent) = NULL_GUID;
-#endif
                 RESULT_PROPAGATE(self->fcts.processMessage(self, &msg2, true));
 #undef PD_MSG
 #undef PD_TYPE

@@ -24,6 +24,7 @@
 #include <string.h>
 #include <limits.h>
 #include <time.h>
+#include <pthread.h>
 
 #if defined(linux) || defined(__APPLE__)
 #include <unistd.h>
@@ -584,10 +585,9 @@ bool salCheckpointExistsResumeQuery() {
 //Publish-Fetch hashtable
 static int pfIsInitialized = 0;
 static hashtable_t * pfTable = NULL;    //Hashtable containing pointers to published data
-static hashtable_t * recTable = NULL;   //Hashtable containing EDT guids invested in this node
 static hashtable_t * faultTable = NULL; //Hashtable containing EDT guids which have encountered faults
 static lock_t pfLock;
-static lock_t recLock;
+static lock_t depLock;
 static char * nodeExt;
 
 typedef struct _nodeStateHeader {
@@ -604,17 +604,18 @@ typedef struct _nodeStateRecord {
 
 static void *nodeStateBuf;
 static int nodeStateFD;
+static volatile u32 workerCounter;
 
 //Initialize the hashtable
 void salInitPublishFetch() {
     ocrPolicyDomain_t *pd;
     getCurrentEnv(&pd, NULL, NULL, NULL);
     pfTable = newHashtableBucketLockedModulo(pd, RECORD_INCR_SIZE);
-    recTable = newHashtableBucketLockedModulo(pd, RECORD_INCR_SIZE);
-    faultTable = newHashtableModulo(pd, RECORD_INCR_SIZE);
+    faultTable = newHashtableBucketLockedModulo(pd, RECORD_INCR_SIZE);
     pfLock = INIT_LOCK;
-    recLock = INIT_LOCK;
+    depLock = INIT_LOCK;
     nodeExt = NULL;
+    workerCounter = 0;
 
     //Initialize node state buffer
     char fname[FNL];
@@ -706,9 +707,7 @@ void salFinalizePublishFetch() {
     }
 }
 
-//Check if guid has been published
-//Returns true or false
-u8 salIsPublished(ocrGuid_t g) {
+u8 salIsPublishedGuid(ocrGuid_t g) {
     ASSERT(!(ocrGuidIsNull(g)));
 #if GUID_BIT_COUNT == 64
     u64 guid = g.guid;
@@ -732,10 +731,10 @@ u8 salIsPublished(ocrGuid_t g) {
     return 1;
 }
 
-//Publish the guid and optionally insert the ptr to the hashtable
-//Returns the file descriptor of the published data
-static u8 salPublishInternal(ocrGuid_t g, void *ptr, u64 size, u8 activeBuffer) {
-    ASSERT(!(ocrGuidIsNull(g)));
+u8 salIsPublishedEvent(ocrGuid_t g) {
+    if (ocrGuidIsNull(g))
+        return 0;
+
 #if GUID_BIT_COUNT == 64
     u64 guid = g.guid;
 #elif GUID_BIT_COUNT == 128
@@ -743,21 +742,383 @@ static u8 salPublishInternal(ocrGuid_t g, void *ptr, u64 size, u8 activeBuffer) 
 #else
 #error Unknown type of GUID
 #endif
-    void* buf = hashtableConcBucketLockedGet(pfTable, (void*)guid);
-    if (buf != NULL) {
-        fprintf(stderr, "Found existing guid [0x%lx] during publish!\n", guid);
+    char fname[FNL];
+    int c = snprintf(fname, FNL, "%lu.evt", guid);
+    if (c < 0 || c >= FNL) {
+        fprintf(stderr, "failed to create filename for publish\n");
         ASSERT(0);
-        return 1;
+        return 0;
     }
 
+    struct stat sb;
+    if (stat(fname, &sb) == -1) {
+        return 0;
+    }
+    return 1;
+}
+
+//Check if guid has been published
+//Returns true or false
+u8 salIsPublished(ocrGuid_t g) {
+    if (ocrGuidIsNull(g))
+        return 0;
+    ocrPolicyDomain_t *pd = NULL;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+    ocrGuidKind kind;
+    pd->guidProviders[0]->fcts.getKind(pd->guidProviders[0], g, &kind);
+    if (kind & OCR_GUID_EVENT) {
+        return salIsPublishedEvent(g);
+    } else if ((kind == OCR_GUID_DB) || (kind == OCR_GUID_EDT)) {
+        return salIsPublishedGuid(g);
+    } else {
+        ASSERT(0);
+    }
+    return 0;
+}
+
+u8 salIsSatisfied(ocrGuid_t g) {
+    if (ocrGuidIsNull(g))
+        return 0;
+    ocrPolicyDomain_t *pd = NULL;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+    ocrGuidKind kind;
+    pd->guidProviders[0]->fcts.getKind(pd->guidProviders[0], g, &kind);
+    if (kind & OCR_GUID_EVENT) {
+        ocrGuid_t data = NULL_GUID;
+        if (salIsSatisfiedEvent(g, &data)) {
+            return 1;
+        }
+    } else if (kind == OCR_GUID_DB) {
+        if (salIsPublishedGuid(g)) {
+            return 1;
+        }
+    } else if (kind == OCR_GUID_EDT) {
+        ASSERT(salIsPublishedGuid(g));
+        if (!salIsPublishedGuid(g)) {
+            return 1;
+        }
+    } else {
+        ASSERT(0);
+    }
+    return 0;
+}
+
+///////////////////////// Publish Deps API ////////////////////////
+
+typedef struct _depRecord {
+    ocrGuid_t dst;
+    u32 slot;
+} depRecord_t;
+
+typedef struct _depStorage {
+    u32 numDeps;
+    u32 maxDeps;
+} depStorage_t;
+
+#define DEPS_INCR 4
+
+static depRecord_t * salGetPublishedDeps(u64 guid, u64 loc, u32 *ndeps) {
+    *ndeps = 0;
+
     char fname[FNL];
-    int c = snprintf(fname, FNL, "%lu.guid", guid);
+    int c = snprintf(fname, FNL, "%lu.deps%lu", guid, loc);
+    if (c < 0 || c >= FNL) {
+        fprintf(stderr, "failed to create filename for publish\n");
+        ASSERT(0);
+        return NULL;
+    }
+
+    struct stat sb;
+    if (stat(fname, &sb) != 0) {
+        return NULL;
+    }
+    u64 size = sb.st_size;
+
+    //open underlying file
+    int fd = open(fname, O_RDONLY);
+    if (fd<0) {
+        fprintf(stderr, "open failed: (filename: %s)\n", fname);
+        ASSERT(0);
+        return NULL;
+    }
+
+    void *buf = mmap( NULL, size, PROT_READ, MAP_SHARED, fd, 0 );
+    if (buf == MAP_FAILED) {
+        fprintf(stderr, "mmap failed for size %lu (filename: %s filedesc: %d)\n", size, fname, fd);
+        ASSERT(0);
+        return NULL;
+    }
+
+    depStorage_t *depHeader = (depStorage_t*)buf;
+    depRecord_t *deprecBuf = (depRecord_t*)(((u8*)buf) + sizeof(depStorage_t));
+    u32 numDeps = depHeader->numDeps;
+    ocrPolicyDomain_t *pd;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+    depRecord_t *deprec = (depRecord_t*)pd->fcts.pdMalloc(pd, sizeof(depRecord_t) * numDeps);
+    memcpy(deprec, deprecBuf, sizeof(depRecord_t) * numDeps);
+
+    int rc = munmap(buf, size);
+    if (rc) {
+        fprintf(stderr, "munmap failed for buffer %p of size %lu\n", buf, size);
+        ASSERT(0);
+        return NULL;
+    }
+
+    //close file
+    rc = close(fd);
+    if (rc) {
+        fprintf(stderr, "close failed: (filedesc: %d)\n", fd);
+        ASSERT(0);
+        return NULL;
+    }
+
+    rc = unlink(fname);
+    if (rc) {
+        fprintf(stderr, "unlink failed: (filename: %s)\n", fname);
+        ASSERT(0);
+        return NULL;
+    }
+
+    *ndeps = numDeps;
+    return deprec;
+}
+
+static void doSatisfy(ocrGuid_t dst, u32 slot, ocrGuid_t data) {
+    PD_MSG_STACK(msg);
+    ocrPolicyDomain_t *pd = NULL;
+    ocrTask_t * curEdt = NULL;
+    getCurrentEnv(&pd, NULL, &curEdt, &msg);
+    if (!salIsPublished(dst)) {
+        ocrLocation_t loc;
+        pd->guidProviders[0]->fcts.getLocation(pd->guidProviders[0], dst, &loc);
+        if (checkPlatformModelLocationFault(loc))
+            return;
+    }
+#define PD_MSG (&msg)
+#define PD_TYPE PD_MSG_DEP_SATISFY
+    msg.type = PD_MSG_DEP_SATISFY | PD_MSG_REQUEST;
+    PD_MSG_FIELD_I(satisfierGuid.guid) = curEdt?curEdt->guid:NULL_GUID;
+    PD_MSG_FIELD_I(satisfierGuid.metaDataPtr) = curEdt;
+    PD_MSG_FIELD_I(guid.guid) = dst;
+    PD_MSG_FIELD_I(guid.metaDataPtr) = NULL;
+    PD_MSG_FIELD_I(payload.guid) = data;
+    PD_MSG_FIELD_I(payload.metaDataPtr) = NULL;
+    PD_MSG_FIELD_I(currentEdt.guid) = curEdt ? curEdt->guid : NULL_GUID;
+    PD_MSG_FIELD_I(currentEdt.metaDataPtr) = curEdt;
+    PD_MSG_FIELD_I(slot) = slot;
+#ifdef REG_ASYNC_SGL
+    PD_MSG_FIELD_I(mode) = DB_MODE_RW;
+#endif
+    PD_MSG_FIELD_I(properties) = 0;
+    pd->fcts.processMessage(pd, &msg, true);
+#undef PD_MSG
+#undef PD_TYPE
+}
+
+u8 salReleasePublishedDeps(ocrGuid_t g, ocrGuid_t data) {
+    if (!pfIsInitialized) return 1;
+    if (ocrGuidIsNull(g)) return 1;
+#if GUID_BIT_COUNT == 64
+    u64 guid = g.guid;
+#elif GUID_BIT_COUNT == 128
+    u64 guid = g.lower;
+#else
+#error Unknown type of GUID
+#endif
+    ocrPolicyDomain_t *pd;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+    u32 i, numDeps;
+    u64 n;
+
+    for (n = 0; n < pd->neighborCount + 1; n++) {
+        depRecord_t *deprec = salGetPublishedDeps(guid, n, &numDeps);
+        if (numDeps == 0) continue;
+        for (i = 0; i < numDeps; i++) {
+            doSatisfy(deprec[i].dst, deprec[i].slot, data);
+        }
+        pd->fcts.pdFree(pd, deprec);
+    }
+    return 0;
+}
+
+static u8 salDoSatisfy(ocrGuid_t src, ocrGuid_t dst, u32 slot) {
+    ASSERT(!(ocrGuidIsNull(src)));
+    ocrPolicyDomain_t *pd = NULL;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+    ocrGuidKind kind;
+    pd->guidProviders[0]->fcts.getKind(pd->guidProviders[0], src, &kind);
+    if (kind & OCR_GUID_EVENT) {
+        ocrGuid_t data = NULL_GUID;
+        if (salIsSatisfiedEvent(src, &data)) {
+            doSatisfy(dst, slot, data);
+            return 1;
+        }
+    } else if (kind == OCR_GUID_DB) {
+        if (salIsPublishedGuid(src)) {
+            doSatisfy(dst, slot, src);
+            return 1;
+        }
+    } else if (kind == OCR_GUID_EDT) {
+        ASSERT(salIsPublishedGuid(src));
+        if (!salIsPublishedGuid(src)) {
+            doSatisfy(dst, slot, NULL_GUID);
+            return 1;
+        }
+    } else {
+        ASSERT(0);
+    }
+    return 0;
+}
+
+u8 salPublishAddDependence(ocrGuid_t g, ocrGuid_t dst, u32 slot) {
+    if (!pfIsInitialized) return 1;
+    if (ocrGuidIsNull(g)) return 1;
+
+    ocrPolicyDomain_t *pd = NULL;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+    ocrGuidKind kind;
+    pd->guidProviders[0]->fcts.getKind(pd->guidProviders[0], dst, &kind);
+    if (kind != OCR_GUID_EDT) return 1;
+    if (!salIsResilientEdt(dst)) return 1;
+
+    if (salDoSatisfy(g, dst, slot)) {
+        return 0;
+    }
+
+#if GUID_BIT_COUNT == 64
+    u64 guid = g.guid;
+#elif GUID_BIT_COUNT == 128
+    u64 guid = g.lower;
+#else
+#error Unknown type of GUID
+#endif
+
+    hal_lock(&depLock);
+
+    char fname[FNL];
+    int c = snprintf(fname, FNL, "%lu.deps%lu", guid, pd->myLocation);
     if (c < 0 || c >= FNL) {
         fprintf(stderr, "failed to create filename for publish\n");
         ASSERT(0);
         return 1;
     }
 
+    void *buf = NULL;
+    u64 size = 0;
+    int fd = -1;
+    struct stat sb;
+    if (stat(fname, &sb) != 0) {
+        fd = open(fname, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR );
+        if (fd<0) {
+            fprintf(stderr, "open failed: (filename: %s)\n", fname);
+            ASSERT(0);
+            return 1;
+        }
+        size = sizeof(depStorage_t) + (DEPS_INCR * sizeof(depRecord_t));
+        int rc = ftruncate(fd, size);
+        if (rc) {
+            fprintf(stderr, "ftruncate failed: (filename: %s filedesc: %d)\n", fname, fd);
+            ASSERT(0);
+            return 1;
+        }
+        buf = mmap( NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0 );
+        if (buf == MAP_FAILED) {
+            fprintf(stderr, "mmap failed for size %lu (filename: %s filedesc: %d)\n", size, fname, fd);
+            ASSERT(0);
+            return 1;
+        }
+        depStorage_t *depHeader = (depStorage_t*)buf;
+        depHeader->numDeps = 0;
+        depHeader->maxDeps = DEPS_INCR;
+    } else {
+        fd = open(fname, O_RDWR);
+        if (fd<0) {
+            fprintf(stderr, "open failed: (filename: %s)\n", fname);
+            ASSERT(0);
+            return 1;
+        }
+        size = sb.st_size;
+        buf = mmap( NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0 );
+        if (buf == MAP_FAILED) {
+            fprintf(stderr, "mmap failed for size %lu (filename: %s filedesc: %d)\n", size, fname, fd);
+            ASSERT(0);
+            return 1;
+        }
+    }
+
+    u8 doResize = 0;
+    depStorage_t *depHeader = (depStorage_t*)buf;
+    depRecord_t *deprec = (depRecord_t*)(((u8*)buf) + sizeof(depStorage_t) + (depHeader->numDeps * sizeof(depRecord_t)));
+    deprec->dst = dst;
+    deprec->slot = slot;
+    u32 maxDeps = depHeader->maxDeps;
+    if (++depHeader->numDeps == maxDeps) doResize = 1;
+
+    int rc = msync(buf, size, MS_INVALIDATE | MS_SYNC);
+    if (rc) {
+        fprintf(stderr, "msync failed for buffer %p of size %lu\n", buf, size);
+        ASSERT(0);
+        return 1;
+    }
+
+    rc = munmap(buf, size);
+    if (rc) {
+        fprintf(stderr, "munmap failed for buffer %p of size %lu\n", buf, size);
+        ASSERT(0);
+        return 1;
+    }
+
+    if (doResize) {
+        size = sizeof(depStorage_t) + ((maxDeps + DEPS_INCR) * sizeof(depRecord_t));
+        int rc = ftruncate(fd, size);
+        if (rc) {
+            fprintf(stderr, "ftruncate failed: (filename: %s filedesc: %d)\n", fname, fd);
+            ASSERT(0);
+            return 1;
+        }
+    }
+
+    rc = close(fd);
+    if (rc) {
+        fprintf(stderr, "close failed: (filedesc: %d)\n", fd);
+        ASSERT(0);
+        return 1;
+    }
+
+    hal_unlock(&depLock);
+
+    return 0;
+}
+
+u8 salTransferPublishedDeps(ocrGuid_t g, ocrGuid_t dst) {
+    u32 i, numDeps;
+    u64 n;
+#if GUID_BIT_COUNT == 64
+    u64 guid = g.guid;
+#elif GUID_BIT_COUNT == 128
+    u64 guid = g.lower;
+#else
+#error Unknown type of GUID
+#endif
+    ocrPolicyDomain_t *pd;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+
+    for (n = 0; n < pd->neighborCount + 1; n++) {
+        depRecord_t *deprec = salGetPublishedDeps(guid, n, &numDeps);
+        if (numDeps == 0) continue;
+        for (i = 0; i < numDeps; i++) {
+            salPublishAddDependence(dst, deprec[i].dst, deprec[i].slot);
+        }
+        pd->fcts.pdFree(pd, deprec);
+    }
+    return 0;
+}
+
+///////////////////////// Publish DB API ////////////////////////
+
+//Publish the guid and optionally insert the ptr to the hashtable
+//Returns the file descriptor of the published data
+static u8 salPublishInternal(char *fname, u64 guid, void *ptr, u64 size, u8 activeBuffer) {
     struct stat sb;
     if (stat(fname, &sb) != -1) {
         fprintf(stderr, "Found existing guid [0x%lx] during publish!\n", guid);
@@ -779,7 +1140,7 @@ static u8 salPublishInternal(ocrGuid_t g, void *ptr, u64 size, u8 activeBuffer) 
         return 1;
     }
 
-    buf = mmap( NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0 );
+    void *buf = mmap( NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0 );
     if (buf == MAP_FAILED) {
         fprintf(stderr, "mmap failed for size %lu (filename: %s filedesc: %d)\n", size, fname, fd);
         ASSERT(0);
@@ -818,16 +1179,7 @@ static u8 salPublishInternal(ocrGuid_t g, void *ptr, u64 size, u8 activeBuffer) 
 
 u8 salPublish(ocrGuid_t g, void *ptr, u64 size) {
     if (!pfIsInitialized) return 1;
-    return salPublishInternal(g, ptr, size, 1);
-}
-
-//Copy a published guid to a new buffer and return the ptr
-//Caller takes responsibility of free-ing the buffer
-void* salFetchInternal(ocrGuid_t g, u64 *gSize, u8 activeBuffer, u8 doCopy) {
     ASSERT(!(ocrGuidIsNull(g)));
-    if (gSize) *gSize = 0;
-    ocrPolicyDomain_t *pd;
-    getCurrentEnv(&pd, NULL, NULL, NULL);
 #if GUID_BIT_COUNT == 64
     u64 guid = g.guid;
 #elif GUID_BIT_COUNT == 128
@@ -835,6 +1187,31 @@ void* salFetchInternal(ocrGuid_t g, u64 *gSize, u8 activeBuffer, u8 doCopy) {
 #else
 #error Unknown type of GUID
 #endif
+    char fname[FNL];
+    int c = snprintf(fname, FNL, "%lu.guid", guid);
+    if (c < 0 || c >= FNL) {
+        fprintf(stderr, "failed to create filename for publish\n");
+        ASSERT(0);
+        return 1;
+    }
+    void* buf = hashtableConcBucketLockedGet(pfTable, (void*)guid);
+    if (buf != NULL) {
+        fprintf(stderr, "Found existing guid [0x%lx] during publish!\n", guid);
+        ASSERT(0);
+        return 1;
+    }
+    salPublishInternal(fname, guid, ptr, size, 1);
+    hal_fence();
+    salReleasePublishedDeps(g, g);
+    return 0;
+}
+
+//Copy a published guid to a new buffer and return the ptr
+//Caller takes responsibility of free-ing the buffer
+void* salFetchInternal(u64 guid, u64 *gSize, u8 activeBuffer, u8 doCopy) {
+    if (gSize) *gSize = 0;
+    ocrPolicyDomain_t *pd;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
 
     char fname[FNL];
     int c = snprintf(fname, FNL, "%lu.guid", guid);
@@ -893,7 +1270,14 @@ void* salFetchInternal(ocrGuid_t g, u64 *gSize, u8 activeBuffer, u8 doCopy) {
 
 void* salFetch(ocrGuid_t g, u64 *gSize) {
     if (!pfIsInitialized) return NULL;
-    return salFetchInternal(g, gSize, 1, 1);
+#if GUID_BIT_COUNT == 64
+    u64 guid = g.guid;
+#elif GUID_BIT_COUNT == 128
+    u64 guid = g.lower;
+#else
+#error Unknown type of GUID
+#endif
+    return salFetchInternal(guid, gSize, 1, 1);
 }
 
 //Update a published guid's contents
@@ -1056,8 +1440,33 @@ u8 salRemovePublished(ocrGuid_t g) {
         ASSERT(0);
         return 1;
     }
+
+    /*u64 n;
+    ocrPolicyDomain_t *pd;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+    for (n = 0; n < pd->neighborCount + 1; n++) {
+        char fname[FNL];
+        int c = snprintf(fname, FNL, "%lu.deps%lu", guid, n);
+        if (c < 0 || c >= FNL) {
+            fprintf(stderr, "failed to create filename for publish\n");
+            ASSERT(0);
+            return 1;
+        }
+        struct stat sb;
+        if (stat(fname, &sb) == 0) {
+            int rc = unlink(fname);
+            if (rc) {
+                fprintf(stderr, "unlink failed: (filename: %s)\n", fname);
+                ASSERT(0);
+                return 1;
+            }
+        }
+    }*/
+
     return 0;
 }
+
+///////////////////////// Publish EDT API ////////////////////////
 
 typedef struct _edtStorage {
     ocrEdt_t funcPtr;
@@ -1067,13 +1476,94 @@ typedef struct _edtStorage {
     ocrGuid_t *depv;
 } edtStorage_t;
 
+u8 salNewResilientEdt(ocrGuid_t g) {
+    if (!pfIsInitialized) return 1;
+    if (ocrGuidIsNull(g)) return 1;
+#if GUID_BIT_COUNT == 64
+    u64 guid = g.guid;
+#elif GUID_BIT_COUNT == 128
+    u64 guid = g.lower;
+#else
+#error Unknown type of GUID
+#endif
+
+    char fname[FNL];
+    int c = snprintf(fname, FNL, "%lu.edt", guid);
+    if (c < 0 || c >= FNL) {
+        fprintf(stderr, "failed to create filename for EDT record\n");
+        ASSERT(0);
+        return 1;
+    }
+
+    struct stat sb;
+    if (stat(fname, &sb) == 0) {
+        fprintf(stderr, "Found existing edt guid [0x%lx]!\n", guid);
+        ASSERT(0);
+        return 1;
+    }
+
+    int fd = open(fname, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR );
+    if (fd<0) {
+        fprintf(stderr, "open failed: (filename: %s)\n", fname);
+        ASSERT(0);
+        return 1;
+    }
+
+    int rc = close(fd);
+    if (rc) {
+        fprintf(stderr, "close failed: (filedesc: %d)\n", fd);
+        ASSERT(0);
+        return 1;
+    }
+
+    return 0;
+}
+
+u8 salIsResilientEdt(ocrGuid_t g) {
+    if (!pfIsInitialized) return 0;
+    if (ocrGuidIsNull(g)) return 0;
+#if GUID_BIT_COUNT == 64
+    u64 guid = g.guid;
+#elif GUID_BIT_COUNT == 128
+    u64 guid = g.lower;
+#else
+#error Unknown type of GUID
+#endif
+    char fname[FNL];
+    int c = snprintf(fname, FNL, "%lu.edt", guid);
+    if (c < 0 || c >= FNL) {
+        fprintf(stderr, "failed to create filename for EDT record\n");
+        ASSERT(0);
+        return 0;
+    }
+    struct stat sb;
+    if (stat(fname, &sb) == 0) {
+        return 1;
+    }
+    return 0;
+}
+
 u8 salPublishEdt(ocrTask_t *task) {
     if (!pfIsInitialized) return 1;
-    int i;
     ASSERT(task->flags & OCR_TASK_FLAG_RESILIENT);
     ASSERT(task->state == ALLACQ_EDTSTATE);
     ocrTaskHc_t *hcTask = (ocrTaskHc_t*)task;
     ASSERT(hcTask->resolvedDeps != NULL);
+#if GUID_BIT_COUNT == 64
+    u64 guid = task->guid.guid;
+#elif GUID_BIT_COUNT == 128
+    u64 guid = task->guid.lower;
+#else
+#error Unknown type of GUID
+#endif
+    char fname[FNL];
+    int c = snprintf(fname, FNL, "%lu.guid", guid);
+    if (c < 0 || c >= FNL) {
+        fprintf(stderr, "failed to create filename for publish\n");
+        ASSERT(0);
+        return 1;
+    }
+    int i;
     u64 size = sizeof(edtStorage_t) + sizeof(u64) * task->paramc + sizeof(ocrGuid_t) * task->depc;
     ocrPolicyDomain_t *pd;
     getCurrentEnv(&pd, NULL, NULL, NULL);
@@ -1090,8 +1580,8 @@ u8 salPublishEdt(ocrTask_t *task) {
         ASSERT(ocrGuidIsNull(hcTask->resolvedDeps[i].guid) || (hcTask->resolvedDeps[i].ptr == UNINITIALIZED_DB_FETCH_PTR));
         edt->depv[i] = hcTask->resolvedDeps[i].guid;
     }
-    salPublishInternal(task->guid, buf, size, 0);
-    salRecordEdt(task->guid);
+    salPublishInternal(fname, guid, buf, size, 0);
+    salRecordEdtAtNode(task->guid, pd->myLocation);
     return 0;
 }
 
@@ -1111,14 +1601,217 @@ u8 salRemovePublishedEdt(ocrGuid_t edt) {
 #else
 #error Unknown type of GUID
 #endif
-    //Remove from current node
-    ASSERT(hashtableConcBucketLockedRemove(recTable, (void*)guid, NULL));
+    //Remove resilient EDT file
     ocrPolicyDomain_t *pd;
     getCurrentEnv(&pd, NULL, NULL, NULL);
     char fname[FNL];
-    int c = snprintf(fname, FNL, "%lu.node%lu", guid, (u64)pd->myLocation);
+    int c = snprintf(fname, FNL, "%lu.edt", guid);
+    if (c < 0 || c >= FNL) {
+        fprintf(stderr, "failed to create filename for EDT\n");
+        ASSERT(0);
+        return 1;
+    }
+
+    struct stat sb;
+    if (stat(fname, &sb) != 0) {
+        fprintf(stderr, "Cannot find existing guid [0x%lx] during remove!\n", guid);
+        ASSERT(0);
+        return 1;
+    }
+
+    int rc = unlink(fname);
+    if (rc) {
+        fprintf(stderr, "unlink failed: (filename: %s)\n", fname);
+        ASSERT(0);
+        return 1;
+    }
+
+    //Remove node files
+    u64 nbRanks = pd->neighborCount + 1;
+    for (i = 0; i < nbRanks; i++) {
+        char fname[FNL];
+        int c = snprintf(fname, FNL, "%lu.node%lu", guid, (u64)i);
+        if (c < 0 || c >= FNL) {
+            fprintf(stderr, "failed to create filename for EDT record\n");
+            ASSERT(0);
+            return 1;
+        }
+        struct stat sb;
+        if (stat(fname, &sb) == 0) {
+            int rc = unlink(fname);
+            if (rc) {
+                fprintf(stderr, "unlink failed: (filename: %s)\n", fname);
+                ASSERT(0);
+                return 1;
+            }
+        }
+    }
+
+    return 0;
+}
+
+u8 salRecordEdtAtNode(ocrGuid_t g, ocrLocation_t loc) {
+    if (!pfIsInitialized) return 1;
+    if (ocrGuidIsNull(g)) return 0;
+#if GUID_BIT_COUNT == 64
+    u64 guid = g.guid;
+#elif GUID_BIT_COUNT == 128
+    u64 guid = g.lower;
+#else
+#error Unknown type of GUID
+#endif
+
+    char fname[FNL];
+    int c = snprintf(fname, FNL, "%lu.node%lu", guid, (u64)loc);
     if (c < 0 || c >= FNL) {
         fprintf(stderr, "failed to create filename for EDT record\n");
+        ASSERT(0);
+        return 1;
+    }
+
+    struct stat sb;
+    if (stat(fname, &sb) == 0) {
+        return 0; //Found existing record
+    }
+
+    int fd = open(fname, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR );
+    if (fd<0) {
+        fprintf(stderr, "open failed: (filename: %s)\n", fname);
+        ASSERT(0);
+        return 1;
+    }
+
+    int rc = close(fd);
+    if (rc) {
+        fprintf(stderr, "close failed: (filedesc: %d)\n", fd);
+        ASSERT(0);
+        return 1;
+    }
+
+    return 0;
+}
+
+///////////////////////// Publish Event API ////////////////////////
+
+typedef struct _evtStorage {
+    ocrGuid_t data;
+    u8 satisfied;
+} evtStorage_t;
+
+u8 salPublishEvent(ocrGuid_t g) {
+    if (!pfIsInitialized) return 1;
+#if GUID_BIT_COUNT == 64
+    u64 guid = g.guid;
+#elif GUID_BIT_COUNT == 128
+    u64 guid = g.lower;
+#else
+#error Unknown type of GUID
+#endif
+    char fname[FNL];
+    int c = snprintf(fname, FNL, "%lu.evt", guid);
+    if (c < 0 || c >= FNL) {
+        fprintf(stderr, "failed to create filename for publish\n");
+        ASSERT(0);
+        return 1;
+    }
+    u64 size = sizeof(evtStorage_t);
+    ocrPolicyDomain_t *pd;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+    u8 *evtBuf = pd->fcts.pdMalloc(pd, size);
+    evtStorage_t *evt = (evtStorage_t*)evtBuf;
+    evt->data = NULL_GUID;
+    evt->satisfied = 0;
+    salPublishInternal(fname, guid, evtBuf, size, 0);
+    return 0;
+}
+
+u8 salPublishEventSatisfy(ocrGuid_t g, ocrGuid_t data) {
+    if (!pfIsInitialized) return 1;
+#if GUID_BIT_COUNT == 64
+    u64 guid = g.guid;
+#elif GUID_BIT_COUNT == 128
+    u64 guid = g.lower;
+#else
+#error Unknown type of GUID
+#endif
+
+    char fname[FNL];
+    int c = snprintf(fname, FNL, "%lu.evt", guid);
+    if (c < 0 || c >= FNL) {
+        fprintf(stderr, "failed to create filename for publish\n");
+        ASSERT(0);
+        return 1;
+    }
+
+    struct stat sb;
+    if (stat(fname, &sb) == -1) {
+        fprintf(stderr, "Cannot find existing guid [0x%lx] during satisfy!\n", guid);
+        ASSERT(0);
+        return 1;
+    }
+    u64 size = sb.st_size;
+
+    int fd = open(fname, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR );
+    if (fd<0) {
+        fprintf(stderr, "open failed: (filename: %s)\n", fname);
+        ASSERT(0);
+        return 1;
+    }
+
+    void *buf = mmap( NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0 );
+    if (buf == MAP_FAILED) {
+        fprintf(stderr, "mmap failed for size %lu (filename: %s filedesc: %d)\n", size, fname, fd);
+        ASSERT(0);
+        return 1;
+    }
+
+    evtStorage_t *evt = (evtStorage_t*)buf;
+    evt->data = data;
+    evt->satisfied = 1;
+
+    int rc = msync(buf, size, MS_INVALIDATE | MS_SYNC);
+    if (rc) {
+        fprintf(stderr, "msync failed for buffer %p of size %lu\n", buf, size);
+        ASSERT(0);
+        return 1;
+    }
+
+    rc = munmap(buf, size);
+    if (rc) {
+        fprintf(stderr, "munmap failed for buffer %p of size %lu\n", buf, size);
+        ASSERT(0);
+        return 1;
+    }
+
+    rc = close(fd);
+    if (rc) {
+        fprintf(stderr, "close failed: (filedesc: %d)\n", fd);
+        ASSERT(0);
+        return 1;
+    }
+
+    //Now release all deps
+    hal_fence();
+    salReleasePublishedDeps(g, data);
+
+    return 0;
+}
+
+u8 salRemovePublishedEvent(ocrGuid_t g) {
+    if (!pfIsInitialized) return 1;
+    ASSERT(!(ocrGuidIsNull(g)));
+#if GUID_BIT_COUNT == 64
+    u64 guid = g.guid;
+#elif GUID_BIT_COUNT == 128
+    u64 guid = g.lower;
+#else
+#error Unknown type of GUID
+#endif
+
+    char fname[FNL];
+    int c = snprintf(fname, FNL, "%lu.evt", guid);
+    if (c < 0 || c >= FNL) {
+        fprintf(stderr, "failed to create filename for publish\n");
         ASSERT(0);
         return 1;
     }
@@ -1137,33 +1830,63 @@ u8 salRemovePublishedEdt(ocrGuid_t edt) {
         return 1;
     }
 
-    //Remove from all other nodes
-    u64 nbRanks = pd->neighborCount + 1;
-    for (i = 0; i < nbRanks; i++) {
-        if (i == (u64)pd->myLocation) continue;
-
-        int c = snprintf(fname, FNL, "%lu.node%lu", guid, (u64)i);
-        if (c < 0 || c >= FNL) {
-            fprintf(stderr, "failed to create filename for EDT record\n");
-            ASSERT(0);
-            return 1;
-        }
-        struct stat sb;
-        if (stat(fname, &sb) == 0) {
-            int rc = unlink(fname);
-            if (rc) {
-                fprintf(stderr, "unlink failed: (filename: %s)\n", fname);
-                ASSERT(0);
-                return 1;
-            }
-        }
-    }
     return 0;
 }
 
-u8 salRecordEdt(ocrGuid_t g) {
-    if (!pfIsInitialized) return 1;
-    ASSERT(!(ocrGuidIsNull(g)));
+u8 salIsSatisfiedEventInternal(u64 guid, ocrGuid_t *data) {
+    char fname[FNL];
+    int c = snprintf(fname, FNL, "%lu.evt", guid);
+    if (c < 0 || c >= FNL) {
+        fprintf(stderr, "failed to create filename for publish\n");
+        ASSERT(0);
+        return 0;
+    }
+
+    struct stat sb;
+    if (stat(fname, &sb) == -1) {
+        return 0;
+    }
+    u64 size = sb.st_size;
+
+    int fd = open(fname, O_RDONLY );
+    if (fd<0) {
+        fprintf(stderr, "open failed: (filename: %s)\n", fname);
+        ASSERT(0);
+        return 0;
+    }
+
+    void *buf = mmap( NULL, size, PROT_READ, MAP_SHARED, fd, 0 );
+    if (buf == MAP_FAILED) {
+        fprintf(stderr, "mmap failed for size %lu (filename: %s filedesc: %d)\n", size, fname, fd);
+        ASSERT(0);
+        return 0;
+    }
+
+    evtStorage_t *evt = (evtStorage_t*)buf;
+    u8 isSatisfied = evt->satisfied;
+    *data = evt->data;
+
+    int rc = munmap(buf, size);
+    if (rc) {
+        fprintf(stderr, "munmap failed for buffer %p of size %lu\n", buf, size);
+        ASSERT(0);
+        return 0;
+    }
+
+    rc = close(fd);
+    if (rc) {
+        fprintf(stderr, "close failed: (filedesc: %d)\n", fd);
+        ASSERT(0);
+        return 0;
+    }
+
+    return isSatisfied;
+}
+
+u8 salIsSatisfiedEvent(ocrGuid_t g, ocrGuid_t *data) {
+    if (ocrGuidIsNull(g))
+        return 0;
+
 #if GUID_BIT_COUNT == 64
     u64 guid = g.guid;
 #elif GUID_BIT_COUNT == 128
@@ -1171,54 +1894,20 @@ u8 salRecordEdt(ocrGuid_t g) {
 #else
 #error Unknown type of GUID
 #endif
-    if (hashtableConcBucketLockedGet(recTable, (void*)guid) != NULL)
-        return 0; //Found existing record
+    return salIsSatisfiedEventInternal(guid, data);
+}
 
+///////////////////////// Node failure api ///////////////////
+
+void salThreadExit() {
+    pthread_exit(NULL);
+}
+
+void salThreadRecover() {
+    hal_xadd32(&workerCounter, 1);
     ocrPolicyDomain_t *pd;
     getCurrentEnv(&pd, NULL, NULL, NULL);
-    char fname[FNL];
-    int c = snprintf(fname, FNL, "%lu.node%lu", guid, (u64)pd->myLocation);
-    if (c < 0 || c >= FNL) {
-        fprintf(stderr, "failed to create filename for EDT record\n");
-        ASSERT(0);
-        return 1;
-    }
-
-    hal_lock(&recLock);
-
-    struct stat sb;
-    if (stat(fname, &sb) == 0) {
-        ASSERT(hashtableConcBucketLockedGet(recTable, (void*)guid) != NULL);
-        hal_unlock(&recLock);
-        return 0; //Found existing record
-    }
-
-    int fd = open(fname, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR );
-    if (fd<0) {
-        fprintf(stderr, "open failed: (filename: %s)\n", fname);
-        ASSERT(0);
-        return 1;
-    }
-    ASSERT(hashtableConcBucketLockedGet(recTable, (void*)guid) == NULL);
-    hashtableConcBucketLockedPut(recTable, (void*)guid, (void*)((u64)fd));
-
-    int rc = ftruncate(fd, 0);
-    if (rc) {
-        fprintf(stderr, "ftruncate failed: (filename: %s filedesc: %d)\n", fname, fd);
-        ASSERT(0);
-        return 1;
-    }
-
-    rc = close(fd);
-    if (rc) {
-        fprintf(stderr, "close failed: (filedesc: %d)\n", fd);
-        ASSERT(0);
-        return 1;
-    }
-
-    hal_unlock(&recLock);
-
-    return 0;
+    while(pd->faultCode != 0);
 }
 
 /* when return 1, scandir will put this dirent to the list */
@@ -1235,13 +1924,18 @@ static int parse_ext(const struct dirent *dir)
     return 0;
 }
 
-u8 salProcessNodeFailure(ocrLocation_t nodeId) {
-    if (!pfIsInitialized) return 1;
-    notifyPlatformModelLocationFault(nodeId);
-    hal_fence();
-
+u8 salProcessNodeFailureAtBuddy(ocrLocation_t nodeId) {
     ocrPolicyDomain_t *pd;
     getCurrentEnv(&pd, NULL, NULL, NULL);
+
+    //Pause execution
+    pd->faultCode = OCR_NODE_FAILURE_OTHER;
+    hal_fence();
+    u32 maxCount = pd->workerCount - 1;
+    while(workerCounter < maxCount);
+    hal_fence();
+
+    //Determine all EDT guids impacted by node failure
     char extension[FNL];
     int c = snprintf(extension, FNL, ".node%lu", (u64)nodeId);
     if (c < 0 || c >= FNL) {
@@ -1263,40 +1957,111 @@ u8 salProcessNodeFailure(ocrLocation_t nodeId) {
         *s = '\0';
         u64 guid = strtoul(namelist[n]->d_name, NULL, 10);
         ASSERT(guid > 0);
-#if 1
         char fname[FNL];
-        int c = snprintf(fname, FNL, "%lu.node%lu", guid, (u64)nodeId);
-        if (c < 0 || c >= FNL) {
-            fprintf(stderr, "failed to create filename for EDT record\n");
-            ASSERT(0);
-            return 1;
-        }
-
-        struct stat sb;
-        if (stat(fname, &sb) == -1) {
-            fprintf(stderr, "Cannot find existing node state %s!\n", fname);
-            ASSERT(0);
-            return 1;
-        }
-        ASSERT(sb.st_size == 0);
-#endif
-        c = snprintf(fname, FNL, "%lu.guid", guid);
+        int c = snprintf(fname, FNL, "%lu.guid", guid);
         if (c < 0 || c >= FNL) {
             fprintf(stderr, "failed to create filename for EDT guid\n");
             ASSERT(0);
             return 1;
         }
 
+        struct stat sb;
         if (stat(fname, &sb) == 0) {
-            hashtableNonConcPut(faultTable, (void*)guid, (void*)guid);
+            if (hashtableConcBucketLockedGet(faultTable, (void*)guid) == NULL) {
+                hashtableConcBucketLockedPut(faultTable, (void*)guid, (void*)guid);
+                char fname[FNL];
+                int c = snprintf(fname, FNL, "%lu.fault", guid);
+                if (c < 0 || c >= FNL) {
+                    fprintf(stderr, "failed to create filename for EDT record\n");
+                    ASSERT(0);
+                    return 1;
+                }
+                struct stat sb;
+                if (stat(fname, &sb) == 0) {
+                    fprintf(stderr, "Found existing fault guid [0x%lx] during recovery!\n", guid);
+                    ASSERT(0);
+                    return 1;
+                }
+                int fd = open(fname, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR );
+                if (fd<0) {
+                    fprintf(stderr, "open failed: (filename: %s)\n", fname);
+                    ASSERT(0);
+                    return 1;
+                }
+                int rc = close(fd);
+                if (rc) {
+                    fprintf(stderr, "close failed: (filedesc: %d)\n", fd);
+                    ASSERT(0);
+                    return 1;
+                }
+            }
         }
         free(namelist[n]);
     }
     free(namelist);
 
-    //Set faultCode for PD
+    //Update platform model
+    notifyPlatformModelLocationFault(nodeId);
+
+    //Resume execution
     hal_fence();
+    workerCounter = 0;
+    hal_fence();
+    pd->faultCode = 0;
+
+    return 0;
+}
+
+u8 salProcessNodeFailure(ocrLocation_t nodeId) {
+    if (!pfIsInitialized) return 1;
+    ocrPolicyDomain_t *pd;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+
+    //Pause execution
     pd->faultCode = OCR_NODE_FAILURE_OTHER;
+    hal_fence();
+    u32 maxCount = pd->workerCount - 1;
+    while(workerCounter < maxCount);
+    hal_fence();
+
+    //Build fault table
+    char extension[FNL];
+    int c = snprintf(extension, FNL, ".fault");
+    if (c < 0 || c >= FNL) {
+        fprintf(stderr, "failed to create filename for EDT record\n");
+        ASSERT(0);
+        return 1;
+    }
+    nodeExt = extension;
+
+    struct dirent **namelist;
+    int n = scandir(".", &namelist, parse_ext, alphasort);
+    if (n < 0) {
+        perror("scandir");
+        return 1;
+    }
+    while (n--) {
+        //printf("%s\n", namelist[n]->d_name);
+        char *s = strchr(namelist[n]->d_name,'.');
+        *s = '\0';
+        u64 guid = strtoul(namelist[n]->d_name, NULL, 10);
+        ASSERT(guid > 0);
+        if (hashtableConcBucketLockedGet(faultTable, (void*)guid) == NULL) {
+            hashtableConcBucketLockedPut(faultTable, (void*)guid, (void*)guid);
+        }
+        free(namelist[n]);
+    }
+    free(namelist);
+
+    //Update platform model
+    notifyPlatformModelLocationFault(nodeId);
+
+    //Resume execution
+    hal_fence();
+    workerCounter = 0;
+    hal_fence();
+    pd->faultCode = 0;
+
     return 0;
 }
 
@@ -1304,20 +2069,12 @@ void salImportEdt(void * key, void * value, void * args) {
     ASSERT((u64)key == (u64)value);
     u64 guid = (u64)key;
     hashtable_t * faultTable = (hashtable_t*)args;
-#if GUID_BIT_COUNT == 64
-    ocrGuid_t edtGuid;
-    edtGuid.guid = guid;
-#else
-#error Unknown type of GUID
-#endif
-
     u64 bufsize = 0;
-    edtStorage_t *edtBuf = (edtStorage_t*)salFetchInternal(edtGuid, &bufsize, 0, 0);
+    edtStorage_t *edtBuf = (edtStorage_t*)salFetchInternal(guid, &bufsize, 0, 0);
     if (edtBuf == NULL) {
         fprintf(stderr, "Node state is corrupt; recovery failed\n");
         ASSERT(0);
     }
-
     if (!ocrGuidIsNull(edtBuf->resilientEdtParent)) {
 #if GUID_BIT_COUNT == 64
         u64 pguid = edtBuf->resilientEdtParent.guid;
@@ -1326,21 +2083,22 @@ void salImportEdt(void * key, void * value, void * args) {
 #else
 #error Unknown type of GUID
 #endif
-        if (hashtableNonConcGet(faultTable, (void*)pguid) != NULL)
+        if (hashtableConcBucketLockedGet(faultTable, (void*)pguid) != NULL)
             return; //Found existing parent
     }
 
-    //Create EDT
+    //Create recovery EDT
     edtBuf->paramv = (u64*)((size_t)edtBuf + sizeof(edtStorage_t));
     edtBuf->depv = (ocrGuid_t*)((size_t)edtBuf + sizeof(edtStorage_t) + (edtBuf->paramc * sizeof(u64)));
-
     ocrGuid_t tmpl;
     ocrEdtTemplateCreate(&tmpl, edtBuf->funcPtr, edtBuf->paramc, edtBuf->depc);
     ocrGuid_t edt, oEvt;
     ocrEdtCreate(&edt, tmpl, edtBuf->paramc, edtBuf->paramv, edtBuf->depc, edtBuf->depv, EDT_PROP_RESILIENT | EDT_PROP_RECOVERY, NULL_HINT, &oEvt);
+    DPRINTF(DEBUG_LVL_WARN, "Recovery EDT created: "GUIDF"\n", GUIDA(edt));
 }
 
-u8 salRecoverNodeFailure(ocrLocation_t nodeId) {
+u8 salRecoverNodeFailureAtBuddy(ocrLocation_t nodeId) {
+    //Reschedule execution sub-graph dominator EDTs
     iterateHashtable(faultTable, salImportEdt, (void*)faultTable);
     return 0;
 }
@@ -1355,10 +2113,26 @@ u8 salCheckEdtFault(ocrGuid_t g) {
 #else
 #error Unknown type of GUID
 #endif
-    if (hashtableNonConcGet(faultTable, (void*)guid) != NULL)
+    if (hashtableConcBucketLockedGet(faultTable, (void*)guid) != NULL)
         return 1; //Found existing record
+
+    /*char fname[FNL];
+    int c = snprintf(fname, FNL, "%lu.fault", guid);
+    if (c < 0 || c >= FNL) {
+        fprintf(stderr, "failed to create filename for publish\n");
+        ASSERT(0);
+        return 0;
+    }
+
+    struct stat sb;
+    if (stat(fname, &sb) == 0) {
+        return 1;
+    }*/
+
     return 0;
 }
+
+///////////////////////// Guid Table API ////////////////////////
 
 u8 salGuidTablePut(u64 key, ocrGuid_t val) {
     ASSERT(!(ocrGuidIsNull(val)));
@@ -1369,6 +2143,20 @@ u8 salGuidTablePut(u64 key, ocrGuid_t val) {
         fprintf(stderr, "failed to create filename for publish\n");
         ASSERT(0);
         return 1;
+    }
+
+    struct stat sb;
+    if (stat(fname, &sb) == 0) {
+        //Key exists
+        ocrGuid_t g;
+        salGuidTableGet(key, &g);
+        ocrPolicyDomain_t *pd = NULL;
+        getCurrentEnv(&pd, NULL, NULL, NULL);
+        ocrGuidKind kind;
+        pd->guidProviders[0]->fcts.getKind(pd->guidProviders[0], g, &kind);
+        if (kind & OCR_GUID_EVENT) {
+            salTransferPublishedDeps(g, val);
+        }
     }
 
     int fd = open(fname, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR );

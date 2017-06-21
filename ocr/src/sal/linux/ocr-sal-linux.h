@@ -75,16 +75,33 @@ bool salCheckpointExistsResumeQuery();
 void      salInitPublishFetch();
 void      salFinalizePublishFetch();
 u8        salIsPublished(ocrGuid_t guid);
+u8        salIsSatisfied(ocrGuid_t g);
+//DB publish
 u8        salPublish(ocrGuid_t guid, void *ptr, u64 size);
 void*     salFetch(ocrGuid_t guid, u64 *size);
 u8        salRepublish(ocrGuid_t guid, void *ptr);
 u8        salRemovePublished(ocrGuid_t guid);
+//EDT publish
+u8        salNewResilientEdt(ocrGuid_t edt);
 u8        salPublishEdt(ocrTask_t *task);
 u8        salRemovePublishedEdt(ocrGuid_t edt);
-u8        salRecordEdt(ocrGuid_t edt);
+u8        salRecordEdtAtNode(ocrGuid_t edt, ocrLocation_t loc);
+u8        salIsResilientEdt(ocrGuid_t edt);
+//Event publish
+u8        salPublishEvent(ocrGuid_t evt);
+u8        salRemovePublishedEvent(ocrGuid_t evt);
+u8        salPublishEventSatisfy(ocrGuid_t guid, ocrGuid_t data);
+u8        salIsPublishedEvent(ocrGuid_t guid);
+u8        salIsSatisfiedEvent(ocrGuid_t guid, ocrGuid_t *data);
+//Dependence publish
+u8        salPublishAddDependence(ocrGuid_t src, ocrGuid_t dst, u32 slot);
+u8        salReleasePublishedDeps(ocrGuid_t guid, ocrGuid_t data);
 //Node failure api
+void      salThreadExit();
+void      salThreadRecover();
+u8        salProcessNodeFailureAtBuddy(ocrLocation_t nodeId);
 u8        salProcessNodeFailure(ocrLocation_t nodeId);
-u8        salRecoverNodeFailure(ocrLocation_t nodeId);
+u8        salRecoverNodeFailureAtBuddy(ocrLocation_t nodeId);
 u8        salCheckEdtFault(ocrGuid_t edt);
 //Guid table api
 u8        salGuidTablePut(u64 key, ocrGuid_t val);

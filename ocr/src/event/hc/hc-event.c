@@ -354,9 +354,6 @@ static u8 commonSatisfyRegNode(ocrPolicyDomain_t * pd, ocrPolicyMsg_t * msg,
     PD_MSG_FIELD_I(mode) = node->mode;
 #endif
     PD_MSG_FIELD_I(properties) = 0;
-#ifdef ENABLE_AMT_RESILIENCE
-    PD_MSG_FIELD_I(resilientEdtParent) = NULL_GUID; //TODO (evt == NULL) ? NULL_GUID : evt->resilientEdtParent;
-#endif
     RESULT_PROPAGATE(pd->fcts.processMessage(pd, msg, false));
 #undef PD_MSG
 #undef PD_TYPE
@@ -399,9 +396,6 @@ static u8 commonSatisfyWaiters(ocrPolicyDomain_t *pd, ocrEvent_t *base, ocrFatGu
         } else {
             PD_MSG_FIELD_IO(properties) = DB_MODE_CONST | DB_PROP_RT_ACQUIRE;
         }
-#ifdef ENABLE_AMT_RESILIENCE
-        PD_MSG_FIELD_IO(resilientEdtParent) = NULL_GUID;
-#endif
         u8 res __attribute__((unused)) = pd->fcts.processMessage(pd, msg, true);
         ASSERT(!res);
         regNode_t * waiters = (regNode_t*)PD_MSG_FIELD_O(ptr);
@@ -460,9 +454,6 @@ u8 satisfyEventHcOnce(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
         RESULT_PROPAGATE(commonSatisfyWaiters(pd, base, db, waitersCount, currentEdt, &msg, false));
     }
 
-#ifdef ENABLE_AMT_RESILIENCE
-    if (!ocrGuidIsNull(base->resilientLatch)) resilientLatchUpdate(base->resilientLatch, OCR_EVENT_LATCH_RESCOUNT_DECR_SLOT);
-#endif
     // Since this a ONCE event, we need to destroy it as well
     // This is safe to do so at this point as all the messages have been sent
     return destructEventHc(base);
@@ -616,9 +607,6 @@ u8 satisfyEventHcPersistIdem(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
         // waiting on the satisfaction being done it can now
         // proceed.
         ((ocrEventHc_t*)base)->waitersCount = STATE_CHECKED_OUT;
-#ifdef ENABLE_AMT_RESILIENCE
-        if (!ocrGuidIsNull(base->resilientLatch)) resilientLatchUpdate(base->resilientLatch, OCR_EVENT_LATCH_RESCOUNT_DECR_SLOT);
-#endif
     }
     return 0;
 }
@@ -642,9 +630,6 @@ u8 satisfyEventHcPersistSticky(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
     // waiting on the satisfaction being done it can now
     // proceed.
     ((ocrEventHc_t*)base)->waitersCount = STATE_CHECKED_OUT;
-#ifdef ENABLE_AMT_RESILIENCE
-    if (!ocrGuidIsNull(base->resilientLatch)) resilientLatchUpdate(base->resilientLatch, OCR_EVENT_LATCH_RESCOUNT_DECR_SLOT);
-#endif
     return 0;
 }
 
@@ -732,6 +717,9 @@ u8 satisfyEventHcLatch(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
         event->dbPublishCount = 0;
         pd->fcts.pdFree(pd, event->dbPublishArray);
     }
+    //Now release all EDT deps
+    DPRINTF(DEBUG_LVL_VERB, "EDT Release Deps: "GUIDF" \n", GUIDA(event->resilientEdt));
+    salReleasePublishedDeps(event->resilientEdt, NULL_GUID);
 #endif
 
     u32 waitersCount = event->base.waitersCount;
@@ -743,7 +731,6 @@ u8 satisfyEventHcLatch(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
     }
 
 #ifdef ENABLE_AMT_RESILIENCE
-    if (!ocrGuidIsNull(base->resilientLatch)) resilientLatchUpdate(base->resilientLatch, OCR_EVENT_LATCH_RESCOUNT_DECR_SLOT);
     hal_lock(&(event->base.waitersLock));
     if (event->rescounter != 0) {
         event->readyToDestruct = 1;
@@ -818,9 +805,6 @@ static u8 commonEnqueueWaiter(ocrPolicyDomain_t *pd, ocrEvent_t *base, ocrFatGui
             PD_MSG_FIELD_IO(destLoc) = pd->myLocation;
             PD_MSG_FIELD_IO(edtSlot) = EDT_SLOT_NONE;
             PD_MSG_FIELD_IO(properties) = DB_MODE_RW | DB_PROP_RT_ACQUIRE;
-#ifdef ENABLE_AMT_RESILIENCE
-            PD_MSG_FIELD_IO(resilientEdtParent) = NULL_GUID;
-#endif
             //Should be a local DB
             if((toReturn = pd->fcts.processMessage(pd, msg, true))) {
                 // should be the only writer active on the waiter DB since we have the lock
@@ -1152,9 +1136,6 @@ u8 unregisterWaiterEventHc(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot, bool
     PD_MSG_FIELD_IO(destLoc) = pd->myLocation;
     PD_MSG_FIELD_IO(edtSlot) = EDT_SLOT_NONE;
     PD_MSG_FIELD_IO(properties) = DB_MODE_RW | DB_PROP_RT_ACQUIRE;
-#ifdef ENABLE_AMT_RESILIENCE
-    PD_MSG_FIELD_IO(resilientEdtParent) = NULL_GUID;
-#endif
     //Should be a local DB
     u8 res __attribute__((unused)) = pd->fcts.processMessage(pd, &msg, true);
     ASSERT(!res); // Possible corruption of waitersDb
@@ -1226,9 +1207,6 @@ u8 unregisterWaiterEventHcPersist(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slo
     PD_MSG_FIELD_IO(destLoc) = pd->myLocation;
     PD_MSG_FIELD_IO(edtSlot) = EDT_SLOT_NONE;
     PD_MSG_FIELD_IO(properties) = DB_MODE_RW | DB_PROP_RT_ACQUIRE;
-#ifdef ENABLE_AMT_RESILIENCE
-    PD_MSG_FIELD_IO(resilientEdtParent) = NULL_GUID;
-#endif
     //Should be a local DB
     if((toReturn = pd->fcts.processMessage(pd, &msg, true))) {
         ASSERT(!toReturn); // Possible corruption of waitersDb
@@ -1443,9 +1421,6 @@ static u8 initNewEventHc(ocrEventHc_t * event, ocrEventTypes_t eventType, ocrGui
     u32 factoryId = factory->factoryId;
     base->base.fctId = factoryId;
     base->fctId = factoryId;
-#ifdef ENABLE_AMT_RESILIENCE
-    base->resilientLatch = (perInstance != NULL) ? ((paramListEvent_t*)perInstance)->resilientLatch : NULL_GUID;
-#endif
 
     // Set-up HC specific structures
     event->waitersCount = 0;

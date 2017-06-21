@@ -36,7 +36,6 @@ typedef struct _paramListEventFact_t {
 typedef struct _paramListEvent_t {
     ocrParamList_t base;
 #ifdef ENABLE_AMT_RESILIENCE
-    ocrGuid_t resilientLatch;  /**< Latch event of enclosing resilient finish latch scope */
     ocrGuid_t resilientEdt; /**< EDT to remove from pub-fetch storage after latch is triggered */
 #endif
 } paramListEvent_t;
@@ -249,9 +248,6 @@ typedef struct _ocrEvent_t {
 #endif
     ocrEventTypes_t kind;  /**< The kind of this event instance */
     u32 fctId;             /**< The functions to use to access this event */
-#ifdef ENABLE_AMT_RESILIENCE
-    ocrGuid_t resilientLatch;       /**< Latch event of enclosing resilient finish latch scope */
-#endif
 } ocrEvent_t;
 
 

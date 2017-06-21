@@ -325,6 +325,7 @@ typedef enum {
 
 #define EVT_PROP_NONE      ((u16) 0x0) /**< Property bits indicating a regular event */
 #define EVT_PROP_TAKES_ARG ((u16) 0x1) /**< Property bits indicating that the event takes an argument */
+#define EVT_PROP_RESILIENT ((u16) 0x2) /**< Property bits indicating that the event is resilient */
 
 /**
  * @}

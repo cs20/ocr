@@ -36,10 +36,6 @@ u8 ocrEventCreateParams(ocrGuid_t *guid, ocrEventTypes_t eventType, u16 properti
     PD_MSG_FIELD_IO(guid.metaDataPtr) = NULL;
     PD_MSG_FIELD_I(currentEdt.guid) = curEdt ? curEdt->guid : NULL_GUID;
     PD_MSG_FIELD_I(currentEdt.metaDataPtr) = curEdt;
-#ifdef ENABLE_AMT_RESILIENCE
-    PD_MSG_FIELD_I(resilientLatch) = curEdt ? curEdt->resilientLatch : NULL_GUID;
-    PD_MSG_FIELD_I(resilientEdtParent) = curEdt ? curEdt->resilientEdtParent : NULL_GUID;
-#endif
 #ifdef ENABLE_EXTENSION_PARAMS_EVT
     PD_MSG_FIELD_I(params) = params;
 #endif
@@ -68,6 +64,11 @@ u8 ocrEventCreateParams(ocrGuid_t *guid, ocrEventTypes_t eventType, u16 properti
     }
 #undef PD_MSG
 #undef PD_TYPE
+#ifdef ENABLE_AMT_RESILIENCE
+    if ((properties & EVT_PROP_RESILIENT) && !ocrGuidIsNull(*guid)) {
+        salPublishEvent(*guid);
+    }
+#endif
     DPRINTF_COND_LVL(((returnCode != 0) && (returnCode != OCR_EGUIDEXISTS)), DEBUG_LVL_WARN, DEBUG_LVL_INFO,
                      "EXIT ocrEventCreateParams -> %"PRIu32"; GUID: "GUIDF"\n", returnCode, GUIDA(*guid));
     if(returnCode == 0)
@@ -84,6 +85,11 @@ u8 ocrEventCreate(ocrGuid_t *guid, ocrEventTypes_t eventType, u16 properties) {
 
 u8 ocrEventDestroy(ocrGuid_t eventGuid) {
     OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_API_EVENT, OCR_ACTION_DESTROY, eventGuid);
+#ifdef ENABLE_AMT_RESILIENCE
+    if (salIsPublishedEvent(eventGuid)) {
+        return 0;
+    }
+#endif
     START_PROFILE(api_ocrEventDestroy);
     DPRINTF(DEBUG_LVL_INFO, "ENTER ocrEventDestroy(guid="GUIDF")\n", GUIDA(eventGuid));
     PD_MSG_STACK(msg);
@@ -112,6 +118,12 @@ u8 ocrEventDestroy(ocrGuid_t eventGuid) {
 
 u8 ocrEventSatisfySlot(ocrGuid_t eventGuid, ocrGuid_t dataGuid /*= INVALID_GUID*/, u32 slot) {
 
+#ifdef ENABLE_AMT_RESILIENCE
+    if (salIsPublishedEvent(eventGuid)) {
+        salPublishEventSatisfy(eventGuid, dataGuid);
+        return 0;
+    }
+#endif
     START_PROFILE(api_ocrEventSatisfySlot);
     DPRINTF(DEBUG_LVL_INFO, "ENTER ocrEventSatisfySlot(evt="GUIDF", data="GUIDF", slot=%"PRIu32")\n",
             GUIDA(eventGuid), GUIDA(dataGuid), slot);
@@ -136,9 +148,6 @@ u8 ocrEventSatisfySlot(ocrGuid_t eventGuid, ocrGuid_t dataGuid /*= INVALID_GUID*
     PD_MSG_FIELD_I(mode) = -1;
 #endif
     PD_MSG_FIELD_I(properties) = 0;
-#ifdef ENABLE_AMT_RESILIENCE
-    PD_MSG_FIELD_I(resilientEdtParent) = (curEdt == NULL) ? NULL_GUID : curEdt->resilientEdtParent;
-#endif
 #ifdef ENABLE_OCR_API_DEFERRABLE
     tagDeferredMsg(&msg, curEdt);
 #endif
@@ -371,18 +380,13 @@ u8 ocrEdtCreate(ocrGuid_t* edtGuidPtr, ocrGuid_t templateGuid,
     PD_MSG_FIELD_I(paramv) = paramv;
     PD_MSG_FIELD_I(depv) = depvFatGuids;
     PD_MSG_FIELD_I(workType) = EDT_USER_WORKTYPE;
-    PD_MSG_FIELD_I(properties) = properties;
-#ifdef ENABLE_OCR_API_DEFERRABLE
-    tagDeferredMsg(&msg, curEdt);
-#endif
 #ifdef ENABLE_AMT_RESILIENCE
     PD_MSG_FIELD_I(resilientLatch) = curEdt ? curEdt->resilientLatch : NULL_GUID;
-    PD_MSG_FIELD_I(resilientEdtParent) = curEdt ? curEdt->resilientEdtParent : NULL_GUID;
     if (properties & EDT_PROP_RECOVERY) {
+        ASSERT(ocrGuidIsNull(msg.resilientEdtParent));
         PD_MSG_FIELD_I(currentEdt.guid) = NULL_GUID;
         PD_MSG_FIELD_I(currentEdt.metaDataPtr) = NULL;
         PD_MSG_FIELD_I(resilientLatch) = NULL_GUID;
-        PD_MSG_FIELD_I(resilientEdtParent) = NULL_GUID;
         properties |= EDT_PROP_RESILIENT;
     }
     if (properties & EDT_PROP_RESILIENT) {
@@ -391,8 +395,11 @@ u8 ocrEdtCreate(ocrGuid_t* edtGuidPtr, ocrGuid_t templateGuid,
         PD_MSG_FIELD_I(parentLatch.metaDataPtr) = NULL;
         //We enforce resilient EDTs to start their own finish scopes
         properties |= EDT_PROP_FINISH;
-        PD_MSG_FIELD_I(properties) = properties;
     }
+#endif
+    PD_MSG_FIELD_I(properties) = properties;
+#ifdef ENABLE_OCR_API_DEFERRABLE
+    tagDeferredMsg(&msg, curEdt);
 #endif
     returnCode = pd->fcts.processMessage(pd, &msg, true);
     if ((returnCode == 0) && (reqResponse)) {
@@ -512,9 +519,6 @@ u8 ocrAddDependence(ocrGuid_t source, ocrGuid_t destination, u32 slot,
         PD_MSG_FIELD_IO(properties) = mode;
         PD_MSG_FIELD_I(currentEdt.guid) = curEdt ? curEdt->guid : NULL_GUID;
         PD_MSG_FIELD_I(currentEdt.metaDataPtr) = curEdt;
-#ifdef ENABLE_AMT_RESILIENCE
-        PD_MSG_FIELD_I(resilientEdtParent) = (curEdt == NULL) ? NULL_GUID : curEdt->resilientEdtParent;
-#endif
 #ifdef ENABLE_OCR_API_DEFERRABLE
         tagDeferredMsg(&msg, curEdt);
 #endif
@@ -537,9 +541,6 @@ u8 ocrAddDependence(ocrGuid_t source, ocrGuid_t destination, u32 slot,
         PD_MSG_FIELD_IO(properties) = mode;
         PD_MSG_FIELD_I(currentEdt.guid) = curEdt ? curEdt->guid : NULL_GUID;
         PD_MSG_FIELD_I(currentEdt.metaDataPtr) = curEdt;
-#ifdef ENABLE_AMT_RESILIENCE
-        PD_MSG_FIELD_I(resilientEdtParent) = (curEdt == NULL) ? NULL_GUID : curEdt->resilientEdtParent;
-#endif
 #ifdef ENABLE_OCR_API_DEFERRABLE
         tagDeferredMsg(&msg, curEdt);
 #endif
@@ -568,9 +569,6 @@ u8 ocrAddDependence(ocrGuid_t source, ocrGuid_t destination, u32 slot,
         PD_MSG_FIELD_I(mode) = mode;
 #endif
         PD_MSG_FIELD_I(properties) = 0;
-#ifdef ENABLE_AMT_RESILIENCE
-        PD_MSG_FIELD_I(resilientEdtParent) = (curEdt == NULL) ? NULL_GUID : curEdt->resilientEdtParent;
-#endif
 #ifdef ENABLE_OCR_API_DEFERRABLE
         tagDeferredMsg(&msg, curEdt);
 #endif

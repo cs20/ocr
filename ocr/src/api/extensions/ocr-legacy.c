@@ -289,9 +289,6 @@ u8 ocrLegacyBlockProgress(ocrGuid_t evtHandle, ocrGuid_t* guid, void** result, u
             PD_MSG_FIELD_IO(destLoc) = pd->myLocation;
             PD_MSG_FIELD_IO(edtSlot) = EDT_SLOT_NONE;
             PD_MSG_FIELD_IO(properties) = DB_MODE_RW;
-#ifdef ENABLE_AMT_RESILIENCE
-            PD_MSG_FIELD_IO(resilientEdtParent) = NULL_GUID;
-#endif
             u8 returnCode = pd->fcts.processMessage(pd, &msg, true);
             if(!((returnCode == 0) && ((returnCode = PD_MSG_FIELD_O(returnDetail)) == 0))) {
                 RETURN_PROFILE(returnCode);

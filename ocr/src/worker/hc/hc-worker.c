@@ -131,6 +131,11 @@ static void hcWorkShift(ocrWorker_t * worker) {
 #endif
 #undef PD_MSG
 #undef PD_TYPE
+#ifdef ENABLE_AMT_RESILIENCE
+                if (salCheckEdtFault(curTask->resilientEdtParent)) {
+                    abortCurrentWork();
+                }
+#endif
                 RESULT_ASSERT(((ocrTaskFactory_t *)(pd->factories[factoryId]))->fcts.execute(curTask), ==, 0);
                 //TODO-DEFERRED: With MT, there can be multiple workers executing curTask.
                 // Not sure we thought about that and implications
@@ -258,6 +263,8 @@ static void hcWorkShift(ocrWorker_t * worker) {
 
 #ifdef ENABLE_AMT_RESILIENCE
 static void hcWorkShiftResilient(ocrWorker_t * worker) {
+    processFailure();
+    hal_fence();
     jmp_buf buf;
     jmp_buf *oldbuf = worker->jmpbuf;
     int rc = setjmp(buf);
@@ -266,11 +273,16 @@ static void hcWorkShiftResilient(ocrWorker_t * worker) {
         hcWorkShift(worker);
     } else {
         ASSERT(worker->curTask != NULL);
-        DPRINTF(DEBUG_LVL_INFO, "Worker aborted executing EDT "GUIDF"\n", GUIDA(worker->curTask->guid));
+        if (!ocrGuidIsNull(worker->curTask->resilientEdtParent)) {
+            ASSERT(salCheckEdtFault(worker->curTask->resilientEdtParent));
+        }
+        DPRINTF(DEBUG_LVL_WARN, "Worker aborted executing EDT "GUIDF"\n", GUIDA(worker->curTask->guid));
         worker->curTask = NULL;
     }
     ASSERT(worker->curTask == NULL);
     worker->jmpbuf = oldbuf;
+    hal_fence();
+    processFailure();
 }
 #endif
 

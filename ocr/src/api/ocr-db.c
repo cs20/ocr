@@ -67,9 +67,6 @@ u8 ocrDbCreate(ocrGuid_t *db, void** addr, u64 len, u16 flags,
         PD_MSG_FIELD_I(dbType) = USER_DBTYPE;
     }
     PD_MSG_FIELD_I(allocator) = allocator;
-#ifdef ENABLE_AMT_RESILIENCE
-    PD_MSG_FIELD_I(resilientEdtParent) = (task == NULL) ? NULL_GUID : task->resilientEdtParent;
-#endif
 #ifdef ENABLE_OCR_API_DEFERRABLE
     tagDeferredMsg(&msg, task);
 #endif
@@ -115,9 +112,6 @@ u8 ocrDbCreate(ocrGuid_t *db, void** addr, u64 len, u16 flags,
         PD_MSG_FIELD_I(mode) = -1;
 #endif
         PD_MSG_FIELD_I(properties) = 0;
-#ifdef ENABLE_AMT_RESILIENCE
-        PD_MSG_FIELD_I(resilientEdtParent) = (task == NULL) ? NULL_GUID : task->resilientEdtParent;
-#endif
 #ifdef ENABLE_OCR_API_DEFERRABLE
         tagDeferredMsg(&msg, task);
 #endif
@@ -168,6 +162,10 @@ u8 ocrDbDestroy(ocrGuid_t db) {
     OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_API_DATABLOCK, OCR_ACTION_DESTROY, db);
     if(ocrGuidIsNull(db))
         return 0;
+#ifdef ENABLE_AMT_RESILIENCE
+    if(salIsPublished(db))
+        return 0;
+#endif
     START_PROFILE(api_ocrDbDestroy);
     DPRINTF(DEBUG_LVL_INFO, "ENTER ocrDbDestroy(guid="GUIDF")\n", GUIDA(db));
     PD_MSG_STACK(msg);
@@ -243,6 +241,10 @@ u8 ocrDbRelease(ocrGuid_t db) {
     OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_API_DATABLOCK, OCR_ACTION_DATA_RELEASE, db);
     if(ocrGuidIsNull(db))
         return 0;
+#ifdef ENABLE_AMT_RESILIENCE
+    if(salIsPublished(db))
+        return 0;
+#endif
     START_PROFILE(api_ocrDbRelease);
     DPRINTF(DEBUG_LVL_INFO, "ENTER ocrDbRelease(guid="GUIDF")\n", GUIDA(db));
     PD_MSG_STACK(msg);

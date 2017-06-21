@@ -899,16 +899,10 @@ static u8 createEventHelper(ocrPolicyDomain_t *self, ocrFatGuid_t *guid,
 #ifdef REG_ASYNC_SGL
 static u8 convertDepAddToSatisfy(ocrPolicyDomain_t *self, ocrFatGuid_t dbGuid,
                                  ocrFatGuid_t destGuid, u32 slot, ocrDbAccessMode_t mode,
-#ifdef ENABLE_AMT_RESILIENCE
-                                 ocrGuid_t resilientEdtParent,
-#endif
                                  bool sync) {
 #else
 static u8 convertDepAddToSatisfy(ocrPolicyDomain_t *self, ocrFatGuid_t dbGuid,
                                  ocrFatGuid_t destGuid, u32 slot,
-#ifdef ENABLE_AMT_RESILIENCE
-                                 ocrGuid_t resilientEdtParent,
-#endif
                                  bool sync) {
 #endif
     PD_MSG_STACK(msg);
@@ -930,9 +924,6 @@ static u8 convertDepAddToSatisfy(ocrPolicyDomain_t *self, ocrFatGuid_t dbGuid,
     PD_MSG_FIELD_I(mode) = mode;
 #endif
     PD_MSG_FIELD_I(properties) = 0;
-#ifdef ENABLE_AMT_RESILIENCE
-    PD_MSG_FIELD_I(resilientEdtParent) = resilientEdtParent;
-#endif
     RESULT_PROPAGATE(self->fcts.processMessage(self, &msg, false));
 #undef PD_MSG
 #undef PD_TYPE
@@ -1789,9 +1780,6 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         // This would impact where we do the PD_MSG_MEM_ALLOC for ex
         // For now we deal with both USER and RT dbs the same way
         ASSERT(PD_MSG_FIELD_I(dbType) == USER_DBTYPE || PD_MSG_FIELD_I(dbType) == RUNTIME_DBTYPE);
-#ifdef ENABLE_AMT_RESILIENCE
-        ocrGuid_t resilientEdtParent = PD_MSG_FIELD_I(resilientEdtParent);
-#endif
 
         // We do not acquire a data-block in two cases:
         //  - it was created with a labeled-GUID in non "trust me" mode. This is because it would be difficult
@@ -1819,9 +1807,6 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
                 OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_DATABLOCK, OCR_ACTION_CREATE, traceDataCreate, db->guid, db->size);
             }
             ASSERT(db);
-#ifdef ENABLE_AMT_RESILIENCE
-            db->resilientEdtParent = resilientEdtParent;
-#endif
             if(doNotAcquireDb) {
                 DPRINTF(DEBUG_LVL_INFO, "Not acquiring DB since disabled by property flags\n");
                 PD_MSG_FIELD_O(ptr) = NULL;
@@ -1871,13 +1856,6 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
             ASSERT(isDatablockGuid(self, PD_MSG_FIELD_IO(guid)));
             ASSERT(db != NULL);
             ASSERT(db->fctId == ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->factoryId);
-#ifdef ENABLE_AMT_RESILIENCE
-            ocrGuid_t resilientEdtParent = PD_MSG_FIELD_IO(resilientEdtParent);
-            if (!ocrGuidIsNull(resilientEdtParent)) {
-                salRecordEdt(resilientEdtParent);
-            }
-            PD_MSG_FIELD_IO(resilientEdtParent) = db->resilientEdtParent;
-#endif
             PD_MSG_FIELD_O(returnDetail) = ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->fcts.acquire(
                 db, &(PD_MSG_FIELD_O(ptr)), PD_MSG_FIELD_IO(edt), PD_MSG_FIELD_IO(destLoc), PD_MSG_FIELD_IO(edtSlot),
                 (ocrDbAccessMode_t) (PD_MSG_FIELD_IO(properties) & (u32)DB_ACCESS_MODE_MASK),
@@ -1915,12 +1893,6 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
             ocrFatGuid_t dbFGuid = PD_MSG_FIELD_IO(guid);
             u32 edtSlot = PD_MSG_FIELD_IO(edtSlot);
             ASSERT(edtSlot != EDT_SLOT_NONE); //BUG #190
-#ifdef ENABLE_AMT_RESILIENCE
-            ocrGuid_t resilientEdtParent = PD_MSG_FIELD_IO(resilientEdtParent);
-            if (!ocrGuidIsNull(resilientEdtParent)) {
-                salRecordEdt(resilientEdtParent);
-            }
-#endif
             localDeguidify(self, &edtFGuid);
             // At this point the edt MUST be local as well as the acquire's message DB ptr
             ocrTask_t* task = (ocrTask_t*) edtFGuid.metaDataPtr;
@@ -2229,12 +2201,6 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         ocrTask_t *curEdt = PD_MSG_FIELD_I(currentEdt).metaDataPtr;
         if(curEdt) curEdt->swPerfCtrs[PERF_EDT_CREATES - PERF_HW_MAX]++;
 #endif
-#ifdef ENABLE_AMT_RESILIENCE
-        ocrGuid_t resilientEdtParent = PD_MSG_FIELD_I(resilientEdtParent);
-        if (!ocrGuidIsNull(resilientEdtParent)) {
-            salRecordEdt(resilientEdtParent);
-        }
-#endif
         ocrFatGuid_t *outputEvent = &(PD_MSG_FIELD_IO(outputEvent));
         if((PD_MSG_FIELD_I(workType) != EDT_USER_WORKTYPE) && (PD_MSG_FIELD_I(workType) != EDT_RT_WORKTYPE)) {
             // This is a runtime error and should be reported as such
@@ -2258,7 +2224,7 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
                 &(PD_MSG_FIELD_IO(paramc)), PD_MSG_FIELD_I(paramv), &(PD_MSG_FIELD_IO(depc)),
                 properties, hint, outputEvent, (ocrTask_t*)(PD_MSG_FIELD_I(currentEdt).metaDataPtr),
 #ifdef ENABLE_AMT_RESILIENCE
-                PD_MSG_FIELD_I(resilientLatch), PD_MSG_FIELD_I(resilientEdtParent),
+                PD_MSG_FIELD_I(resilientLatch), msg->resilientEdtParent,
 #endif
                 PD_MSG_FIELD_I(parentLatch), PD_MSG_FIELD_I(workType));
 
@@ -2298,9 +2264,6 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
                         PD_MSG_FIELD_I(slot) = i;
                         PD_MSG_FIELD_IO(properties) = DB_DEFAULT_MODE;
                         PD_MSG_FIELD_I(currentEdt) = curEdtFatGuid;
-#ifdef ENABLE_AMT_RESILIENCE
-                        PD_MSG_FIELD_I(resilientEdtParent) = resilientEdtParent;
-#endif
                 #undef PD_MSG
                 #undef PD_TYPE
 #else
@@ -2315,9 +2278,6 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
                         PD_MSG_FIELD_I(slot) = i;
                         PD_MSG_FIELD_IO(properties) = DB_DEFAULT_MODE;
                         PD_MSG_FIELD_I(currentEdt) = curEdtFatGuid;
-#ifdef ENABLE_AMT_RESILIENCE
-                        PD_MSG_FIELD_I(resilientEdtParent) = resilientEdtParent;
-#endif
                 #undef PD_MSG
                 #undef PD_TYPE
                     } else {
@@ -2337,9 +2297,6 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
 #endif
                         PD_MSG_FIELD_I(properties) = 0;
                         PD_MSG_FIELD_I(currentEdt) = curEdtFatGuid;
-#ifdef ENABLE_AMT_RESILIENCE
-                        PD_MSG_FIELD_I(resilientEdtParent) = resilientEdtParent;
-#endif
                 #undef PD_MSG
                 #undef PD_TYPE
                     }
@@ -2438,18 +2395,7 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         }
 #endif
 #ifdef ENABLE_AMT_RESILIENCE
-        ocrGuid_t resilientEdtParent = PD_MSG_FIELD_I(resilientEdtParent);
-        if (!ocrGuidIsNull(resilientEdtParent)) {
-            salRecordEdt(resilientEdtParent);
-        }
-
-        ocrGuid_t resilientLatch = PD_MSG_FIELD_I(resilientLatch);
-        if (!ocrGuidIsNull(resilientLatch)) {
-            resilientLatchUpdate(resilientLatch, OCR_EVENT_LATCH_RESCOUNT_INCR_SLOT);
-        }
-
         paramListEvent_t evtParams;
-        evtParams.resilientLatch = PD_MSG_FIELD_I(resilientLatch);
         evtParams.resilientEdt = (PD_MSG_FIELD_I(properties) & EVT_RT_PROP_RESILIENT_LATCH) ? PD_MSG_FIELD_I(currentEdt).guid : NULL_GUID;
         paramList = (ocrParamList_t*)&evtParams;
 #endif
@@ -2778,6 +2724,10 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         START_PROFILE(pd_hc_AddDep);
 #define PD_MSG msg
 #define PD_TYPE PD_MSG_DEP_ADD
+#ifdef ENABLE_AMT_RESILIENCE
+        u8 ret = salPublishAddDependence(PD_MSG_FIELD_I(source.guid), PD_MSG_FIELD_I(dest.guid), PD_MSG_FIELD_I(slot));
+        if (ret) {
+#endif
         // We first get information about the source and destination
         ocrGuidKind srcKind, dstKind;
         //NOTE: In distributed the metaDataPtr is set to NULL_GUID since
@@ -2852,30 +2802,16 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
 #else
             bool sync = false;
 #endif
-#ifdef ENABLE_AMT_RESILIENCE
-        ocrGuid_t resilientEdtParent = PD_MSG_FIELD_I(resilientEdtParent);
-        if (!ocrGuidIsNull(resilientEdtParent)) {
-            salRecordEdt(resilientEdtParent);
-        }
-#endif
         if (srcKind == OCR_GUID_NONE) {
             //NOTE: Handle 'NULL_GUID' case here to be safe although
             //we've already caught it in ocrAddDependence for performance
             // This is equivalent to an immediate satisfy
 #ifdef REG_ASYNC_SGL
             PD_MSG_FIELD_O(returnDetail) = convertDepAddToSatisfy(
-                self, src, dest, slot, mode,
-#ifdef ENABLE_AMT_RESILIENCE
-                resilientEdtParent,
-#endif
-                sync);
+                self, src, dest, slot, mode, sync);
 #else
             PD_MSG_FIELD_O(returnDetail) = convertDepAddToSatisfy(
-                self, src, dest, slot,
-#ifdef ENABLE_AMT_RESILIENCE
-                resilientEdtParent,
-#endif
-                sync);
+                self, src, dest, slot, sync);
 #endif
 
 #ifdef REG_ASYNC // In addition need to do the signaler registration to get the mode
@@ -2893,9 +2829,6 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
                 PD_MSG_FIELD_I(slot) = slot;
                 PD_MSG_FIELD_I(mode) = DB_MODE_NULL;
                 PD_MSG_FIELD_I(properties) = true; // Specify context is add-dependence
-#ifdef ENABLE_AMT_RESILIENCE
-                PD_MSG_FIELD_I(resilientEdtParent) = resilientEdtParent;
-#endif
                 u8 returnCode = self->fcts.processMessage(self, &registerMsg, true);
                 u8 returnDetail = (returnCode == 0) ? PD_MSG_FIELD_O(returnDetail) : returnCode;
             #undef PD_MSG
@@ -2910,18 +2843,10 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
             if (dstKind & OCR_GUID_EVENT) {
 #ifdef REG_ASYNC_SGL
             PD_MSG_FIELD_O(returnDetail) = convertDepAddToSatisfy(
-                self, src, dest, slot, mode,
-#ifdef ENABLE_AMT_RESILIENCE
-                resilientEdtParent,
-#endif
-                sync);
+                self, src, dest, slot, mode, sync);
 #else
             PD_MSG_FIELD_O(returnDetail) = convertDepAddToSatisfy(
-                self, src, dest, slot,
-#ifdef ENABLE_AMT_RESILIENCE
-                resilientEdtParent,
-#endif
-                sync);
+                self, src, dest, slot, sync);
 #endif
             } else {
                 // NOTE: We could use convertDepAddToSatisfy since adding a DB dependence
@@ -2933,19 +2858,11 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
                 ASSERT(dstKind == OCR_GUID_EDT);
 #ifdef REG_ASYNC_SGL
             PD_MSG_FIELD_O(returnDetail) = convertDepAddToSatisfy(
-                self, src, dest, slot, mode,
-#ifdef ENABLE_AMT_RESILIENCE
-                resilientEdtParent,
-#endif
-                sync);
+                self, src, dest, slot, mode, sync);
 #else
 #ifdef REG_ASYNC
             PD_MSG_FIELD_O(returnDetail) = convertDepAddToSatisfy(
-                self, src, dest, slot,
-#ifdef ENABLE_AMT_RESILIENCE
-                resilientEdtParent,
-#endif
-                sync);
+                self, src, dest, slot, sync);
 #endif
                 PD_MSG_STACK(registerMsg);
                 getCurrentEnv(NULL, NULL, NULL, &registerMsg);
@@ -2964,9 +2881,6 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
                 PD_MSG_FIELD_I(slot) = slot;
                 PD_MSG_FIELD_I(mode) = mode;
                 PD_MSG_FIELD_I(properties) = true; // Specify context is add-dependence
-#ifdef ENABLE_AMT_RESILIENCE
-                PD_MSG_FIELD_I(resilientEdtParent) = resilientEdtParent;
-#endif
                 u8 returnCode = self->fcts.processMessage(self, &registerMsg, true);
                 u8 returnDetail = (returnCode == 0) ? PD_MSG_FIELD_O(returnDetail) : returnCode;
             #undef PD_MSG
@@ -3041,9 +2955,6 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
                 PD_MSG_FIELD_I(slot) = slot;
                 PD_MSG_FIELD_I(mode) = mode;
                 PD_MSG_FIELD_I(properties) = true; // Specify context is add-dependence
-#ifdef ENABLE_AMT_RESILIENCE
-                PD_MSG_FIELD_I(resilientEdtParent) = resilientEdtParent;
-#endif
                 u8 returnCode = self->fcts.processMessage(self, &registerMsg, true);
                 u8 returnDetail = (returnCode == 0) ? PD_MSG_FIELD_O(returnDetail) : returnCode;
                 DPRINTF(DEBUG_LVL_INFO,
@@ -3093,9 +3004,6 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
 #endif
                 PD_MSG_FIELD_I(slot) = slot;
                 PD_MSG_FIELD_I(properties) = true; // Specify context is add-dependence
-#ifdef ENABLE_AMT_RESILIENCE
-                PD_MSG_FIELD_I(resilientEdtParent) = resilientEdtParent;
-#endif
                 u8 returnCode = self->fcts.processMessage(self, &registerMsg, true);
 #if defined (REG_ASYNC) || (REG_ASYNC_SGL)
                 u8 returnDetail = ((srcIsNonPersistent) && (returnCode == 0)) ? PD_MSG_FIELD_O(returnDetail) : returnCode;
@@ -3121,6 +3029,9 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
 #endif
 #undef PD_MSG
 #undef PD_TYPE
+#ifdef ENABLE_AMT_RESILIENCE
+        }
+#endif
         msg->type &= ~PD_MSG_REQUEST;
         msg->type |= PD_MSG_RESPONSE;
         EXIT_PROFILE;
@@ -3146,13 +3057,6 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         ocrFatGuid_t signaler = PD_MSG_FIELD_I(signaler);
         ocrFatGuid_t dest = PD_MSG_FIELD_I(dest);
         bool isAddDep = PD_MSG_FIELD_I(properties);
-
-#ifdef ENABLE_AMT_RESILIENCE
-        ocrGuid_t resilientEdtParent = PD_MSG_FIELD_I(resilientEdtParent);
-        if (!ocrGuidIsNull(resilientEdtParent)) {
-            salRecordEdt(resilientEdtParent);
-        }
-#endif
 
         if (dstKind & OCR_GUID_EVENT) {
             ASSERT(false && "We never register signaler on an event");
@@ -3201,12 +3105,6 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         ocrFatGuid_t dest = PD_MSG_FIELD_I(dest);
         ASSERT(PD_MSG_FIELD_I(dest.metaDataPtr) != NULL);
         bool isAddDep = PD_MSG_FIELD_I(properties);
-#ifdef ENABLE_AMT_RESILIENCE
-        ocrGuid_t resilientEdtParent = PD_MSG_FIELD_I(resilientEdtParent);
-        if (!ocrGuidIsNull(resilientEdtParent)) {
-            salRecordEdt(resilientEdtParent);
-        }
-#endif
 
         if (dstKind & OCR_GUID_EVENT) {
             ocrEvent_t *evt = (ocrEvent_t*)(dest.metaDataPtr);
@@ -3281,12 +3179,6 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
 #ifdef ENABLE_EXTENSION_PERF
         ocrTask_t * curEdt = PD_MSG_FIELD_I(satisfierGuid).metaDataPtr;
         if(curEdt) curEdt->swPerfCtrs[PERF_EVT_SATISFIES - PERF_HW_MAX]++;
-#endif
-#ifdef ENABLE_AMT_RESILIENCE
-        ocrGuid_t resilientEdtParent = PD_MSG_FIELD_I(resilientEdtParent);
-        if (!ocrGuidIsNull(resilientEdtParent)) {
-            salRecordEdt(resilientEdtParent);
-        }
 #endif
 
         self->guidProviders[0]->fcts.getVal(

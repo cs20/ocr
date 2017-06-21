@@ -1652,11 +1652,28 @@ u8 resilientLatchUpdate(ocrGuid_t latchGuid, u32 slot) {
     PD_MSG_FIELD_I(mode) = -1;
 #endif
     PD_MSG_FIELD_I(properties) = 0;
-    PD_MSG_FIELD_I(resilientEdtParent) = NULL_GUID;
     RESULT_ASSERT(pd->fcts.processMessage(pd, &msg, true), ==, 0);
 #undef PD_MSG
 #undef PD_TYPE
     return 0;
+}
+
+void processFailure() {
+    ocrPolicyDomain_t * pd;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+    switch(pd->faultCode) {
+    case OCR_FAILURE_NONE:
+        break;
+    case OCR_NODE_FAILURE_SELF:
+        salThreadExit();
+        break;
+    case OCR_NODE_FAILURE_OTHER:
+        salThreadRecover();
+        break;
+    default:
+        ASSERT(0);
+        break;
+    }
 }
 #endif
 

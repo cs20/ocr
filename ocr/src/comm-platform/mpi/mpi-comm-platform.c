@@ -398,17 +398,22 @@ static void mpiCheckFaultAndHeartBeat(ocrCommPlatform_t * self) {
     MPI_Test(&mpiComm->faultReq, &faultFlag, &faultStatus);
     if (faultFlag) {
         ASSERT(mpiComm->failedRank >= 0);
+
+        //Handle failure in this rank
+        DPRINTF(DEBUG_LVL_WARN, "Node failure detected on rank %d (notified by rank %d)\n", mpiComm->failedRank, faultStatus.MPI_SOURCE);
         ocrLocation_t failedLocation = mpiRankToLocation(mpiComm->failedRank);
         ASSERT(!checkPlatformModelLocationFault(failedLocation));
-        DPRINTF(DEBUG_LVL_WARN, "Node failure detected on rank %d (notified by rank %d)\n", mpiComm->failedRank, faultStatus.MPI_SOURCE);
         salProcessNodeFailure(failedLocation);
         if (mpiComm->failedRank == mpiComm->sendBuddyRank) mpiComm->sendBuddyFailed = 1;
         if (mpiComm->failedRank == mpiComm->recvBuddyRank) mpiComm->recvBuddyFailed = 1;
+
         //Acknowledge receipt of fault notification
         MPI_Send(NULL, 0, MPI_BYTE, faultStatus.MPI_SOURCE, MPI_TAG_FAULT_ACK, MPI_COMM_WORLD);
+
         //Wait for recovery
         DPRINTF(DEBUG_LVL_WARN, "Waiting for recovery...\n");
         MPI_Recv(NULL, 0, MPI_BYTE, faultStatus.MPI_SOURCE, MPI_TAG_RECOVERY, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+
         //Resume
         DPRINTF(DEBUG_LVL_WARN, "Resuming after recovery...\n");
         mpiComm->failedRank = -1;
@@ -423,7 +428,10 @@ static void mpiCheckFaultAndHeartBeat(ocrCommPlatform_t * self) {
             MPI_Irecv(NULL, 0, MPI_BYTE, mpiComm->recvBuddyRank, MPI_TAG_HEARTBEAT, MPI_COMM_WORLD, &mpiComm->hbRecvReq);
             mpiComm->hbRecvTime = curTime;
         } else if ((curTime - mpiComm->hbRecvTime) > OCR_HEARTBEAT_TIMEOUT) {
+            //Handle failure in buddy rank
             DPRINTF(DEBUG_LVL_WARN, "Node failure detected on buddy rank %d\n", mpiComm->recvBuddyRank);
+            ocrLocation_t failedLocation = mpiRankToLocation(mpiComm->recvBuddyRank);
+            salProcessNodeFailureAtBuddy(failedLocation);
             mpiComm->recvBuddyFailed = 1;
             if (mpiComm->recvBuddyRank == mpiComm->sendBuddyRank) mpiComm->sendBuddyFailed = 1;
 
@@ -436,11 +444,6 @@ static void mpiCheckFaultAndHeartBeat(ocrCommPlatform_t * self) {
                     MPI_Isend(&mpiComm->recvBuddyRank, 1, MPI_INT, rank, MPI_TAG_FAULT, MPI_COMM_WORLD, &reqArray[reqCount++]);
                 }
             }
-
-            //Handle failure in this rank
-            ocrLocation_t failedLocation = mpiRankToLocation(mpiComm->recvBuddyRank);
-            salProcessNodeFailure(failedLocation);
-
             //Wait for fault notify send and ack
             MPI_Waitall(reqCount, reqArray, MPI_STATUSES_IGNORE);
             for (i = 0; i < pd->neighborCount; i++) {
@@ -452,7 +455,7 @@ static void mpiCheckFaultAndHeartBeat(ocrCommPlatform_t * self) {
 
             //Do recovery
             DPRINTF(DEBUG_LVL_WARN, "Recovery in progress...\n");
-            u8 err = salRecoverNodeFailure(failedLocation);
+            u8 err = salRecoverNodeFailureAtBuddy(failedLocation);
             if (!err) {
                 DPRINTF(DEBUG_LVL_WARN, "Successfully recovered from failure on rank %d\n", mpiComm->recvBuddyRank);
                 //Send recovery notification
@@ -479,9 +482,6 @@ static void mpiCheckFaultAndHeartBeat(ocrCommPlatform_t * self) {
     }                                                   \
     mpiCheckFaultAndHeartBeat(s);                       \
 }
-
-#else
-#define AMT_RESILIENCE_CHECK_FOR_FAULT(s)
 #endif
 
 //
@@ -799,8 +799,13 @@ static u8 MPICommPollMessageInternal(ocrCommPlatform_t *self, ocrPolicyMsg_t **m
 static u8 MPICommSendMessage(ocrCommPlatform_t * self,
                       ocrLocation_t target, ocrPolicyMsg_t * message,
                       u64 *id, u32 properties, u32 mask) {
-    AMT_RESILIENCE_CHECK_FOR_FAULT(self);
     START_PROFILE(commplt_MPICommSendMessage);
+#ifdef ENABLE_AMT_RESILIENCE
+    AMT_RESILIENCE_CHECK_FOR_FAULT(self);
+    if (checkPlatformModelLocationFault(target)) {
+        RETURN_PROFILE(OCR_EFAULT);
+    }
+#endif
     u64 bufferSize = message->bufferSize;
     ocrCommPlatformMPI_t * mpiComm = ((ocrCommPlatformMPI_t *) self);
 #ifdef ENABLE_RESILIENCY
@@ -941,7 +946,9 @@ static u8 MPICommSendMessage(ocrCommPlatform_t * self,
 
 static u8 MPICommPollMessage(ocrCommPlatform_t *self, ocrPolicyMsg_t **msg,
                       u32 properties, u32 *mask) {
+#ifdef ENABLE_AMT_RESILIENCE
     AMT_RESILIENCE_CHECK_FOR_FAULT(self);
+#endif
     ocrCommPlatformMPI_t * mpiComm __attribute__((unused)) = ((ocrCommPlatformMPI_t *) self);
     // Not supposed to be polled outside RL_USER_OK
     ASSERT_BLOCK_BEGIN(((mpiComm->curState >> 4) == RL_USER_OK))
@@ -1269,7 +1276,6 @@ static u8 MPICommPollMessageInternalMT(ocrCommPlatform_t *self, pdEvent_t **outE
 static u8 MPICommSendMessageMT(ocrCommPlatform_t * self,
                         pdEvent_t **inOutMsg,
                         pdEvent_t *statusEvent, u32 idx) {
-    AMT_RESILIENCE_CHECK_FOR_FAULT(self);
     START_PROFILE(commplt_MPICommSendMessage);
     // Make sure we at least have something to send
     ASSERT(*inOutMsg != NULL);
@@ -1475,7 +1481,6 @@ static u8 MPICommSendMessageMT(ocrCommPlatform_t * self,
 }
 
 static u8 MPICommPollMessageMT(ocrCommPlatform_t *self, pdEvent_t **outEvent, u32 index) {
-    AMT_RESILIENCE_CHECK_FOR_FAULT(self);
     ocrCommPlatformMPI_t * mpiComm __attribute__((unused)) = ((ocrCommPlatformMPI_t *) self);
     // Not supposed to be polled outside RL_USER_OK
     ASSERT_BLOCK_BEGIN(((mpiComm->curState >> 4) == RL_USER_OK))

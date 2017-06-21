@@ -126,8 +126,11 @@ u8 delegateCommSendMessage(ocrCommApi_t *self, ocrLocation_t target,
     ASSERT((pd->myLocation == message->srcLocation) && (target == message->destLocation));
     ASSERT(pd->myLocation != target); // Do not support sending to 'itself' (current PD).
 #ifdef ENABLE_AMT_RESILIENCE
-    if (checkPlatformModelLocationFault(target))
+    salRecordEdtAtNode(message->resilientEdtParent, target);
+    if (checkPlatformModelLocationFault(target)) {
+        DPRINTF(DEBUG_LVL_NONE,"Abort at SEND: msg: %lx\n", (message->type & PD_MSG_TYPE_ONLY));
         abortCurrentWork();
+    }
 #endif
     // If the message is not persistent and the marshall mode is set, we do the specified
     // copy. Otherwise it is just the mode the buffer has been copied in the first place.
@@ -253,7 +256,10 @@ u8 delegateCommWaitMessage(ocrCommApi_t *self, ocrMsgHandle_t **handle) {
         }
         if (ret == POLL_NO_MESSAGE) {
 #ifdef ENABLE_AMT_RESILIENCE
-            if (faultDetected) abortCurrentWork();
+            if (faultDetected) {
+                DPRINTF(DEBUG_LVL_NONE,"Abort at WAIT: msg: %lx\n", ((*handle)->msg->type & PD_MSG_TYPE_ONLY));
+                abortCurrentWork();
+            }
 #endif
             // If nothing shows up, transfer control to the scheduler for monitoring progress
             ocrPolicyDomain_t * pd;
