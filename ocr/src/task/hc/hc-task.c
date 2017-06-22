@@ -1031,15 +1031,6 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
 #undef PD_MSG
 #undef PD_TYPE
 
-#ifdef ENABLE_AMT_RESILIENCE
-    if (hasProperty(properties, EDT_PROP_RESILIENT)) {
-        salNewResilientEdt(taskGuid);
-    }
-    if (doResDep) {
-        RESULT_PROPAGATE(salPublishAddDependence(resilientEdtParent, taskGuid, (depc - 1)));
-    }
-#endif
-
 #ifdef OCR_ENABLE_STATISTICS
     // Bug #225
     {
@@ -1062,6 +1053,16 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
     self->guid = taskGuid;
     edtGuid->metaDataPtr = self;
     OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_EDT, OCR_ACTION_CREATE, traceTaskCreate, edtGuid->guid, depc, paramc, paramv);
+
+#ifdef ENABLE_AMT_RESILIENCE
+    if (hasProperty(properties, EDT_PROP_RESILIENT)) {
+        salResilientEdtCreate(self);
+    }
+    if (doResDep) {
+        RESULT_PROPAGATE(salPublishAddDependence(resilientEdtParent, taskGuid, (depc - 1)));
+    }
+#endif
+
     // Check to see if the EDT can be ran
     if(self->depc == dself->slotSatisfiedCount) {
         DPRINTF(DEBUG_LVL_INFO,
@@ -1194,6 +1195,13 @@ u8 satisfyTaskHc(ocrTask_t * base, ocrFatGuid_t data, u32 slot)
         self->signalers[slot].guid = NULL_GUID;
     else
         self->signalers[slot].guid = data.guid;
+
+#ifdef ENABLE_AMT_RESILIENCE
+    if (base->flags & OCR_TASK_FLAG_RESILIENT) {
+        //ocrGuid_t db = (self->signalers[slot].mode == DB_MODE_NULL) ? NULL_GUID : data.guid;
+        //RESULT_ASSERT(salResilientEdtSatisfy(db, base->guid, slot), ==, 0);
+    }
+#endif
 
     if(self->slotSatisfiedCount == base->depc) {
         DPRINTF(DEBUG_LVL_VERB, "Scheduling task "GUIDF", satisfied dependences %"PRId32"/%"PRId32"\n",

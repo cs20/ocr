@@ -27,6 +27,9 @@ static void ocrShutdownInternal(u8 errorCode) {
         tagDeferredMsg(msgPtr, curTask);
     }
 #endif
+#ifdef ENABLE_AMT_RESILIENCE
+    pd->faultCode = OCR_NODE_SHUTDOWN;
+#endif
     PD_MSG_FIELD_I(runlevel) = RL_COMPUTE_OK;
     PD_MSG_FIELD_I(properties) = RL_REQUEST | RL_BARRIER | RL_TEAR_DOWN;
     PD_MSG_FIELD_I(errorCode) = errorCode;

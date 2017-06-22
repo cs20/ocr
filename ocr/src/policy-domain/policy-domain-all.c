@@ -1663,6 +1663,7 @@ void processFailure() {
     getCurrentEnv(&pd, NULL, NULL, NULL);
     switch(pd->faultCode) {
     case OCR_FAILURE_NONE:
+    case OCR_NODE_SHUTDOWN:
         break;
     case OCR_NODE_FAILURE_SELF:
         salThreadExit();

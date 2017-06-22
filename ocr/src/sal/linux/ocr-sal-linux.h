@@ -82,7 +82,8 @@ void*     salFetch(ocrGuid_t guid, u64 *size);
 u8        salRepublish(ocrGuid_t guid, void *ptr);
 u8        salRemovePublished(ocrGuid_t guid);
 //EDT publish
-u8        salNewResilientEdt(ocrGuid_t edt);
+u8        salResilientEdtCreate(ocrTask_t *task);
+u8        salResilientEdtSatisfy(ocrGuid_t data, ocrGuid_t edt, u32 slot);
 u8        salPublishEdt(ocrTask_t *task);
 u8        salRemovePublishedEdt(ocrGuid_t edt);
 u8        salRecordEdtAtNode(ocrGuid_t edt, ocrLocation_t loc);

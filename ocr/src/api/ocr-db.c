@@ -16,6 +16,7 @@
 #include "ocr-errors.h"
 #include "ocr-policy-domain.h"
 #include "ocr-runtime-types.h"
+#include "ocr-sysboot.h"
 
 #ifdef OCR_ENABLE_STATISTICS
 #include "ocr-statistics.h"
@@ -44,6 +45,9 @@ u8 ocrDbCreate(ocrGuid_t *db, void** addr, u64 len, u16 flags,
         hint = &userHint;
     }
 #ifdef ENABLE_AMT_RESILIENCE
+    if (task != NULL && task->funcPtr == mainEdtGet()) {
+        flags |= DB_PROP_RESILIENT;
+    }
     ocrGuid_t latch = (task != NULL) ? task->resilientLatch : NULL_GUID;
     if ((flags & DB_PROP_RESILIENT) && ocrGuidIsNull(latch)) {
         flags |= DB_PROP_PUBLISH_EAGER;

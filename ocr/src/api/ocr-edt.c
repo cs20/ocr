@@ -10,6 +10,7 @@
 #include "ocr-policy-domain.h"
 #include "ocr-runtime.h"
 #include "ocr-errors.h"
+#include "ocr-sysboot.h"
 
 #include "utils/profiler/profiler.h"
 
@@ -27,6 +28,11 @@ u8 ocrEventCreateParams(ocrGuid_t *guid, ocrEventTypes_t eventType, u16 properti
     ocrTask_t * curEdt = NULL;
     getCurrentEnv(&pd, NULL, &curEdt, &msg);
 
+#ifdef ENABLE_AMT_RESILIENCE
+    if (curEdt != NULL && curEdt->funcPtr == mainEdtGet()) {
+        properties |= EVT_PROP_RESILIENT;
+    }
+#endif
 #define PD_MSG (&msg)
 #define PD_TYPE PD_MSG_EVT_CREATE
     msg.type = PD_MSG_EVT_CREATE | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
@@ -381,6 +387,9 @@ u8 ocrEdtCreate(ocrGuid_t* edtGuidPtr, ocrGuid_t templateGuid,
     PD_MSG_FIELD_I(depv) = depvFatGuids;
     PD_MSG_FIELD_I(workType) = EDT_USER_WORKTYPE;
 #ifdef ENABLE_AMT_RESILIENCE
+    if (curEdt != NULL && curEdt->funcPtr == mainEdtGet()) {
+        properties |= EDT_PROP_RESILIENT;
+    }
     PD_MSG_FIELD_I(resilientLatch) = curEdt ? curEdt->resilientLatch : NULL_GUID;
     if (properties & EDT_PROP_RECOVERY) {
         ASSERT(ocrGuidIsNull(msg.resilientEdtParent));

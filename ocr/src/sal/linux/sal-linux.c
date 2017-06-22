@@ -28,6 +28,7 @@
 
 #if defined(linux) || defined(__APPLE__)
 #include <unistd.h>
+#include <sys/file.h>
 #include <sys/mman.h>
 #include <sys/stat.h>        /* For mode constants */
 #include <fcntl.h>           /* For O_* constants */
@@ -606,6 +607,8 @@ static void *nodeStateBuf;
 static int nodeStateFD;
 static volatile u32 workerCounter;
 
+static u8 salPublishInternal(char *fname, u64 guid, void *ptr, u64 size, u8 activeBuffer);
+
 //Initialize the hashtable
 void salInitPublishFetch() {
     ocrPolicyDomain_t *pd;
@@ -820,6 +823,8 @@ typedef struct _depStorage {
 static depRecord_t * salGetPublishedDeps(u64 guid, u64 loc, u32 *ndeps) {
     *ndeps = 0;
 
+    hal_lock(&depLock);
+
     char fname[FNL];
     int c = snprintf(fname, FNL, "%lu.deps%lu", guid, loc);
     if (c < 0 || c >= FNL) {
@@ -830,19 +835,37 @@ static depRecord_t * salGetPublishedDeps(u64 guid, u64 loc, u32 *ndeps) {
 
     struct stat sb;
     if (stat(fname, &sb) != 0) {
+        hal_unlock(&depLock);
         return NULL;
     }
+
+    //Ensure file is initialized
     u64 size = sb.st_size;
+    while (size == 0) {
+        RESULT_ASSERT(stat(fname, &sb), ==, 0);
+        size = sb.st_size;
+    }
 
     //open underlying file
-    int fd = open(fname, O_RDONLY);
+    int fd = open(fname, O_RDWR);
     if (fd<0) {
         fprintf(stderr, "open failed: (filename: %s)\n", fname);
         ASSERT(0);
         return NULL;
     }
 
-    void *buf = mmap( NULL, size, PROT_READ, MAP_SHARED, fd, 0 );
+    //Lock file
+    int rc = flock(fd, LOCK_EX);
+    if (rc) {
+        fprintf(stderr, "file lock failed: (filename: %s)\n", fname);
+        ASSERT(0);
+        return NULL;
+    }
+
+    RESULT_ASSERT(stat(fname, &sb), ==, 0);
+    size = sb.st_size;
+
+    void *buf = mmap( NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0 );
     if (buf == MAP_FAILED) {
         fprintf(stderr, "mmap failed for size %lu (filename: %s filedesc: %d)\n", size, fname, fd);
         ASSERT(0);
@@ -856,10 +879,26 @@ static depRecord_t * salGetPublishedDeps(u64 guid, u64 loc, u32 *ndeps) {
     getCurrentEnv(&pd, NULL, NULL, NULL);
     depRecord_t *deprec = (depRecord_t*)pd->fcts.pdMalloc(pd, sizeof(depRecord_t) * numDeps);
     memcpy(deprec, deprecBuf, sizeof(depRecord_t) * numDeps);
+    depHeader->numDeps = 0;
 
-    int rc = munmap(buf, size);
+    rc = msync(buf, size, MS_INVALIDATE | MS_SYNC);
+    if (rc) {
+        fprintf(stderr, "msync failed for buffer %p of size %lu\n", buf, size);
+        ASSERT(0);
+        return NULL;
+    }
+
+    rc = munmap(buf, size);
     if (rc) {
         fprintf(stderr, "munmap failed for buffer %p of size %lu\n", buf, size);
+        ASSERT(0);
+        return NULL;
+    }
+
+    //Unlock file
+    rc = flock(fd, LOCK_UN);
+    if (rc) {
+        fprintf(stderr, "file unlock failed: (filename: %s)\n", fname);
         ASSERT(0);
         return NULL;
     }
@@ -872,12 +911,14 @@ static depRecord_t * salGetPublishedDeps(u64 guid, u64 loc, u32 *ndeps) {
         return NULL;
     }
 
-    rc = unlink(fname);
+    /*rc = unlink(fname);
     if (rc) {
         fprintf(stderr, "unlink failed: (filename: %s)\n", fname);
         ASSERT(0);
         return NULL;
-    }
+    }*/
+
+    hal_unlock(&depLock);
 
     *ndeps = numDeps;
     return deprec;
@@ -891,8 +932,16 @@ static void doSatisfy(ocrGuid_t dst, u32 slot, ocrGuid_t data) {
     if (!salIsPublished(dst)) {
         ocrLocation_t loc;
         pd->guidProviders[0]->fcts.getLocation(pd->guidProviders[0], dst, &loc);
-        if (checkPlatformModelLocationFault(loc))
-            return;
+        if (checkPlatformModelLocationFault(loc)) {
+#if GUID_BIT_COUNT == 64
+            u64 guid = dst.guid;
+#elif GUID_BIT_COUNT == 128
+            u64 guid = dst.lower;
+#else
+#error Unknown type of GUID
+#endif
+            RESULT_ASSERT(salGuidTableGet(guid, &dst), ==, 0);
+        }
     }
 #define PD_MSG (&msg)
 #define PD_TYPE PD_MSG_DEP_SATISFY
@@ -931,18 +980,22 @@ u8 salReleasePublishedDeps(ocrGuid_t g, ocrGuid_t data) {
     u64 n;
 
     for (n = 0; n < pd->neighborCount + 1; n++) {
+        numDeps = 0;
         depRecord_t *deprec = salGetPublishedDeps(guid, n, &numDeps);
-        if (numDeps == 0) continue;
         for (i = 0; i < numDeps; i++) {
             doSatisfy(deprec[i].dst, deprec[i].slot, data);
         }
-        pd->fcts.pdFree(pd, deprec);
+        if (numDeps > 0) pd->fcts.pdFree(pd, deprec);
     }
     return 0;
 }
 
 static u8 salDoSatisfy(ocrGuid_t src, ocrGuid_t dst, u32 slot) {
-    ASSERT(!(ocrGuidIsNull(src)));
+    ASSERT(!(ocrGuidIsNull(dst)));
+    if (ocrGuidIsNull(src)) {
+        doSatisfy(dst, slot, NULL_GUID);
+        return 1;
+    }
     ocrPolicyDomain_t *pd = NULL;
     getCurrentEnv(&pd, NULL, NULL, NULL);
     ocrGuidKind kind;
@@ -972,7 +1025,7 @@ static u8 salDoSatisfy(ocrGuid_t src, ocrGuid_t dst, u32 slot) {
 
 u8 salPublishAddDependence(ocrGuid_t g, ocrGuid_t dst, u32 slot) {
     if (!pfIsInitialized) return 1;
-    if (ocrGuidIsNull(g)) return 1;
+    ASSERT(!(ocrGuidIsNull(dst)));
 
     ocrPolicyDomain_t *pd = NULL;
     getCurrentEnv(&pd, NULL, NULL, NULL);
@@ -1006,6 +1059,7 @@ u8 salPublishAddDependence(ocrGuid_t g, ocrGuid_t dst, u32 slot) {
     void *buf = NULL;
     u64 size = 0;
     int fd = -1;
+    int rc = 0;
     struct stat sb;
     if (stat(fname, &sb) != 0) {
         fd = open(fname, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR );
@@ -1014,8 +1068,14 @@ u8 salPublishAddDependence(ocrGuid_t g, ocrGuid_t dst, u32 slot) {
             ASSERT(0);
             return 1;
         }
+        rc = flock(fd, LOCK_EX);
+        if (rc) {
+            fprintf(stderr, "file lock failed: (filename: %s)\n", fname);
+            ASSERT(0);
+            return 1;
+        }
         size = sizeof(depStorage_t) + (DEPS_INCR * sizeof(depRecord_t));
-        int rc = ftruncate(fd, size);
+        rc = ftruncate(fd, size);
         if (rc) {
             fprintf(stderr, "ftruncate failed: (filename: %s filedesc: %d)\n", fname, fd);
             ASSERT(0);
@@ -1037,6 +1097,13 @@ u8 salPublishAddDependence(ocrGuid_t g, ocrGuid_t dst, u32 slot) {
             ASSERT(0);
             return 1;
         }
+        rc = flock(fd, LOCK_EX);
+        if (rc) {
+            fprintf(stderr, "file lock failed: (filename: %s)\n", fname);
+            ASSERT(0);
+            return 1;
+        }
+        RESULT_ASSERT(stat(fname, &sb), ==, 0);
         size = sb.st_size;
         buf = mmap( NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0 );
         if (buf == MAP_FAILED) {
@@ -1047,18 +1114,24 @@ u8 salPublishAddDependence(ocrGuid_t g, ocrGuid_t dst, u32 slot) {
     }
 
     u8 doResize = 0;
+    u32 maxDeps = 0;
+    u8 isSat = salIsSatisfied(g);
+    if (!isSat) {
     depStorage_t *depHeader = (depStorage_t*)buf;
-    depRecord_t *deprec = (depRecord_t*)(((u8*)buf) + sizeof(depStorage_t) + (depHeader->numDeps * sizeof(depRecord_t)));
+    u32 numDeps = depHeader->numDeps;
+    depRecord_t *deprec = (depRecord_t*)(((u8*)buf) + sizeof(depStorage_t) + (numDeps * sizeof(depRecord_t)));
     deprec->dst = dst;
     deprec->slot = slot;
-    u32 maxDeps = depHeader->maxDeps;
-    if (++depHeader->numDeps == maxDeps) doResize = 1;
+    maxDeps = depHeader->maxDeps;
+    depHeader->numDeps = ++numDeps;
+    if (numDeps == maxDeps) doResize = 1;
 
-    int rc = msync(buf, size, MS_INVALIDATE | MS_SYNC);
+    rc = msync(buf, size, MS_INVALIDATE | MS_SYNC);
     if (rc) {
         fprintf(stderr, "msync failed for buffer %p of size %lu\n", buf, size);
         ASSERT(0);
         return 1;
+    }
     }
 
     rc = munmap(buf, size);
@@ -1078,6 +1151,13 @@ u8 salPublishAddDependence(ocrGuid_t g, ocrGuid_t dst, u32 slot) {
         }
     }
 
+    rc = flock(fd, LOCK_UN);
+    if (rc) {
+        fprintf(stderr, "file unlock failed: (filename: %s)\n", fname);
+        ASSERT(0);
+        return 1;
+    }
+
     rc = close(fd);
     if (rc) {
         fprintf(stderr, "close failed: (filedesc: %d)\n", fd);
@@ -1086,6 +1166,8 @@ u8 salPublishAddDependence(ocrGuid_t g, ocrGuid_t dst, u32 slot) {
     }
 
     hal_unlock(&depLock);
+
+    if (isSat) salDoSatisfy(g, dst, slot);
 
     return 0;
 }
@@ -1104,12 +1186,12 @@ u8 salTransferPublishedDeps(ocrGuid_t g, ocrGuid_t dst) {
     getCurrentEnv(&pd, NULL, NULL, NULL);
 
     for (n = 0; n < pd->neighborCount + 1; n++) {
+        numDeps = 0;
         depRecord_t *deprec = salGetPublishedDeps(guid, n, &numDeps);
-        if (numDeps == 0) continue;
         for (i = 0; i < numDeps; i++) {
             salPublishAddDependence(dst, deprec[i].dst, deprec[i].slot);
         }
-        pd->fcts.pdFree(pd, deprec);
+        if (numDeps > 0) pd->fcts.pdFree(pd, deprec);
     }
     return 0;
 }
@@ -1208,18 +1290,10 @@ u8 salPublish(ocrGuid_t g, void *ptr, u64 size) {
 
 //Copy a published guid to a new buffer and return the ptr
 //Caller takes responsibility of free-ing the buffer
-void* salFetchInternal(u64 guid, u64 *gSize, u8 activeBuffer, u8 doCopy) {
+static void* salFetchInternal(char *fname, u64 guid, u64 *gSize, u8 activeBuffer, u8 doCopy) {
     if (gSize) *gSize = 0;
     ocrPolicyDomain_t *pd;
     getCurrentEnv(&pd, NULL, NULL, NULL);
-
-    char fname[FNL];
-    int c = snprintf(fname, FNL, "%lu.guid", guid);
-    if (c < 0 || c >= FNL) {
-        fprintf(stderr, "failed to create filename for publish\n");
-        ASSERT(0);
-        return NULL;
-    }
 
     struct stat sb;
     if (stat(fname, &sb) == -1) {
@@ -1277,7 +1351,14 @@ void* salFetch(ocrGuid_t g, u64 *gSize) {
 #else
 #error Unknown type of GUID
 #endif
-    return salFetchInternal(guid, gSize, 1, 1);
+    char fname[FNL];
+    int c = snprintf(fname, FNL, "%lu.guid", guid);
+    if (c < 0 || c >= FNL) {
+        fprintf(stderr, "failed to create filename for publish\n");
+        ASSERT(0);
+        return NULL;
+    }
+    return salFetchInternal(fname, guid, gSize, 1, 1);
 }
 
 //Update a published guid's contents
@@ -1476,17 +1557,20 @@ typedef struct _edtStorage {
     ocrGuid_t *depv;
 } edtStorage_t;
 
-u8 salNewResilientEdt(ocrGuid_t g) {
+u8 salResilientEdtCreate(ocrTask_t *task) {
     if (!pfIsInitialized) return 1;
-    if (ocrGuidIsNull(g)) return 1;
+    ASSERT(task != NULL);
 #if GUID_BIT_COUNT == 64
-    u64 guid = g.guid;
+    u64 guid = task->guid.guid;
 #elif GUID_BIT_COUNT == 128
-    u64 guid = g.lower;
+    u64 guid = task->guid.lower;
 #else
 #error Unknown type of GUID
 #endif
+    ocrPolicyDomain_t *pd;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
 
+    //Create the EDT file
     char fname[FNL];
     int c = snprintf(fname, FNL, "%lu.edt", guid);
     if (c < 0 || c >= FNL) {
@@ -1494,28 +1578,32 @@ u8 salNewResilientEdt(ocrGuid_t g) {
         ASSERT(0);
         return 1;
     }
+    u64 locbuf = pd->myLocation;
+    salPublishInternal(fname, guid, &locbuf, sizeof(u64), 0);
 
-    struct stat sb;
-    if (stat(fname, &sb) == 0) {
-        fprintf(stderr, "Found existing edt guid [0x%lx]!\n", guid);
+    //Create the temporary EDT buffer file
+    c = snprintf(fname, FNL, "%lu.edt%lu", guid, pd->myLocation);
+    if (c < 0 || c >= FNL) {
+        fprintf(stderr, "failed to create filename for EDT record\n");
         ASSERT(0);
         return 1;
     }
-
-    int fd = open(fname, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR );
-    if (fd<0) {
-        fprintf(stderr, "open failed: (filename: %s)\n", fname);
-        ASSERT(0);
-        return 1;
+    int i;
+    u64 size = sizeof(edtStorage_t) + sizeof(u64) * task->paramc + sizeof(ocrGuid_t) * task->depc;
+    u8 *buf = pd->fcts.pdMalloc(pd, size);
+    edtStorage_t *edt = (edtStorage_t *)buf;
+    edt->funcPtr = task->funcPtr;
+    edt->paramc = task->paramc;
+    edt->depc = task->depc;
+    edt->resilientEdtParent = task->resilientEdtParent;
+    edt->paramv = (u64*)(buf + sizeof(edtStorage_t));
+    memcpy(edt->paramv, task->paramv, sizeof(u64) * task->paramc);
+    edt->depv = (ocrGuid_t*)(buf + sizeof(edtStorage_t) + sizeof(u64) * task->paramc);
+    for (i = 0; i < task->depc; i++) {
+        edt->depv[i] = UNINITIALIZED_GUID;
     }
-
-    int rc = close(fd);
-    if (rc) {
-        fprintf(stderr, "close failed: (filedesc: %d)\n", fd);
-        ASSERT(0);
-        return 1;
-    }
-
+    salPublishInternal(fname, guid, buf, size, 0);
+    pd->fcts.pdFree(pd, buf);
     return 0;
 }
 
@@ -1540,6 +1628,133 @@ u8 salIsResilientEdt(ocrGuid_t g) {
     if (stat(fname, &sb) == 0) {
         return 1;
     }
+    return 0;
+}
+
+u8 salResilientEdtSatisfy(ocrGuid_t data, ocrGuid_t edt, u32 slot) {
+    if (!pfIsInitialized) return 1;
+    ASSERT(!ocrGuidIsNull(edt));
+#if GUID_BIT_COUNT == 64
+    u64 guid = edt.guid;
+#elif GUID_BIT_COUNT == 128
+    u64 guid = edt.lower;
+#else
+#error Unknown type of GUID
+#endif
+    hal_lock(&pfLock);
+
+    char fname[FNL];
+    int c = snprintf(fname, FNL, "%lu.edt", guid);
+    if (c < 0 || c >= FNL) {
+        fprintf(stderr, "failed to create filename for EDT record\n");
+        ASSERT(0);
+        return 1;
+    }
+    struct stat sb;
+    if (stat(fname, &sb) != 0) {
+        fprintf(stderr, "Cannot find existing guid [0x%lx] during satisfy!\n", guid);
+        ASSERT(0);
+        return 1;
+    }
+    int fd = open(fname, O_RDONLY );
+    if (fd<0) {
+        fprintf(stderr, "open failed: (filename: %s)\n", fname);
+        ASSERT(0);
+        return 1;
+    }
+    u64 size = sizeof(u64);
+    void *buf = mmap( NULL, size, PROT_READ, MAP_SHARED, fd, 0 );
+    if (buf == MAP_FAILED) {
+        fprintf(stderr, "mmap failed for size %lu (filename: %s filedesc: %d)\n", size, fname, fd);
+        ASSERT(0);
+        return 1;
+    }
+    u64 loc = *((u64*)buf);
+    int rc = munmap(buf, size);
+    if (rc) {
+        fprintf(stderr, "munmap failed for buffer %p of size %lu\n", buf, size);
+        ASSERT(0);
+        return 1;
+    }
+    rc = close(fd);
+    if (rc) {
+        fprintf(stderr, "close failed: (filedesc: %d)\n", fd);
+        ASSERT(0);
+        return 1;
+    }
+
+    //Now open temporary EDT buffer
+    c = snprintf(fname, FNL, "%lu.edt%lu", guid, loc);
+    if (c < 0 || c >= FNL) {
+        fprintf(stderr, "failed to create filename for EDT record\n");
+        ASSERT(0);
+        return 1;
+    }
+
+    if (stat(fname, &sb) != 0) {
+        fprintf(stderr, "Cannot find existing guid [0x%lx] during satisfy!\n", guid);
+        ASSERT(0);
+        return 1;
+    }
+    size = sb.st_size;
+
+    fd = open(fname, O_RDWR);
+    if (fd<0) {
+        fprintf(stderr, "open failed: (filename: %s)\n", fname);
+        ASSERT(0);
+        return 1;
+    }
+
+    //Lock file
+    rc = flock(fd, LOCK_EX);
+    if (rc) {
+        fprintf(stderr, "file lock failed: (filename: %s)\n", fname);
+        ASSERT(0);
+        return 1;
+    }
+
+    buf = mmap( NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0 );
+    if (buf == MAP_FAILED) {
+        fprintf(stderr, "mmap failed for size %lu (filename: %s filedesc: %d)\n", size, fname, fd);
+        ASSERT(0);
+        return 1;
+    }
+
+    edtStorage_t *edtBuf = (edtStorage_t*)buf;
+    edtBuf->depv = (ocrGuid_t*)((size_t)edtBuf + sizeof(edtStorage_t) + (edtBuf->paramc * sizeof(u64)));
+    ASSERT(ocrGuidIsEq(edtBuf->depv[slot], UNINITIALIZED_GUID));
+    edtBuf->depv[slot] = data;
+
+    rc = msync((void*)edtBuf, size, MS_INVALIDATE | MS_SYNC);
+    if (rc) {
+        fprintf(stderr, "msync failed for buffer %p of size %lu\n", buf, size);
+        ASSERT(0);
+        return 1;
+    }
+    rc = munmap((void*)edtBuf, size);
+    if (rc) {
+        fprintf(stderr, "munmap failed for buffer %p of size %lu\n", buf, size);
+        ASSERT(0);
+        return 1;
+    }
+
+    //Unlock file
+    rc = flock(fd, LOCK_UN);
+    if (rc) {
+        fprintf(stderr, "file unlock failed: (filename: %s)\n", fname);
+        ASSERT(0);
+        return 1;
+    }
+
+    rc = close(fd);
+    if (rc) {
+        fprintf(stderr, "close failed: (filedesc: %d)\n", fd);
+        ASSERT(0);
+        return 1;
+    }
+
+    hal_unlock(&pfLock);
+
     return 0;
 }
 
@@ -1582,6 +1797,23 @@ u8 salPublishEdt(ocrTask_t *task) {
     }
     salPublishInternal(fname, guid, buf, size, 0);
     salRecordEdtAtNode(task->guid, pd->myLocation);
+    pd->fcts.pdFree(pd, buf);
+
+    //Delete temporary buffer
+    c = snprintf(fname, FNL, "%lu.edt%lu", guid, pd->myLocation);
+    if (c < 0 || c >= FNL) {
+        fprintf(stderr, "failed to create filename for EDT record\n");
+        ASSERT(0);
+        return 1;
+    }
+    struct stat sb;
+    RESULT_ASSERT(stat(fname, &sb), ==, 0);
+    int rc = unlink(fname);
+    if (rc) {
+        fprintf(stderr, "unlink failed: (filename: %s)\n", fname);
+        ASSERT(0);
+        return 1;
+    }
     return 0;
 }
 
@@ -1669,8 +1901,11 @@ u8 salRecordEdtAtNode(ocrGuid_t g, ocrLocation_t loc) {
         return 1;
     }
 
+    hal_lock(&pfLock);
+
     struct stat sb;
     if (stat(fname, &sb) == 0) {
+        hal_unlock(&pfLock);
         return 0; //Found existing record
     }
 
@@ -1687,6 +1922,8 @@ u8 salRecordEdtAtNode(ocrGuid_t g, ocrLocation_t loc) {
         ASSERT(0);
         return 1;
     }
+
+    hal_unlock(&pfLock);
 
     return 0;
 }
@@ -1722,6 +1959,7 @@ u8 salPublishEvent(ocrGuid_t g) {
     evt->data = NULL_GUID;
     evt->satisfied = 0;
     salPublishInternal(fname, guid, evtBuf, size, 0);
+    pd->fcts.pdFree(pd, evtBuf);
     return 0;
 }
 
@@ -1734,6 +1972,8 @@ u8 salPublishEventSatisfy(ocrGuid_t g, ocrGuid_t data) {
 #else
 #error Unknown type of GUID
 #endif
+
+    hal_lock(&depLock);
 
     char fname[FNL];
     int c = snprintf(fname, FNL, "%lu.evt", guid);
@@ -1751,9 +1991,17 @@ u8 salPublishEventSatisfy(ocrGuid_t g, ocrGuid_t data) {
     }
     u64 size = sb.st_size;
 
-    int fd = open(fname, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR );
+    int fd = open(fname, O_RDWR);
     if (fd<0) {
         fprintf(stderr, "open failed: (filename: %s)\n", fname);
+        ASSERT(0);
+        return 1;
+    }
+
+    //Lock file
+    int rc = flock(fd, LOCK_EX);
+    if (rc) {
+        fprintf(stderr, "file lock failed: (filename: %s)\n", fname);
         ASSERT(0);
         return 1;
     }
@@ -1769,7 +2017,7 @@ u8 salPublishEventSatisfy(ocrGuid_t g, ocrGuid_t data) {
     evt->data = data;
     evt->satisfied = 1;
 
-    int rc = msync(buf, size, MS_INVALIDATE | MS_SYNC);
+    rc = msync(buf, size, MS_INVALIDATE | MS_SYNC);
     if (rc) {
         fprintf(stderr, "msync failed for buffer %p of size %lu\n", buf, size);
         ASSERT(0);
@@ -1783,12 +2031,22 @@ u8 salPublishEventSatisfy(ocrGuid_t g, ocrGuid_t data) {
         return 1;
     }
 
+    //Unlock file
+    rc = flock(fd, LOCK_UN);
+    if (rc) {
+        fprintf(stderr, "file unlock failed: (filename: %s)\n", fname);
+        ASSERT(0);
+        return 1;
+    }
+
     rc = close(fd);
     if (rc) {
         fprintf(stderr, "close failed: (filedesc: %d)\n", fd);
         ASSERT(0);
         return 1;
     }
+
+    hal_unlock(&depLock);
 
     //Now release all deps
     hal_fence();
@@ -2069,11 +2327,20 @@ void salImportEdt(void * key, void * value, void * args) {
     ASSERT((u64)key == (u64)value);
     u64 guid = (u64)key;
     hashtable_t * faultTable = (hashtable_t*)args;
+
+    char fname[FNL];
+    int c = snprintf(fname, FNL, "%lu.guid", guid);
+    if (c < 0 || c >= FNL) {
+        fprintf(stderr, "failed to create filename for publish\n");
+        ASSERT(0);
+        return;
+    }
     u64 bufsize = 0;
-    edtStorage_t *edtBuf = (edtStorage_t*)salFetchInternal(guid, &bufsize, 0, 0);
+    edtStorage_t *edtBuf = (edtStorage_t*)salFetchInternal(fname, guid, &bufsize, 0, 0);
     if (edtBuf == NULL) {
         fprintf(stderr, "Node state is corrupt; recovery failed\n");
         ASSERT(0);
+        return;
     }
     if (!ocrGuidIsNull(edtBuf->resilientEdtParent)) {
 #if GUID_BIT_COUNT == 64
@@ -2100,6 +2367,74 @@ void salImportEdt(void * key, void * value, void * args) {
 u8 salRecoverNodeFailureAtBuddy(ocrLocation_t nodeId) {
     //Reschedule execution sub-graph dominator EDTs
     iterateHashtable(faultTable, salImportEdt, (void*)faultTable);
+
+    //Rebuild EDT temporary buffers
+    char extension[FNL];
+    int c = snprintf(extension, FNL, ".edt%lu", nodeId);
+    if (c < 0 || c >= FNL) {
+        fprintf(stderr, "failed to create filename for EDT record\n");
+        ASSERT(0);
+        return 1;
+    }
+    nodeExt = extension;
+
+    struct dirent **namelist;
+    int n = scandir(".", &namelist, parse_ext, alphasort);
+    if (n < 0) {
+        perror("scandir");
+        return 1;
+    }
+    while (n--) {
+        //printf("%s\n", namelist[n]->d_name);
+        char *s = strchr(namelist[n]->d_name,'.');
+        *s = '\0';
+        u64 guid = strtoul(namelist[n]->d_name, NULL, 10);
+        ASSERT(guid > 0);
+
+        //Re-create temporary EDT buffers
+        char fname[FNL];
+        int c = snprintf(fname, FNL, "%lu.guid", guid);
+        if (c < 0 || c >= FNL) {
+            fprintf(stderr, "failed to create filename for publish\n");
+            ASSERT(0);
+            return 1;
+        }
+        struct stat sb;
+        if (stat(fname, &sb) != 0) {
+            c = snprintf(fname, FNL, "%lu.edt%lu", guid, nodeId);
+            if (c < 0 || c >= FNL) {
+                fprintf(stderr, "failed to create filename for publish\n");
+                ASSERT(0);
+                return 1;
+            }
+            u64 bufsize = 0;
+            edtStorage_t *edtBuf = (edtStorage_t*)salFetchInternal(fname, guid, &bufsize, 0, 0);
+            ASSERT(edtBuf != NULL);
+            edtBuf->paramv = edtBuf->paramc ? (u64*)((size_t)edtBuf + sizeof(edtStorage_t)) : NULL;
+            edtBuf->depv = (ocrGuid_t*)((size_t)edtBuf + sizeof(edtStorage_t) + (edtBuf->paramc * sizeof(u64)));
+            ocrGuid_t tmpl;
+            ocrEdtTemplateCreate(&tmpl, edtBuf->funcPtr, edtBuf->paramc, edtBuf->depc);
+            ocrGuid_t edt, oEvt;
+            ocrEdtCreate(&edt, tmpl, edtBuf->paramc, edtBuf->paramv, edtBuf->depc, NULL, EDT_PROP_RESILIENT | EDT_PROP_RECOVERY, NULL_HINT, &oEvt);
+            salGuidTablePut(guid, edt);
+            int i;
+            for (i = 0; i < edtBuf->depc; i++) {
+                if (!ocrGuidIsEq(edtBuf->depv[i], UNINITIALIZED_GUID))
+                    ocrAddDependence(edtBuf->depv[i], edt, i, DB_MODE_RW);
+            }
+            int rc = unlink(fname);
+            if (rc) {
+                fprintf(stderr, "unlink failed: (filename: %s)\n", fname);
+                ASSERT(0);
+                return 1;
+            }
+            DPRINTF(DEBUG_LVL_WARN, "Recovery EDT metadata created: "GUIDF"\n", GUIDA(edt));
+        }
+
+        free(namelist[n]);
+    }
+    free(namelist);
+
     return 0;
 }
 

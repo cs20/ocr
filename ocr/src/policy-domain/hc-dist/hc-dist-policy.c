@@ -1031,6 +1031,23 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
 #define PD_MSG (msg)
 #define PD_TYPE PD_MSG_DEP_SATISFY
         RETRIEVE_LOCATION_FROM_GUID_MSG(self, msg->destLocation, I);
+#ifdef ENABLE_AMT_RESILIENCE
+        if (checkPlatformModelLocationFault(msg->destLocation)) {
+            ocrGuid_t dst = PD_MSG_FIELD_I(guid.guid);
+#if GUID_BIT_COUNT == 64
+            u64 guid = dst.guid;
+#elif GUID_BIT_COUNT == 128
+            u64 guid = dst.lower;
+#else
+#error Unknown type of GUID
+#endif
+            RESULT_ASSERT(salGuidTableGet(guid, &dst), ==, 0);
+            PD_MSG_FIELD_I(guid.guid) = dst;
+            msg->destLocation = self->myLocation;
+            RETRIEVE_LOCATION_FROM_GUID_MSG(self, msg->destLocation, I);
+            ASSERT(!checkPlatformModelLocationFault(msg->destLocation));
+        }
+#endif
         DPRINTF(DEBUG_LVL_VVERB,"DEP_SATISFY: target is %"PRId32"\n", (u32) msg->destLocation);
 #ifdef ENABLE_EXTENSION_CHANNEL_EVT
 #ifndef XP_CHANNEL_EVT_NONFIFO
