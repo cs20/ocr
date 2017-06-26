@@ -68,6 +68,7 @@ typedef struct _ocrSchedulerOpArgs_t {
 /* Scheduler worker task related arguments */
 typedef enum {
     OCR_SCHED_WORK_EDT_USER,                        /* User-created EDT */
+    OCR_SCHED_WORK_MULTI_EDTS_USER,                 /* Multiple user-created EDTs */
     OCR_SCHED_WORK_COMM,                            /* Runtime created communication task */
 } ocrSchedWorkKind;
 
@@ -77,7 +78,12 @@ typedef union _ocrSchedWorkData_t {
         bool discardAffinity;                       /* If true, the request is for any work, not just work affinitized for me */
     } OCR_SCHED_ARG_NAME(OCR_SCHED_WORK_EDT_USER);
     struct {
-        ocrFatGuid_t *guids;
+        ocrFatGuid_t *edts;                         /* EDTs returned */
+        u32 guidCount;                              /* number of EDTs returned */
+        bool discardAffinity;                       /* If true, the request is for any work, not just work affinitized for me */
+    } OCR_SCHED_ARG_NAME(OCR_SCHED_WORK_MULTI_EDTS_USER);
+    struct {
+        ocrFatGuid_t* guids;
         u32 guidCount;
     } OCR_SCHED_ARG_NAME(OCR_SCHED_WORK_COMM);
 } ocrSchedWorkData_t;

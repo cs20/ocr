@@ -910,7 +910,7 @@ static u8 xeProcessCeRequest(ocrPolicyDomain_t *self, ocrPolicyMsg_t **msg) {
                 u64 baseSize = 0, marshalledSize = 0;
                 ocrPolicyMsgGetMsgSize(pHandle->response, &baseSize, &marshalledSize, 0);
                 // For now, it must fit in a single message
-                ASSERT(baseSize + marshalledSize <= sizeof(ocrPolicyMsg_t));
+                ASSERT(baseSize + marshalledSize <= (*msg)->bufferSize);
                 ocrPolicyMsgMarshallMsg(pHandle->response, baseSize, (u8*)*msg, MARSHALL_DUPLICATE);
             }
             pHandle->destruct(pHandle);
@@ -1002,7 +1002,6 @@ u8 xePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
     case PD_MSG_EVT_CREATE: case PD_MSG_EVT_DESTROY: case PD_MSG_EVT_GET:
     case PD_MSG_GUID_CREATE: case PD_MSG_GUID_INFO: case PD_MSG_GUID_DESTROY:
     case PD_MSG_COMM_TAKE: //This is enabled until we move TAKE heuristic in CE policy domain to inside scheduler
-    case PD_MSG_SCHED_GET_WORK:
     case PD_MSG_SCHED_NOTIFY:
     case PD_MSG_DEP_ADD: case PD_MSG_DEP_REGSIGNALER: case PD_MSG_DEP_REGWAITER:
     case PD_MSG_HINT_SET: case PD_MSG_HINT_GET:
@@ -1060,9 +1059,46 @@ u8 xePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
 #undef PD_MSG
 #undef PD_TYPE
             EXIT_PROFILE;
-        } else if(((msg->type & PD_MSG_TYPE_ONLY) == PD_MSG_SCHED_GET_WORK) && (returnCode == 0)) {
-#define PD_MSG msg
+        }
+        EXIT_PROFILE;
+        break;
+    }
+
+    // This message gets offloaded to the CE, but it is converted to use OCR_SCHED_WORK_MULTI_EDTS_USER
+    case PD_MSG_SCHED_GET_WORK: {
+
+#ifdef OCR_ENABLE_XE_GET_MULTI_WORK
+#define PD_MSG (msg)
 #define PD_TYPE PD_MSG_SCHED_GET_WORK
+        ASSERT(msg->type & PD_MSG_REQUEST);
+
+        if (msg->destLocation == self->parentLocation &&
+            PD_MSG_FIELD_IO(schedArgs).kind == OCR_SCHED_WORK_MULTI_EDTS_USER)
+        {
+            returnCode = xeProcessCeRequest(self, &msg);
+        } else {
+            ocrSchedulerOpWorkArgs_t *workArgs = &PD_MSG_FIELD_IO(schedArgs);
+            //workArgs->base.location = msg->srcLocation;
+
+            returnCode = self->schedulers[0]->fcts.op[OCR_SCHEDULER_OP_GET_WORK].invoke(
+                         self->schedulers[0], (ocrSchedulerOpArgs_t*)workArgs, (ocrRuntimeHint_t*)msg);
+
+            if (returnCode == 0) {
+                DPRINTF(DEBUG_LVL_VVERB, "Successfully got work!\n");
+            } else {
+                DPRINTF(DEBUG_LVL_VVERB, "No work found\n");
+            }
+        }
+#undef PD_MSG
+#undef PD_TYPE
+#else /* !OCR_ENABLE_XE_GET_MULTI_WORK */
+#define PD_MSG (msg)
+#define PD_TYPE PD_MSG_SCHED_GET_WORK
+        // We need to fall back to sending the GET_WORK request to the CE.
+        DPRINTF(DEBUG_LVL_VVERB, "Offloading PD_MSG_SCHED_GET_WORK message to CE\n");
+        returnCode = xeProcessCeRequest(self, &msg);
+
+        if (returnCode == 0) {
             ASSERT(PD_MSG_FIELD_IO(schedArgs).kind == OCR_SCHED_WORK_EDT_USER);
             ocrFatGuid_t *fguid = &PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).edt;
             if (!(ocrGuidIsNull(fguid->guid))) {
@@ -1072,10 +1108,10 @@ u8 xePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
                         GUIDA(fguid->guid), fguid->metaDataPtr);
                 PD_MSG_FIELD_O(factoryId) = 0;
             }
+        }
 #undef PD_MSG
 #undef PD_TYPE
-        }
-        EXIT_PROFILE;
+#endif
         break;
     }
 

@@ -2395,10 +2395,24 @@ u8 cePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
             u8 retVal = 0;
             ocrSchedulerOpWorkArgs_t *workArgs = &PD_MSG_FIELD_IO(schedArgs);
             workArgs->base.location = msg->srcLocation;
+            ocrFatGuid_t edts[GET_MULTI_WORK_MAX_SIZE];
+            if (PD_MSG_FIELD_IO(schedArgs).kind == OCR_SCHED_WORK_MULTI_EDTS_USER) {
+                ASSERT(workArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_MULTI_EDTS_USER).guidCount <= GET_MULTI_WORK_MAX_SIZE);
+                int i;
+                for (i=0; i < GET_MULTI_WORK_MAX_SIZE; i++) {
+                    edts[i].guid = NULL_GUID;
+                    edts[i].metaDataPtr = NULL;
+                }
+                PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_MULTI_EDTS_USER).edts = (ocrFatGuid_t*)&edts;
+            }
+
             retVal = self->schedulers[0]->fcts.op[OCR_SCHEDULER_OP_GET_WORK].invoke(
                          self->schedulers[0], (ocrSchedulerOpArgs_t*)workArgs, (ocrRuntimeHint_t*)msg);
 
             if (retVal == 0) {
+                if (PD_MSG_FIELD_IO(schedArgs).kind == OCR_SCHED_WORK_MULTI_EDTS_USER) {
+                    ASSERT(workArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_MULTI_EDTS_USER).guidCount <= GET_MULTI_WORK_MAX_SIZE);
+                }
                 DPRINTF(DEBUG_LVL_VVERB, "Successfully got work!\n");
                 PD_MSG_FIELD_O(returnDetail) = 0;
                 returnCode = ceProcessResponse(self, msg, 0);
@@ -3072,6 +3086,14 @@ u8 cePdSendMessage(ocrPolicyDomain_t* self, ocrLocation_t target, ocrPolicyMsg_t
 #define PD_TYPE PD_MSG_SCHED_GET_WORK
             if(PD_MSG_FIELD_IO(schedArgs.kind) == OCR_SCHED_WORK_EDT_USER) {
                 localDeguidify(self, &(PD_MSG_FIELD_IO(schedArgs.OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).edt)), NULL);
+            }
+            else if(PD_MSG_FIELD_IO(schedArgs.kind) == OCR_SCHED_WORK_MULTI_EDTS_USER) {
+                ocrFatGuid_t* fguids = PD_MSG_FIELD_IO(schedArgs.OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_MULTI_EDTS_USER).edts);
+                u32 guidCount = PD_MSG_FIELD_IO(schedArgs.OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_MULTI_EDTS_USER).guidCount);
+                u32 idx;
+                for(idx = 0; idx < guidCount; idx++) {
+                    localDeguidify(self, &fguids[idx], NULL);
+                }
             }
 #undef PD_TYPE
             break;

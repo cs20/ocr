@@ -323,16 +323,23 @@ endif
 # CFLAGS += -DOCR_DISABLE_USER_L1_ALLOC
 # CFLAGS += -DOCR_DISABLE_RUNTIME_L1_ALLOC
 # CFLAGS += -DOCR_ENABLE_XE_L2_ALLOC
-
-####################################################
-# Debug flags
-####################################################
+# CFLAGS += -DOCR_ENABLE_XE_GET_MULTI_WORK
 
 ifneq (,$(findstring OCR_ENABLE_XE_L2_ALLOC, $(CFLAGS)))
   ifeq (,$(findstring OCR_SHARED_XE_POLICY_DOMAIN, $(CFLAGS)))
     $(error if OCR_ENABLE_XE_L2_ALLOC, then OCR_SHARED_XE_POLICY_DOMAIN must be defined)
   endif
 endif
+
+ifneq (,$(findstring OCR_ENABLE_XE_GET_MULTI_WORK, $(CFLAGS)))
+  ifeq (,$(findstring OCR_SHARED_XE_POLICY_DOMAIN, $(CFLAGS)))
+    $(error if OCR_ENABLE_XE_GET_MULTI_WORK, then OCR_SHARED_XE_POLICY_DOMAIN must be defined)
+  endif
+endif
+
+####################################################
+# Debug flags
+####################################################
 
 # Debugging support
 ifneq (${NO_DEBUG}, yes)

@@ -13,6 +13,7 @@
 #include "ocr-scheduler.h"
 #include "ocr-types.h"
 #include "utils/ocr-utils.h"
+#include "ocr-hal.h"
 
 typedef struct {
     ocrSchedulerFactory_t base;
@@ -20,6 +21,7 @@ typedef struct {
 
 typedef struct {
     ocrScheduler_t scheduler;
+    lock_t getwork_lock;
 } ocrSchedulerXe_t;
 
 typedef struct _paramListSchedulerXeInst_t {

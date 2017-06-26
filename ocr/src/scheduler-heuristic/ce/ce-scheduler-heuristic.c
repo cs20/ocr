@@ -255,8 +255,35 @@ static u8 ceSchedulerHeuristicWorkEdtUserInvoke(ocrSchedulerHeuristic_t *self, o
     }
     //ASSERT(!derived->shutdownMode);
     ocrSchedulerOpWorkArgs_t *taskArgs = (ocrSchedulerOpWorkArgs_t*)opArgs;
-    ocrFatGuid_t *fguid = &(taskArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).edt);
-    u8 retVal = ceWorkStealingGet(self, context, fguid);
+    u8 retVal = 0;
+    switch(taskArgs->kind) {
+    case OCR_SCHED_WORK_EDT_USER:
+        {
+            ocrFatGuid_t *fguid = &(taskArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).edt);
+            retVal = ceWorkStealingGet(self, context, fguid);
+        }
+        break;
+    case OCR_SCHED_WORK_MULTI_EDTS_USER:
+        {
+            ocrFatGuid_t *fguids = taskArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_MULTI_EDTS_USER).edts;
+            u32 guidCount = taskArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_MULTI_EDTS_USER).guidCount;
+            u32 idx, actualCount = 0;
+            DPRINTF(DEBUG_LVL_VVERB, "Trying to steal %d EDTs\n", guidCount);
+            for (idx = 0; idx < guidCount && retVal == 0; idx++, actualCount++) {
+                retVal = ceWorkStealingGet(self, context, &fguids[idx]);
+                if (retVal != 0) actualCount--;
+            }
+            taskArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_MULTI_EDTS_USER).guidCount = actualCount;
+            DPRINTF(DEBUG_LVL_VVERB, "Got %d EDTs\n", actualCount);
+            if (idx > 1) {
+                retVal = 0; // Well, we got at least one, so I call that a success!
+            }
+        }
+        break;
+    default:
+        ASSERT(0);
+        return OCR_ENOTSUP;
+    }
     if (retVal) {
         ocrSchedulerHeuristicContextCe_t *ceContext = (ocrSchedulerHeuristicContextCe_t*)context;
         ASSERT(ceContext->inWorkRequestPending == false);
@@ -287,6 +314,7 @@ u8 ceSchedulerHeuristicGetWorkInvoke(ocrSchedulerHeuristic_t *self, ocrScheduler
     ocrSchedulerOpWorkArgs_t *taskArgs = (ocrSchedulerOpWorkArgs_t*)opArgs;
     switch(taskArgs->kind) {
     case OCR_SCHED_WORK_EDT_USER:
+    case OCR_SCHED_WORK_MULTI_EDTS_USER:
         return ceSchedulerHeuristicWorkEdtUserInvoke(self, context, opArgs, hints);
     default:
         ASSERT(0);

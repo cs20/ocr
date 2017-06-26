@@ -21,6 +21,7 @@ typedef struct {
 
 typedef struct {
     ocrWorkpile_t base;
+    deque_t * deque;
 } ocrWorkpileXe_t;
 
 ocrWorkpileFactory_t* newOcrWorkpileFactoryXe(ocrParamList_t *perType);

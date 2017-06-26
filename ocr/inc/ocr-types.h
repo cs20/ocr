@@ -523,6 +523,7 @@ typedef enum {
 #define LEGACY_PROP_CHECK           ((u16)(0x4))  /**< For ocrLegacyBlockProgress, check if the event has been
                                                   * created. If yes check if it has been satisfied. Returns
                                                   * immediately with OCR_EINVAL in either case */
+#define GET_MULTI_WORK_MAX_SIZE 8        //max # of tasks that can be sent to XE PD in one msg
 /**
  * @}
  */

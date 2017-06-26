@@ -237,6 +237,15 @@ u8 ocrPolicyMsgGetMsgSize(ocrPolicyMsg_t *msg, u64 *baseSize,
                 *marshalledSize = sizeof(ocrFatGuid_t)*PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_COMM).guidCount;
                 break;
             }
+        case OCR_SCHED_WORK_MULTI_EDTS_USER:
+            {
+                if (PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_MULTI_EDTS_USER).edts == NULL) {
+                    *marshalledSize = 0;
+                } else {
+                    *marshalledSize = sizeof(ocrFatGuid_t)*PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_MULTI_EDTS_USER).guidCount;
+                }
+                break;
+            }
         default:
             break;
         }
@@ -632,6 +641,30 @@ u8 ocrPolicyMsgMarshallMsg(ocrPolicyMsg_t* msg, u64 baseSize, u8* buffer, u32 mo
                     PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_COMM).guids = NULL;
                 }
                 break;
+            }
+        case OCR_SCHED_WORK_MULTI_EDTS_USER:
+            {
+                u64 s = sizeof(ocrFatGuid_t)*PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_MULTI_EDTS_USER).guidCount;
+                if(s && PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_MULTI_EDTS_USER).edts != NULL) {
+                    // Copy the actual list of guids to after the message at curPtr
+                    hal_memCopy(curPtr, PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_MULTI_EDTS_USER).edts, s, false);
+                    // Update the pointer to the list of guids in the message:
+                    if(fixupPtrs) {
+                        DPRINTF(DEBUG_LVL_VVERB, "Converting guids (0x%"PRIx64") to 0x%"PRIx64"\n",
+                                (u64)PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_MULTI_EDTS_USER).edts,
+                                ((u64)(curPtr - startPtr)<<1) + isAddl);
+                        PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_MULTI_EDTS_USER).edts =
+                            (ocrFatGuid_t*)(((u64)(curPtr - startPtr)<<1) + isAddl);
+                    } else {
+                        DPRINTF(DEBUG_LVL_VVERB, "Copying guids (0x%"PRIx64") to %p\n",
+                                (u64)PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_MULTI_EDTS_USER).edts, curPtr);
+                        PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_MULTI_EDTS_USER).edts = (ocrFatGuid_t*)curPtr;
+                    }
+                    // Finally move the curPtr for the next object (none as of now)
+                    curPtr += s;
+                } else {
+                    PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_MULTI_EDTS_USER).edts = NULL;
+                }
             }
         default:
             break;
@@ -1139,6 +1172,19 @@ u8 ocrPolicyMsgUnMarshallMsg(u8* mainBuffer, u8* addlBuffer,
                     PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_COMM).guids = (ocrFatGuid_t*)((t&1?localAddlPtr:localMainPtr) + (t>>1));
                     DPRINTF(DEBUG_LVL_VVERB, "Converted field guids from 0x%"PRIx64" to 0x%"PRIx64"\n",
                         t, (u64)PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_COMM).guids);
+                }
+                break;
+            }
+        case OCR_SCHED_WORK_MULTI_EDTS_USER:
+            {
+                if(PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_MULTI_EDTS_USER).guidCount > 0 &&
+                   PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_MULTI_EDTS_USER).edts != NULL)
+                {
+                    u64 t = (u64)(PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_MULTI_EDTS_USER).edts);
+                    PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_MULTI_EDTS_USER).edts =
+                        (ocrFatGuid_t*)((t&1?localAddlPtr:localMainPtr) + (t>>1));
+                    DPRINTF(DEBUG_LVL_VVERB, "Converted field guids from 0x%"PRIx64" to 0x%"PRIx64"\n",
+                        t, (u64)PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_MULTI_EDTS_USER).edts);
                 }
                 break;
             }
