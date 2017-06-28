@@ -50,7 +50,7 @@ typedef struct _salPerfCounter {
     struct perf_event_attr perfAttr;
 } salPerfCounter;
 
-u64 salPerfInit(salPerfCounter* perfCtr);
+u64 salPerfInit(salPerfCounter* perfCtr, s32 location);
 u64 salPerfStart(salPerfCounter* perfCtr);
 u64 salPerfStop(salPerfCounter* perfCtr);
 u64 salPerfShutdown(salPerfCounter *perfCtr);

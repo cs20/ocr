@@ -1582,6 +1582,8 @@ static u8 newDataBlockLockableInternal(ocrDataBlockFactory_t *factory, ocrFatGui
     u32 hintc = (flags & DB_PROP_NO_HINT) ? 0 : OCR_HINT_COUNT_DB_LOCKABLE;
     u32 mSize = sizeof(ocrDataBlockLockable_t) + hintc*sizeof(u64);
     ocrLocation_t targetLoc = pd->myLocation;
+    u32 prescription = 0;
+
     if (hint != NULL_HINT) {
         u64 hintValue = 0ULL;
         if ((ocrGetHintValue(hint, OCR_HINT_DB_AFFINITY, &hintValue) == 0) && (hintValue != 0)) {
@@ -1594,6 +1596,9 @@ static u8 newDataBlockLockableInternal(ocrDataBlockFactory_t *factory, ocrFatGui
 #endif
             ASSERT(!ocrGuidIsNull(affGuid));
             affinityToLocation(&targetLoc, affGuid);
+        }
+        if ((ocrGetHintValue(hint, OCR_HINT_DB_HIGHBW, &hintValue) == 0) && (hintValue != 0)) {
+            prescription = (u32)hintValue;
         }
     }
 #define PD_MSG (&msg)
@@ -1730,7 +1735,7 @@ static u8 newDataBlockLockableInternal(ocrDataBlockFactory_t *factory, ocrFatGui
     #define PD_TYPE PD_MSG_MEM_ALLOC
             msg.type = PD_MSG_MEM_ALLOC | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
             PD_MSG_FIELD_I(size) = size;
-            PD_MSG_FIELD_I(properties) = 0;
+            PD_MSG_FIELD_I(properties) = prescription;
             PD_MSG_FIELD_I(type) = DB_MEMTYPE;
             RESULT_PROPAGATE(pd->fcts.processMessage(pd, &msg, true));
             void * allocPtr = (void *)PD_MSG_FIELD_O(ptr);

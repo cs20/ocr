@@ -56,12 +56,12 @@ def UpdatePD(config):
                     counts[ob] = ParseId(val)
                 if ob == objs[0]:
                     secPD = sec
-                    print secPD
+                    #print secPD
 
     # Now update the policy domain
     if (counts[objs[0]] == 1):
         for j in range(1,4):
-            print config.get(secPD, objs[j])
+            #print config.get(secPD, objs[j])
             if(counts[objs[j]] != 1):
                 config.set(secPD, objs[j], "0-"+str(counts[objs[j]]-1))
             else:

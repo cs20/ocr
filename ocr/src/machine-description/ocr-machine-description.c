@@ -661,6 +661,10 @@ s32 populate_inst(ocrParamList_t **inst_param, int inst_param_size, void **insta
             ((paramListMemPlatformFsim_t*)inst_param[j])->start = (u64)iniparser_getlonglong(dict, key, 0);
             ((paramListMemPlatformFsim_t*)inst_param[j])->memplatId = j; // j will correspond to the XE number within the block
 #endif
+#ifdef ENABLE_MEM_PLATFORM_NUMA_ALLOC
+            snprintf(key, MAX_KEY_SZ, "%s:%s", secname, "numa_node");
+            ((paramListMemPlatformInst_t*)inst_param[j])->numa_node = (u32)iniparser_getint(dict, key, 0);
+#endif
 
             instance[j] = (void *)((ocrMemPlatformFactory_t *)factory)->instantiate(factory, inst_param[j]);
             if (instance[j])

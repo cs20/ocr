@@ -648,8 +648,13 @@ u8 hcPdSwitchRunlevel(ocrPolicyDomain_t *policy, ocrRunlevel_t runlevel, u32 pro
                 FILE *fp = fopen(fname, "w");
                 fprintf(fp, "EDT\tCount\tHW_CYCLES\tL1_HITS\tL1_MISS\tFLOAT_OPS\tEDT_CREATES\tDB_TOTAL\tDB_CREATES\tDB_DESTROYS\tEVT_SATISFIES\tMask\n");
 #else
+#ifdef ENABLE_EXTENSION_PERF_KNL
+                // TODO: Auto-generate these based on inc/ocr-perfmon.h
+                PRINTF("EDT\tCount\tHW_CYCLES\tHBM_TRAFFIC\tOFFCORE_TRAFFIC\tEDT_CREATES\tDB_TOTAL\tDB_CREATES\tDB_DESTROYS\tEVT_SATISFIES\tMask\n");
+#else
                 PRINTF("EDT\tCount\tHW_CYCLES\tL1_HITS\tL1_MISS\tFLOAT_OPS\tEDT_CREATES\tDB_TOTAL\tDB_CREATES\tDB_DESTROYS\tEVT_SATISFIES\tMask\n");
-#endif
+#endif /*ENABLE_EXTENSION_PERF_KNL*/
+#endif /*OCR_ENABLE_SIMULATOR*/
                 while(!queueIsEmpty(policy->taskPerfs)) {
                     u32 i;
                     counters = queueRemoveLast(policy->taskPerfs);
@@ -932,9 +937,9 @@ static void localDeguidify(ocrPolicyDomain_t *self, ocrFatGuid_t *guid) {
 }
 
 static u8 hcMemAlloc(ocrPolicyDomain_t *self, ocrFatGuid_t* allocator, u64 size,
-                     ocrMemType_t memType, void** ptr, u64 prescription) {
+                     ocrMemType_t memType, void** ptr, u32 prescription) {
     void* result;
-    u64 idx = 0;
+    u64 idx = (prescription<self->allocatorCount)?prescription:0;
     ASSERT (memType == GUID_MEMTYPE || memType == DB_MEMTYPE);
 #ifdef OCR_MONITOR_ALLOCATOR
     u64 starttime = 0;
@@ -2142,10 +2147,11 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
 #define PD_TYPE PD_MSG_MEM_ALLOC
         u64 tSize = PD_MSG_FIELD_I(size);
         ocrMemType_t tMemType = PD_MSG_FIELD_I(type);
+        u32 properties = PD_MSG_FIELD_I(properties);
         PD_MSG_FIELD_O(allocatingPD.metaDataPtr) = self;
         PD_MSG_FIELD_O(returnDetail) = hcMemAlloc(
             self, &(PD_MSG_FIELD_O(allocator)), tSize,
-            tMemType, &(PD_MSG_FIELD_O(ptr)), PRESCRIPTION);
+            tMemType, &(PD_MSG_FIELD_O(ptr)), properties);
         msg->type &= ~PD_MSG_REQUEST;
         msg->type |= PD_MSG_RESPONSE;
 #undef PD_MSG

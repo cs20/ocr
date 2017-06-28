@@ -62,20 +62,26 @@ u64 salGetTime(){
 
 #ifdef ENABLE_EXTENSION_PERF
 
-static u64 perfEventOpen(struct perf_event_attr *hw_event)
+static u64 perfEventOpen(struct perf_event_attr *hw_event, s32 location)
 {
    u64 ret;
 
-   ret = syscall(__NR_perf_event_open, hw_event, 0, -1, -1, 0);
+   ret = syscall(__NR_perf_event_open, hw_event, 0, location, -1, 0);
                                                // pid, cpu, group_perfFd, flags
    return ret;
 }
 
 // FIXME: The following should come from config file
-s32 counter_type[PERF_HW_MAX] = { PERF_TYPE_HARDWARE, PERF_TYPE_HARDWARE, PERF_TYPE_HARDWARE, PERF_TYPE_RAW };
-s32 counter_cfg [PERF_HW_MAX] = { PERF_COUNT_HW_BUS_CYCLES, PERF_COUNT_HW_CACHE_REFERENCES, PERF_COUNT_HW_CACHE_MISSES, 0xf110 };
+#ifdef ENABLE_EXTENSION_PERF_KNL
+u64 counter_type[PERF_HW_MAX] = { PERF_TYPE_HARDWARE, PERF_TYPE_RAW, PERF_TYPE_RAW };
+u64 counter_cfg [PERF_HW_MAX] = { PERF_COUNT_HW_BUS_CYCLES, 0x01b7, 0x02b7 };
+u64 counter1_cfg[PERF_HW_MAX] = { 0, 0x3980608000, 0x18000 };
+#else
+u64 counter_type[PERF_HW_MAX] = { PERF_TYPE_HARDWARE, PERF_TYPE_HARDWARE, PERF_TYPE_HARDWARE, PERF_TYPE_RAW };
+u64 counter_cfg [PERF_HW_MAX] = { PERF_COUNT_HW_BUS_CYCLES, PERF_COUNT_HW_CACHE_REFERENCES, PERF_COUNT_HW_CACHE_MISSES, 0xf110 };
+#endif
 
-u64 salPerfInit(salPerfCounter* perfCtr) {
+u64 salPerfInit(salPerfCounter* perfCtr, s32 location) {
     u32 i;
     u32 retval = 0;
 
@@ -84,11 +90,14 @@ u64 salPerfInit(salPerfCounter* perfCtr) {
         perfCtr[i].perfAttr.type = counter_type[i];
         perfCtr[i].perfAttr.size = sizeof(struct perf_event_attr);
         perfCtr[i].perfAttr.config = counter_cfg[i];
+#ifdef ENABLE_EXTENSION_PERF_KNL
+        if(counter1_cfg[i]) perfCtr[i].perfAttr.config1 = counter1_cfg[i];
+#endif
         perfCtr[i].perfAttr.disabled = 1;
         perfCtr[i].perfAttr.exclude_kernel = 1;
         perfCtr[i].perfAttr.exclude_hv = 1;
 
-        perfCtr[i].perfFd = perfEventOpen(&perfCtr[i].perfAttr);
+        perfCtr[i].perfFd = perfEventOpen(&perfCtr[i].perfAttr, location);
         if (perfCtr[i].perfFd == -1) {
             DPRINTF(DEBUG_LVL_WARN, "Error opening counter 0x%"PRIx64"\n", (u64)perfCtr[i].perfAttr.config);
             retval = OCR_EFAULT;
@@ -122,8 +131,10 @@ u64 salPerfStop(salPerfCounter* perfCtr) {
         retval = read(perfCtr[i].perfFd, &perfCtr[i].perfVal, sizeof(u64));
         if(retval < 0) DPRINTF(DEBUG_LVL_WARN, "Unable to read counter %"PRId32"\n", i);
     }
+#ifndef ENABLE_EXTENSION_PERF_KNL
     // Convert L1_REFERENCES to L1_HITS by subtracting misses
     perfCtr[PERF_L1_HITS].perfVal -= perfCtr[PERF_L1_MISSES].perfVal;
+#endif
 
     return retval;
 }
