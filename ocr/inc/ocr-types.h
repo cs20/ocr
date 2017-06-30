@@ -357,6 +357,7 @@ typedef enum {
     OCR_HINT_EDT_STATS_L1_HITS,             /* [u64] : Inform the simulator runtime of the EDT's perf stats */
     OCR_HINT_EDT_STATS_L1_MISSES,           /* [u64] : Inform the simulator runtime of the EDT's perf stats */
     OCR_HINT_EDT_STATS_FLOAT_OPS,           /* [u64] : Inform the simulator runtime of the EDT's perf stats */
+    OCR_HINT_EDT_SPAWNING,                  /* [xxx] : tells scheduler that EDT spawns more EDTs */
     OCR_HINT_EDT_PROP_END,                  /* This is NOT a hint. Its use is reserved for the runtime */
 
     //DB Hint Properties                    (OCR_HINT_DB_T)

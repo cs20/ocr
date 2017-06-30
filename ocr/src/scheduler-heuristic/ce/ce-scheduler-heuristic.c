@@ -206,19 +206,36 @@ static u8 ceWorkStealingGet(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristic
     edtObj.guid.metaDataPtr = NULL;
     edtObj.kind = OCR_SCHEDULER_OBJECT_EDT;
 
-    //First try to pop from own deque
     ocrSchedulerHeuristicContextCe_t *ceContext = (ocrSchedulerHeuristicContextCe_t*)context;
     ocrSchedulerObject_t *schedObj = ceContext->mySchedulerObject;
     ASSERT(schedObj);
     ocrSchedulerObjectFactory_t *fact = self->scheduler->pd->schedulerObjectFactories[schedObj->fctId];
-    u8 retVal = fact->fcts.remove(fact, schedObj, OCR_SCHEDULER_OBJECT_EDT, 1, &edtObj, NULL, SCHEDULER_OBJECT_REMOVE_TAIL);
-
+    u8 retVal = 1;
+    ocrSchedulerObjectWst_t *wstSchedObj = (ocrSchedulerObjectWst_t*)rootObj;
+    ocrSchedulerObject_t *stealSchedulerObject;
+#ifdef OCR_ENABLE_SCHEDULER_SPAWN_QUEUE
+    //first if it's a req from a CE look in the spawning queue:
+    if(AGENT_FROM_ID(context->location) == ID_AGENT_CE){
+       DPRINTF(DEBUG_LVL_INFO, "Request was from another CE\n");
+       stealSchedulerObject = wstSchedObj->spawn_queue;
+       retVal = fact->fcts.remove(fact, stealSchedulerObject, OCR_SCHEDULER_OBJECT_EDT, 1, &edtObj, NULL, SCHEDULER_OBJECT_REMOVE_HEAD);
+    }
+    if (!ocrGuidIsNull(edtObj.guid.guid) ) {
+       DPRINTF(DEBUG_LVL_INFO, "Found guid in spawn_queue\n");
+    }
+#endif
+    //try to pop from own deque
+    if (ocrGuidIsNull(edtObj.guid.guid)) {
+       DPRINTF(DEBUG_LVL_INFO, "self->scheduler->pd->schedulerObjectFactories[%"PRIx32"]\n", schedObj->fctId);
+       retVal = fact->fcts.remove(fact, schedObj, OCR_SCHEDULER_OBJECT_EDT, 1, &edtObj, NULL, SCHEDULER_OBJECT_REMOVE_TAIL);
+    }
 #if 1 //Turn off to disable stealing (serialize execution)
     //If pop fails, then try to steal from other deques
     if (ocrGuidIsNull(edtObj.guid.guid)) {
         //First try to steal from the last deque that was visited (probably had a successful steal)
-        ocrSchedulerObjectWst_t *wstSchedObj = (ocrSchedulerObjectWst_t*)rootObj;
-        ocrSchedulerObject_t *stealSchedulerObject = wstSchedObj->deques[ceContext->stealSchedulerObjectIndex];
+        wstSchedObj = (ocrSchedulerObjectWst_t*)rootObj;
+        stealSchedulerObject = wstSchedObj->deques[ceContext->stealSchedulerObjectIndex];
+        DPRINTF(DEBUG_LVL_INFO, "wstSchedObj->deques[%"PRIx32"] \n", ceContext->stealSchedulerObjectIndex);
         ASSERT(stealSchedulerObject->fctId == schedObj->fctId);
         retVal = fact->fcts.remove(fact, stealSchedulerObject, OCR_SCHEDULER_OBJECT_EDT, 1, &edtObj, NULL, SCHEDULER_OBJECT_REMOVE_HEAD); //try cached deque first
 
@@ -227,10 +244,21 @@ static u8 ceWorkStealingGet(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristic
         for (i = 1; ocrGuidIsNull(edtObj.guid.guid) && i < wstSchedObj->numDeques; i++) {
             ceContext->stealSchedulerObjectIndex = (context->id + i) % wstSchedObj->numDeques;
             stealSchedulerObject = wstSchedObj->deques[ceContext->stealSchedulerObjectIndex];
+            DPRINTF(DEBUG_LVL_INFO, "wstSchedObj->deques[%"PRIx32"] \n", ceContext->stealSchedulerObjectIndex);
             ASSERT(stealSchedulerObject->fctId == schedObj->fctId);
             retVal = fact->fcts.remove(fact, stealSchedulerObject, OCR_SCHEDULER_OBJECT_EDT, 1, &edtObj, NULL, SCHEDULER_OBJECT_REMOVE_HEAD);
         }
     }
+
+#ifdef OCR_ENABLE_SCHEDULER_SPAWN_QUEUE
+    DPRINTF(DEBUG_LVL_INFO, "OCR_ENABLE_SCHEDULER_SPAWN_QUEUE enabled\n");
+    //  if no work was found even after all of that, check the spawn_queue
+    if(ocrGuidIsNull(edtObj.guid.guid) && (AGENT_FROM_ID(context->location) != ID_AGENT_CE)){
+       DPRINTF(DEBUG_LVL_INFO, "XE needs work from SPAWN_QUEUE\n");
+       stealSchedulerObject = wstSchedObj->spawn_queue;
+       retVal = fact->fcts.remove(fact, stealSchedulerObject, OCR_SCHEDULER_OBJECT_EDT, 1, &edtObj, NULL, SCHEDULER_OBJECT_REMOVE_HEAD);
+    }
+#endif
 #endif
 
     if (!(ocrGuidIsNull(edtObj.guid.guid))) {
@@ -413,6 +441,23 @@ static u8 ceInsertTask(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicConte
     edtObj.guid = fguid;
     edtObj.kind = OCR_SCHEDULER_OBJECT_EDT;
     ocrSchedulerObjectFactory_t *fact = pd->schedulerObjectFactories[insertSchedObj->fctId];
+
+#ifdef OCR_ENABLE_SCHEDULER_SPAWN_QUEUE
+    //if the OCR_HINT_EDT_SPAWNING hint is set on the EDT, put it in the spawning queue
+    ocrHint_t spawnHint;
+    ocrHintInit(&spawnHint, OCR_HINT_EDT_T);
+    u64 hintVal = 0ULL;
+    RESULT_ASSERT(ocrGetHint(fguid.guid, &spawnHint), ==, 0);
+    if(ocrGetHintValue(&spawnHint, OCR_HINT_EDT_SPAWNING, &hintVal) == 0){
+       DPRINTF(DEBUG_LVL_INFO, "Edt has hint OCR_HINT_EDT_SPAWNING\n");
+       DPRINTF(DEBUG_LVL_INFO, ">>>  put it in spawn_queue!\n");
+       ocrSchedulerObject_t* rootObj = self->scheduler->rootObj;
+       ocrSchedulerObjectWst_t* wstSchedObj = (ocrSchedulerObjectWst_t*)rootObj;
+       insertSchedObj = wstSchedObj->spawn_queue;
+    }
+#endif
+
+    DPRINTF(DEBUG_LVL_VVERB, ">>>> inserting EDT\n");
     RESULT_ASSERT(fact->fcts.insert(fact, insertSchedObj, &edtObj, NULL, (SCHEDULER_OBJECT_INSERT_AFTER | SCHEDULER_OBJECT_INSERT_POSITION_TAIL)), ==, 0);
     derived->workCount++;
     DPRINTF(DEBUG_LVL_VVERB, "GIVEN WORK to context %"PRIx64"\n", insertContext->location);
@@ -681,7 +726,11 @@ u8 ceSchedulerHeuristicUpdate(ocrSchedulerHeuristic_t *self, u32 properties) {
                 ASSERT(derived->outWorkVictimsAvailable <= pd->neighborCount);
 
                 //If my current block is out of work, ensure parent gets a work request
+#ifdef OCR_ENABLE_XE_GET_MULTI_WORK
+                if ((pd->myLocation != pd->parentLocation) && (derived->pendingXeCount == 1)) {
+#else
                 if ((pd->myLocation != pd->parentLocation) && (derived->pendingXeCount == ((ocrPolicyDomainCe_t*)pd)->xeCount)) {
+#endif
                     for (i = 0; i < self->contextCount; i++) {
                         ocrSchedulerHeuristicContext_t *context = self->contexts[i];
                         ocrSchedulerHeuristicContextCe_t *ceContext = (ocrSchedulerHeuristicContextCe_t*)context;

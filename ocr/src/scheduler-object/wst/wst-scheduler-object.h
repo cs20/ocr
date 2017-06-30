@@ -31,6 +31,9 @@ typedef struct _paramListSchedulerObjectWst_t {
 typedef struct _ocrSchedulerObjectWst_t {
     ocrSchedulerObject_t base;
     ocrSchedulerObject_t **deques;    /* Array of deques */
+#ifdef OCR_ENABLE_SCHEDULER_SPAWN_QUEUE
+    ocrSchedulerObject_t* spawn_queue;
+#endif
     u32 numDeques;                    /* Number of deques */
     wstConfigType config;             /* Config option for wst object */
 } ocrSchedulerObjectWst_t;

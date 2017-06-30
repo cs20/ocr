@@ -54,6 +54,7 @@ u8 ocrHintInit(ocrHint_t *hint, ocrHintType_t hintType) {
     case OCR_HINT_EDT_T:
         {
             OCR_HINT_FIELD(hint, OCR_HINT_EDT_PRIORITY) = 0;
+            OCR_HINT_FIELD(hint, OCR_HINT_EDT_SPAWNING) = 0;
             OCR_HINT_FIELD(hint, OCR_HINT_EDT_SLOT_MAX_ACCESS) = ((u64)-1);
             // See BUG #928: If this is a GUID, we cannot store affinities in the hint table
             OCR_HINT_FIELD(hint, OCR_HINT_EDT_AFFINITY) = (u64)0;
@@ -127,15 +128,16 @@ u8 ocrGetHintValue(ocrHint_t *hint, ocrHintProp_t hintProp, u64 *value) {
 }
 
 u8 ocrSetHint(ocrGuid_t guid, ocrHint_t *hint) {
+    DPRINTF(DEBUG_LVL_INFO, "ENTER ocrSetHint(guid="GUIDF")\n", GUIDA(guid));
     START_PROFILE(api_ocrSetHint);
 #ifdef ENABLE_HINTS
+    DPRINTF(DEBUG_LVL_INFO, "Hints Enabled!\n");
     ASSERT(hint != NULL_HINT);
     if (hint->type == OCR_HINT_UNDEF_T) {
         DPRINTF(DEBUG_LVL_WARN, "EXIT ocrSetHint: Invalid hint type\n");
         RETURN_PROFILE(OCR_EINVAL);
     }
 
-    DPRINTF(DEBUG_LVL_INFO, "ENTER ocrSetHint(guid="GUIDF"\n", GUIDA(guid));
     PD_MSG_STACK(msg);
     ocrPolicyDomain_t *pd = NULL;
     ocrTask_t * curEdt = NULL;
@@ -158,6 +160,7 @@ u8 ocrSetHint(ocrGuid_t guid, ocrHint_t *hint) {
 #undef PD_MSG
 #undef PD_TYPE
 #else
+    DPRINTF(DEBUG_LVL_WARN, "Hints NOT Enabled!\n");
     DPRINTF(DEBUG_LVL_WARN, HINT_DBG_WARN_MSG);
     RETURN_PROFILE(OCR_EINVAL);
 #endif
@@ -172,7 +175,7 @@ u8 ocrGetHint(ocrGuid_t guid, ocrHint_t *hint) {
         RETURN_PROFILE(OCR_EINVAL);
     }
 
-    DPRINTF(DEBUG_LVL_INFO, "ENTER ocrSetHint(guid="GUIDF")\n", GUIDA(guid));
+    DPRINTF(DEBUG_LVL_INFO, "ENTER ocrGetHint(guid="GUIDF")\n", GUIDA(guid));
     PD_MSG_STACK(msg);
     ocrPolicyDomain_t *pd = NULL;
     ocrTask_t * curEdt = NULL;
@@ -191,7 +194,7 @@ u8 ocrGetHint(ocrGuid_t guid, ocrHint_t *hint) {
         }
     }
     DPRINTF_COND_LVL(returnCode, DEBUG_LVL_WARN, DEBUG_LVL_INFO,
-                     "EXIT ocrSetHint(guid="GUIDF") -> %"PRIu32"\n", GUIDA(guid), returnCode);
+                     "EXIT ocrGetHint(guid="GUIDF") -> %"PRIu32"\n", GUIDA(guid), returnCode);
     RETURN_PROFILE(returnCode);
 #undef PD_MSG
 #undef PD_TYPE

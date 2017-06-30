@@ -326,6 +326,9 @@ endif
 # CFLAGS += -DOCR_ENABLE_XE_GET_MULTI_WORK
 # CFLAGS += -DOCR_ENABLE_CE_GET_MULTI_WORK
 
+# Enable EDT spawning hint & handling
+# CFLAGS += -DOCR_ENABLE_SCHEDULER_SPAWN_QUEUE
+
 ifneq (,$(findstring OCR_ENABLE_XE_L2_ALLOC, $(CFLAGS)))
   ifeq (,$(findstring OCR_SHARED_XE_POLICY_DOMAIN, $(CFLAGS)))
     $(error if OCR_ENABLE_XE_L2_ALLOC, then OCR_SHARED_XE_POLICY_DOMAIN must be defined)

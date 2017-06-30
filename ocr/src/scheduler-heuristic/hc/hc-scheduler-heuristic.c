@@ -18,6 +18,8 @@
 #include "ocr-workpile.h"
 #include "ocr-scheduler-object.h"
 #include "scheduler-heuristic/hc/hc-scheduler-heuristic.h"
+#include "extensions/ocr-hints.h"
+#include "scheduler-object/wst/wst-scheduler-object.h"
 
 #define DEBUG_TYPE SCHEDULER_HEURISTIC
 
@@ -151,27 +153,42 @@ static u8 hcSchedulerHeuristicGetEdt(ocrSchedulerHeuristic_t *self, ocrScheduler
 {
     ocrSchedulerOpWorkArgs_t *taskArgs = (ocrSchedulerOpWorkArgs_t*)opArgs;
     ocrSchedulerObject_t edtObj;
-    edtObj.guid.guid = NULL_GUID;
-    edtObj.guid.metaDataPtr = NULL;
-    edtObj.kind = kind;
-
-    //First try to pop from own deque
+    ocrSchedulerObject_t* rootObj = self->scheduler->rootObj;
+    ocrSchedulerObject_t* stealSchedulerObject;
     ocrSchedulerHeuristicContextHc_t *hcContext = (ocrSchedulerHeuristicContextHc_t*)context;
     ocrSchedulerObject_t *schedObj = hcContext->mySchedulerObject;
     ASSERT(schedObj);
-    ocrSchedulerObjectFactory_t *fact = self->scheduler->pd->schedulerObjectFactories[schedObj->fctId];
-    u8 retVal = fact->fcts.remove(fact, schedObj, kind , 1, &edtObj, NULL, SCHEDULER_OBJECT_REMOVE_TAIL);
+    ocrSchedulerObjectFactory_t* fact = self->scheduler->pd->schedulerObjectFactories[schedObj->fctId];
+    edtObj.guid.guid = NULL_GUID;
+    edtObj.guid.metaDataPtr = NULL;
+    edtObj.kind = kind;
+    u8 retVal;
+#ifdef OCR_ENABLE_SCHEDULER_SPAWN_QUEUE
+    // first look in spawn_queue
+    DPRINTF(DEBUG_LVL_INFO, ">>> Look in spawn_queue\n");
+    //TODO: you should check here to see if request is from another block/PD!!
+    ocrSchedulerObjectWst_t* wstSchedObj = (ocrSchedulerObjectWst_t*)rootObj;
+    stealSchedulerObject = wstSchedObj->spawn_queue;
+    retVal = fact->fcts.remove(fact, stealSchedulerObject, OCR_SCHEDULER_OBJECT_EDT, 1, &edtObj, NULL, SCHEDULER_OBJECT_REMOVE_HEAD);
+    if (!ocrGuidIsNull(edtObj.guid.guid) ) {
+       DPRINTF(DEBUG_LVL_INFO, ">>> Found guid in spawn_queue\n");
+    }
+#endif
+    //First try to pop from own deque
+    if (ocrGuidIsNull(edtObj.guid.guid)) {
+       retVal = fact->fcts.remove(fact, schedObj, kind , 1, &edtObj, NULL, SCHEDULER_OBJECT_REMOVE_TAIL);
+    }
 
     //If pop fails, then try to steal from other deques
     if (ocrGuidIsNull(edtObj.guid.guid)) {
 
         //First try to steal from the last deque that was visited (probably had a successful steal)
-        ocrSchedulerObject_t *stealSchedulerObject = ((ocrSchedulerHeuristicContextHc_t*)self->contexts[hcContext->stealSchedulerObjectIndex])->mySchedulerObject;
+        stealSchedulerObject = ((ocrSchedulerHeuristicContextHc_t*)self->contexts[hcContext->stealSchedulerObjectIndex])->mySchedulerObject;
         ASSERT(stealSchedulerObject);
         retVal = fact->fcts.remove(fact, stealSchedulerObject, kind, 1, &edtObj, NULL, SCHEDULER_OBJECT_REMOVE_HEAD); //try cached deque first
 
         //If cached steal failed, then restart steal loop from starting index
-        ocrSchedulerObject_t *rootObj = self->scheduler->rootObj;
+        //*rootObj = self->scheduler->rootObj;
         ocrSchedulerObjectFactory_t *sFact = self->scheduler->pd->schedulerObjectFactories[rootObj->fctId];
         while (ocrGuidIsNull(edtObj.guid.guid) && sFact->fcts.count(sFact, rootObj, countProp) != 0) {
             u32 i;
@@ -186,6 +203,7 @@ static u8 hcSchedulerHeuristicGetEdt(ocrSchedulerHeuristic_t *self, ocrScheduler
     }
 
     if (!(ocrGuidIsNull(edtObj.guid.guid))){
+        DPRINTF(DEBUG_LVL_INFO, ">>> Found GUID "GUIDF" from somewhere\n",GUIDA(edtObj.guid.guid));
         taskArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).edt = edtObj.guid;
 #ifdef OCR_MONITOR_SCHEDULER
         OCR_TOOL_TRACE(false, OCR_TRACE_TYPE_WORKER, OCR_ACTION_WORK_TAKEN, edtObj.guid.guid, schedObj);
@@ -291,6 +309,19 @@ static u8 hcSchedulerHeuristicNotifyEdtReadyInvoke(ocrSchedulerHeuristic_t *self
     OCR_TOOL_TRACE(false, OCR_TRACE_TYPE_EDT, OCR_ACTION_SCHEDULED, taskGuid, schedObj);
 #endif
     ocrSchedulerObjectFactory_t *fact = self->scheduler->pd->schedulerObjectFactories[schedObj->fctId];
+#ifdef OCR_ENABLE_SCHEDULER_SPAWN_QUEUE
+    DPRINTF(DEBUG_LVL_INFO, ">>> should we put guid: "GUIDF" in the spawn_queue?\n",GUIDA(edtObj.guid.guid));
+    ocrHint_t spawnHint;
+    ocrHintInit(&spawnHint, OCR_HINT_EDT_T);
+    u64 hintVal = 0ULL;
+    RESULT_ASSERT(ocrGetHint(edtObj.guid.guid, &spawnHint), ==, 0);
+    if (ocrGetHintValue(&spawnHint, OCR_HINT_EDT_SPAWNING, &hintVal) == 0) {
+        DPRINTF(DEBUG_LVL_INFO, ">>> put it into spawn_queue guid: "GUIDF"\n",GUIDA(edtObj.guid.guid));
+        ocrSchedulerObject_t *rootObj = self->scheduler->rootObj;
+        ocrSchedulerObjectWst_t *wstSchedObj = (ocrSchedulerObjectWst_t*)rootObj;
+        schedObj = wstSchedObj->spawn_queue;
+    }
+#endif
     return fact->fcts.insert(fact, schedObj, &edtObj, NULL, (SCHEDULER_OBJECT_INSERT_AFTER | SCHEDULER_OBJECT_INSERT_POSITION_TAIL));
 }
 

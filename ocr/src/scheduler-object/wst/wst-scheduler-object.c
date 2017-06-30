@@ -24,6 +24,7 @@
 /******************************************************/
 
 static void wstSchedulerObjectStart(ocrSchedulerObject_t *self, ocrPolicyDomain_t *PD, u32 numDeques) {
+    DPRINTF(DEBUG_LVL_VERB, "wstSchedulerObjectStart:  %"PRIu32"\n",numDeques);
     u32 i, w;
     ASSERT(numDeques > 0);
     ocrPolicyDomain_t *pd = NULL;
@@ -66,6 +67,10 @@ static void wstSchedulerObjectStart(ocrSchedulerObject_t *self, ocrPolicyDomain_
             }
         }
     }
+#ifdef OCR_ENABLE_SCHEDULER_SPAWN_QUEUE
+    wstSchedObj->spawn_queue = dequeFactory->fcts.create(dequeFactory, (ocrParamList_t*)(&params));
+    //TODO: do we need to set location of the dequeFactor as above?
+#endif
 #else
     ASSERT(0);
 #endif
@@ -79,6 +84,10 @@ static void wstSchedulerObjectFinish(ocrSchedulerObject_t *self, ocrPolicyDomain
         ocrSchedulerObjectFactory_t *dequeFactory = PD->schedulerObjectFactories[deque->fctId];
         dequeFactory->fcts.destroy(dequeFactory, wstSchedObj->deques[i]);
     }
+#ifdef OCR_ENABLE_SCHEDULER_SPAWN_QUEUE
+    //TODO: Do we need to do something like this? if so dequeFactory should be... ?
+    //dequeFactory->fcts.destroy(dequeFactory, wstSchedObj->spawn_queue);
+#endif
     ocrPolicyDomain_t *pd = NULL;
     getCurrentEnv(&pd, NULL, NULL, NULL);
     pd->fcts.pdFree(pd, wstSchedObj->deques);
@@ -94,6 +103,9 @@ static void wstSchedulerObjectInitialize(ocrSchedulerObjectFactory_t *fact, ocrS
     ocrSchedulerObjectWst_t* wstSchedObj = (ocrSchedulerObjectWst_t*)self;
     wstSchedObj->numDeques = 0;
     wstSchedObj->deques = NULL;
+#ifdef OCR_ENABLE_SCHEDULER_SPAWN_QUEUE
+    wstSchedObj->spawn_queue = NULL;
+#endif
     wstSchedObj->config = SCHEDULER_OBJECT_WST_CONFIG_REGULAR;
     paramListSchedulerObjectWst_t *paramsWst = (paramListSchedulerObjectWst_t*)perInstance;
     // There's no specific initialization for now. Default should be regular and
@@ -124,6 +136,7 @@ ocrSchedulerObject_t* newSchedulerObjectWst(ocrSchedulerObjectFactory_t *factory
 }
 
 ocrSchedulerObject_t* wstSchedulerObjectCreate(ocrSchedulerObjectFactory_t *factory, ocrParamList_t *perInstance) {
+    DPRINTF(DEBUG_LVL_VERB, "wstSchedulerObjectCreate\n");
 #ifdef OCR_ASSERT
     paramListSchedulerObject_t *paramSchedObj = (paramListSchedulerObject_t*)perInstance;
     ASSERT(!paramSchedObj->config);
@@ -172,6 +185,7 @@ u64 wstSchedulerObjectCount(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObjec
         ocrSchedulerObjectFactory_t *dequeFactory = pd->schedulerObjectFactories[deque->fctId];
         count += dequeFactory->fcts.count(dequeFactory, deque, properties);
     }
+    DPRINTF(DEBUG_LVL_VERB, "wstSchedulerObjectCount:  %"PRIu64"\n",count);
     return count;
 }
 
