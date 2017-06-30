@@ -220,7 +220,8 @@ def GenerateComp(output, pdtype, threads, binding, numa, sysworker, schedtype):
     if mtworker == True:
         masterWorkerType = "HC_COMM_MT" if (pdtype == 'HCDist') else "HC"
     else:
-        masterWorkerType = "HC_COMM" if (pdtype == 'HCDist') else "HC"
+        WORKER=os.getenv('HACK_SPECIAL_WORKER', "HC_COMM")
+        masterWorkerType = WORKER if (pdtype == 'HCDist') else "HC"
     output.write("[WorkerType0]\n\tname\t=\t%s\n" % (masterWorkerType))
     output.write("[WorkerInst0]\n")
     output.write("\tid\t=\t0\n")
