@@ -2814,19 +2814,6 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         //Querying the kind through the PD's interface should be ok as it's
         //the problem of the guid provider to give this information
         // First resolve KIND information
-        if (ocrGuidIsNull(PD_MSG_FIELD_I(source.guid))) {
-            srcKind = OCR_GUID_NONE;
-        } else {
-            //getVal - resolve
-            self->guidProviders[0]->fcts.getVal(
-                self->guidProviders[0], PD_MSG_FIELD_I(source.guid),
-                (u64*)(&(PD_MSG_FIELD_I(source.metaDataPtr))), &srcKind, MD_LOCAL, NULL);
-        }
-        //getVal - resolve
-        self->guidProviders[0]->fcts.getVal(
-            self->guidProviders[0], PD_MSG_FIELD_I(dest.guid),
-            (u64*)(&(PD_MSG_FIELD_I(dest.metaDataPtr))), &dstKind, MD_LOCAL, NULL);
-
         u8 resolveCode = 1;
         if (ocrGuidIsNull(PD_MSG_FIELD_I(source.guid))) {
             srcKind = OCR_GUID_NONE;

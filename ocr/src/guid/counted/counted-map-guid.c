@@ -485,23 +485,11 @@ static u8 countedMapGetVal(ocrGuidProvider_t* self, ocrGuid_t guid, u64* val, oc
             MdProxy_t * oldMdProxy = (MdProxy_t *) hashtableConcBucketLockedTryPut(dself->guidImplTable, rguid, mdProxy);
             if (oldMdProxy == mdProxy) { // won
                 if (mode == MD_PROXY) {
+                    // Caller wanted to compete on the MD proxy creation but did not want to trigger a fetch
                     *proxy = oldMdProxy;
                     return 0;
                 }
-                // TODO two options:
-                // 1- Issue the MD cloning here and link the operation's completion to the mdProxy
-                // Sketch implementation:
-                // - Get low-level info
-                //   - no-op for now because we extract kind from GUID and factory is always 0
-                //   * TODO gp->resolveLowLevelInfo(gp); // no-op
-                // - Once we have that:
-                //   - Read the kind and factory id
-                //      * TODO: Create base type ocrObjectFactory_t for all factories to extend
-                //      * TODO: ocrObjectFactory_t * pd->resolveFactory(pd, ocrGuid_t);
-                //          * Q: Does PD is the right place to have the factories ?
-                //   - Invoke "clone/fetch" code. This is a non-blocking call that will return OCR_EPEND
-                //      * TODO: ocrObjectFactory_t interface to call deserialize with convention that srcBuffer==NULL
-                //
+                // Issue the clone operation to fetch the metadata
                 PD_MSG_STACK(msgClone);
                 getCurrentEnv(NULL, NULL, NULL, &msgClone);
 #define PD_MSG (&msgClone)
@@ -524,11 +512,6 @@ static u8 countedMapGetVal(ocrGuidProvider_t* self, ocrGuid_t guid, u64* val, oc
                 }
 #undef PD_MSG
 #undef PD_TYPE
-                // 2- Return an error code along with the oldMdProxy event
-                //    The caller will be responsible for calling MD cloning
-                //    and setup the link. Note there's a race here when the
-                //    md is resolve concurrently. It sounds it would be better
-                //    to go through functions.
             } else {
                 ASSERT(mode != MD_PROXY); // By contract, no competition on MD_PROXY
                 // lost competition, 2 cases:

@@ -676,8 +676,7 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
 #define PD_TYPE PD_MSG_GUID_METADATA_CLONE
         if (msg->type & PD_MSG_REQUEST) {
             if (HAS_MD_CLONE(PD_MSG_FIELD_I(type))) {
-                // Do not call the macro because it relies on GUID_INFO
-                // and we go into a deadlock when cloning GUID maps
+                // Do not call the macro because it relies on GUID_INFO and we go into a deadlock when cloning GUID maps
                 // RETRIEVE_LOCATION_FROM_GUID_MSG(self, msg->destLocation, IO);
                 self->guidProviders[0]->fcts.getLocation(self->guidProviders[0], PD_MSG_FIELD_IO(guid.guid), &(msg->destLocation));
                 DPRINTF(DEBUG_LVL_VVERB,"METADATA_CLONE: request for guid="GUIDF" src=%"PRId32" dest=%"PRId32"\n",

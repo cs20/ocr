@@ -315,7 +315,6 @@ u8 labeledGuidGetGuid(ocrGuidProvider_t* self, ocrGuid_t* guid, u64 val, ocrGuid
 u8 labeledGuidCreateGuid(ocrGuidProvider_t* self, ocrFatGuid_t *fguid, u64 size, ocrGuidKind kind, ocrLocation_t targetLoc, u32 properties) {
     START_PROFILE(gp_lbl_createGuid);
     ocrGuidProviderLabeled_t *rself = (ocrGuidProviderLabeled_t*)self;
-    //TODO-MERGE double check if we need this for labeled GUIDs
     if(properties & GUID_PROP_IS_LABELED) {
         // We need to use the GUID provided; make sure it is non null and reserved
         ASSERT((!(ocrGuidIsNull(fguid->guid))) && (IS_RESERVED_GUID(fguid->guid)));
@@ -329,13 +328,13 @@ u8 labeledGuidCreateGuid(ocrGuidProvider_t* self, ocrFatGuid_t *fguid, u64 size,
 
         // Other sanity check
         ASSERT(getKindFromGuid(fguid->guid) == kind); // Kind properly encoded
+#ifdef OCR_ASSERT
         // See BUG #928 on GUID issues
 #if GUID_BIT_COUNT == 64
         u64 count = (RSHIFT(COUNTER, fguid->guid.guid));
 #elif GUID_BIT_COUNT == 128
         u64 count = (RSHIFT(COUNTER, fguid->guid.lower));
 #endif
-#ifdef OCR_ASSERT
 #ifdef GUID_PROVIDER_WID_INGUID
         // GUIDs are generated before the current worker is setup.
 #if GUID_BIT_COUNT == 64
@@ -579,13 +578,7 @@ u8 labeledGuidGetVal(ocrGuidProvider_t* self, ocrGuid_t guid, u64* val, ocrGuidK
             // Bug #627: We do not return until the GUID is valid. We test this
             // by looking at the first field of ptr and waiting for it to be the GUID value (meaning the
             // object has been initialized
-            volatile u64 * spinVal;
-            if (isLocalGuidCheck(self, guid)) {
-                spinVal = val;
-            } else {
-                MdProxy_t * sproxy = (MdProxy_t *) val;
-                spinVal = (volatile u64*) &sproxy->ptr;
-            }
+            volatile u64 * spinVal = val;
             void * adjustedPtr = (((ocrObject_t *)(*spinVal))+1);
             // See BUG #928 on GUID issues
 #if GUID_BIT_COUNT == 64
@@ -603,8 +596,8 @@ u8 labeledGuidGetVal(ocrGuidProvider_t* self, ocrGuid_t guid, u64* val, ocrGuidK
         if (mdProxy == NULL) {
             if (mode == MD_LOCAL) {
                 RETURN_PROFILE(0);
-            } // else the mode is fetch
-            // This is a concurrent operation. Multiple concurrent call may try to do the fetch
+            }
+            // This is a concurrent operation. Multiple concurrent call may try to do enqueue the proxy
             ASSERT(((mode == MD_FETCH) || (mode == MD_PROXY)) && (proxy != NULL));
             //For labeled, currently delegating directly to the remote location that owns the reserved GUID
             ASSERT(!IS_RESERVED_GUID(guid) && "Labeled Limitation");
@@ -617,24 +610,12 @@ u8 labeledGuidGetVal(ocrGuidProvider_t* self, ocrGuid_t guid, u64* val, ocrGuidK
             hal_fence(); // I think the lock in try put should make the writes visible
             MdProxy_t * oldMdProxy = (MdProxy_t *) GP_HASHTABLE_TRYPUT(dself->guidImplTable, rguid, mdProxy);
             if (oldMdProxy == mdProxy) { // won
-                if (mode == MD_PROXY) { //TODO-STUFF: double check what this is again ??????
+                if (mode == MD_PROXY) {
+                    // Caller wanted to compete on the MD proxy creation but did not want to trigger a fetch
                     *proxy = oldMdProxy;
                     RETURN_PROFILE(0);
                 }
-                // TODO two options:
-                // 1- Issue the MD cloning here and link the operation's completion to the mdProxy
-                // Sketch implementation:
-                // - Get low-level info
-                //   - no-op for now because we extract kind from GUID and factory is always 0
-                //   * TODO gp->resolveLowLevelInfo(gp); // no-op
-                // - Once we have that:
-                //   - Read the kind and factory id
-                //      * TODO: Create base type ocrObjectFactory_t for all factories to extend
-                //      * TODO: ocrObjectFactory_t * pd->resolveFactory(pd, ocrGuid_t);
-                //          * Q: Does PD is the right place to have the factories ?
-                //   - Invoke "clone/fetch" code. This is a non-blocking call that will return OCR_EPEND
-                //      * TODO: ocrObjectFactory_t interface to call deserialize with convention that srcBuffer==NULL
-                //
+                // Issue the clone operation to fetch the metadata
                 PD_MSG_STACK(msgClone);
                 getCurrentEnv(NULL, NULL, NULL, &msgClone);
 #define PD_MSG (&msgClone)
@@ -657,11 +638,6 @@ u8 labeledGuidGetVal(ocrGuidProvider_t* self, ocrGuid_t guid, u64* val, ocrGuidK
                 }
 #undef PD_MSG
 #undef PD_TYPE
-                // 2- Return an error code along with the oldMdProxy event
-                //    The caller will be responsible for calling MD cloning
-                //    and setup the link. Note there's a race here when the
-                //    md is resolve concurrently. It sounds it would be better
-                //    to go through functions.
             } else {
                 ASSERT(mode != MD_PROXY); // By contract, no competition on MD_PROXY
                 // lost competition, 2 cases:
@@ -692,11 +668,9 @@ u8 labeledGuidGetVal(ocrGuidProvider_t* self, ocrGuid_t guid, u64* val, ocrGuidK
             ASSERT((!IS_RESERVED_GUID(guid) || (getKindFromGuid(guid) == OCR_GUID_DB)) && "Labeled Limitation");
             *val = (u64) mdProxy->ptr;
         }
-        //TODO-STUFF here we need to cache the mdProxy for subsequent lookups
         if (mode == MD_FETCH) {
             ASSERT(proxy != NULL);
             *proxy = mdProxy;
-            //TODO Cache store
         } else {
             ASSERT(proxy == NULL);
         }
@@ -754,10 +728,8 @@ u8 labeledGuidReleaseGuid(ocrGuidProvider_t *self, ocrFatGuid_t fatGuid, bool re
             ASSERT ((proxy->queueHead == NULL) ||
                     (((u64)proxy->queueHead) == REG_OPEN) ||
                     (((u64)proxy->queueHead) == REG_CLOSED));
-            // if (proxy->ptr) { //TODO why that ?
             ASSERT(proxy->ptr);
             self->pd->fcts.pdFree(self->pd, proxy);
-            // }
         }
         if (metaDataPtr != NULL) {
             PD_MSG_STACK(msg);
