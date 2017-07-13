@@ -1888,6 +1888,12 @@ u8 quickSwitchRunlevel(ocrAllocator_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_
             ocrAllocatorQuick_t * rself = (ocrAllocatorQuick_t *) self;
 
             u64 poolAddr = 0;
+
+#ifdef OCR_ENABLE_MEMORY_HEATMAP
+            PRINTF("quickBegin : poolsize 0x%"PRIx64", level %"PRIu64", startAddr 0x%"PRIx64"\n",
+                    rself->poolSize, self->memories[0]->level, self->memories[0]->memories[0]->startAddr);
+#endif
+
             DPRINTF(DEBUG_LVL_VERB, "quickBegin : poolsize 0x%"PRIx64", level %"PRIu64", startAddr 0x%"PRIx64"\n",
                     rself->poolSize, self->memories[0]->level, self->memories[0]->memories[0]->startAddr);
 
@@ -2041,6 +2047,14 @@ void* quickAllocate(
         hdr->realAddr = (void *)orig;
     }
 #endif // OCR_CACHE_LINE_OFFSET_ALLOCATIONS
+
+#ifdef OCR_ENABLE_MEMORY_HEATMAP
+    u64 allocTime = salGetTime();
+    if(ret != NULL){
+        PRINTF("ALLOCATING %lu @ %p ts: %lu\n", size, ret, allocTime);
+    }
+#endif
+
     return ret;
 }
 void quickDeallocate(void* address) {

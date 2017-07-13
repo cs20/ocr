@@ -302,6 +302,9 @@ endif
 # CFLAGS += -DOCR_MONITOR_SCHEDULER -DOCR_TRACE_BINARY
 # CFLAGS += -DOCR_MONITOR_ALLOCATOR -DOCR_TRACE_BINARY
 
+# Enable log collection for FSIM memory heatmap visualization
+# CFLAGS += -DOCR_ENABLE_MEMORY_HEATMAP
+
 ####################################################
 # Experimental flags
 ####################################################
