@@ -1520,7 +1520,11 @@ u8 cePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
             localDeguidify(self, &edtFGuid, NULL);
             // At this point the edt MUST be local as well as the db data pointer.
             ocrTask_t* task = (ocrTask_t*) edtFGuid.metaDataPtr;
+#ifdef TG_STAGING
+            PD_MSG_FIELD_O(returnDetail) = ((ocrTaskFactory_t*)self->factories[self->taskFactoryIdx])->fcts.dependenceResolved(task, dbFGuid.guid, PD_MSG_FIELD_O(ptr), edtSlot, PD_MSG_FIELD_O(size));
+#else
             PD_MSG_FIELD_O(returnDetail) = ((ocrTaskFactory_t*)self->factories[self->taskFactoryIdx])->fcts.dependenceResolved(task, dbFGuid.guid, PD_MSG_FIELD_O(ptr), edtSlot);
+#endif
         }
 #undef PD_MSG
 #undef PD_TYPE

@@ -197,8 +197,12 @@ typedef struct {
     void* ptr;              /**< Pointer allowing access to the data block or NULL */
     ocrDbAccessMode_t mode; /**< Runtime reserved (may go away in future) --
                                  The access mode with which the data block has been acquired */
+#ifdef TG_STAGING
+    void* orig;
+    u64 size;
+#endif
 } ocrEdtDep_t;
-
+#define SPAD_COPY ((u64) 1<<63)
 
 #define EDT_PROP_NONE    ((u16) 0x0) /**< Property bits indicating a regular EDT */
 #define EDT_PROP_FINISH  ((u16) 0x1) /**< Property bits indicating a FINISH EDT */
@@ -350,6 +354,7 @@ typedef enum {
     OCR_HINT_EDT_PRIORITY,                  /* [u64] : Global priority number of EDT. Higher value is greater priority. */
     OCR_HINT_EDT_SLOT_MAX_ACCESS,           /* [u64] : EDT slot number that contains the DB which is accessed most by the EDT. */
     OCR_HINT_EDT_AFFINITY,                  /* [u64] : Affinitizes an EDT to a guid */
+    OCR_HINT_EDT_SPAD_USAGE,                /* [u64] : Which DBs benefit from being copied to scratchpad */
     OCR_HINT_EDT_DISPERSE,                  /* [xxx] : Tells scheduler to schedule EDT away from current location */
     OCR_HINT_EDT_SPACE,                     /* [u64] : Used internally by the runtime for spatial locality of EDTs */
     OCR_HINT_EDT_TIME,                      /* [u64] : Used internally by the runtime for temporal locality of EDTs */

@@ -433,7 +433,11 @@ static void acquireEdtDeps(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicC
     RESULT_ASSERT(ocrGetHintValue(&edtHint, OCR_HINT_EDT_TIME, &time), ==, 0);
 #endif
 
+#if TG_STAGING
+    RESULT_ASSERT(((ocrTaskFactory_t*)(pd->factories[task->fctId]))->fcts.dependenceResolved(task, NULL_GUID, NULL, EDT_SLOT_NONE, 0), ==, 0);
+#else
     RESULT_ASSERT(((ocrTaskFactory_t*)(pd->factories[task->fctId]))->fcts.dependenceResolved(task, NULL_GUID, NULL, EDT_SLOT_NONE), ==, 0);
+#endif
 }
 
 //The EDT's depv is scanned to see if all the DBs are local and current

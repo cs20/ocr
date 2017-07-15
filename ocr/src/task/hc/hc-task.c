@@ -450,6 +450,9 @@ static u8 initTaskHcInternal(ocrTaskHc_t *task, ocrGuid_t taskGuid, ocrPolicyDom
 #ifdef ENABLE_EXTENSION_PERF
     for(i = 0; i < PERF_MAX - PERF_HW_MAX; i++) task->base.swPerfCtrs[i] = 0;
 #endif
+#ifdef TG_STAGING
+    task->base.spadUsage = 0;
+#endif
 
     return 0;
 }
@@ -498,6 +501,11 @@ static u8 iterateDbFrontier(ocrTask_t *self) {
             // and remember them to avoid double release
             if ((i > 0) && (ocrGuidIsEq(depv[i-1].guid, depv[i].guid))) {
                 rself->resolvedDeps[depv[i].slot].ptr = rself->resolvedDeps[depv[i-1].slot].ptr;
+#ifdef TG_STAGING
+                rself->resolvedDeps[depv[i].slot].orig = NULL;
+                rself->resolvedDeps[depv[i].slot].size = rself->resolvedDeps[depv[i-1].slot].size;
+                if((self->spadUsage) & (1<<(depv[i].slot))) rself->resolvedDeps[depv[i].slot].size |= SPAD_COPY;
+#endif
                 // If the below asserts, rebuild OCR with a higher OCR_MAX_MULTI_SLOT (in build/common.mk)
                 ASSERT(depv[i].slot / 64 < OCR_MAX_MULTI_SLOT);
                 rself->doNotReleaseSlots[depv[i].slot / 64] |= (1ULL << (depv[i].slot % 64));
@@ -531,6 +539,11 @@ static u8 iterateDbFrontier(ocrTask_t *self) {
                 // else, acquire took place and was successful, continue iterating
                 ASSERT(msg.type & PD_MSG_RESPONSE); // 2x check
                 rself->resolvedDeps[depv[i].slot].ptr = PD_MSG_FIELD_O(ptr);
+#ifdef TG_STAGING
+                rself->resolvedDeps[depv[i].slot].orig = NULL;
+                rself->resolvedDeps[depv[i].slot].size = PD_MSG_FIELD_O(size);
+                if((self->spadUsage) & (1<<(depv[i].slot))) rself->resolvedDeps[depv[i].slot].size |= SPAD_COPY;
+#endif
 #undef PD_MSG
 #undef PD_TYPE
             }
@@ -621,6 +634,10 @@ static u8 taskAllDepvSatisfied(ocrTask_t *self) {
             resolvedDeps[i].guid = signalers[i].guid; // DB guids by now
             resolvedDeps[i].ptr = NULL; // resolved by acquire messages
             resolvedDeps[i].mode = signalers[i].mode;
+#ifdef TG_STAGING
+            resolvedDeps[i].orig = NULL;
+            resolvedDeps[i].size = 0;
+#endif
             i++;
         }
         // Sort regnode in guid's ascending order.
@@ -988,6 +1005,11 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
     if (hint != NULL_HINT && (ocrGetHintValue(hint, OCR_HINT_EDT_AFFINITY, &val) == 0)) {
       self->flags |= OCR_TASK_FLAG_USES_AFFINITY;
     }
+#ifdef TG_STAGING
+    if (hint != NULL_HINT && (ocrGetHintValue(hint, OCR_HINT_EDT_SPAD_USAGE, &val) == 0)) {
+      self->spadUsage = (u32)val;
+    }
+#endif
 
 #ifdef ENABLE_EXTENSION_BLOCKING_SUPPORT
     if (hasProperty(properties, EDT_PROP_LONG)) {
@@ -1051,7 +1073,11 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
     return 0;
 }
 
+#ifdef TG_STAGING
+u8 dependenceResolvedTaskHc(ocrTask_t * self, ocrGuid_t dbGuid, void * localDbPtr, u32 slot, u64 size) {
+#else
 u8 dependenceResolvedTaskHc(ocrTask_t * self, ocrGuid_t dbGuid, void * localDbPtr, u32 slot) {
+#endif
     ocrTaskHc_t * rself = (ocrTaskHc_t *) self;
     //BUG #924 - We need to decouple satisfy and acquire. Until then, we will
     //use this workaround of using the slot info to do that.
@@ -1076,6 +1102,9 @@ u8 dependenceResolvedTaskHc(ocrTask_t * self, ocrGuid_t dbGuid, void * localDbPt
         // must match the frontier's DB and we do not need to lock this code
         ASSERT(ocrGuidIsEq(dbGuid, rself->signalers[rself->frontierSlot-1].guid));
         rself->resolvedDeps[rself->signalers[rself->frontierSlot-1].slot].ptr = localDbPtr;
+#ifdef TG_STAGING
+        rself->resolvedDeps[rself->signalers[rself->frontierSlot-1].slot].size = size;
+#endif
     }
     if (!iterateDbFrontier(self)) {
         scheduleTask(self);
@@ -1550,6 +1579,9 @@ static u8 checkForFaults(ocrTask_t *base, bool postCheck) {
                 for(i=0; i < depc; ++i) {
                     if (ocrGuidIsEq(dbGuid, depv[i].guid)) {
                         depv[i].ptr = db->ptr;
+#ifdef TG_STAGING
+                        depv[i].size = db->size;
+#endif
                         dataFault = true;
                         break;
                     }
@@ -1772,6 +1804,20 @@ static u8 taskEpilogue(ocrTask_t * base, ocrPolicyDomain_t *pd, ocrWorker_t * cu
     return 0;
 }
 
+#ifdef TG_STAGING
+void *spadAlloc(ocrPolicyDomain_t *pd, u64 size) {
+    void *ptr = NULL;
+#if defined(OCR_DISABLE_USER_L1_ALLOC) || defined(OCR_DISABLE_RUNTIME_L1_ALLOC)
+    if(size) ptr = pd->allocators[0]->fcts.allocate(pd->allocators[0], size, 0);
+#endif
+    return ptr;
+}
+
+void spadFree(ocrPolicyDomain_t *pd, void *ptr) {
+    if(ptr) pd->fcts.pdFree(pd, ptr);
+}
+#endif
+
 u8 taskExecute(ocrTask_t* base) {
     START_PROFILE(ta_hc_execute);
     ocrTaskHc_t* derived = (ocrTaskHc_t*)base;
@@ -1898,6 +1944,32 @@ u8 taskExecute(ocrTask_t* base) {
         ocrEdtDep_t defensiveDepv[depc];
         hal_memCopy(defensiveDepv, depv, sizeof(ocrEdtDep_t)*depc, false);
 #endif
+
+#ifdef TG_STAGING
+#if defined(TG_XE_TARGET)
+{
+    u32 kount=0;
+    for(kount=0; kount < base->depc; kount++) {
+        depv[kount].orig = NULL;
+        ocrFatGuid_t fguid;
+        ocrGuidKind val = 0xf;
+        fguid.guid = depv[kount].guid;
+        pd->guidProviders[0]->fcts.getKind(pd->guidProviders[0], fguid.guid, &val);
+        if ((depv[kount].size == 0) || ((SPAD_COPY & depv[kount].size)==0)) continue;
+        else depv[kount].size = depv[kount].size & ~SPAD_COPY;
+        // Move datablocks here
+        void *dest = spadAlloc(pd, depv[kount].size);
+        if (dest) {
+            hal_memCopy(dest, depv[kount].ptr, depv[kount].size, 0);
+            depv[kount].orig = depv[kount].ptr;
+            depv[kount].ptr = dest;
+            // TODO: update destination
+        }
+    }
+}
+#endif
+#endif
+
         base->state = RUNNING_EDTSTATE;
 
         //TODO Execute can be considered user on x86, but need to differentiate processRequestEdts in x86-mpi
@@ -2076,6 +2148,22 @@ u8 taskExecute(ocrTask_t* base) {
     taskEpilogue(base, pd, curWorker, retGuid);
 #endif
 #else
+#ifdef TG_STAGING
+#if defined(TG_XE_TARGET)
+{
+// Moving datablocks back
+    u32 kount=0;
+    for(kount=0; kount < base->depc; kount++) {
+        if(depv[kount].orig) {
+            hal_memCopy(depv[kount].orig, depv[kount].ptr, depv[kount].size, 0);
+            spadFree(pd, depv[kount].ptr);
+            depv[kount].ptr = depv[kount].orig;
+            depv[kount].orig = NULL;
+        }
+    }
+}
+#endif
+#endif
     taskEpilogue(base, pd, curWorker, retGuid);
 #endif
     RETURN_PROFILE(0);
@@ -2432,11 +2520,19 @@ u8 fixupTaskHc(ocrTask_t *task) {
                 ocrGuid_t dbGuid = taskHc->resolvedDeps[i].guid;
                 //Fixup the DB pointers
                 taskHc->resolvedDeps[i].ptr = NULL;
+#ifdef TG_STAGING
+                taskHc->resolvedDeps[i].size = 0;
+#endif
                 ocrObject_t * ocrObj = NULL;
                 pd->guidProviders[0]->fcts.getVal(pd->guidProviders[0], dbGuid, (u64*)&ocrObj, NULL, MD_LOCAL, NULL);
                 ASSERT(ocrObj != NULL);
                 ocrDataBlock_t *db = (ocrDataBlock_t*)ocrObj;
                 taskHc->resolvedDeps[i].ptr = db->ptr;
+#ifdef TG_STAGING
+                taskHc->resolvedDeps[i].orig = NULL;
+                taskHc->resolvedDeps[i].size = db->size;
+                if((taskHc->spadUsage) & (1<<i)) taskHc->resolvedDeps[i].size |= SPAD_COPY;
+#endif
                 ASSERT(taskHc->resolvedDeps[i].ptr != NULL);
             }
         }
@@ -2498,7 +2594,11 @@ ocrTaskFactory_t * newTaskFactoryHc(ocrParamList_t* perInstance, u32 factoryId) 
     base->fcts.notifyDbAcquire = FUNC_ADDR(u8 (*)(ocrTask_t*, ocrFatGuid_t), notifyDbAcquireTaskHc);
     base->fcts.notifyDbRelease = FUNC_ADDR(u8 (*)(ocrTask_t*, ocrFatGuid_t), notifyDbReleaseTaskHc);
     base->fcts.execute = FUNC_ADDR(u8 (*)(ocrTask_t*), taskExecute);
+#ifdef TG_STAGING
+    base->fcts.dependenceResolved = FUNC_ADDR(u8 (*)(ocrTask_t*, ocrGuid_t, void*, u32, u64), dependenceResolvedTaskHc);
+#else
     base->fcts.dependenceResolved = FUNC_ADDR(u8 (*)(ocrTask_t*, ocrGuid_t, void*, u32), dependenceResolvedTaskHc);
+#endif
     base->fcts.setHint = FUNC_ADDR(u8 (*)(ocrTask_t*, ocrHint_t*), setHintTaskHc);
     base->fcts.getHint = FUNC_ADDR(u8 (*)(ocrTask_t*, ocrHint_t*), getHintTaskHc);
     base->fcts.getRuntimeHint = FUNC_ADDR(ocrRuntimeHint_t* (*)(ocrTask_t*), getRuntimeHintTaskHc);

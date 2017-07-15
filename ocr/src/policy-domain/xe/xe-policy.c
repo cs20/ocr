@@ -142,13 +142,11 @@ static u8 helperSwitchInert(ocrPolicyDomain_t *policy, ocrRunlevel_t runlevel, p
             policy->guidProviders[i], policy, runlevel, phase, properties, NULL, 0);
     }
 
-#if !defined(OCR_DISABLE_RUNTIME_L1_ALLOC) || !defined(OCR_DISABLE_USER_L1_ALLOC)
     maxCount = policy->allocatorCount;
     for(i = 0; i < maxCount; ++i) {
         toReturn |= policy->allocators[i]->fcts.switchRunlevel(
             policy->allocators[i], policy, runlevel, phase, properties, NULL, 0);
     }
-#endif
 
     maxCount = policy->schedulerCount;
     for(i = 0; i < maxCount; ++i) {
@@ -773,7 +771,6 @@ static void localDeguidify(ocrPolicyDomain_t *self, ocrFatGuid_t *guid) {
     }
 }
 
-
 #define NUM_MEM_LEVELS_SUPPORTED 8
 
 static u8 xeAllocateDb(ocrPolicyDomain_t *self, ocrFatGuid_t *guid, void** ptr, u64 size,
@@ -976,7 +973,7 @@ u8 xePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
                 // Cannot acquire
                 PD_MSG_FIELD_O(ptr) = NULL;
             }
-            DPRINTF(DEBUG_LVL_VVERB, "DB_CREATE response for size %"PRIu64": GUID: "GUIDF"; PTR: %p)\n",
+            DPRINTF(DEBUG_LVL_WARN, "DB_CREATE response for size %"PRIu64": GUID: "GUIDF"; PTR: %p)\n",
                     reqSize, GUIDA(PD_MSG_FIELD_IO(guid.guid)), PD_MSG_FIELD_O(ptr));
             returnCode = xeProcessResponse(self, msg, 0);
 #undef PD_MSG

@@ -380,7 +380,8 @@ static void workerLoop(ocrWorker_t * worker) {
     }
 
 #ifdef ENABLE_EXTENSION_PERF
-    salPerfInit(hcWorker->perfCtrs, sched_getcpu());
+    //salPerfInit(hcWorker->perfCtrs, sched_getcpu());
+    salPerfInit(hcWorker->perfCtrs, -1);
 #endif
 
     // Actual loop

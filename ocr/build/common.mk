@@ -326,6 +326,8 @@ endif
 # CFLAGS += -DOCR_ENABLE_XE_L2_ALLOC
 # CFLAGS += -DOCR_ENABLE_XE_GET_MULTI_WORK
 # CFLAGS += -DOCR_ENABLE_CE_GET_MULTI_WORK
+# If staging below is enabled, OCR_DISABLE_USER_L1_ALLOC should also be enabled
+# CFLAGS += -DTG_STAGING
 
 # Enable EDT spawning hint & handling
 # CFLAGS += -DOCR_ENABLE_SCHEDULER_SPAWN_QUEUE

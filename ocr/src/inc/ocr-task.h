@@ -323,7 +323,11 @@ typedef struct _ocrTaskFcts_t {
      * @param[in] self        The slot of the dependence.
      * @return 0 on success and a non-zero code on failure
      */
+#ifdef TG_STAGING
+    u8 (*dependenceResolved)(struct _ocrTask_t* self, ocrGuid_t dbGuid, void* localPtr, u32 slot, u64 size);
+#else
     u8 (*dependenceResolved)(struct _ocrTask_t* self, ocrGuid_t dbGuid, void* localPtr, u32 slot);
+#endif
 
     /**
      * @brief Set user hints for the EDT
@@ -444,6 +448,9 @@ typedef struct _ocrTask_t {
 #ifdef ENABLE_EXTENSION_PERF
     ocrPerfCounters_t *taskPerfsEntry;
     u32 swPerfCtrs[PERF_MAX-PERF_HW_MAX];
+#endif
+#ifdef TG_STAGING
+    u32 spadUsage;
 #endif
 } ocrTask_t;
 
