@@ -135,6 +135,8 @@ CFLAGS += -DGUID_PROVIDER_LOCID_SIZE=10
 #
 CFLAGS += -DALLOW_EAGER_DB
 
+CFLAGS += -DENABLE_LAZY_DB
+
 # **** Debugging parameters ****
 
 # Maximum number of characters handled by a single PRINTF

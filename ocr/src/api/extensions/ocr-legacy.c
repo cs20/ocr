@@ -138,7 +138,7 @@ bool ocrLegacyIsChannelReady(ocrGuid_t channelGuid) {
 
 }
 
-// Runtime legacy properties 
+// Runtime legacy properties
 #define WAIT_CREATE   0x1
 #define WAIT_SATISFY  0x2
 
