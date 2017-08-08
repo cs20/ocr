@@ -318,14 +318,14 @@ static u8 GasnetCommSendMessage(ocrCommPlatform_t * self,
     // ------------------------------------------------------------
     const int max_medium_size = gasnet_AMMaxMedium();
 
-    if (max_medium_size > fullMsgSize) {
+    if (max_medium_size >= fullMsgSize) {
         sendMediumMessage( self, targetRank, gasnetId, messageBuffer, fullMsgSize,
         addr_hi, addr_lo, segment_size);
     } else {
         // sending large messages require access to the remote share segment
         // (only when am long enabled)
         gasnetCommBlock_t *blockRemote = gasnetSegmentBlockGet(self->pd, targetRank);
-        if (gasnet_AMMaxLongRequest() > fullMsgSize) {
+        if (gasnet_AMMaxLongRequest() >= fullMsgSize) {
             gasnetSendLongMessage(targetRank, messageBuffer, fullMsgSize, gasnetId, blockRemote,
                                   addr_hi, addr_lo, segment_size);
         } else {
