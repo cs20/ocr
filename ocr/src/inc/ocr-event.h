@@ -36,7 +36,9 @@ typedef struct _paramListEventFact_t {
 typedef struct _paramListEvent_t {
     ocrParamList_t base;
 #ifdef ENABLE_AMT_RESILIENCE
-    ocrGuid_t resilientEdt; /**< EDT to remove from pub-fetch storage after latch is triggered */
+    ocrGuid_t resilientScopeEdt; /**< EDT to remove from pub-fetch storage after latch is triggered */
+    ocrGuid_t resilientEdtParent;
+    u64 key, ip, ac;
 #endif
 } paramListEvent_t;
 

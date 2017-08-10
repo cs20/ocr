@@ -65,6 +65,11 @@ u8 ocrDbCreate(ocrGuid_t *db, void** addr, u64 len, u16 flags,
     PD_MSG_FIELD_I(edt.guid) = task?task->guid:NULL_GUID; // Can happen when non EDT creates the DB
     PD_MSG_FIELD_I(edt.metaDataPtr) = task;
     PD_MSG_FIELD_I(hint) = hint;
+#ifdef ENABLE_AMT_RESILIENCE
+    PD_MSG_FIELD_I(key) = 0;
+    PD_MSG_FIELD_I(ip) = (task != NULL) ? (u64)__builtin_return_address(0)  : 0;
+    PD_MSG_FIELD_I(ac) = (task != NULL) ? ++task->ac : 0;
+#endif
     if (flags & DB_PROP_RUNTIME) {
         PD_MSG_FIELD_I(dbType) = RUNTIME_DBTYPE;
     } else {
@@ -167,7 +172,7 @@ u8 ocrDbDestroy(ocrGuid_t db) {
     if(ocrGuidIsNull(db))
         return 0;
 #ifdef ENABLE_AMT_RESILIENCE
-    if(salIsPublished(db))
+    if (salResilientGuidDestroy(db) == 0)
         return 0;
 #endif
     START_PROFILE(api_ocrDbDestroy);
@@ -246,7 +251,7 @@ u8 ocrDbRelease(ocrGuid_t db) {
     if(ocrGuidIsNull(db))
         return 0;
 #ifdef ENABLE_AMT_RESILIENCE
-    if(salIsPublished(db))
+    if(salIsSatisfiedResilientGuid(db))
         return 0;
 #endif
     START_PROFILE(api_ocrDbRelease);
@@ -338,7 +343,7 @@ void* ocrDbFetch(ocrGuid_t db, u64 *size) {
     ocrPolicyDomain_t *pd = NULL;
     ocrTask_t *task = NULL;
     getCurrentEnv(&pd, NULL, &task, NULL);
-    void *ptr = salFetch(db, size);
+    void *ptr = salResilientDataBlockFetch(db, size);
     if (task != NULL && ptr != NULL) {
         if (task->dbFetchCount == task->dbFetchArrayLength) {
             void **dbFetchListOld = task->dbFetchList;
@@ -355,7 +360,7 @@ void* ocrDbFetch(ocrGuid_t db, u64 *size) {
 }
 
 u8 ocrDbRepublish(ocrGuid_t db, void *ptr) {
-    return salRepublish(db, ptr);
+    return salResilientDataBlockRepublish(db, ptr);
 }
 
 #else

@@ -128,7 +128,7 @@ u8 delegateCommSendMessage(ocrCommApi_t *self, ocrLocation_t target,
 #ifdef ENABLE_AMT_RESILIENCE
     salRecordEdtAtNode(message->resilientEdtParent, target);
     if (checkPlatformModelLocationFault(target)) {
-        DPRINTF(DEBUG_LVL_NONE,"Abort at SEND: msg: %lx\n", (message->type & PD_MSG_TYPE_ONLY));
+        DPRINTF(DEBUG_LVL_WARN,"Abort at SEND: msg: %lx\n", (message->type & PD_MSG_TYPE_ONLY));
         abortCurrentWork();
     }
 #endif

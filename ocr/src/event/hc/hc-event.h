@@ -39,6 +39,10 @@
 
 #define MDC_SUPPORT_EVT(guidKind) (ENABLE_EVENT_MDC && ((guidKind == OCR_GUID_EVENT_IDEM) || (guidKind == OCR_GUID_EVENT_STICKY)))
 
+typedef struct _paramListEventHc_t {
+    paramListEvent_t base;
+} paramListEventHc_t;
+
 typedef struct {
     ocrEventFactory_t base;
 } ocrEventFactoryHc_t;
@@ -83,7 +87,7 @@ typedef struct _ocrEventHcLatch_t {
 #ifdef ENABLE_AMT_RESILIENCE
     u8 readyToDestruct;
     s32 rescounter;
-    ocrGuid_t resilientEdt;
+    ocrGuid_t resilientScopeEdt;
     ocrGuid_t *dbPublishArray;
     u32 dbPublishArrayLength;
     u32 dbPublishCount;

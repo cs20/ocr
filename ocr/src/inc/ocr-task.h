@@ -51,6 +51,8 @@ typedef struct _paramListTask_t {
 #ifdef ENABLE_AMT_RESILIENCE
     ocrGuid_t resilientLatch;  /**< Latch event of enclosing resilient finish latch scope */
     ocrGuid_t resilientEdtParent;
+    ocrGuid_t faultGuid;
+    u64 key, ip, ac;
 #endif
 } paramListTask_t;
 
@@ -453,6 +455,7 @@ typedef struct _ocrTask_t {
     u32 dbFetchCount;
     u32 dbFetchArrayLength;
     u32 origDepc;
+    u32 ac;                         /**< OCR api call counter */
 #endif
 } ocrTask_t;
 

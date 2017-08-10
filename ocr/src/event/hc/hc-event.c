@@ -200,8 +200,8 @@ u8 destructEventHc(ocrEvent_t *base) {
     if (base->kind == OCR_EVENT_LATCH_T) {
         ocrEventHcLatch_t *latchEvt = (ocrEventHcLatch_t*)base;
         ASSERT(latchEvt->rescounter == 0);
-        if (!ocrGuidIsNull(latchEvt->resilientEdt)) {
-            salRemovePublishedEdt(latchEvt->resilientEdt);
+        if (!ocrGuidIsNull(latchEvt->resilientScopeEdt)) {
+            salResilientTaskRemove(latchEvt->resilientScopeEdt);
         }
     }
 #endif
@@ -717,9 +717,6 @@ u8 satisfyEventHcLatch(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
         event->dbPublishCount = 0;
         pd->fcts.pdFree(pd, event->dbPublishArray);
     }
-    //Now release all EDT deps
-    DPRINTF(DEBUG_LVL_VERB, "EDT Release Deps: "GUIDF" \n", GUIDA(event->resilientEdt));
-    salReleasePublishedDeps(event->resilientEdt, NULL_GUID);
 #endif
 
     u32 waitersCount = event->base.waitersCount;
@@ -1449,7 +1446,7 @@ static u8 initNewEventHc(ocrEventHc_t * event, ocrEventTypes_t eventType, ocrGui
 #ifdef ENABLE_AMT_RESILIENCE
         ((ocrEventHcLatch_t*)event)->readyToDestruct = 0;
         ((ocrEventHcLatch_t*)event)->rescounter = 0;
-        ((ocrEventHcLatch_t*)event)->resilientEdt = (perInstance != NULL) ? ((paramListEvent_t*)perInstance)->resilientEdt : NULL_GUID;
+        ((ocrEventHcLatch_t*)event)->resilientScopeEdt = (perInstance != NULL) ? ((paramListEvent_t*)perInstance)->resilientScopeEdt : NULL_GUID;
         ((ocrEventHcLatch_t*)event)->dbPublishArray = NULL;
         ((ocrEventHcLatch_t*)event)->dbPublishArrayLength = 0;
         ((ocrEventHcLatch_t*)event)->dbPublishCount = 0;
@@ -1747,6 +1744,13 @@ u8 newEventHc(ocrEventFactory_t * factory, ocrFatGuid_t *fguid,
     // of the GUID is actually valid
     hal_fence(); // Make sure sure this really happens last
     ((ocrEvent_t*) event)->guid = fguid->guid;
+#ifdef ENABLE_AMT_RESILIENCE
+    if (properties & EVT_PROP_RESILIENT) {
+        ASSERT(perInstance != NULL);
+        paramListEvent_t *paramEvent = (paramListEvent_t*)perInstance;
+        salResilientGuidCreate(fguid->guid, paramEvent->resilientEdtParent, paramEvent->key, paramEvent->ip, paramEvent->ac);
+    }
+#endif
 
     DPRINTF(DEBUG_LVL_INFO, "Create %s: "GUIDF"\n", eventTypeToString(((ocrEvent_t*) event)), GUIDA(fguid->guid));
 #ifdef OCR_ENABLE_STATISTICS

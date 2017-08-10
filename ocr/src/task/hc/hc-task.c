@@ -498,7 +498,7 @@ static u8 iterateDbFrontier(ocrTask_t *self) {
                 ASSERT(depv[i].slot / 64 < OCR_MAX_MULTI_SLOT);
                 rself->doNotReleaseSlots[depv[i].slot / 64] |= (1ULL << (depv[i].slot % 64));
 #ifdef ENABLE_AMT_RESILIENCE
-            } else if ((self->flags & OCR_TASK_FLAG_RESILIENT) || (salIsPublished(depv[i].guid))) { //For resilient tasks and DB, fetch instead of acquire
+            } else if ((self->flags & OCR_TASK_FLAG_RESILIENT) || (salIsSatisfiedResilientGuid(depv[i].guid))) { //For resilient tasks and DB, fetch instead of acquire
                 rself->resolvedDeps[depv[i].slot].ptr = UNINITIALIZED_DB_FETCH_PTR;
                 ASSERT(depv[i].slot / 64 < OCR_MAX_MULTI_SLOT);
                 rself->doNotReleaseSlots[depv[i].slot / 64] |= (1ULL << (depv[i].slot % 64));
@@ -554,7 +554,7 @@ static u8 scheduleTask(ocrTask_t *self) {
     getCurrentEnv(&pd, NULL, NULL, &msg);
 #ifdef ENABLE_AMT_RESILIENCE
     if (self->flags & OCR_TASK_FLAG_RESILIENT) {
-        salPublishEdt(self);
+        salResilientTaskPublish(self);
         if (!ocrGuidIsNull(self->resilientLatch))
             resilientLatchUpdate(self->resilientLatch, OCR_EVENT_LATCH_RESCOUNT_DECR_SLOT);
     }
@@ -828,7 +828,7 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
     u32 origDepc = depc;
     ocrGuid_t resilientLatch = (perInstance != NULL) ? ((paramListTask_t*)perInstance)->resilientLatch : NULL_GUID;
     ocrGuid_t resilientEdtParent = (perInstance != NULL) ? ((paramListTask_t*)perInstance)->resilientEdtParent : NULL_GUID;
-    if (hasProperty(properties, EDT_PROP_RESILIENT) && !ocrGuidIsNull(resilientEdtParent)) {
+    if (hasProperty(properties, EDT_PROP_RESILIENT) && !ocrGuidIsNull(resilientLatch)) {
         depc++;
         doResDep = 1;
     }
@@ -993,6 +993,7 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
 #endif
 
 #ifdef ENABLE_AMT_RESILIENCE
+    self->ac = 0;
     self->origDepc = origDepc;
     self->dbFetchList = NULL;
     self->dbFetchCount = 0;
@@ -1056,10 +1057,16 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
 
 #ifdef ENABLE_AMT_RESILIENCE
     if (hasProperty(properties, EDT_PROP_RESILIENT)) {
-        salResilientEdtCreate(self);
+        ASSERT(perInstance != NULL);
+        paramListTask_t *taskParams = (paramListTask_t*)perInstance;
+        if (!ocrGuidIsNull(taskParams->faultGuid)) {
+            salResilientFaultGuidMap(taskGuid, taskParams->faultGuid);
+            salResilientFaultGuidMap(taskParams->faultGuid, taskGuid);
+        }
+        salResilientGuidCreate(taskGuid, resilientEdtParent, taskParams->key, taskParams->ip, taskParams->ac);
     }
     if (doResDep) {
-        RESULT_PROPAGATE(salPublishAddDependence(resilientEdtParent, taskGuid, (depc - 1)));
+        ocrAddDependence(resilientLatch, taskGuid, (depc - 1), DB_MODE_NULL);
     }
 #endif
 
@@ -1166,8 +1173,8 @@ u8 satisfyTaskHc(ocrTask_t * base, ocrFatGuid_t data, u32 slot)
     ASSERT_BLOCK_END
 
 #ifdef ENABLE_AMT_RESILIENCE
-    if ((base->flags & OCR_TASK_FLAG_RESILIENT) && !ocrGuidIsNull(data.guid) && !salIsPublished(data.guid)) {
-        RESULT_ASSERT(salPublishAddDependence(data.guid, base->guid, slot), ==, 0);
+    if ((base->flags & OCR_TASK_FLAG_RESILIENT) && salIsResilientGuid(data.guid) && !salIsSatisfiedResilientGuid(data.guid)) {
+        RESULT_ASSERT(salResilientAddDependence(data.guid, base->guid, slot), ==, 0);
         return 0;
     }
 #endif
@@ -1188,6 +1195,9 @@ u8 satisfyTaskHc(ocrTask_t * base, ocrFatGuid_t data, u32 slot)
     DPRINTF(DEBUG_LVL_WARN, "detected double satisfy on sticky for task "GUIDF" on slot %"PRId32" by "GUIDF"\n", GUIDA(base->guid), slot, GUIDA(taskPut->guid));
     ASSERT_BLOCK_END
     ASSERT(self->slotSatisfiedCount < base->depc);
+#ifdef ENABLE_AMT_RESILIENCE
+    salResilientTaskRootUpdate(base->guid, slot, data.guid);
+#endif
 
     self->slotSatisfiedCount++;
     // If a valid DB is expected, assign the GUID
@@ -1195,13 +1205,6 @@ u8 satisfyTaskHc(ocrTask_t * base, ocrFatGuid_t data, u32 slot)
         self->signalers[slot].guid = NULL_GUID;
     else
         self->signalers[slot].guid = data.guid;
-
-#ifdef ENABLE_AMT_RESILIENCE
-    if (base->flags & OCR_TASK_FLAG_RESILIENT) {
-        //ocrGuid_t db = (self->signalers[slot].mode == DB_MODE_NULL) ? NULL_GUID : data.guid;
-        //RESULT_ASSERT(salResilientEdtSatisfy(db, base->guid, slot), ==, 0);
-    }
-#endif
 
     if(self->slotSatisfiedCount == base->depc) {
         DPRINTF(DEBUG_LVL_VERB, "Scheduling task "GUIDF", satisfied dependences %"PRId32"/%"PRId32"\n",

@@ -751,7 +751,7 @@ static u8 hcMemUnAlloc(ocrPolicyDomain_t *self, ocrFatGuid_t* allocator,
 
 static u8 hcAllocateDb(ocrPolicyDomain_t *self, ocrFatGuid_t *guid, void** ptr, u64 size,
                        u32 properties, ocrHint_t *hint, ocrInDbAllocator_t allocator,
-                       u64 prescription, ocrDataBlockType_t dbType) {
+                       u64 prescription, ocrDataBlockType_t dbType, ocrParamList_t *paramList) {
     // This function allocates a data block for the requestor, who is either this computing agent or a
     // different one that sent us a message.  After getting that data block, it "guidifies" the results
     // which, by the way, ultimately causes hcMemAlloc (just below) to run.
@@ -769,7 +769,7 @@ static u8 hcAllocateDb(ocrPolicyDomain_t *self, ocrFatGuid_t *guid, void** ptr, 
         returnValue = ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->instantiate(
             (ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]), guid,
             self->allocators[idx]->fguid, self->fguid,
-            size, result, hint, properties, NULL);
+            size, result, hint, properties, paramList);
         if(returnValue == 0) {
             *ptr = result;
         } else {
@@ -812,10 +812,7 @@ static u8 createEdtHelper(ocrPolicyDomain_t *self, ocrFatGuid_t *guid,
                       ocrFatGuid_t  edtTemplate, u32 *paramc, u64* paramv,
                       u32 *depc, u32 properties, ocrHint_t *hint,
                       ocrFatGuid_t * outputEvent, ocrTask_t * currentEdt,
-#ifdef ENABLE_AMT_RESILIENCE
-                      ocrGuid_t resilientLatch, ocrGuid_t resilientEdtParent,
-#endif
-                      ocrFatGuid_t parentLatch, ocrWorkType_t workType) {
+                      ocrFatGuid_t parentLatch, ocrParamList_t *paramList) {
     ocrTaskTemplate_t *taskTemplate = (ocrTaskTemplate_t*)edtTemplate.metaDataPtr;
     DPRINTF(DEBUG_LVL_VVERB, "Creating EDT with template GUID "GUIDF" (%p) (paramc=%"PRId32"; depc=%"PRId32")"
             " and have paramc=%"PRId32"; depc=%"PRId32"\n", GUIDA(edtTemplate.guid), edtTemplate.metaDataPtr,
@@ -858,19 +855,11 @@ static u8 createEdtHelper(ocrPolicyDomain_t *self, ocrFatGuid_t *guid,
         return OCR_EINVAL;
     }
 
-    //Setup task parameters
-    paramListTask_t taskparams;
-    taskparams.workType = workType;
-#ifdef ENABLE_AMT_RESILIENCE
-    taskparams.resilientLatch = resilientLatch;
-    taskparams.resilientEdtParent = resilientEdtParent;
-#endif
-
     u8 returnCode = ((ocrTaskFactory_t*)(self->factories[self->taskFactoryIdx]))->instantiate(
                            (ocrTaskFactory_t*)(self->factories[self->taskFactoryIdx]), guid,
                            edtTemplate, *paramc, paramv,
                            *depc, properties, hint, outputEvent, currentEdt,
-                           parentLatch, (ocrParamList_t*)(&taskparams));
+                           parentLatch, paramList);
     if(returnCode && returnCode != OCR_EGUIDEXISTS) {
         DPRINTF(DEBUG_LVL_WARN, "unable to create EDT, instantiate returnCode is %"PRIx32"\n", returnCode);
         ASSERT(false);
@@ -1791,12 +1780,21 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         doNotAcquireDb |= (PD_MSG_FIELD_IO(properties) & GUID_PROP_BLOCK) == GUID_PROP_BLOCK;
         ocrFatGuid_t tEdt = PD_MSG_FIELD_I(edt);
 #define PRESCRIPTION 0x10LL
+        ocrParamList_t *paramList = NULL;
+#ifdef ENABLE_AMT_RESILIENCE
+        paramListDataBlockInst_t dbParams;
+        dbParams.resilientEdtParent = msg->resilientEdtParent;
+        dbParams.key = PD_MSG_FIELD_I(key);
+        dbParams.ip = PD_MSG_FIELD_I(ip);
+        dbParams.ac = PD_MSG_FIELD_I(ac);
+        paramList = (ocrParamList_t*)&dbParams;
+#endif
         PD_MSG_FIELD_O(returnDetail) = hcAllocateDb(self, &(PD_MSG_FIELD_IO(guid)),
                                   &(PD_MSG_FIELD_O(ptr)), PD_MSG_FIELD_IO(size),
                                   PD_MSG_FIELD_IO(properties),
                                   PD_MSG_FIELD_I(hint),
                                   PD_MSG_FIELD_I(allocator),
-                                  PRESCRIPTION, PD_MSG_FIELD_I(dbType));
+                                  PRESCRIPTION, PD_MSG_FIELD_I(dbType), paramList);
         if(PD_MSG_FIELD_O(returnDetail) == 0) {
             ocrDataBlock_t *db = PD_MSG_FIELD_IO(guid.metaDataPtr);
             if(db == NULL) {
@@ -2208,12 +2206,23 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         }
 
         ASSERT((PD_MSG_FIELD_I(workType) == EDT_USER_WORKTYPE) || (PD_MSG_FIELD_I(workType) == EDT_RT_WORKTYPE));
+        //Setup task parameters
+        paramListTask_t taskparams;
+        taskparams.workType = PD_MSG_FIELD_I(workType);
 #ifdef ENABLE_AMT_RESILIENCE
         ocrGuid_t resilientLatch = PD_MSG_FIELD_I(resilientLatch);
+        taskparams.resilientLatch = resilientLatch;
+        taskparams.resilientEdtParent = msg->resilientEdtParent;
+        taskparams.faultGuid = PD_MSG_FIELD_I(faultGuid);
+        taskparams.key = PD_MSG_FIELD_I(key);
+        taskparams.ip = PD_MSG_FIELD_I(ip);
+        taskparams.ac = PD_MSG_FIELD_I(ac);
+
         if ((PD_MSG_FIELD_I(properties) & EDT_PROP_RESILIENT) && !ocrGuidIsNull(resilientLatch)) {
             resilientLatchUpdate(resilientLatch, OCR_EVENT_LATCH_RESCOUNT_INCR_SLOT);
         }
 #endif
+        ocrParamList_t *paramList = (ocrParamList_t*)(&taskparams);
 
         u32 depc = PD_MSG_FIELD_IO(depc); // intentionally read before processing
         ocrFatGuid_t * depv = PD_MSG_FIELD_I(depv);
@@ -2223,10 +2232,7 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
                 self, &(PD_MSG_FIELD_IO(guid)), PD_MSG_FIELD_I(templateGuid),
                 &(PD_MSG_FIELD_IO(paramc)), PD_MSG_FIELD_I(paramv), &(PD_MSG_FIELD_IO(depc)),
                 properties, hint, outputEvent, (ocrTask_t*)(PD_MSG_FIELD_I(currentEdt).metaDataPtr),
-#ifdef ENABLE_AMT_RESILIENCE
-                PD_MSG_FIELD_I(resilientLatch), msg->resilientEdtParent,
-#endif
-                PD_MSG_FIELD_I(parentLatch), PD_MSG_FIELD_I(workType));
+                PD_MSG_FIELD_I(parentLatch), paramList);
 
         if ((properties & EDT_PROP_RT_HINT_ALLOC) && (msg->srcLocation == self->myLocation)) {
             self->fcts.pdFree(self, hint);
@@ -2235,6 +2241,19 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
             PD_MSG_FIELD_O(returnDetail) = returnCode;
         }
         ASSERT((returnCode == 0) || (returnCode == OCR_EGUIDEXISTS));
+#ifdef ENABLE_AMT_RESILIENCE
+        if (properties & EDT_PROP_RESILIENT_ROOT) {
+            u32 i;
+            for (i = 0; i < depc && (depv != NULL); i++) {
+                if(ocrGuidIsUninitialized(depv[i].guid))
+                    break;
+            }
+            if ((depv == NULL) || (i < depc)) {
+                ocrTask_t *task = (ocrTask_t*)PD_MSG_FIELD_IO(guid).metaDataPtr;
+                salResilientRecordTaskRoot(task);
+            }
+        }
+#endif
 #ifndef EDT_DEPV_DELAYED
         if ((depv != NULL)) {
             ASSERT(returnCode == 0);
@@ -2396,7 +2415,11 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
 #endif
 #ifdef ENABLE_AMT_RESILIENCE
         paramListEvent_t evtParams;
-        evtParams.resilientEdt = (PD_MSG_FIELD_I(properties) & EVT_RT_PROP_RESILIENT_LATCH) ? PD_MSG_FIELD_I(currentEdt).guid : NULL_GUID;
+        evtParams.resilientScopeEdt = (PD_MSG_FIELD_I(properties) & EVT_RT_PROP_RESILIENT_LATCH) ? PD_MSG_FIELD_I(currentEdt).guid : NULL_GUID;
+        evtParams.resilientEdtParent = msg->resilientEdtParent;
+        evtParams.key = PD_MSG_FIELD_I(key);
+        evtParams.ip = PD_MSG_FIELD_I(ip);
+        evtParams.ac = PD_MSG_FIELD_I(ac);
         paramList = (ocrParamList_t*)&evtParams;
 #endif
 #ifdef ENABLE_EXTENSION_BLOCKING_SUPPORT
@@ -2725,7 +2748,7 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
 #define PD_MSG msg
 #define PD_TYPE PD_MSG_DEP_ADD
 #ifdef ENABLE_AMT_RESILIENCE
-        u8 ret = salPublishAddDependence(PD_MSG_FIELD_I(source.guid), PD_MSG_FIELD_I(dest.guid), PD_MSG_FIELD_I(slot));
+        u8 ret = salResilientAddDependence(PD_MSG_FIELD_I(source.guid), PD_MSG_FIELD_I(dest.guid), PD_MSG_FIELD_I(slot));
         if (ret) {
 #endif
         // We first get information about the source and destination

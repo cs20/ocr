@@ -36,6 +36,10 @@ typedef struct _paramListDataBlockInst_t {
     u64 size;               /**< data-block size */
     void* ptr;              /**< Initial location for the data-block */
     u32 properties;         /**< Properties for the data-block */
+#ifdef ENABLE_AMT_RESILIENCE
+    ocrGuid_t resilientEdtParent;
+    u64 key, ip, ac;
+#endif
 } paramListDataBlockInst_t;
 
 
@@ -121,7 +125,7 @@ typedef struct _ocrDataBlockFcts_t {
     /**
      * @brief Requests that the block be published when possible
      *
-     * This call will return true if the free request was successful.
+     * This call will return 0 if the publish request was successful.
      *
      * @param self          Pointer to this data-block
      * @param properties    Properties of the publish

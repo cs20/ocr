@@ -47,6 +47,11 @@ u8 ocrEventCreateParams(ocrGuid_t *guid, ocrEventTypes_t eventType, u16 properti
 #endif
     PD_MSG_FIELD_I(properties) = properties;
     PD_MSG_FIELD_I(type) = eventType;
+#ifdef ENABLE_AMT_RESILIENCE
+    PD_MSG_FIELD_I(key) = 0;
+    PD_MSG_FIELD_I(ip) = (curEdt != NULL) ? (u64)__builtin_return_address(0)  : 0;
+    PD_MSG_FIELD_I(ac) = (curEdt != NULL) ? ++curEdt->ac : 0;
+#endif
 #ifdef ENABLE_OCR_API_DEFERRABLE
     tagDeferredMsg(&msg, curEdt);
 #endif
@@ -70,11 +75,6 @@ u8 ocrEventCreateParams(ocrGuid_t *guid, ocrEventTypes_t eventType, u16 properti
     }
 #undef PD_MSG
 #undef PD_TYPE
-#ifdef ENABLE_AMT_RESILIENCE
-    if ((properties & EVT_PROP_RESILIENT) && !ocrGuidIsNull(*guid)) {
-        salPublishEvent(*guid);
-    }
-#endif
     DPRINTF_COND_LVL(((returnCode != 0) && (returnCode != OCR_EGUIDEXISTS)), DEBUG_LVL_WARN, DEBUG_LVL_INFO,
                      "EXIT ocrEventCreateParams -> %"PRIu32"; GUID: "GUIDF"\n", returnCode, GUIDA(*guid));
     if(returnCode == 0)
@@ -92,9 +92,8 @@ u8 ocrEventCreate(ocrGuid_t *guid, ocrEventTypes_t eventType, u16 properties) {
 u8 ocrEventDestroy(ocrGuid_t eventGuid) {
     OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_API_EVENT, OCR_ACTION_DESTROY, eventGuid);
 #ifdef ENABLE_AMT_RESILIENCE
-    if (salIsPublishedEvent(eventGuid)) {
+    if (salResilientGuidDestroy(eventGuid) == 0)
         return 0;
-    }
 #endif
     START_PROFILE(api_ocrEventDestroy);
     DPRINTF(DEBUG_LVL_INFO, "ENTER ocrEventDestroy(guid="GUIDF")\n", GUIDA(eventGuid));
@@ -125,10 +124,8 @@ u8 ocrEventDestroy(ocrGuid_t eventGuid) {
 u8 ocrEventSatisfySlot(ocrGuid_t eventGuid, ocrGuid_t dataGuid /*= INVALID_GUID*/, u32 slot) {
 
 #ifdef ENABLE_AMT_RESILIENCE
-    if (salIsPublishedEvent(eventGuid)) {
-        salPublishEventSatisfy(eventGuid, dataGuid);
+    if (salResilientEventSatisfy(eventGuid, slot, dataGuid) == 0)
         return 0;
-    }
 #endif
     START_PROFILE(api_ocrEventSatisfySlot);
     DPRINTF(DEBUG_LVL_INFO, "ENTER ocrEventSatisfySlot(evt="GUIDF", data="GUIDF", slot=%"PRIu32")\n",
@@ -289,6 +286,9 @@ u8 ocrEdtCreate(ocrGuid_t* edtGuidPtr, ocrGuid_t templateGuid,
 
     bool reqResponse = false;
 
+#ifdef ENABLE_AMT_RESILIENCE
+    ocrGuid_t faultGuid = NULL_GUID;
+#endif
     if((properties & GUID_PROP_IS_LABELED)) {
         if(depv != NULL) {
             // This is disallowed for now because if there are two creators,
@@ -303,6 +303,12 @@ u8 ocrEdtCreate(ocrGuid_t* edtGuidPtr, ocrGuid_t templateGuid,
     } else {
         // If we don't have labeling, we reset this to NULL_GUID to avoid
         // propagating crap
+#ifdef ENABLE_AMT_RESILIENCE
+        if (properties & EDT_PROP_RECOVERY) {
+            ASSERT(!ocrGuidIsNull(edtGuid));
+            faultGuid = edtGuid;
+        }
+#endif
         edtGuid = NULL_GUID;
     }
 
@@ -388,9 +394,10 @@ u8 ocrEdtCreate(ocrGuid_t* edtGuidPtr, ocrGuid_t templateGuid,
     PD_MSG_FIELD_I(workType) = EDT_USER_WORKTYPE;
 #ifdef ENABLE_AMT_RESILIENCE
     if (curEdt != NULL && curEdt->funcPtr == mainEdtGet()) {
-        properties |= EDT_PROP_RESILIENT;
+        properties |= EDT_PROP_RESILIENT | EDT_PROP_RESILIENT_ROOT;
     }
     PD_MSG_FIELD_I(resilientLatch) = curEdt ? curEdt->resilientLatch : NULL_GUID;
+    PD_MSG_FIELD_I(faultGuid) = faultGuid;
     if (properties & EDT_PROP_RECOVERY) {
         ASSERT(ocrGuidIsNull(msg.resilientEdtParent));
         PD_MSG_FIELD_I(currentEdt.guid) = NULL_GUID;
@@ -405,6 +412,9 @@ u8 ocrEdtCreate(ocrGuid_t* edtGuidPtr, ocrGuid_t templateGuid,
         //We enforce resilient EDTs to start their own finish scopes
         properties |= EDT_PROP_FINISH;
     }
+    PD_MSG_FIELD_I(key) = 0;
+    PD_MSG_FIELD_I(ip) = (curEdt != NULL) ? (u64)__builtin_return_address(0)  : 0;
+    PD_MSG_FIELD_I(ac) = (curEdt != NULL) ? ++curEdt->ac : 0;
 #endif
     PD_MSG_FIELD_I(properties) = properties;
 #ifdef ENABLE_OCR_API_DEFERRABLE
@@ -508,6 +518,10 @@ u8 ocrAddDependence(ocrGuid_t source, ocrGuid_t destination, u32 slot,
     OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_API_EVENT, OCR_ACTION_ADD_DEP, source, destination, slot, mode);
     if( ocrGuidIsNull(source) && ocrGuidIsNull(destination) )
         return 0;
+#ifdef ENABLE_AMT_RESILIENCE
+    if (salResilientAddDependence(source, destination, slot) == 0)
+        return 0;
+#endif
     START_PROFILE(api_ocrAddDependence);
     DPRINTF(DEBUG_LVL_INFO, "ENTER ocrAddDependence(src="GUIDF", dest="GUIDF", slot=%"PRIu32", mode=%"PRId32")\n",
             GUIDA(source), GUIDA(destination), slot, (s32)mode);

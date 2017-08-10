@@ -465,6 +465,9 @@ typedef struct _ocrPolicyMsg_t {
                     ocrDataBlockType_t dbType;    /**< In: Type of memory requested */
                     ocrInDbAllocator_t allocator; /**< In: In-DB allocator */
                     ocrHint_t * hint;             /**< In: Hints passed by the user at DB creation time */
+#ifdef ENABLE_AMT_RESILIENCE
+                    u64 key, ip, ac;              /**< In: Parameters to generate unique signature */
+#endif
                 } in;
                 struct {
                     void* ptr;                    /**< Out: Address of created DB */
@@ -603,7 +606,9 @@ typedef struct _ocrPolicyMsg_t {
                     ocrWorkType_t workType;    /**< In: Type of work to create */
                     u32 properties;            /**< In: properties for the creation */
 #ifdef ENABLE_AMT_RESILIENCE
-                    ocrGuid_t resilientLatch;       /**< Latch event of enclosing resilient finish latch scope */
+                    ocrGuid_t resilientLatch;  /**< Latch event of enclosing resilient finish latch scope */
+                    ocrGuid_t faultGuid;       /**< Original guid of EDT that suffered a fault and is now recovering */
+                    u64 key, ip, ac;           /**< In: Parameters to generate unique signature */
 #endif
                 } in;
                 struct {
@@ -680,6 +685,9 @@ typedef struct _ocrPolicyMsg_t {
 #endif
                     u32 properties;       /**< In: Properties for this creation */
                     ocrEventTypes_t type; /**< In: Type of the event created: Bit 0: 1 if event takes an argument */
+#ifdef ENABLE_AMT_RESILIENCE
+                    u64 key, ip, ac;      /**< In: Parameters to generate unique signature */
+#endif
                 } in;
                 struct {
                     u32 returnDetail;     /**< Out: Success or error code */

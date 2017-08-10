@@ -121,6 +121,12 @@ static void hcWorkShift(ocrWorker_t * worker) {
                 // Task sanity checks
                 ASSERT(taskGuid.metaDataPtr != NULL);
                 worker->curTask = curTask;
+#ifdef ENABLE_AMT_RESILIENCE
+                hal_fence();
+                if (salCheckEdtFault(curTask->resilientEdtParent)) {
+                    abortCurrentWork();
+                }
+#endif
                 DPRINTF(DEBUG_LVL_VERB, "Worker shifting to execute EDT GUID "GUIDF"\n", GUIDA(taskGuid.guid));
                 u32 factoryId = PD_MSG_FIELD_O(factoryId);
 #ifdef ENABLE_EXTENSION_PERF
@@ -131,12 +137,8 @@ static void hcWorkShift(ocrWorker_t * worker) {
 #endif
 #undef PD_MSG
 #undef PD_TYPE
-#ifdef ENABLE_AMT_RESILIENCE
-                if (salCheckEdtFault(curTask->resilientEdtParent)) {
-                    abortCurrentWork();
-                }
-#endif
                 RESULT_ASSERT(((ocrTaskFactory_t *)(pd->factories[factoryId]))->fcts.execute(curTask), ==, 0);
+                DPRINTF(DEBUG_LVL_VERB, "Worker done executing EDT GUID "GUIDF"\n", GUIDA(taskGuid.guid));
                 //TODO-DEFERRED: With MT, there can be multiple workers executing curTask.
                 // Not sure we thought about that and implications
 #ifdef ENABLE_EXTENSION_PERF
@@ -280,9 +282,9 @@ static void hcWorkShiftResilient(ocrWorker_t * worker) {
         worker->curTask = NULL;
     }
     ASSERT(worker->curTask == NULL);
-    worker->jmpbuf = oldbuf;
     hal_fence();
-    processFailure();
+    worker->jmpbuf = oldbuf;
+    //processFailure();
 }
 #endif
 

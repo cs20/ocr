@@ -530,12 +530,12 @@ u8 lockableDestruct(ocrDataBlock_t *self) {
 
 #ifdef ENABLE_AMT_RESILIENCE
     ocrDataBlockLockable_t *dself = (ocrDataBlockLockable_t*)self;
-    u8 dbIsPublished = salIsPublished(self->guid);
+    u8 dbIsPublished = salIsSatisfiedResilientGuid(self->guid);
     if (dbIsPublished || (dself->attributes.published == 1)) {
 #ifdef OCR_ASSERT
         ASSERT(dbIsPublished && (dself->attributes.published == 1));
 #endif
-        RESULT_ASSERT(salRemovePublished(self->guid), ==, 0);
+        RESULT_ASSERT(salResilientDataBlockRemove(self), ==, 0);
     }
 #endif
 
@@ -583,10 +583,10 @@ u8 lockableDestruct(ocrDataBlock_t *self) {
 
 #ifdef ENABLE_AMT_RESILIENCE
 static u8 lockablePublishInternal(ocrDataBlock_t *self, u32 properties) {
-    if (salIsPublished(self->guid)) {
-        RESULT_ASSERT(salRepublish(self->guid, self->ptr), ==, 0);
+    if (salIsSatisfiedResilientGuid(self->guid)) {
+        RESULT_ASSERT(salResilientDataBlockRepublish(self->guid, self->ptr), ==, 0);
     } else {
-        RESULT_ASSERT(salPublish(self->guid, self->ptr, self->size), ==, 0);
+        RESULT_ASSERT(salResilientDataBlockPublish(self), ==, 0);
     }
     ocrDataBlockLockable_t * rself = (ocrDataBlockLockable_t*) self;
     rself->attributes.published = 1;
@@ -745,7 +745,9 @@ u8 newDataBlockLockable(ocrDataBlockFactory_t *factory, ocrFatGuid_t *guid, ocrF
 
 #ifdef ENABLE_AMT_RESILIENCE
     if (flags & DB_PROP_RESILIENT) {
-        //salPublishDep(resultGuid);
+        ASSERT(perInstance != NULL);
+        paramListDataBlockInst_t *dbParams = (paramListDataBlockInst_t*)perInstance;
+        salResilientGuidCreate(resultGuid, dbParams->resilientEdtParent, dbParams->key, dbParams->ip, dbParams->ac);
     }
 #endif
 
