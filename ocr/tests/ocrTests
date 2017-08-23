@@ -126,8 +126,6 @@ export LD_LIBRARY_PATH=${LIB_DIR}:${LD_LIBRARY_PATH}
 # while running a particular testcase.
 TG_TIMEOUT=60
 
-export CFLAGS=
-
 if [ -n "${TEST_EXT_RTAPI}" ]; then
     CFLAGS="$CFLAGS -DENABLE_EXTENSION_RTITF"
 fi

@@ -16,7 +16,6 @@ long elapsed_usec(struct timeval * start, struct timeval * stop);
 
 double avg_usec(long * array, int length);
 
-
 /* Conversion functions */
 
 double usec_to_sec (long usec);
@@ -26,6 +25,8 @@ double usec_to_sec (long usec);
 void print_throughput(char * timer_name, unsigned long long nb_instances, double time_sec);
 
 void summary_throughput_timer(timestamp_t * start_t, timestamp_t * stop_t, unsigned long long instances);
+
+void summary_throughput_timer_custom(timestamp_t * start_t, timestamp_t * stop_t, unsigned long long instances, char * prefix);
 
 void summary_throughput_dbl(double secs, unsigned long long instances);
 

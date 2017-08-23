@@ -44,7 +44,7 @@ endif
 
 
 INCS=-I./inc
-CFLAGS=-O3 -g -Wp,-w $(INCS)
+CFLAGS+=-O3 -g -Wp,-w $(INCS)
 OCR_FLAGS=-L${OCR_INSTALL}/lib -I${OCR_INSTALL}/include -locr_${OCR_TYPE} -lpthread -lm ${OCR_LDFLAGS}
 OCR_RUN_FLAGS=-ocr:cfg ${OCR_CONFIG}
 

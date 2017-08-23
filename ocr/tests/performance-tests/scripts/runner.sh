@@ -447,7 +447,6 @@ function runTest() {
     env > ${LOGDIR}/info_env_all
     lscpu > ${LOGDIR}/info_lscpu
     w > ${LOGDIR}/info_machine_load
-
     # OCR specific information
     cat ${LOGDIR}/info_env_all | grep -e "OCR" -e "CFGARG_" -e "SCALING" > ${LOGDIR}/info_ocr_env
     FULLLOGDIR=$PWD/${LOGDIR}
