@@ -1776,6 +1776,23 @@ u8 taskExecute(ocrTask_t* base) {
     ocrPolicyDomain_t *pd = NULL;
     ocrWorker_t *curWorker = NULL;
     getCurrentEnv(&pd, &curWorker, NULL, NULL);
+
+#if 0 // Debug: Uncomment to enable dumping of DB sizes of all EDTs
+    u32 i;
+    PRINTF("Func %p:\t", base->funcPtr);
+    for (i = 0; i < base->depc; i++) {
+        if (derived->resolvedDeps[i].ptr != NULL) {
+            ocrGuid_t dbGuid = derived->resolvedDeps[i].guid;
+            ocrObject_t * ocrObj = NULL;
+            pd->guidProviders[0]->fcts.getVal(pd->guidProviders[0], dbGuid, (u64*)&ocrObj, NULL, MD_LOCAL, NULL);
+            ASSERT(ocrObj != NULL);
+            ocrDataBlock_t *db = (ocrDataBlock_t*)ocrObj;
+            PRINTF("%d:%ld\t", i, db->size);
+        }
+    }
+    PRINTF("\n");
+#endif
+
     ocrEdtDep_t * depv = derived->resolvedDeps;
     {
         START_PROFILE(ta_hc_executeSetup);

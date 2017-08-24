@@ -150,5 +150,12 @@
 // GUID labeling extension
 #define ENABLE_EXTENSION_LABELING
 
+// Performance monitoring
+//#define ENABLE_EXTENSION_PERF
+
+#ifdef ENABLE_EXTENSION_PERF
+#define ENABLE_EXTENSION_PERF_KNL
+#endif
+
 #endif /* __OCR_CONFIG_H__ */
 

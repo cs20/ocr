@@ -70,6 +70,9 @@ u8 numaAllocSwitchRunlevel(ocrMemPlatform_t *self, ocrPolicyDomain_t *PD, ocrRun
             ocrMemPlatformNumaAlloc_t *rself = (ocrMemPlatformNumaAlloc_t*)self;
             // 1. Check if NUMA is available
             ASSERT(numa_available() != -1);
+            // FIXME 1.5 Adjust the node number
+            // For now, it treats the config's node number as numa offset value
+            rself->numa_node += numa_node_of_cpu(sched_getcpu());
             // 2. Check if the node number is reasonable
             ASSERT(rself->numa_node <= numa_max_node());
             // 3. Use strict policy. Strict means the allocation will fail if the memory cannot be allocated on the target node.
