@@ -300,10 +300,6 @@ endif
 # CFLAGS += -DOCR_MONITOR_SCHEDULER -DOCR_TRACE_BINARY
 # CFLAGS += -DOCR_MONITOR_ALLOCATOR -DOCR_TRACE_BINARY
 
-# Enable custom tracing for collecting trace data for OCR simulator
-# Requires OCR_TRACE_BINARY
-# CFLAGS += -DOCR_ENABLE_SIMULATOR -DOCR_TRACE_BINARY
-
 ####################################################
 # Experimental flags
 ####################################################
