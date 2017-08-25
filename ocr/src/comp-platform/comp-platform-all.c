@@ -30,7 +30,7 @@ ocrCompPlatformFactory_t *newCompPlatformFactory(compPlatformType_t type, ocrPar
         return newCompPlatformFactoryFsim(typeArg);
 #endif
     default:
-        ASSERT(0);
+        ocrAssert(0);
         return NULL;
     };
 }

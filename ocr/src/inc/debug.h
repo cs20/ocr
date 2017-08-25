@@ -450,7 +450,7 @@ extern char * pd_msg_type_to_str(int type);
         struct _ocrPolicyDomain_t *__pd = NULL;                         \
         getCurrentEnv(&__pd, &__worker, &__task, NULL);                 \
         ocrGuid_t __taskGuid = __task ? __task->guid : NULL_GUID;       \
-        PRINTF(DPRINTF_STR(OCR_DEBUG_##type##_STR "(" OCR_DEBUG_##level##_STR \
+        ocrPrintf(DPRINTF_STR(OCR_DEBUG_##type##_STR "(" OCR_DEBUG_##level##_STR \
                            ") [PD:0x%"PRIx64" W:0x%"PRIx64" EDT:"GUIDF"] " format), \
                __pd?(u64)__pd->myLocation:0,                            \
                __worker?(u64)__worker->id:0,                            \
@@ -633,7 +633,7 @@ extern char * pd_msg_type_to_str(int type);
             struct _ocrPolicyDomain_t *__pd = NULL;                     \
             getCurrentEnv(&__pd, &__worker, &__task, NULL);             \
             ocrGuid_t __taskGuid = __task ? __task->guid : NULL_GUID;   \
-            PRINTF(OCR_DEBUG_##type##_STR "(TRACE) "                    \
+            ocrPrintf(OCR_DEBUG_##type##_STR "(TRACE) "                    \
                    "[PD:0x%"PRIx64" W:0x%"PRIx64" EDT:0x"GUIDF"] " format, \
                    __pd?(u64)__pd->myLocation:0,                        \
                    __worker?(u64)__worker->id:0,                        \
@@ -663,13 +663,25 @@ extern char * pd_msg_type_to_str(int type);
 #define TPRINTF(format, ...) TPRINTF_TYPE_INT(DEBUG_TYPE, format, ## __VA_ARGS__)
 
 #ifdef OCR_ASSERT
-#define ASSERT(a) do { sal_assert((bool)((a) != 0), __FILE__, __LINE__); } while(0);
+
+#define ASSERT(a) do {                                                              \
+    ocrPrintf("ASSERT is deprecated as of OCR v1.2.0... use ocrAssert\n");    \
+    sal_assert((bool)((a) != 0), __FILE__, __LINE__); } while(0);
+
+//FIXME should this be defined as a function that is wrapper for an internal ASSERT macro?
+#define ocrAssert(a) do { sal_assert((bool)((a) != 0), __FILE__, __LINE__); } while(0);
+
 #define RESULT_ASSERT(a, op, b) do { sal_assert((a) op (b), __FILE__, __LINE__); } while(0);
 #define RESULT_TRUE(a) do { sal_assert((a) != 0, __FILE__, __LINE__); } while(0);
 #define ASSERT_BLOCK_BEGIN(cond) if(!(cond)) {
-#define ASSERT_BLOCK_END ASSERT(false && "assert block failure"); }
+#define ASSERT_BLOCK_END ocrAssert(false && "assert block failure"); }
 #else
-#define ASSERT(a)
+
+#define ASSERT(a) do { ocrPrintf("ASSERT is deprecated as of OCR v1.2.0... use ocrAssert\n"); } while(0);
+
+//FIXME should this be defined as a function that is wrapper for an internal ASSERT macro?
+#define ocrAssert(a)
+
 #define RESULT_ASSERT(a, op, b) do { a; } while(0);
 #define RESULT_TRUE(a) do { a; } while(0);
 #define ASSERT_BLOCK_BEGIN(cond) if(0) {
@@ -680,7 +692,7 @@ extern char * pd_msg_type_to_str(int type);
 #ifdef OCR_ASSERT_CRITICAL
 #define ASSERT_CRITICAL(a) do { sal_assert((bool)((a) != 0), __FILE__, __LINE__); } while(0);
 #else
-#define ASSERT_CRITICAL(a) ASSERT(a)
+#define ASSERT_CRITICAL(a) ocrAssert(a)
 #endif
 
 
@@ -688,9 +700,9 @@ extern char * pd_msg_type_to_str(int type);
 #define VERIFY(cond, format, ...)                                       \
     do {                                                                \
         if(!(cond)) {                                                   \
-            PRINTF("FAILURE @ '%s:%"PRId32"' " format, __FILE__, __LINE__, ## __VA_ARGS__); \
+            ocrPrintf("FAILURE @ '%s:%"PRId32"' " format, __FILE__, __LINE__, ## __VA_ARGS__); \
         } else {                                                        \
-            PRINTF("PASSED @ '%s:%"PRId32"' " format, __FILE__, __LINE__, ## __VA_ARGS__); \
+            ocrPrintf("PASSED @ '%s:%"PRId32"' " format, __FILE__, __LINE__, ## __VA_ARGS__); \
         }                                                               \
     } while(0);
 #endif

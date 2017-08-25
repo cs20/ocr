@@ -29,7 +29,7 @@ ocrGuid_t pqrTaskA(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]){
     //Call pause with blocking flag.
     u32 ret = ocrPause(true);
     if(ret == 1){
-        PRINTF("Pausing in Dummy A.\n");
+        ocrPrintf("Pausing in Dummy A.\n");
     }
 
     //Call query
@@ -46,7 +46,7 @@ ocrGuid_t pqrTaskA(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]){
         ocrGuid_t curResult = resultEdts[i];
         //At this point it is up to the user to decide
         //what to do with each EDT guid... here we just print
-        PRINTF("Next workiple EDT on worker %"PRId32": "GUIDF"\n", i, GUIDA(curResult));
+        ocrPrintf("Next workiple EDT on worker %"PRId32": "GUIDF"\n", i, GUIDA(curResult));
     }
 
     //Destroy the datablock - Must be done by user
@@ -68,7 +68,7 @@ ocrGuid_t pqrTaskB(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]){
     //Call pause with blocking flag
     u32 ret = ocrPause(true);
     if(ret==1){
-        PRINTF("Pausing in Dummy B.\n");
+        ocrPrintf("Pausing in Dummy B.\n");
     }
 
     //Call query
@@ -81,7 +81,7 @@ ocrGuid_t pqrTaskB(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]){
 
     for(i = 0; i < numEdts; i++){
         ocrGuid_t curResult = resultEdts[i];
-        PRINTF("Next workiple EDT on worker %"PRId32": "GUIDF"\n", i, GUIDA(curResult));
+        ocrPrintf("Next workiple EDT on worker %"PRId32": "GUIDF"\n", i, GUIDA(curResult));
     }
 
     //Destroy the datablock
@@ -94,7 +94,7 @@ ocrGuid_t pqrTaskB(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]){
 }
 
 ocrGuid_t finishTask( u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]){
-    PRINTF("Shutting Down OCR\n");
+    ocrPrintf("Shutting Down OCR\n");
     ocrShutdown();
     return NULL_GUID;
 }

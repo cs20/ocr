@@ -21,7 +21,7 @@
 
 ocrGuid_t workEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     // Should never get executed
-    ASSERT(false);
+    ocrAssert(false);
     return NULL_GUID;
 }
 
@@ -52,7 +52,7 @@ void allEventDeps(ocrEventTypes_t eventType) {
 
 // Creates an event, and edt, add dependence, destroy, opt satisfy event
 void eventDeps(u32 slot, bool isPreSatisfied, bool isPostSatisfied, ocrEventTypes_t eventType) {
-    ASSERT(slot < MAX_SLOT);
+    ocrAssert(slot < MAX_SLOT);
     ocrGuid_t e0;
     ocrEventCreate(&e0, eventType, false);
     if (isPreSatisfied) {

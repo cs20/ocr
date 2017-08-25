@@ -31,7 +31,7 @@ static void ocrShutdownInternal(u8 errorCode) {
     PD_MSG_FIELD_I(properties) = RL_REQUEST | RL_BARRIER | RL_TEAR_DOWN;
     PD_MSG_FIELD_I(errorCode) = errorCode;
     u8 returnCode __attribute__((unused)) = pd->fcts.processMessage(pd, msgPtr, true);
-    ASSERT((returnCode == 0));
+    ocrAssert((returnCode == 0));
 #undef PD_MSG
 #undef PD_TYPE
 }
@@ -48,21 +48,32 @@ void ocrAbort(u8 errorCode) {
     RETURN_PROFILE();
 }
 
-u64 getArgc(void* dbPtr) {
-    START_PROFILE(api_getArgc);
-    DPRINTF(DEBUG_LVL_INFO, "ENTER getArgc(dbPtr=%p)\n", dbPtr);
-    DPRINTF(DEBUG_LVL_INFO, "EXIT getArgc -> %"PRIu64"\n", ((u64*)dbPtr)[0]);
+u64 ocrGetArgc(void* dbPtr) {
+    START_PROFILE(api_ocrGetArgc);
+    DPRINTF(DEBUG_LVL_INFO, "ENTER ocrGetArgc(dbPtr=%p)\n", dbPtr);
+    DPRINTF(DEBUG_LVL_INFO, "EXIT ocrGetArgc -> %"PRIu64"\n", ((u64*)dbPtr)[0]);
     RETURN_PROFILE(((u64*)dbPtr)[0]);
 
 }
 
-char* getArgv(void* dbPtr, u64 count) {
-    START_PROFILE(api_getArgv);
-    DPRINTF(DEBUG_LVL_INFO, "ENTER getArgv(dbPtr=%p, count=%"PRIu64")\n", dbPtr, count);
+u64 getArgc(void* dbPtr) {
+    ocrPrintf("getArgc is deprecated as of OCR v1.2.0... use ocrGetArgc\n");
+    return ocrGetArgc(dbPtr);
+}
+
+char* ocrGetArgv(void* dbPtr, u64 count) {
+    START_PROFILE(api_ocrGetArgv);
+    DPRINTF(DEBUG_LVL_INFO, "ENTER ocrGetArgv(dbPtr=%p, count=%"PRIu64")\n", dbPtr, count);
     u64* dbPtrAsU64 = (u64*)dbPtr;
-    ASSERT(count < dbPtrAsU64[0]); // We can't ask for more args than total
+    ocrAssert(count < dbPtrAsU64[0]); // We can't ask for more args than total
     u64 offset = dbPtrAsU64[1 + count];
-    DPRINTF(DEBUG_LVL_INFO, "EXIT getArgv -> %s\n", ((char*)dbPtr) + offset);
+    DPRINTF(DEBUG_LVL_INFO, "EXIT ocrGetArgv -> %s\n", ((char*)dbPtr) + offset);
     RETURN_PROFILE(((char*)dbPtr) + offset);
 }
+
+char* getArgv(void* dbPtr, u64 count) {
+    ocrPrintf("getArgv is deprecated as of OCR v1.2.0... use ocrGetArgv\n");
+    return ocrGetArgv(dbPtr, count);
+}
+
 

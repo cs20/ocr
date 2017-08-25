@@ -33,13 +33,13 @@ extern void salResume(u32 flag);
 extern void __ceDoAssert();
 
 #define sal_assert(x, fn, ln)   do { if(!(x)) {                         \
-            PRINTF("ASSERT FAILURE: CE at line %"PRId32" in '%s'\n", (int)(ln), fn); \
+            ocrPrintf("ASSERT FAILURE: CE at line %"PRId32" in '%s'\n", (int)(ln), fn); \
             __ceDoAssert();                                             \
             hal_abort();                                                \
         } } while(0)
 #else
 #define sal_assert(x, fn, ln)   do { if(!(x)) {                         \
-            PRINTF("ASSERT FAILURE: CE at line %"PRId32" in '%s'\n", (int)(ln), fn); \
+            ocrPrintf("ASSERT FAILURE: CE at line %"PRId32" in '%s'\n", (int)(ln), fn); \
             hal_abort();                                                \
         } } while(0)
 #endif

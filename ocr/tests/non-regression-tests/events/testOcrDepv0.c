@@ -10,7 +10,7 @@
  */
 
 ocrGuid_t taskForEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
-    PRINTF("In taskForEdt\n");
+    ocrPrintf("In taskForEdt\n");
     // This is the last EDT to execute, terminate
     ocrShutdown();
     return NULL_GUID;

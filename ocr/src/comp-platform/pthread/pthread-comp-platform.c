@@ -79,7 +79,7 @@ static void pthreadRoutineInitializer(ocrCompPlatformPthread_t * pthreadCompPlat
             snprintf(buffer, 50, "profiler_%"PRIx64"-%"PRIx64"",
                      ((ocrPolicyDomain_t *)(pthreadCompPlatform->base.pd))->myLocation, (u64)pthreadCompPlatform);
             d->output = fopen(buffer, "w");
-            ASSERT(d->output);
+            ocrAssert(d->output);
         }
         RESULT_ASSERT(pthread_setspecific(_profilerThreadData, d), ==, 0);
     }
@@ -141,7 +141,7 @@ static void * pthreadRoutineWrapper(void * arg) {
     {
         // This should never happen. The NODE master thread should always
         // exist and never enter pthreadRoutineWrapper
-        ASSERT(0);
+        ocrAssert(0);
         break;
     }
     default:
@@ -171,12 +171,12 @@ u8 pthreadSwitchRunlevel(ocrCompPlatform_t *self, ocrPolicyDomain_t *PD, ocrRunl
 
     // The worker is the capable module and we operate as
     // inert wrt it
-    ASSERT(callback == NULL);
+    ocrAssert(callback == NULL);
 
     // Verify properties for this call
-    ASSERT((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
+    ocrAssert((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
            && !(properties & RL_RELEASE));
-    ASSERT(!(properties & RL_FROM_MSG));
+    ocrAssert(!(properties & RL_FROM_MSG));
 
     ocrCompPlatformPthread_t *pthreadCompPlatform = (ocrCompPlatformPthread_t*)self;
     switch(runlevel) {
@@ -222,7 +222,7 @@ u8 pthreadSwitchRunlevel(ocrCompPlatform_t *self, ocrPolicyDomain_t *PD, ocrRunl
                 // This means that we are the node master and therefore do not
                 // need to start another thread. Instead, we set the current environment
                 // for ourself
-                ASSERT(pthread_getspecific(selfKey) == NULL); // The key has not been setup yet
+                ocrAssert(pthread_getspecific(selfKey) == NULL); // The key has not been setup yet
                 RESULT_ASSERT(pthread_setspecific(selfKey, &pthreadCompPlatform->tls), ==, 0);
                 self->fcts.setCurrentEnv(self, self->pd, NULL);
             } else if(properties & RL_PD_MASTER) {
@@ -294,7 +294,7 @@ u8 pthreadSwitchRunlevel(ocrCompPlatform_t *self, ocrPolicyDomain_t *PD, ocrRunl
     case RL_USER_OK:
         break;
     default:
-        ASSERT(0);
+        ocrAssert(0);
     }
     return toReturn;
 }
@@ -310,7 +310,7 @@ u8 pthreadSetThrottle(ocrCompPlatform_t *self, u64 value) {
 u8 pthreadSetCurrentEnv(ocrCompPlatform_t *self, ocrPolicyDomain_t *pd,
                         ocrWorker_t *worker) {
 
-    ASSERT(ocrGuidIsEq(pd->fguid.guid, self->pd->fguid.guid));
+    ocrAssert(ocrGuidIsEq(pd->fguid.guid, self->pd->fguid.guid));
     perThreadStorage_t *tls = pthread_getspecific(selfKey);
     tls->pd = pd;
     tls->worker = worker;
@@ -383,7 +383,7 @@ void getCurrentEnv(ocrPolicyDomain_t** pd, ocrWorker_t** worker,
     if(task && tls->worker)
         *task = tls->worker->curTask;
     if(msg) {
-        ASSERT(tls->pd != NULL);
+        ocrAssert(tls->pd != NULL);
         //By default set src and dest location to current location.
         msg->srcLocation = tls->pd->myLocation;
         msg->destLocation = msg->srcLocation;

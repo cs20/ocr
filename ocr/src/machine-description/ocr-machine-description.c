@@ -604,7 +604,7 @@ s32 populate_inst(ocrParamList_t **inst_param, int inst_param_size, void **insta
     // access to inst_param[high] is out-of-array, i.e. bug
     // Make sure your config file has no holes in ID space.
     // a hole in ID space makes this assertion fail
-    ASSERT(high < inst_param_size);
+    ocrAssert(high < inst_param_size);
 
     snprintf(key, MAX_KEY_SZ, "%s:%s", secname, "type");
     INI_GET_STR (key, inststr, "");
@@ -895,7 +895,7 @@ s32 populate_inst(ocrParamList_t **inst_param, int inst_param_size, void **insta
                 break;
 #endif
             case schedulerObjectMax_id:
-                ASSERT (0); // Unimplemented scheduler object type
+                ocrAssert(0); // Unimplemented scheduler object type
                 break;
             default:
                 ALLOC_PARAM_LIST(inst_param[j], paramListSchedulerObject_t);
@@ -925,7 +925,7 @@ s32 populate_inst(ocrParamList_t **inst_param, int inst_param_size, void **insta
                             ((paramListSchedulerHeuristicCeAff_t*)inst_param[j])->enforceAffinity = true;
                         } else {
                             u32 t = strcmp(valuestr, "no");
-                            ASSERT(t == 0 && "enforceaffinity should be 'yes' or 'no'");
+                            ocrAssert(t == 0 && "enforceaffinity should be 'yes' or 'no'");
                             ((paramListSchedulerHeuristicCeAff_t*)inst_param[j])->enforceAffinity = false;
                         }
                     } else {
@@ -943,7 +943,7 @@ s32 populate_inst(ocrParamList_t **inst_param, int inst_param_size, void **insta
                 char *valuestr = NULL;
                 snprintf(key, MAX_KEY_SZ, "%s:%s", secname, "kind");
                 INI_GET_STR (key, valuestr, "");
-                ASSERT(strcmp(valuestr, "master") == 0);
+                ocrAssert(strcmp(valuestr, "master") == 0);
                 ((paramListSchedulerHeuristic_t*)inst_param[j])->isMaster = true;
             }
             instance[j] = (void *)((ocrSchedulerHeuristicFactory_t *)factory)->instantiate(factory, inst_param[j]);
@@ -1035,7 +1035,7 @@ s32 populate_inst(ocrParamList_t **inst_param, int inst_param_size, void **insta
 #endif
 
                 default:
-                    ASSERT (0); // Unimplemented worker type.
+                    ocrAssert(0); // Unimplemented worker type.
                     break;
             }
 
@@ -1094,7 +1094,7 @@ s32 populate_inst(ocrParamList_t **inst_param, int inst_param_size, void **insta
                 ALLOC_PARAM_LIST(inst_param[j], paramListSchedulerInst_t);
                 break;
             }
-            ASSERT(inst_param[j]);
+            ocrAssert(inst_param[j]);
             instance[j] = (void *)((ocrSchedulerFactory_t *)factory)->instantiate(factory, inst_param[j]);
             if (instance[j])
                 DPRINTF(DEBUG_LVL_INFO, "Created scheduler of type %s, index %"PRId32"\n", inststr, j);
@@ -1163,7 +1163,7 @@ s32 populate_inst(ocrParamList_t **inst_param, int inst_param_size, void **insta
                 read_range(dict, secname, "location", &sublo, &subhi);
                 // Make sure there is the same number of instances so we can
                 // match them 1 to 1
-                ASSERT(subhi - sublo == high - low);
+                ocrAssert(subhi - sublo == high - low);
                 ((paramListPolicyDomainInst_t*)inst_param[j])->location = sublo + j - low;
             } else {
                 INI_GET_INT (key, value, -1);
@@ -1263,7 +1263,7 @@ void add_dependence (type_enum fromtype, type_enum totype, char *refstr,
         }
         case schedulerObject_type: {
             if (toinstance != NULL) {
-                ASSERT(f->rootObj == NULL); //scheduler can have only one schedulerObject root
+                ocrAssert(f->rootObj == NULL); //scheduler can have only one schedulerObject root
                 f->rootObj = (ocrSchedulerObject_t *)toinstance;
             }
             break;
@@ -1287,7 +1287,7 @@ void add_dependence (type_enum fromtype, type_enum totype, char *refstr,
         DPRINTF(DEBUG_LVL_INFO, "PD %"PRId32" to %"PRId32"\n", fromtype, totype);
         switch (totype) {
         case guid_type: {
-            ASSERT(dependence_count==1);
+            ocrAssert(dependence_count==1);
             if (f->guidProviders == NULL) {
                 f->guidProviderCount = dependence_count;
                 f->guidProviders = (ocrGuidProvider_t **)runtimeChunkAlloc(dependence_count * sizeof(ocrGuidProvider_t *), PERSISTENT_CHUNK);
@@ -1356,13 +1356,13 @@ void add_dependence (type_enum fromtype, type_enum totype, char *refstr,
                 break;
             }
             default:
-                ASSERT(0);
+                ocrAssert(0);
                 break;
             }
             break;
         }
         case schedulerObject_type: {
-            ASSERT(strcasecmp(refstr, "schedulerObjectfactory") == 0);
+            ocrAssert(strcasecmp(refstr, "schedulerObjectfactory") == 0);
             if (f->schedulerObjectFactories == NULL) {
                 f->schedulerObjectFactoryCount = dependence_count;
                 f->schedulerObjectFactories = (ocrSchedulerObjectFactory_t **)runtimeChunkAlloc(dependence_count * sizeof(ocrSchedulerObjectFactory_t *), PERSISTENT_CHUNK);

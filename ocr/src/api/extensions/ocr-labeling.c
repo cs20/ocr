@@ -48,7 +48,7 @@ u8 ocrGuidMapCreate(ocrGuid_t *mapGuid, u32 numParams,
     myMap = PD_MSG_FIELD_IO(guid.metaDataPtr);
     *mapGuid = PD_MSG_FIELD_IO(guid.guid);
 #undef PD_TYPE
-    ASSERT(myMap != NULL);
+    ocrAssert(myMap != NULL);
     myMap->mapFunc = mapFunc;
     myMap->params = (s64*)((char*)myMap + ((sizeof(ocrGuidMap_t) + sizeof(s64) - 1) & ~(sizeof(s64)-1)));
     myMap->numGuids = numberGuid;
@@ -101,7 +101,7 @@ u8 ocrGuidRangeCreate(ocrGuid_t *mapGuid,
     myMap = PD_MSG_FIELD_IO(guid.metaDataPtr);
     *mapGuid = PD_MSG_FIELD_IO(guid.guid);
 #undef PD_TYPE
-    ASSERT(myMap != NULL);
+    ocrAssert(myMap != NULL);
     myMap->mapFunc = NULL;
     myMap->params = NULL;
     myMap->numGuids = numberGuid;
@@ -145,7 +145,7 @@ u8 ocrGuidMapDestroy(ocrGuid_t mapGuid) {
 #undef PD_TYPE
     getCurrentEnv(NULL, NULL, NULL, &msg);
 #define PD_TYPE PD_MSG_GUID_UNRESERVE
-    ASSERT(myMap); // This means that the map was not found. Runtime error
+    ocrAssert(myMap); // This means that the map was not found. Runtime error
     msg.type = PD_MSG_GUID_UNRESERVE | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
     PD_MSG_FIELD_I(startGuid) = myMap->startGuid;
     PD_MSG_FIELD_I(skipGuid) = myMap->skipGuid;
@@ -174,13 +174,13 @@ u8 ocrGuidMapSetDefaultMap(u32 numParams, ocrGuid_t (*mapFunc)(
                            s64* params, u64 numberGuid, ocrGuidUserKind kind) {
 
     // Default map unsupported for now
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 u8 ocrGuidFromLabel(ocrGuid_t *outGuid, ocrGuid_t mapGuid, s64* tuple) {
     START_PROFILE(api_ocrGuidFromLabel);
-    ASSERT(!(ocrGuidIsNull(mapGuid)));  // Default map unsupported for now
+    ocrAssert(!(ocrGuidIsNull(mapGuid)));  // Default map unsupported for now
     ocrPolicyDomain_t *pd = NULL;
     ocrGuidMap_t *myMap = NULL;
     PD_MSG_STACK(msg);
@@ -199,7 +199,7 @@ u8 ocrGuidFromLabel(ocrGuid_t *outGuid, ocrGuid_t mapGuid, s64* tuple) {
     myMap = (ocrGuidMap_t*)PD_MSG_FIELD_IO(guid.metaDataPtr);
 #undef PD_TYPE
 #undef PD_MSG
-    ASSERT(myMap != NULL);
+    ocrAssert(myMap != NULL);
     DPRINTF(DEBUG_LVL_VVERB, "For map "GUIDF", calling map with start: "GUIDF", stride: 0x%"PRIx64"\n",
             GUIDA(mapGuid), GUIDA(myMap->startGuid), myMap->skipGuid);
     if(myMap->mapFunc == NULL) {
@@ -234,7 +234,7 @@ u8 ocrGuidFromIndex(ocrGuid_t *outGuid, ocrGuid_t rangeGuid, u64 idx) {
     myMap = (ocrGuidMap_t*)PD_MSG_FIELD_IO(guid.metaDataPtr);
 #undef PD_TYPE
 #undef PD_MSG
-    ASSERT(myMap != NULL);
+    ocrAssert(myMap != NULL);
     DPRINTF(DEBUG_LVL_VVERB, "For range "GUIDF", calling map with start: "GUIDF", stride: 0x%"PRIx64"\n",
             GUIDA(rangeGuid), GUIDA(myMap->startGuid), myMap->skipGuid);
     if(myMap->mapFunc != NULL) {
@@ -259,7 +259,7 @@ u8 ocrGuidFromIndex(ocrGuid_t *outGuid, ocrGuid_t rangeGuid, u64 idx) {
 }
 
 u8 ocrGetGuidKind(ocrGuidUserKind *outKind, ocrGuid_t guid) {
-    ASSERT(0); // Not supported just now
+    ocrAssert(0); // Not supported just now
     return 0;
 }
 #endif /* ENABLE_EXTENSION_LABELING */

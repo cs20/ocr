@@ -128,7 +128,7 @@ SPLAY_GENERATE(SegmentBlockHead_s, SegmentBlock_s, link, block_compare);
  */
 void gasnetSegmentBlockPush(ocrPolicyDomain_t * pd, u32 node, gasnetCommBlock_t *block) {
     SegmentBlock_t *item = (SegmentBlock_t *) pd->fcts.pdMalloc(pd, sizeof(SegmentBlock_t));
-    ASSERT(item != NULL);
+    ocrAssert(item != NULL);
     item->provider = node;
     item->block = block;
     SPLAY_INSERT(SegmentBlockHead_s, &rootBlock, item);

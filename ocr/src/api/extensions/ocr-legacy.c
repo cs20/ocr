@@ -27,10 +27,10 @@ extern void bringUpRuntime(ocrConfig_t *ocrConfig);
 void ocrLegacyInit(ocrGuid_t *legacyContext, ocrConfig_t * ocrConfig) {
     START_PROFILE(api_ocrLegacyInit);
     // Bug #492: legacyContext is ignored
-    ASSERT(ocrConfig);
+    ocrAssert(ocrConfig);
     if(ocrConfig->iniFile == NULL)
-        PRINTF("ERROR: Set OCR_CONFIG to point to OCR configuration file\n");
-    ASSERT(ocrConfig->iniFile);
+        ocrPrintf("ERROR: Set OCR_CONFIG to point to OCR configuration file\n");
+    ocrAssert(ocrConfig->iniFile);
 
     bringUpRuntime(ocrConfig);
 
@@ -93,11 +93,11 @@ u8 ocrLegacySpawnOCR(ocrGuid_t* handle, ocrGuid_t finishEdtTemplate, u64 paramc,
     // OCR codes do not have access to any data from heap/stack so things need to
     // be marshalled in. We also rely on depc >= 1 to "hold-off" the start of the EDT
     // and properly setup the dependence chain
-    ASSERT(depc >= 1);
+    ocrAssert(depc >= 1);
 
     for(i=0; i < depc; ++i) {
         // Verify that all dependences are known
-        ASSERT(!(ocrGuidIsUninitialized(depv[i])));
+        ocrAssert(!(ocrGuidIsUninitialized(depv[i])));
     }
 
     // Hold off the start by saying that one dependence is not satisfied
@@ -217,7 +217,7 @@ u8 ocrLegacyBlockProgress(ocrGuid_t evtHandle, ocrGuid_t* guid, void** result, u
 #ifdef OCR_ASSERT
 
                 ocrEvent_t* eventToYieldFor = (ocrEvent_t *)PD_MSG_FIELD_IO(guid.metaDataPtr);
-                ASSERT(eventToYieldFor->kind == OCR_EVENT_STICKY_T ||
+                ocrAssert(eventToYieldFor->kind == OCR_EVENT_STICKY_T ||
                        eventToYieldFor->kind == OCR_EVENT_IDEM_T);
 #endif
                 break;
@@ -310,7 +310,7 @@ u8 ocrLegacyBlockProgress(ocrGuid_t evtHandle, ocrGuid_t* guid, void** result, u
                 *size = ((ocrDataBlock_t*)(dbResult.metaDataPtr))->size;
             }
         }
-        ASSERT(dbResult.metaDataPtr != NULL);
+        ocrAssert(dbResult.metaDataPtr != NULL);
     } else {
         if(size != NULL) {
             *size = 0;

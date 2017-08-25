@@ -50,6 +50,7 @@ u32 SNPRINTF(char * buf, u32 size, const char * fmt, ...) /*__attribute__((__for
 
 #ifdef NOPRINTS
 u32 PRINTF(const char *fmt, ...) {}
+u32 ocrPrintf(const char * fmt, ...) {} /* __attribute__((__format__ (__printf__, 1, 2))) */;
 #else
 
 /**
@@ -65,6 +66,7 @@ u32 PRINTF(const char *fmt, ...) {}
  * @return number of characters printed, as per printf().
  *
  **/
+extern u32 ocrPrintf(const char * fmt, ...) /* __attribute__((__format__ (__printf__, 1, 2))) */;
 extern u32 PRINTF(const char * fmt, ...) /* __attribute__((__format__ (__printf__, 1, 2))) */;
 #endif
 
@@ -73,7 +75,7 @@ extern u32 PRINTF(const char * fmt, ...) /* __attribute__((__format__ (__printf_
  *
  * This will cause the program to abort and return an
  * assertion failure.
- * This function should be called using the #ASSERT macro
+ * This function should be called using the #ocrAssert macro
  *
  * @param[in] val       If non-zero, will cause the assertion failure
  * @param[in] str       Stringified condition so we can output it again
@@ -88,14 +90,22 @@ extern void _ocrAssert(bool val, const char* str, const char* file, u32 line);
  *
  * @param[in] a  Condition for the assert
  */
-#define ASSERT(a) do { _ocrAssert((bool)((a) != 0), #a, __FILE__, __LINE__); } while(0);
+#define ASSERT(a) do {                                                              \
+    ocrPrintf("ASSERT is deprecated as of OCR v1.2.0... use ocrAssert\n");    \
+    _ocrAssert((bool)((a) != 0), #a, __FILE__, __LINE__); } while(0);
+
+#define ocrAssert(a) do { _ocrAssert((bool)((a) != 0), #a, __FILE__, __LINE__); } while(0);
+
 #else
 /**
  * @brief ASSERT macro to replace the assert functionality
  *
  * @param[in] a  Condition for the assert
  */
-#define ASSERT(a)
+#define ASSERT(a) do { ocrPrintf("ASSERT is deprecated as of OCR v1.2.0... use ocrAssert\n"); } while(0);
+
+#define ocrAssert(a)
+
 #endif
 
 /**
@@ -114,9 +124,9 @@ extern void _ocrAssert(bool val, const char* str, const char* file, u32 line);
 #define VERIFY(cond, format, ...)                                       \
     do {                                                                \
         if(!(cond)) {                                                   \
-            PRINTF("FAILURE @ '%s:%" PRId32 "' " format, __FILE__, __LINE__, ## __VA_ARGS__); \
+            ocrPrintf("FAILURE @ '%s:%" PRId32 "' " format, __FILE__, __LINE__, ## __VA_ARGS__); \
         } else {                                                        \
-            PRINTF("PASSED @ '%s:%" PRId32 "' " format, __FILE__, __LINE__, ## __VA_ARGS__); \
+            ocrPrintf("PASSED @ '%s:%" PRId32 "' " format, __FILE__, __LINE__, ## __VA_ARGS__); \
         }                                                               \
     } while(0);
 

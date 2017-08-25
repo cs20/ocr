@@ -43,24 +43,24 @@ bool queueIsFull(Queue_t * queue) {
 }
 
 void * queueGet(Queue_t * queue, u32 idx) {
-    ASSERT(idx < queue->tail);
+    ocrAssert(idx < queue->tail);
     return queue->head[idx];
 }
 
 void queueAddLast(Queue_t * queue, void * elt) {
-    ASSERT(!queueIsFull(queue));
+    ocrAssert(!queueIsFull(queue));
     queue->head[queue->tail++] = elt;
 }
 
 void * queueRemoveLast(Queue_t * queue) {
-    ASSERT(!queueIsEmpty(queue));
+    ocrAssert(!queueIsEmpty(queue));
     queue->tail--;
     return queue->head[queue->tail];
 }
 
 void * queueRemove(Queue_t * queue, u32 idx) {
     // BUG #592 shrink queue
-    ASSERT(idx < queue->tail);
+    ocrAssert(idx < queue->tail);
     // Exchange last element and current
     void * elt = queue->head[idx];
     queue->tail--;

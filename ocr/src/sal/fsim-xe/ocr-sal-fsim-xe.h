@@ -35,7 +35,7 @@ extern void salResume(u32 flag);
 extern void __xeDoAssert(const char* fn, u32 ln);
 
 #define sal_assert(x, fn, ln) do { if(!(x)) {                   \
-            PRINTF("ASSERT FAILUTRE XE at line %"PRId32" in '%s'\n", (int)(ln), fn); \
+            ocrPrintf("ASSERT FAILUTRE XE at line %"PRId32" in '%s'\n", (int)(ln), fn); \
             __xeDoAssert(fn, ln);                                       \
             __asm__ __volatile__ __attribute__((noreturn)) (    \
                 "lea %0, %0\n\t"                                \

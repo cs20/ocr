@@ -93,12 +93,12 @@ u8 ceSchedulerSwitchRunlevel(ocrScheduler_t *self, ocrPolicyDomain_t *PD, ocrRun
     u8 toReturn = 0;
 
     // This is an inert module, we do not handle callbacks (caller needs to wait on us)
-    ASSERT(callback == NULL);
+    ocrAssert(callback == NULL);
 
     // Verify properties for this call
-    ASSERT((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
+    ocrAssert((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
            && !(properties & RL_RELEASE));
-    ASSERT(!(properties & RL_FROM_MSG));
+    ocrAssert(!(properties & RL_FROM_MSG));
 
     u64 i;
     if(runlevel == RL_PD_OK && (properties & RL_BRING_UP) && phase == 0) {
@@ -190,7 +190,7 @@ u8 ceSchedulerSwitchRunlevel(ocrScheduler_t *self, ocrPolicyDomain_t *PD, ocrRun
         break;
     default:
         // Unknown runlevel
-        ASSERT(0);
+        ocrAssert(0);
     }
     return toReturn;
 }
@@ -206,7 +206,7 @@ u8 ceSchedulerTake (ocrScheduler_t *self, u32 *count, ocrFatGuid_t *edts) {
 
     if(*count == 0) return 1; // No room to put anything
 
-    ASSERT(edts != NULL); // Array should be allocated at least
+    ocrAssert(edts != NULL); // Array should be allocated at least
 
     u64 workerId = ceWorker->id;
     // First try to pop
@@ -275,7 +275,7 @@ u8 ceSchedulerGetWorkInvoke(ocrScheduler_t *self, ocrSchedulerOpArgs_t *opArgs, 
         }
         break;
     default:
-        ASSERT(0);
+        ocrAssert(0);
         break;
     }
     return OCR_ENOTSUP;
@@ -291,7 +291,7 @@ u8 ceSchedulerNotifyInvoke(ocrScheduler_t *self, ocrSchedulerOpArgs_t *opArgs, o
             return schedulerHeuristic->fcts.op[OCR_SCHEDULER_HEURISTIC_OP_NOTIFY].invoke(schedulerHeuristic, opArgs, hints);
 #else
             u32 count = 1;
-            ASSERT(notifyArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_EDT_READY).metaDataPtr != NULL);
+            ocrAssert(notifyArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_EDT_READY).metaDataPtr != NULL);
             return self->fcts.giveEdt(self, &count, &notifyArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_EDT_READY).guid);
 #endif
         }
@@ -321,7 +321,7 @@ u8 ceSchedulerNotifyInvoke(ocrScheduler_t *self, ocrSchedulerOpArgs_t *opArgs, o
     case OCR_SCHED_NOTIFY_EDT_SATISFIED:
         return OCR_ENOP;
     default:
-        ASSERT(0);
+        ocrAssert(0);
         return OCR_ENOTSUP;
     }
     return 0;
@@ -354,7 +354,7 @@ u8 ceSchedulerUpdate(ocrScheduler_t *self, u32 properties) {
         }
         break;
     default:
-        ASSERT(0);
+        ocrAssert(0);
         return OCR_ENOTSUP;
     }
 #endif

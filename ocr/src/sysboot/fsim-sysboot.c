@@ -16,12 +16,12 @@
 #include "ocr-sysboot.h"
 
 u64 FsimRuntimeChunkAlloc(u64 size, u64 *extra) {
-    ASSERT(0);
+    ocrAssert(0);
     return (u64)0;
 }
 
 void FsimRuntimeChunkFree(u64 addr, u64* extra) {
-    ASSERT(addr);
+    ocrAssert(addr);
     // Nothing to do
 }
 
@@ -32,11 +32,11 @@ void FsimRuntimeUpdateMemTarget(ocrMemTarget_t *me, u64 extra) {
 }
 
 void FsimBootUpAbort() {
-    ASSERT(0);
+    ocrAssert(0);
 }
 
 void FsimBootUpPrint(const char* str, u64 length) {
-    PRINTF("%s", str);
+    ocrPrintf("%s", str);
 }
 
 void *myGetFuncAddr (const char * fname) {

@@ -27,12 +27,12 @@ u8 nullSwitchRunlevel(ocrCommPlatform_t *self, ocrPolicyDomain_t *PD, ocrRunleve
     u8 toReturn = 0;
 
     // This is an inert module, we do not handle callbacks (caller needs to wait on us)
-    ASSERT(callback == NULL);
+    ocrAssert(callback == NULL);
 
     // Verify properties for this call
-    ASSERT((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
+    ocrAssert((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
            && !(properties & RL_RELEASE));
-    ASSERT(!(properties & RL_FROM_MSG));
+    ocrAssert(!(properties & RL_FROM_MSG));
 
     switch(runlevel) {
     case RL_CONFIG_PARSE:
@@ -53,37 +53,37 @@ u8 nullSwitchRunlevel(ocrCommPlatform_t *self, ocrPolicyDomain_t *PD, ocrRunleve
         break;
     default:
         // Unknown runlevel
-        ASSERT(0);
+        ocrAssert(0);
     }
     return toReturn;
 }
 
 u8 nullCommSetMaxExpectedMessageSize(ocrCommPlatform_t *self, u64 size, u32 mask) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 u8 nullCommSendMessage(ocrCommPlatform_t *self, ocrLocation_t target,
                        ocrPolicyMsg_t *message, u64 *id,
                        u32 properties, u32 mask) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 u8 nullCommPollMessage(ocrCommPlatform_t *self, ocrPolicyMsg_t **msg,
                        u32 properties, u32 *mask) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 u8 nullCommWaitMessage(ocrCommPlatform_t *self,  ocrPolicyMsg_t **msg,
                        u32 properties, u32 *mask) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 u8 nullCommDestructMessage(ocrCommPlatform_t *self, ocrPolicyMsg_t *msg) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 

@@ -59,7 +59,7 @@ ocrAllocatorFactory_t *newAllocatorFactory(allocatorType_t type, ocrParamList_t 
 #endif
     case allocatorMax_id:
     default:
-        ASSERT(0); // Invalid allocator factory in configuration file
+        ocrAssert(0); // Invalid allocator factory in configuration file
         return NULL;
     };
 }
@@ -110,7 +110,7 @@ void allocatorFreeFunction(void* blockPayloadAddr) {
 #endif
     case allocatorMax_id:
     default:
-        ASSERT(0); // Invalid allocator in configuration file
+        ocrAssert(0); // Invalid allocator in configuration file
         return;
     };
 }
@@ -136,10 +136,10 @@ void slabInit(u64 type, s32 size)
 {
     s64 type_id = (s64)type;
     type_id = -type_id;
-    ASSERT(type_id > 0 && type_id < MAX_SLABS_NAMED );
-    ASSERT(size > 0);
+    ocrAssert(type_id > 0 && type_id < MAX_SLABS_NAMED );
+    ocrAssert(size > 0);
     hal_lock(&slabSizeTable.lock);
-    ASSERT(slabSizeTable.size[type_id] == 0);  // is empty?
+    ocrAssert(slabSizeTable.size[type_id] == 0);  // is empty?
     slabSizeTable.size[type_id] = size;      // fill the slot
     // set initial objcount value depending on the objsize
     if (size > 8*1024) {

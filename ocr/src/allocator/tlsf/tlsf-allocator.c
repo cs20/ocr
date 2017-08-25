@@ -406,7 +406,7 @@ static inline void checkChecksum (void * addr, u32 len, u32 linenum, char * stru
         for (i = 0; i < len; i += sizeof(u64)) {
             DPRINTF(DEBUG_LVL_WARN, "    0x%"PRIx64" = 0x%"PRIx64"\n", (((u64) addr) + i), *((u64 *) (((u64) addr) + i)));
         }
-        ASSERT(0);
+        ocrAssert(0);
     }
 }
 #else
@@ -514,7 +514,7 @@ static inline void SET_nullBlock_pFreeBlkFrwdLink (poolHdr_t * pPool, blkHdr_t *
 }
 
 static inline void SET_slAvailOrNot (poolHdr_t * pPool, u32 firstLvlIdx, u64 value) {
-    ASSERT (value <= 0xFFFFFFFFLL);
+    ocrAssert(value <= 0xFFFFFFFFLL);
     u32 temp=(u32)value;
     SET32((((u64)(pPool))+sizeof(poolHdr_t)+(firstLvlIdx*sizeof(u32))),temp);
 }
@@ -525,7 +525,7 @@ static inline void SET_availBlkListHead (poolHdr_t * pPool, u32 firstLvlIdx, u32
     if (flCount <= 26) {
         // Use 32-bit offsets for avail_blocks values when full pool size is small enough.
         flCount += flCount&1;  // If flCount is odd, we need to skip over one DWORD of padding to reach the availBlkListHead array.
-        ASSERT (value <= 0xFFFFFFFFLL);
+        ocrAssert(value <= 0xFFFFFFFFLL);
         SET32((((u64) pPool)+sizeof(poolHdr_t)+(flCount*sizeof(u32))+((firstLvlIdx*SL_COUNT+secondLvlIdx)*sizeof(u32))), (u32) value);
     } else {
         // Use 64-bit offsets for avail_blocks for large memory pools.
@@ -550,7 +550,7 @@ static inline bool GET_isThisBlkFree (blkHdr_t * pBlk) {
 
 static inline blkHdr_t * GET_pFreeBlkBkwdLink (poolHdr_t * pPool, blkHdr_t * pBlk) {
     checkChecksum(&pBlk->checksum, sizeof(blkHdr_t), __LINE__, "blkHdr_t");
-    ASSERT (GET_isThisBlkFree(pBlk));   // Should NOT try to access oFreeBlkBkwdLink from a header of an in-use block.
+    ocrAssert(GET_isThisBlkFree(pBlk));   // Should NOT try to access oFreeBlkBkwdLink from a header of an in-use block.
     u64 temp;
     u64 locToRead = (u64) (&(pBlk->oFreeBlkBkwdLink));
     GET64(temp, locToRead);
@@ -566,7 +566,7 @@ static inline u64 GET_payloadSize (blkHdr_t * pBlk) {
 
 static inline blkHdr_t * GET_pFreeBlkFrwdLink (poolHdr_t * pPool, blkHdr_t * pBlk) {
     checkChecksum(&pBlk->checksum, sizeof(blkHdr_t), __LINE__, "blkHdr_t");
-    ASSERT (GET_isThisBlkFree(pBlk));   // Should NOT try to access oFreeBlkFrwdLink from a header of an in-use block.
+    ocrAssert(GET_isThisBlkFree(pBlk));   // Should NOT try to access oFreeBlkFrwdLink from a header of an in-use block.
     u64 temp;
     u64 locToRead = (u64) (&(pBlk->oFreeBlkFrwdLink));
     GET64(temp, locToRead);
@@ -575,7 +575,7 @@ static inline blkHdr_t * GET_pFreeBlkFrwdLink (poolHdr_t * pPool, blkHdr_t * pBl
 
 static inline u64 GET_poolHeaderDescr (blkHdr_t * pBlk) {
     checkChecksum(&pBlk->checksum, sizeof(blkHdr_t), __LINE__, "blkHdr_t");
-    ASSERT (!GET_isThisBlkFree(pBlk));   // Should NOT try to access poolHeaderDescr from a header of a free block.
+    ocrAssert(!GET_isThisBlkFree(pBlk));   // Should NOT try to access poolHeaderDescr from a header of a free block.
     u64 temp;
     GET64(temp,((u64)(&(pBlk->poolHeaderDescr))));
     return temp;
@@ -594,7 +594,7 @@ static inline bool GET_isPrevNbrBlkFree (blkHdr_t * pBlk) {
 static inline void SET_pFreeBlkBkwdLink (poolHdr_t * pPool, blkHdr_t * pBlk, blkHdr_t * pPrevBlk, bool overrideAsserts) {
     checkChecksum(&pBlk->checksum, sizeof(blkHdr_t), __LINE__, "blkHdr_t");
     if (! overrideAsserts) {
-        ASSERT (GET_isThisBlkFree(pBlk));       // Should NOT try to access oFreeBlkBkwdLink from a header of an in-use block.
+        ocrAssert(GET_isThisBlkFree(pBlk));       // Should NOT try to access oFreeBlkBkwdLink from a header of an in-use block.
     }
     u64 locToWrite = (u64) (&(pBlk->oFreeBlkBkwdLink));
     SET64(locToWrite, (((u64) pPrevBlk) - ((u64) pPool)));
@@ -609,8 +609,8 @@ static inline void SET_payloadSize (blkHdr_t * pBlk, u64 value) {
 
 static inline void SET_pFreeBlkFrwdLink (poolHdr_t * pPool, blkHdr_t * pBlk, blkHdr_t * pNextBlk) {
     checkChecksum(&pBlk->checksum, sizeof(blkHdr_t), __LINE__, "blkHdr_t");
-    ASSERT (GET_isThisBlkFree(pBlk));       // Should NOT try to access oFreeBlkFrwdLink from a header of an in-use block.
-    ASSERT (GET_isThisBlkFree(pNextBlk));   // Should NOT set oFreeBlkFrwdLink of this block to point to an in-use block.
+    ocrAssert(GET_isThisBlkFree(pBlk));       // Should NOT try to access oFreeBlkFrwdLink from a header of an in-use block.
+    ocrAssert(GET_isThisBlkFree(pNextBlk));   // Should NOT set oFreeBlkFrwdLink of this block to point to an in-use block.
     u64 locToWrite = (u64) (&(pBlk->oFreeBlkFrwdLink));
     SET64(locToWrite, (((u64) pNextBlk) - ((u64) pPool)));
     setChecksum(&pBlk->checksum, sizeof(blkHdr_t));
@@ -624,14 +624,14 @@ static inline void SET_aggregatedFreeBlockIndicators (blkHdr_t * pBlk, u64 value
 
 static inline void SET_poolHeaderDescr (blkHdr_t * pBlk, u64 value) {
     checkChecksum(&pBlk->checksum, sizeof(blkHdr_t), __LINE__, "blkHdr_t");
-    ASSERT (!GET_isThisBlkFree(pBlk));   // Should NOT try to access poolHeaderDescr from a header of a free block.
+    ocrAssert(!GET_isThisBlkFree(pBlk));   // Should NOT try to access poolHeaderDescr from a header of a free block.
     SET64((u64) (&(pBlk->poolHeaderDescr)), value);
     setChecksum(&pBlk->checksum, sizeof(blkHdr_t));
 }
 
 static inline void SET_isPrevNbrBlkFree (blkHdr_t * pBlk, bool value) {
     checkChecksum(&pBlk->checksum, sizeof(blkHdr_t), __LINE__, "blkHdr_t");
-    ASSERT(!GET_isThisBlkFree(pBlk)); /* SET_isPrevNbrBlkFree can only be called on used block */
+    ocrAssert(!GET_isThisBlkFree(pBlk)); /* SET_isPrevNbrBlkFree can only be called on used block */
     u64 temp = GET_aggregatedFreeBlockIndicators(pBlk);
     temp = (temp & (~1LL)) | (value ? 1LL : 0LL);
     SET_aggregatedFreeBlockIndicators(pBlk, temp);
@@ -692,7 +692,7 @@ static inline blkHdr_t * mapPayloadAddrToBlockAddr(blkPayload_t * payload) {  //
 
 static inline blkHdr_t * getPrevNbrBlock(blkHdr_t * pCurrBlk) {
     checkChecksum(&pCurrBlk->checksum, sizeof(blkHdr_t), __LINE__, "blkHdr_t");
-    ASSERT(GET_isPrevNbrBlkFree(pCurrBlk));
+    ocrAssert(GET_isPrevNbrBlkFree(pCurrBlk));
     u64 distanceToHeaderOfPrevNbrBlock;
 #ifdef ENABLE_VALGRIND
     // Weird case so I'll just hack it for now
@@ -718,17 +718,17 @@ static inline blkHdr_t * getNextNbrBlock(blkHdr_t * pCurrBlk) {
 
 // For valgrind, assumes first and second are properly setup
 static void linkFreeBlocks(poolHdr_t * pPool, blkHdr_t * pFirstBlk, blkHdr_t * pSecondBlk) {
-    ASSERT(GET_isThisBlkFree(pFirstBlk));  /* linkFreeBlocks arg1 not free */
-    ASSERT(GET_isThisBlkFree(pSecondBlk)); /* linkFreeBlocks arg2 not free */
+    ocrAssert(GET_isThisBlkFree(pFirstBlk));  /* linkFreeBlocks arg1 not free */
+    ocrAssert(GET_isThisBlkFree(pSecondBlk)); /* linkFreeBlocks arg2 not free */
 
     /* Consec blocks cannot be free */
-    ASSERT(getNextNbrBlock(pFirstBlk) != pSecondBlk);
+    ocrAssert(getNextNbrBlock(pFirstBlk) != pSecondBlk);
 
     /* linkFreeBlocks arg1 misaligned */
-    ASSERT((((u64) pFirstBlk) & (ALIGNMENT-1LL)) == 0LL);
+    ocrAssert((((u64) pFirstBlk) & (ALIGNMENT-1LL)) == 0LL);
 
     /* linkFreeBlocks arg2 misaligned */
-    ASSERT((((u64) pSecondBlk) & (ALIGNMENT-1LL)) == 0LL);
+    ocrAssert((((u64) pSecondBlk) & (ALIGNMENT-1LL)) == 0LL);
 
     SET_pFreeBlkFrwdLink(pPool, pFirstBlk, pSecondBlk);
     SET_pFreeBlkBkwdLink(pPool, pSecondBlk, pFirstBlk, false);
@@ -851,14 +851,14 @@ static blkHdr_t * findFreeBlockForRealSize(
 
         // Look for the first bit that is a one
         tf = myffs(flBitMap);
-        ASSERT(tf > *flIndex);
+        ocrAssert(tf > *flIndex);
         *flIndex = tf;
 
         // Now we get the slBitMap. There is definitely a 1 in there since there is a 1 in tf
         slBitMap = GET_slAvailOrNot(pPool, tf);
     }
 
-    ASSERT(slBitMap != 0);
+    ocrAssert(slBitMap != 0);
 
     ts = myffs(slBitMap);
     *slIndex = ts;
@@ -872,7 +872,7 @@ static blkHdr_t * findFreeBlockForRealSize(
 // For valgrind, assumes freeBlock is OK
 static void removeFreeBlock(poolHdr_t * pPool, blkHdr_t * pFreeBlk) {
     u64 tempSz;
-    ASSERT(GET_isThisBlkFree(pFreeBlk));
+    ocrAssert(GET_isThisBlkFree(pFreeBlk));
     u32 flIndex, slIndex;
     tempSz = GET_payloadSize(pFreeBlk);
     mappingInsert(tempSz, &flIndex, &slIndex);
@@ -884,8 +884,8 @@ static void removeFreeBlock(poolHdr_t * pPool, blkHdr_t * pFreeBlk) {
     VALGRIND_DEFINED1(pFreeBlkBkwdLink);
     VALGRIND_DEFINED(pFreeBlkFrwdLink);
 
-    ASSERT(pFreeBlkBkwdLink != _NULL && GET_isThisBlkFree(pFreeBlkBkwdLink));
-    ASSERT(pFreeBlkFrwdLink != _NULL && GET_isThisBlkFree(pFreeBlkFrwdLink));
+    ocrAssert(pFreeBlkBkwdLink != _NULL && GET_isThisBlkFree(pFreeBlkBkwdLink));
+    ocrAssert(pFreeBlkFrwdLink != _NULL && GET_isThisBlkFree(pFreeBlkFrwdLink));
 
     linkFreeBlocks(pPool, pFreeBlkBkwdLink, pFreeBlkFrwdLink);
 
@@ -926,9 +926,9 @@ void addFreeBlock(poolHdr_t * pPool, blkHdr_t * pFreeBlock) {
 
     pCurrentHead = GET_availBlkListHead(pPool, flIndex, slIndex);
 
-    ASSERT(pCurrentHead != _NULL);
-    ASSERT(pFreeBlock != _NULL);
-    ASSERT(pFreeBlock != &(pPool->nullBlock));
+    ocrAssert(pCurrentHead != _NULL);
+    ocrAssert(pFreeBlock != _NULL);
+    ocrAssert(pFreeBlock != &(pPool->nullBlock));
 
     VALGRIND_DEFINED(pCurrentHead);
     // Set the links properly
@@ -969,7 +969,7 @@ static blkHdr_t * splitBlock(poolHdr_t * pPool, blkHdr_t * pOrigBlock, u64 alloc
     blkHdr_t * pRemainingBlock;
     u64 origBlockSize;
     origBlockSize = GET_payloadSize(pOrigBlock);
-    ASSERT(origBlockSize > allocSize + GminBlockSizeIncludingHdr);
+    ocrAssert(origBlockSize > allocSize + GminBlockSizeIncludingHdr);
 
     u64 remainingSize = origBlockSize - allocSize - sizeof(blkHdr_t);
 
@@ -993,9 +993,9 @@ static blkHdr_t * splitBlock(poolHdr_t * pPool, blkHdr_t * pOrigBlock, u64 alloc
  */
 // Assumes freeBlock and nextBlock OK for valgrind
 static void absorbNext(poolHdr_t * pPool, blkHdr_t * pFreeBlock, blkHdr_t * pNextBlock) {
-    ASSERT(GET_isThisBlkFree(pFreeBlock));
-    ASSERT(GET_isThisBlkFree(pNextBlock));
-    ASSERT(getNextNbrBlock(pFreeBlock) == pNextBlock);
+    ocrAssert(GET_isThisBlkFree(pFreeBlock));
+    ocrAssert(GET_isThisBlkFree(pNextBlock));
+    ocrAssert(getNextNbrBlock(pFreeBlock) == pNextBlock);
     u64 tempSz = GET_payloadSize(pFreeBlock) + GET_payloadSize(pNextBlock) + sizeof(blkHdr_t);
     SET_payloadSize(pFreeBlock, tempSz);
     markBlockFree(pPool, pFreeBlock); // will update the other field
@@ -1008,7 +1008,7 @@ static void absorbNext(poolHdr_t * pPool, blkHdr_t * pFreeBlock, blkHdr_t * pNex
 // Assume blockToBeFreed OK for valgrind
 #ifndef ENABLE_ALLOCATOR_LEAK_FREED_DATABLOCKS // Suppress if leaking datablocks, so compiler doesn't gripe.
 static blkHdr_t * mergePrevNbr(poolHdr_t * pPool, blkHdr_t * pBlockToBeFreed) {
-    ASSERT(!GET_isThisBlkFree(pBlockToBeFreed));
+    ocrAssert(!GET_isThisBlkFree(pBlockToBeFreed));
     if(GET_isPrevNbrBlkFree(pBlockToBeFreed)) {
         // Get the previous block
         blkHdr_t * pPrevBlock = getPrevNbrBlock(pBlockToBeFreed);
@@ -1020,11 +1020,11 @@ static blkHdr_t * mergePrevNbr(poolHdr_t * pPool, blkHdr_t * pBlockToBeFreed) {
         markBlockFree(pPool, pBlockToBeFreed);
         absorbNext(pPool, pPrevBlock, pBlockToBeFreed);
         pBlockToBeFreed = pPrevBlock;
-        ASSERT(GET_isThisBlkFree(pBlockToBeFreed));
+        ocrAssert(GET_isThisBlkFree(pBlockToBeFreed));
         VALGRIND_NOACCESS1(pPrevBlock);
     } else {
         markBlockFree(pPool, pBlockToBeFreed);
-        ASSERT(GET_isThisBlkFree(pBlockToBeFreed));
+        ocrAssert(GET_isThisBlkFree(pBlockToBeFreed));
     }
 
     return pBlockToBeFreed;
@@ -1035,7 +1035,7 @@ static blkHdr_t * mergePrevNbr(poolHdr_t * pPool, blkHdr_t * pBlockToBeFreed) {
  * block must be free to start with
  */
 static blkHdr_t * mergeNextNbr(poolHdr_t * pPool, blkHdr_t * pFreeBlock) {
-    ASSERT(GET_isThisBlkFree(pFreeBlock));
+    ocrAssert(GET_isThisBlkFree(pFreeBlock));
     blkHdr_t * pNextBlock = getNextNbrBlock(pFreeBlock);
     VALGRIND_DEFINED1(pNextBlock);
     if(GET_isThisBlkFree(pNextBlock)) {
@@ -1225,7 +1225,7 @@ static blkPayload_t * tlsfMalloc(poolHdr_t * pPool, u64 size)
 static void tlsfFree(poolHdr_t * pPool, blkPayload_t * pPayload) {
     blkHdr_t * pBlk = mapPayloadAddrToBlockAddr (pPayload);
     u64 payloadSize __attribute__((unused)) = GET_payloadSize(pBlk);
-    ASSERT ((payloadSize & (ALIGNMENT-1)) == 0);
+    ocrAssert((payloadSize & (ALIGNMENT-1)) == 0);
 #ifdef ENABLE_ALLOCATOR_LEAK_FREED_DATABLOCKS
 #define detail1 "LEAKED"
 #else
@@ -1374,7 +1374,7 @@ static ocrAllocator_t * getAnchorCE (ocrAllocator_t * self) {
 // requests to the CE.  And realloc: tedious details TBD, but not rocket surgery.
 //
     ocrAllocator_t * anchorCE = (ocrAllocator_t *) (self);
-    ASSERT(self->memoryCount == 1);
+    ocrAssert(self->memoryCount == 1);
 #ifdef HAL_FSIM_CE
     u32 level = self->memories[0]->level;
 #warning FIXME-OCRTG: REWROTE THE TWIDDLES BELOW FOR NEW HIERARCHY -- ORG AUTHOR SHOULD SANITY CHECK
@@ -1396,7 +1396,7 @@ static ocrAllocator_t * getAnchorCE (ocrAllocator_t * self) {
         anchorCE = (ocrAllocator_t *) (((u64) self) | (RR_L1_BASE(0,0,0,0, ID_AGENT_CE)));
         break;
     default:
-        ASSERT(0);
+        ocrAssert(0);
     }
 #else
     // Need to do this for TG-x86 in particular. This is harder than on TG as we can't rely on the
@@ -1409,7 +1409,7 @@ static ocrAllocator_t * getAnchorCE (ocrAllocator_t * self) {
 
 void tlsfDestruct(ocrAllocator_t *self) {
     DPRINTF(DEBUG_LVL_INFO, "Entered tlsfDesctruct on allocator 0x%"PRIx64"\n", (u64) self);
-    ASSERT(self->memoryCount == 1);
+    ocrAssert(self->memoryCount == 1);
     self->memories[0]->fcts.destruct(self->memories[0]);
     runtimeChunkFree((u64)self->memories, PERSISTENT_CHUNK);
 
@@ -1454,7 +1454,7 @@ static void tlsfInitPool(ocrAllocatorTlsf_t *rself) {
 #endif
     // Remnant has to be at least as large as two slices
     // Note: We might want to implement the option of no remnant
-    ASSERT(((rself->sliceCount+2)*rself->sliceSize)<=rself->poolSize);
+    ocrAssert(((rself->sliceCount+2)*rself->sliceSize)<=rself->poolSize);
 
     for (i = 0; i < rself->sliceCount; i++) {
         DPRINTF(DEBUG_LVL_VVERB, "TLSF Allocator at %p initializing slice %"PRId32""
@@ -1481,12 +1481,12 @@ u8 tlsfSwitchRunlevel(ocrAllocator_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_t
     u8 toReturn = 0;
 
     // This is an inert module, we do not handle callbacks (caller needs to wait on us)
-    ASSERT(callback == NULL);
+    ocrAssert(callback == NULL);
 
     // Verify properties for this call
-    ASSERT((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
+    ocrAssert((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
            && !(properties & RL_RELEASE));
-    ASSERT(!(properties & RL_FROM_MSG));
+    ocrAssert(!(properties & RL_FROM_MSG));
 
     ocrAllocatorTlsf_t *rself = (ocrAllocatorTlsf_t*)self;
 
@@ -1500,7 +1500,7 @@ u8 tlsfSwitchRunlevel(ocrAllocator_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_t
         // As a small optimization, we determine if we should be
         // the one to transition the underlying memory once and for all
         // in the RL_CONFIG_PARSE stage
-        ASSERT(self->memoryCount == 1);
+        ocrAssert(self->memoryCount == 1);
         ocrAllocatorTlsf_t *rAnchorCE = (ocrAllocatorTlsf_t*)(getAnchorCE(self));
 
         if(isAnchor(rself, rAnchorCE)) {
@@ -1611,7 +1611,7 @@ u8 tlsfSwitchRunlevel(ocrAllocator_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_t
         break;
     default:
         // Unknown runlevel
-        ASSERT(0);
+        ocrAssert(0);
     }
 
     if((properties & RL_TEAR_DOWN) && (rself->initAttributed == (u64)rself)) {
@@ -1733,7 +1733,7 @@ void* tlsfReallocate(
     if (pCurrBlkPayload == _NULL) {  // Handle corner case, where a non-existent "existing" block means this is just a plain ole malloc.
         return tlsfAllocate (self, size, hints);
     }
-    ASSERT (size != 0);     // Caller has to handle the oddball corner case where size is zero, meaning what we really want to do is a "free".
+    ocrAssert(size != 0);     // Caller has to handle the oddball corner case where size is zero, meaning what we really want to do is a "free".
 
     bool useRemnant = !(hints & OCR_ALLOC_HINT_REDUCE_CONTENTION);
     blkHdr_t * pExistingBlock = mapPayloadAddrToBlockAddr(pCurrBlkPayload);
@@ -1860,7 +1860,7 @@ static void destructAllocatorFactoryTlsf(ocrAllocatorFactory_t * factory) {
 ocrAllocatorFactory_t * newAllocatorFactoryTlsf(ocrParamList_t *perType) {
     ocrAllocatorFactory_t* base = (ocrAllocatorFactory_t*)
         runtimeChunkAlloc(sizeof(ocrAllocatorFactoryTlsf_t), NONPERSISTENT_CHUNK);
-    ASSERT(base);
+    ocrAssert(base);
     base->instantiate = &newAllocatorTlsf;
     base->initialize = &initializeAllocatorTlsf;
     base->destruct = &destructAllocatorFactoryTlsf;

@@ -26,7 +26,7 @@ ocrGuid_t shutdownEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     while (b < NB_WRITERS) {
         u32 i = 0;
         while (i < chunkSize) {
-            ASSERT (data[b*chunkSize] == data[(b*chunkSize)+i]);
+            ocrAssert(data[b*chunkSize] == data[(b*chunkSize)+i]);
             i++;
         }
         b++;
@@ -53,7 +53,7 @@ ocrGuid_t eWriteEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
 ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     u64 affinityCount;
     ocrAffinityCount(AFFINITY_PD, &affinityCount);
-    ASSERT(affinityCount >= 1);
+    ocrAssert(affinityCount >= 1);
     ocrGuid_t affinities[affinityCount];
     ocrAffinityGet(AFFINITY_PD, &affinityCount, affinities);
     ocrGuid_t affinity = affinities[0];

@@ -30,7 +30,7 @@ ocrGuid_t wrapupEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
         t2 += timersPtr[i+2];
     }
 
-    PRINTF("Overall: DB Create %"PRId32"\t DB Release %"PRId32"\t DB Destroy %"PRId32"\n", t0/DB_NBS, t1/DB_NBS, t2/DB_NBS);
+    ocrPrintf("Overall: DB Create %"PRId32"\t DB Release %"PRId32"\t DB Destroy %"PRId32"\n", t0/DB_NBS, t1/DB_NBS, t2/DB_NBS);
 
     ocrShutdown();
     return NULL_GUID;
@@ -56,8 +56,8 @@ ocrGuid_t edtCode(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
         get_time(&t0);
         ocrDbCreate(&dbGuid, (void **)&dbPtr, DB_SZ, 0, NULL_HINT, NO_ALLOC);
         // Check that the DB creates succeeded
-        ASSERT(!ocrGuidIsNull(dbGuid));
-        ASSERT(dbPtr != NULL);
+        ocrAssert(!ocrGuidIsNull(dbGuid));
+        ocrAssert(dbPtr != NULL);
 
         get_time(&t1);
         ocrDbRelease(dbGuid);
@@ -81,14 +81,14 @@ ocrGuid_t edtCode(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     *(u64 *)syncPtr = 1;
 
     if(i==0)
-        PRINTF("Invalid run! Please check that the number of EDTs generated match number of workers\n");
+        ocrPrintf("Invalid run! Please check that the number of EDTs generated match number of workers\n");
     else {
         // Now average them out
         timersPtr[index+0] /= i;
         timersPtr[index+1] /= i;
         timersPtr[index+2] /= i;
 
-        PRINTF("Thread %"PRId32": %"PRId32" iterations; Times: %"PRId64" %"PRId64" %"PRId64"\n", paramv[0], i, timersPtr[index], timersPtr[index+1], timersPtr[index+2]);
+        ocrPrintf("Thread %"PRId32": %"PRId32" iterations; Times: %"PRId64" %"PRId64" %"PRId64"\n", paramv[0], i, timersPtr[index], timersPtr[index+1], timersPtr[index+2]);
     }
 
     return NULL_GUID;

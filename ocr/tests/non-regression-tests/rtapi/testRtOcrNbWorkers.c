@@ -18,7 +18,7 @@
 ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     u64 nbW = ocrNbWorkers();
     // Can't really check for actual value here so just look at boundaries.
-    ASSERT(nbW > 0);
+    ocrAssert(nbW > 0);
     ocrShutdown();
     return NULL_GUID;
 }
@@ -26,7 +26,7 @@ ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
 #else
 
 ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
-    PRINTF("No RT API\n");
+    ocrPrintf("No RT API\n");
     ocrShutdown();
     return NULL_GUID;
 }

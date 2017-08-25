@@ -71,7 +71,7 @@ static edtTable_t* ocrStatsAccessInsertEDT(ocrTask_t *task) {
     edtList[numEdts++] = addedEDT;
     leave_cs();
 
-    ASSERT(numEdts<MAXEDTS);
+    ocrAssert(numEdts<MAXEDTS);
 
     return addedEDT;
 }
@@ -114,7 +114,7 @@ void ocrStatsAccessInsertDB(ocrTask_t *task, ocrDataBlock_t *db) {
     }
 
     if(db)
-        ASSERT(db->size!=0);
+        ocrAssert(db->size!=0);
 
     ocrStatsAccessInsertDBTable(edt, db, db?db->ptr:0, db?db->size:0);
 }

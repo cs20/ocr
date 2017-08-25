@@ -13,11 +13,11 @@
 #define N 16
 
 ocrGuid_t terminateEDT(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
-    PRINTF("Call Terminate\n");
+    ocrPrintf("Call Terminate\n");
     int * array = (int*) depv[1].ptr;
     int i = 0;
     while (i < N) {
-        ASSERT(array[i] == 1);
+        ocrAssert(array[i] == 1);
         i++;
     }
     ocrShutdown();

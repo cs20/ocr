@@ -22,7 +22,7 @@
 
 void* ocrSchedulerObjectListHead(ocrSchedulerObject_t *self) {
     ocrSchedulerObjectList_t *listObj = (ocrSchedulerObjectList_t*)self;
-    ASSERT(listObj && listObj->list);
+    ocrAssert(listObj && listObj->list);
     if (listObj->list->head)
         return listObj->list->head->data;
     return NULL;
@@ -30,7 +30,7 @@ void* ocrSchedulerObjectListHead(ocrSchedulerObject_t *self) {
 
 void* ocrSchedulerObjectListHeadNext(ocrSchedulerObject_t *self) {
     ocrSchedulerObjectList_t *listObj = (ocrSchedulerObjectList_t*)self;
-    ASSERT(listObj && listObj->list);
+    ocrAssert(listObj && listObj->list);
     slistNode_t *node = listObj->list->head;
     if (node) node = node->next;
     if (node) return node->data;
@@ -39,7 +39,7 @@ void* ocrSchedulerObjectListHeadNext(ocrSchedulerObject_t *self) {
 
 void* ocrSchedulerObjectListHeadPlus(ocrSchedulerObject_t *self, u32 index) {
     ocrSchedulerObjectList_t *listObj = (ocrSchedulerObjectList_t*)self;
-    ASSERT(listObj && listObj->list);
+    ocrAssert(listObj && listObj->list);
     slistNode_t *node = listObj->list->head;
     while (node && index--) node = node->next;
     if (node) return node->data;
@@ -67,8 +67,8 @@ static void listSchedulerObjectInitialize(ocrSchedulerObjectFactory_t *fact, ocr
 ocrSchedulerObject_t* newSchedulerObjectList(ocrSchedulerObjectFactory_t *factory, ocrParamList_t *perInstance) {
 #ifdef OCR_ASSERT
     paramListSchedulerObject_t *paramSchedObj = (paramListSchedulerObject_t*)perInstance;
-    ASSERT(paramSchedObj->config);
-    ASSERT(!paramSchedObj->guidRequired);
+    ocrAssert(paramSchedObj->config);
+    ocrAssert(!paramSchedObj->guidRequired);
 #endif
 
     ocrSchedulerObject_t* schedObj = (ocrSchedulerObject_t*)runtimeChunkAlloc(sizeof(ocrSchedulerObjectList_t), PERSISTENT_CHUNK);
@@ -80,8 +80,8 @@ ocrSchedulerObject_t* newSchedulerObjectList(ocrSchedulerObjectFactory_t *factor
 ocrSchedulerObject_t* listSchedulerObjectCreate(ocrSchedulerObjectFactory_t *factory, ocrParamList_t *perInstance) {
 #ifdef OCR_ASSERT
     paramListSchedulerObject_t *paramSchedObj = (paramListSchedulerObject_t*)perInstance;
-    ASSERT(!paramSchedObj->config);
-    ASSERT(!paramSchedObj->guidRequired);
+    ocrAssert(!paramSchedObj->config);
+    ocrAssert(!paramSchedObj->guidRequired);
 #endif
     ocrPolicyDomain_t *pd = factory->pd;
     ocrSchedulerObject_t *schedObj = (ocrSchedulerObject_t*)pd->fcts.pdMalloc(pd, sizeof(ocrSchedulerObjectList_t));
@@ -96,7 +96,7 @@ u8 listSchedulerObjectDestroy(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObj
     if (IS_SCHEDULER_OBJECT_CONFIG_ALLOCATED(self->kind)) {
         runtimeChunkFree((u64)self, PERSISTENT_CHUNK);
     } else {
-        ASSERT(IS_SCHEDULER_OBJECT_PD_ALLOCATED(self->kind));
+        ocrAssert(IS_SCHEDULER_OBJECT_PD_ALLOCATED(self->kind));
         ocrPolicyDomain_t *pd = fact->pd;
         ocrSchedulerObjectList_t* listSchedObj = (ocrSchedulerObjectList_t*)self;
         destructArrayList(listSchedObj->list);
@@ -128,7 +128,7 @@ u8 listSchedulerObjectInsert(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObje
                 }
                 break;
             default:
-                ASSERT(0);
+                ocrAssert(0);
                 break;
             }
         }
@@ -152,7 +152,7 @@ u8 listSchedulerObjectInsert(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObje
                 }
                 break;
             default:
-                ASSERT(0);
+                ocrAssert(0);
                 break;
             }
         }
@@ -177,13 +177,13 @@ u8 listSchedulerObjectInsert(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObje
                 }
                 break;
             default:
-                ASSERT(0);
+                ocrAssert(0);
                 break;
             }
         }
         break;
     default:
-        ASSERT(0);
+        ocrAssert(0);
         break;
     }
     if (node) {
@@ -217,13 +217,13 @@ u8 listSchedulerObjectRemove(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObje
         }
         break;
     default:
-        ASSERT(0);
+        ocrAssert(0);
         break;
     }
     if (node) {
         if (listObj->list->elSize) {
             if (IS_SCHEDULER_OBJECT_TYPE_SINGLETON(dst->kind)) {
-                ASSERT(listObj->list->elSize == sizeof(ocrGuid_t));
+                ocrAssert(listObj->list->elSize == sizeof(ocrGuid_t));
                 // See BUG #928 on GUID issues
 #if GUID_BIT_COUNT == 64
                 dst->guid.guid.guid = *((u64*)(node->data));
@@ -232,7 +232,7 @@ u8 listSchedulerObjectRemove(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObje
                 dst->guid.guid.upper = 0x0;
 #endif
             } else {
-                ASSERT(dst->guid.metaDataPtr);
+                ocrAssert(dst->guid.metaDataPtr);
                 hal_memCopy(dst->guid.metaDataPtr, node->data, listObj->list->elSize, 0);
             }
         } else {
@@ -269,7 +269,7 @@ u8 listSchedulerObjectDestroyIterator(ocrSchedulerObjectFactory_t * fact, ocrSch
 
 u8 listSchedulerObjectIterate(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObjectIterator_t *iterator, u32 properties) {
     ocrSchedulerObjectList_t *listObj = (ocrSchedulerObjectList_t*)iterator->schedObj;
-    ASSERT(listObj);
+    ocrAssert(listObj);
     ocrSchedulerObjectListIterator_t *lit = (ocrSchedulerObjectListIterator_t*)iterator;
     if (lit->internal != iterator->schedObj) {
         lit->internal = iterator->schedObj;
@@ -316,18 +316,18 @@ u8 listSchedulerObjectIterate(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObj
         break;
     case SCHEDULER_OBJECT_ITERATE_SEARCH_KEY:
         {
-            ASSERT(0); //TODO
+            ocrAssert(0); //TODO
         }
         break;
     default:
-        ASSERT(0);
+        ocrAssert(0);
         break;
     }
     return 0;
 }
 
 ocrSchedulerObject_t* listGetSchedulerObjectForLocation(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObject_t *self, ocrSchedulerObjectKind kind, ocrLocation_t loc, ocrSchedulerObjectMappingKind mapping, u32 properties) {
-    ASSERT(0);
+    ocrAssert(0);
     return NULL;
 }
 
@@ -338,33 +338,33 @@ u8 listSetLocationForSchedulerObject(ocrSchedulerObjectFactory_t *fact, ocrSched
 }
 
 ocrSchedulerObjectActionSet_t* listSchedulerObjectNewActionSet(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObject_t *self, u32 count) {
-    ASSERT(0);
+    ocrAssert(0);
     return NULL;
 }
 
 u8 listSchedulerObjectDestroyActionSet(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObjectActionSet_t *actionSet) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 u8 listSchedulerObjectSwitchRunlevel(ocrSchedulerObject_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_t runlevel,
                                     phase_t phase, u32 properties, void (*callback)(ocrPolicyDomain_t*, u64), u64 val) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 u8 listSchedulerObjectOcrPolicyMsgGetMsgSize(ocrSchedulerObjectFactory_t *fact, ocrPolicyMsg_t *msg, u64 *marshalledSize, u32 properties) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 u8 listSchedulerObjectOcrPolicyMsgMarshallMsg(ocrSchedulerObjectFactory_t *fact, ocrPolicyMsg_t *msg, u8 *buffer, u32 properties) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 u8 listSchedulerObjectOcrPolicyMsgUnMarshallMsg(ocrSchedulerObjectFactory_t *fact, ocrPolicyMsg_t *msg, u8 *localMainPtr, u8 *localAddlPtr, u32 properties) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 

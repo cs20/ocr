@@ -31,7 +31,7 @@ ocrGuid_t prodEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
         u32 * dbPtr;
         ocrDbCreate(&dbGuid, (void **)&dbPtr, sizeof(u32), 0, NULL_HINT, NO_ALLOC);
         dbPtr[0] = (countSalvo * PROD_SALVO) + i;
-        PRINTF("Send=%"PRId32" val=%"PRId32" guid="GUIDF" @ salvo=%"PRId32"\n", i, dbPtr[0], GUIDA(dbGuid), countSalvo);
+        ocrPrintf("Send=%"PRId32" val=%"PRId32" guid="GUIDF" @ salvo=%"PRId32"\n", i, dbPtr[0], GUIDA(dbGuid), countSalvo);
         ocrDbRelease(dbGuid);
         ocrEventSatisfy(evtToConsGuid, dbGuid);
         i++;
@@ -70,14 +70,14 @@ ocrGuid_t consEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     u64 expVal = paramv[4];
     u32 * dbPtr = (u32 *) depv[0].ptr;
     countProd++;
-    PRINTF("Recv val=%"PRId32" guid="GUIDF" countProd=%"PRId32" @ salvo=%"PRId32"\n", dbPtr[0], GUIDA(depv[0].guid), countProd, countSalvo);
-    ASSERT(expVal == *dbPtr);
+    ocrPrintf("Recv val=%"PRId32" guid="GUIDF" countProd=%"PRId32" @ salvo=%"PRId32"\n", dbPtr[0], GUIDA(depv[0].guid), countProd, countSalvo);
+    ocrAssert(expVal == *dbPtr);
     // Time to
     if (countProd == PROD_SALVO) {
         countSalvo++;
         if (countSalvo == NB_SALVO) {
             // We're done
-            PRINTF("ocrShutdown Called\n");
+            ocrPrintf("ocrShutdown Called\n");
             ocrShutdown();
             return NULL_GUID;
         } else {
@@ -127,7 +127,7 @@ ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
 
     u64 affinityCount;
     ocrAffinityCount(AFFINITY_PD, &affinityCount);
-    ASSERT(affinityCount >= 1);
+    ocrAssert(affinityCount >= 1);
     ocrGuid_t affinities[affinityCount];
     ocrAffinityGet(AFFINITY_PD, &affinityCount, affinities);
     ocrGuid_t prodAff = affinities[affinityCount-1];
@@ -171,7 +171,7 @@ ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
 #else
 
 ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
-    PRINTF("Test disabled - ENABLE_EXTENSION_CHANNEL_EVT not defined\n");
+    ocrPrintf("Test disabled - ENABLE_EXTENSION_CHANNEL_EVT not defined\n");
     ocrShutdown();
     return NULL_GUID;
 }

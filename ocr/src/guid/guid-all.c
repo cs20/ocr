@@ -35,7 +35,7 @@ ocrGuidProviderFactory_t *newGuidProviderFactory(guidType_t type, ocrParamList_t
         return newGuidProviderFactoryLabeled(typeArg, (u32)type);
 #endif
     default:
-        ASSERT(0);
+        ocrAssert(0);
     }
     return NULL;
 }

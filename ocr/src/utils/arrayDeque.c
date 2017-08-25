@@ -22,7 +22,7 @@ typedef struct _arrayDequeWrapper_t {
 
 u8 arrayDequeInit(arrayDeque_t *deque, u32 chunkSize) {
     START_PROFILE(util_arrayDequeInit);
-    ASSERT(deque);
+    ocrAssert(deque);
     if(chunkSize <= 1 || (chunkSize & (chunkSize - 1)) != 0) {
         DPRINTF(DEBUG_LVL_WARN, "Chunksize for arrayDequeInit is not power of two or too small: %"PRIu32"\n", chunkSize);
         RETURN_PROFILE(OCR_EINVAL);
@@ -38,7 +38,7 @@ u8 arrayDequeInit(arrayDeque_t *deque, u32 chunkSize) {
 
 u8 arrayDequeDestruct(arrayDeque_t *deque) {
     START_PROFILE(util_arrayDequeDestruct);
-    ASSERT(deque);
+    ocrAssert(deque);
     ocrPolicyDomain_t *pd = NULL;
     getCurrentEnv(&pd, NULL, NULL, NULL);
 
@@ -53,8 +53,8 @@ u8 arrayDequeDestruct(arrayDeque_t *deque) {
 }
 
 u32 arrayDequeSize(arrayDeque_t *deque) {
-    ASSERT(deque);
-    ASSERT(deque->tailIdx >= deque->headIdx);
+    ocrAssert(deque);
+    ocrAssert(deque->tailIdx >= deque->headIdx);
     // Note the weird !(deque->isEmpty). This is because we recycle indexes
     // (they do not just "grow") and we therefore need to be able to distinguish
     // if head and tail are both 0 if that means that the queue is empty
@@ -66,13 +66,13 @@ u32 arrayDequeSize(arrayDeque_t *deque) {
 }
 
 u32 arrayDequeCapacity(arrayDeque_t *deque) {
-    ASSERT(deque);
+    ocrAssert(deque);
     return deque->chunkCount*deque->chunkSize;
 }
 
 u8 arrayDequePushAtTail(arrayDeque_t* deque, void* entry) {
     START_PROFILE(util_arrayDequePushAtTail);
-    ASSERT(deque);
+    ocrAssert(deque);
     DPRINTF(DEBUG_LVL_INFO, "ArrayDeque %p: pushing at tail %p\n", deque, entry);
     arrayDequeChunk_t *oldTail = deque->tail;
     u32 newIdx = deque->tailIdx + !deque->isEmpty; // If deque is empty, use the tailIdx since that
@@ -125,8 +125,8 @@ u8 arrayDequePushAtTail(arrayDeque_t* deque, void* entry) {
 
 u8 arrayDequePopFromTail(arrayDeque_t* deque, void** entry) {
     START_PROFILE(util_arrayDequePopFromTail);
-    ASSERT(deque);
-    ASSERT(entry);
+    ocrAssert(deque);
+    ocrAssert(entry);
 
     DPRINTF(DEBUG_LVL_INFO, "ArrayDeque %p: attempting to pop from tail\n", deque);
     if(deque->isEmpty) {
@@ -135,7 +135,7 @@ u8 arrayDequePopFromTail(arrayDeque_t* deque, void** entry) {
         RETURN_PROFILE(OCR_EAGAIN);
     }
 
-    ASSERT(deque->tail);
+    ocrAssert(deque->tail);
     *entry = deque->tail->data[deque->tailIdx & (deque->chunkSize - 1)];
     DPRINTF(DEBUG_LVL_INFO, "ArrayDeque %p: element %p popped\n", deque, *entry);
 
@@ -147,7 +147,7 @@ u8 arrayDequePopFromTail(arrayDeque_t* deque, void** entry) {
     }
 
     // If we have more than one element, tailIdx is always > 0
-    ASSERT(deque->tailIdx > 0);
+    ocrAssert(deque->tailIdx > 0);
     arrayDequeChunk_t *victimChunk = NULL;
     if((deque->tailIdx & (deque->chunkSize - 1)) == 0) {
         // This means, for a size of 4 for example, that we are at 4, 8, 12, etc so the start of a chunk
@@ -159,7 +159,7 @@ u8 arrayDequePopFromTail(arrayDeque_t* deque, void** entry) {
             deque->tail->next = NULL;
             DPRINTF(DEBUG_LVL_VERB, "ArrayDeque %p: victim chunk %p\n", deque, victimChunk);
         }
-        ASSERT(deque->tail->prev); // Should exist since tailIdx >= chunkSize
+        ocrAssert(deque->tail->prev); // Should exist since tailIdx >= chunkSize
         // Move to the previous tail
         deque->tail = deque->tail->prev;
     }
@@ -193,8 +193,8 @@ u8 arrayDequePopFromTail(arrayDeque_t* deque, void** entry) {
 
 u8 arrayDequePeekFromTail(arrayDeque_t* deque, void** entry) {
     START_PROFILE(util_arrayDequePeekFromTail);
-    ASSERT(deque);
-    ASSERT(entry);
+    ocrAssert(deque);
+    ocrAssert(entry);
 
     DPRINTF(DEBUG_LVL_INFO, "ArrayDeque %p: attempting to peek from tail\n", deque);
     if(deque->isEmpty) {
@@ -203,7 +203,7 @@ u8 arrayDequePeekFromTail(arrayDeque_t* deque, void** entry) {
         RETURN_PROFILE(OCR_EAGAIN);
     }
 
-    ASSERT(deque->tail);
+    ocrAssert(deque->tail);
     *entry = deque->tail->data[deque->tailIdx & (deque->chunkSize - 1)];
     DPRINTF(DEBUG_LVL_INFO, "ArrayDeque %p: element %p peeked\n", deque, *entry);
 
@@ -212,7 +212,7 @@ u8 arrayDequePeekFromTail(arrayDeque_t* deque, void** entry) {
 
 u8 arrayDequePushAtHead(arrayDeque_t* deque, void* entry) {
     START_PROFILE(util_arrayDequePushAtHead);
-    ASSERT(deque);
+    ocrAssert(deque);
     DPRINTF(DEBUG_LVL_INFO, "ArrayDeque %p: pushing at head %p\n", deque, entry);
     arrayDequeChunk_t *oldHead = deque->head;
     // Determine if we should use the current head or the next one
@@ -278,8 +278,8 @@ u8 arrayDequePushAtHead(arrayDeque_t* deque, void* entry) {
 
 u8 arrayDequePopFromHead(arrayDeque_t* deque, void** entry) {
     START_PROFILE(util_arrayDequePopFromHead);
-    ASSERT(deque);
-    ASSERT(entry);
+    ocrAssert(deque);
+    ocrAssert(entry);
 
     DPRINTF(DEBUG_LVL_INFO, "ArrayDeque %p: attempting to pop from head\n", deque);
     if(deque->isEmpty) {
@@ -288,7 +288,7 @@ u8 arrayDequePopFromHead(arrayDeque_t* deque, void** entry) {
         RETURN_PROFILE(OCR_EAGAIN);
     }
 
-    ASSERT(deque->head);
+    ocrAssert(deque->head);
     *entry = deque->head->data[deque->headIdx & (deque->chunkSize - 1)];
     DPRINTF(DEBUG_LVL_INFO, "ArrayDeque %p: element %p popped\n", deque, *entry);
 
@@ -310,7 +310,7 @@ u8 arrayDequePopFromHead(arrayDeque_t* deque, void** entry) {
             deque->head->prev = NULL;
             DPRINTF(DEBUG_LVL_VERB, "ArrayDeque %p: victim chunk %p\n", deque, victimChunk);
         }
-        ASSERT(deque->head->next); // Should exist since we are not empty after
+        ocrAssert(deque->head->next); // Should exist since we are not empty after
                                    // removing the element so tailIdx has to be
                                    // > headIdx and in the next chunk
         deque->head = deque->head->next;
@@ -348,8 +348,8 @@ u8 arrayDequePopFromHead(arrayDeque_t* deque, void** entry) {
 
 u8 arrayDequePeekFromHead(arrayDeque_t* deque, void** entry) {
     START_PROFILE(util_arrayDequePopFromHead);
-    ASSERT(deque);
-    ASSERT(entry);
+    ocrAssert(deque);
+    ocrAssert(entry);
 
     DPRINTF(DEBUG_LVL_INFO, "ArrayDeque %p: attempting to peek from head\n", deque);
     if(deque->isEmpty) {
@@ -358,7 +358,7 @@ u8 arrayDequePeekFromHead(arrayDeque_t* deque, void** entry) {
         RETURN_PROFILE(OCR_EAGAIN);
     }
 
-    ASSERT(deque->head);
+    ocrAssert(deque->head);
     *entry = deque->head->data[deque->headIdx & (deque->chunkSize - 1)];
     DPRINTF(DEBUG_LVL_INFO, "ArrayDeque %p: element %p peeked\n", deque, *entry);
 
@@ -414,7 +414,7 @@ static void* adWpopFromTail(struct _ocrDeque_t *self, u8 doTry) {
     hal_unlock(&(self->lock));
     if(status == OCR_EAGAIN)
         return NULL;
-    ASSERT(status == 0);
+    ocrAssert(status == 0);
     return entry;
 }
 
@@ -442,7 +442,7 @@ static void* adWpopFromHead(struct _ocrDeque_t *self, u8 doTry) {
     hal_unlock(&(self->lock));
     if(status == OCR_EAGAIN)
         return NULL;
-    ASSERT(status == 0);
+    ocrAssert(status == 0);
     return entry;
 }
 

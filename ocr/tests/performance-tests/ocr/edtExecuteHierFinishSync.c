@@ -21,9 +21,9 @@
 ocrGuid_t terminateEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     timestamp_t * timers = (timestamp_t *) depv[1].ptr;
     get_time(&timers[1]);
-    ASSERT(TREE_DEPTH > 1);
-    PRINTF("Number of nodes %f\n", (pow((double)NODE_FANOUT,(double)(TREE_DEPTH-1))-1));
-    PRINTF("Number of leaves %f\n", pow(NODE_FANOUT,(TREE_DEPTH-1))*LEAF_FANOUT);
+    ocrAssert(TREE_DEPTH > 1);
+    ocrPrintf("Number of nodes %f\n", (pow((double)NODE_FANOUT,(double)(TREE_DEPTH-1))-1));
+    ocrPrintf("Number of leaves %f\n", pow(NODE_FANOUT,(TREE_DEPTH-1))*LEAF_FANOUT);
     summary_throughput_timer(&timers[0], &timers[1],
         (pow((double)NODE_FANOUT,(double)(TREE_DEPTH-1))-1) + // number of nodes
         (pow(NODE_FANOUT,(TREE_DEPTH-1))*LEAF_FANOUT)); // number of leaves

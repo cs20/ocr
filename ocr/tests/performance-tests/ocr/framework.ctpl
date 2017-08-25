@@ -66,7 +66,7 @@ ocrGuid_t setupEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
 // paramv[0]: event to satisfy when kernel is done
 // depv[0]: setupEdt completed (may carry a DB)
 ocrGuid_t kernelEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
-    // PRINTF("kernelEdt\n");
+    // ocrPrintf("kernelEdt\n");
     ocrGuid_t kernelEdtDoneEvt;
     kernelEdtDoneEvt.guid = paramv[0];
     ocrGuid_t setupDb = depv[0].guid;
@@ -100,7 +100,7 @@ ocrGuid_t kernelEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
 }
 
 // ocrGuid_t cleanUpEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
-//     PRINTF("cleanUpEdt\n");
+//     ocrPrintf("cleanUpEdt\n");
 //     ocrGuid_t kernelDbGuid = depv[0].guid;
 //     ocrGuid_t setupDbGuid = depv[1].guid;
 
@@ -112,7 +112,7 @@ ocrGuid_t kernelEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
 // }
 
 ocrGuid_t postEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
-    // PRINTF("postEdt timeDbGuid=0x%lx\n", depv[0].guid);
+    // ocrPrintf("postEdt timeDbGuid=0x%lx\n", depv[0].guid);
     ocrGuid_t postEdtDoneEvt;
     postEdtDoneEvt.guid = paramv[0];
     ocrGuid_t timeDbGuid = depv[0].guid;
@@ -254,7 +254,7 @@ ocrGuid_t iterationEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     ocrGuid_t timeDbGuid = depv[1].guid;
     long * timePrevIt = (long *) depv[1].ptr;
 
-    // PRINTF("iteration %d\n", info->i);
+    // ocrPrintf("iteration %d\n", info->i);
     if (timePrevIt != NULL) {
         info->timer += (*timePrevIt);
         ocrDbRelease(timeDbGuid);
@@ -315,7 +315,7 @@ void setupFramework(info_t * info, ocrGuid_t self, u32 maxIt, u32 affCount) {
 #if FRWK_REMOTE_SETUP
     info->edtAffinities[SETUP_IDX] = affCount-1;
 #endif
-    ASSERT(affCount >= 1);
+    ocrAssert(affCount >= 1);
     info->timer = 0;
 }
 

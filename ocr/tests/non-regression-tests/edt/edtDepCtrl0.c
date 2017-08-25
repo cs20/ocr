@@ -11,8 +11,8 @@
  */
 
 ocrGuid_t otherEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
-    ASSERT(depc == 1);
-    ASSERT(ocrGuidIsNull(depv[0].guid));
+    ocrAssert(depc == 1);
+    ocrAssert(ocrGuidIsNull(depv[0].guid));
     ocrShutdown();
     return NULL_GUID;
 }

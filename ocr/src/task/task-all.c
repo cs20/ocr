@@ -27,7 +27,7 @@ ocrTaskFactory_t *newTaskFactory(taskType_t type, ocrParamList_t *typeArg) {
         return newTaskFactoryHc(typeArg, typeArg->id);
 #endif
     default:
-        ASSERT(0);
+        ocrAssert(0);
     };
     return NULL;
 }
@@ -39,7 +39,7 @@ ocrTaskTemplateFactory_t *newTaskTemplateFactory(taskTemplateType_t type, ocrPar
         return newTaskTemplateFactoryHc(typeArg, typeArg->id);
 #endif
     default:
-        ASSERT(0);
+        ocrAssert(0);
         return NULL;
     };
 }

@@ -11,11 +11,11 @@
 
 
 ocrGuid_t taskForEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
-    PRINTF("In the taskForEdt with value %"PRId32"\n", (int)paramv[0]);
-    ASSERT(paramc == 1);
-    ASSERT(paramv[0] == 32);
+    ocrPrintf("In the taskForEdt with value %"PRId32"\n", (int)paramv[0]);
+    ocrAssert(paramc == 1);
+    ocrAssert(paramv[0] == 32);
     void * ptr = depv[0].ptr;
-    ASSERT(*((int*)ptr) == 42);
+    ocrAssert(*((int*)ptr) == 42);
     // This is the last EDT to execute, terminate
     ocrShutdown();
     return NULL_GUID;

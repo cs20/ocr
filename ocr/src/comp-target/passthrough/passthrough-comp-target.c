@@ -40,17 +40,17 @@ u8 ptSwitchRunlevel(ocrCompTarget_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_t 
 
     // The worker is the capable module and we operate as
     // inert wrt it
-    ASSERT(callback == NULL);
+    ocrAssert(callback == NULL);
 
     // Verify properties for this call
-    ASSERT((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
+    ocrAssert((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
            && !(properties & RL_RELEASE));
-    ASSERT(!(properties & RL_FROM_MSG));
+    ocrAssert(!(properties & RL_FROM_MSG));
 
     // Call the runlevel change on the underlying platform
     if(runlevel == RL_CONFIG_PARSE && (properties & RL_BRING_UP) && RL_IS_FIRST_PHASE_UP(PD, RL_CONFIG_PARSE, phase)) {
         // Set the worker properly the first time
-        ASSERT(self->platformCount == 1);
+        ocrAssert(self->platformCount == 1);
     }
     if(properties & RL_BRING_UP) {
         toReturn |= self->platforms[0]->fcts.switchRunlevel(self->platforms[0], PD, runlevel, phase, properties,
@@ -103,7 +103,7 @@ u8 ptSwitchRunlevel(ocrCompTarget_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_t 
     case RL_USER_OK:
         break;
     default:
-        ASSERT(0);
+        ocrAssert(0);
     }
     if(properties & RL_TEAR_DOWN) {
         toReturn |= self->platforms[0]->fcts.switchRunlevel(self->platforms[0], PD, runlevel, phase, properties,
@@ -113,19 +113,19 @@ u8 ptSwitchRunlevel(ocrCompTarget_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_t 
 }
 
 u8 ptGetThrottle(ocrCompTarget_t *compTarget, u64 *value) {
-    ASSERT(compTarget->platformCount == 1);
+    ocrAssert(compTarget->platformCount == 1);
     return compTarget->platforms[0]->fcts.getThrottle(compTarget->platforms[0], value);
 }
 
 u8 ptSetThrottle(ocrCompTarget_t *compTarget, u64 value) {
-    ASSERT(compTarget->platformCount == 1);
+    ocrAssert(compTarget->platformCount == 1);
     return compTarget->platforms[0]->fcts.setThrottle(compTarget->platforms[0], value);
 }
 
 u8 ptSetCurrentEnv(ocrCompTarget_t *compTarget, ocrPolicyDomain_t *pd,
                    ocrWorker_t *worker) {
 
-    ASSERT(compTarget->platformCount == 1);
+    ocrAssert(compTarget->platformCount == 1);
     return compTarget->platforms[0]->fcts.setCurrentEnv(compTarget->platforms[0], pd, worker);
 }
 

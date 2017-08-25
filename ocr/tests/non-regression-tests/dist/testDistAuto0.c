@@ -13,13 +13,13 @@
 #define COUNT_EDT 10
 
 ocrGuid_t shutdownEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
-    PRINTF("[remote] shutdownEdt: executing\n");
+    ocrPrintf("[remote] shutdownEdt: executing\n");
     ocrShutdown();
     return NULL_GUID;
 }
 
 ocrGuid_t remoteEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
-    PRINTF("[remote] RemoteEdt: executing\n");
+    ocrPrintf("[remote] RemoteEdt: executing\n");
     ocrGuid_t eventGuid = *((ocrGuid_t *) depv[0].ptr);
     ocrEventSatisfy(eventGuid, NULL_GUID);
     return NULL_GUID;

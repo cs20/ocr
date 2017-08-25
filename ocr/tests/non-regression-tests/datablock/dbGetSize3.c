@@ -19,8 +19,8 @@ ocrGuid_t consumerEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     u64 dbSize;
     ocrDbGetSize(depv[0].guid, &dbSize);
 
-    ASSERT(dbSize == EXPECTED_DB_SIZE);
-    PRINTF("Test passed! (dbSize = %" PRIu64 ")\n", dbSize);
+    ocrAssert(dbSize == EXPECTED_DB_SIZE);
+    ocrPrintf("Test passed! (dbSize = %" PRIu64 ")\n", dbSize);
 
     ocrShutdown();
 
@@ -44,7 +44,7 @@ ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
 #else
 
 ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
-    PRINTF("Test disabled - ENABLE_EXTENSION_DB_INFO not defined\n");
+    ocrPrintf("Test disabled - ENABLE_EXTENSION_DB_INFO not defined\n");
     ocrShutdown();
     return NULL_GUID;
 }

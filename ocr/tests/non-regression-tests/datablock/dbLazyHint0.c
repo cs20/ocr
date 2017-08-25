@@ -25,11 +25,11 @@ ocrGuid_t consEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     u32 * dbPtr = depv[0].ptr;
     u32 i = 0;
     while (i < NB_ELEMS) {
-        ASSERT(dbPtr[i] == expectedValue);
+        ocrAssert(dbPtr[i] == expectedValue);
         dbPtr[i]++;
         i++;
     }
-    PRINTF("Execute on affinity=%"PRIu64" maxId=%"PRIu64"\n", myId, maxId);
+    ocrPrintf("Execute on affinity=%"PRIu64" maxId=%"PRIu64"\n", myId, maxId);
     if (myId == 0) {
         if (nbRoundsLeft == 0) {
             ocrShutdown();
@@ -63,7 +63,7 @@ ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     // Create the lazy DB
     u64 affinityCount;
     ocrAffinityCount(AFFINITY_PD, &affinityCount);
-    ASSERT(affinityCount >= 1);
+    ocrAssert(affinityCount >= 1);
     ocrGuid_t affinities[affinityCount];
     ocrAffinityGet(AFFINITY_PD, &affinityCount, affinities);
 

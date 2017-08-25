@@ -19,23 +19,23 @@
 
 // This edt is triggered when the output event of the other edt is satisfied by the runtime
 ocrGuid_t terminateEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
-    ASSERT(!(ocrGuidIsNull(depv[1].guid)));
+    ocrAssert(!(ocrGuidIsNull(depv[1].guid)));
     u64 * array = (u64*)depv[1].ptr;
     u64 i = 0;
     while (i < N) {
-        ASSERT(array[i] == i);
+        ocrAssert(array[i] == i);
         i++;
     }
-    PRINTF("Everything went OK\n");
+    ocrPrintf("Everything went OK\n");
     ocrShutdown(); // This is the last EDT to execute, terminate
     return NULL_GUID;
 }
 
 ocrGuid_t updaterEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
-    ASSERT(paramc == 1);
+    ocrAssert(paramc == 1);
     // Retrieve id
     u64 id = paramv[0];
-    ASSERT ((id>=0) && (id < N));
+    ocrAssert((id>=0) && (id < N));
     u64 * dbPtr = (u64 *) depv[0].ptr;
     dbPtr[id] = id;
     return NULL_GUID;

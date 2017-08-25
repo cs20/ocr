@@ -36,7 +36,7 @@ static void dbspaceSchedulerObjectStart(ocrSchedulerObject_t *self, ocrPolicyDom
     dbspaceSchedObj->schedList = listFactory->fcts.create(listFactory, (ocrParamList_t*)(&paramList));
     dbspaceSchedObj->listIterator = listFactory->fcts.createIterator(listFactory, dbspaceSchedObj->dbTimeList, 0);
 #else
-    ASSERT(0);
+    ocrAssert(0);
 #endif
     dbspaceSchedObj->dbGuid = dbGuid;
 }
@@ -66,8 +66,8 @@ static void dbspaceSchedulerObjectInitialize(ocrSchedulerObjectFactory_t *fact, 
 ocrSchedulerObject_t* newSchedulerObjectDbspace(ocrSchedulerObjectFactory_t *factory, ocrParamList_t *perInstance) {
 #ifdef OCR_ASSERT
     paramListSchedulerObject_t *paramSchedObj = (paramListSchedulerObject_t*)perInstance;
-    ASSERT(paramSchedObj->config);
-    ASSERT(!paramSchedObj->guidRequired);
+    ocrAssert(paramSchedObj->config);
+    ocrAssert(!paramSchedObj->guidRequired);
 #endif
     ocrSchedulerObject_t* schedObj = NULL;
     schedObj = (ocrSchedulerObject_t*)runtimeChunkAlloc(sizeof(ocrSchedulerObjectDbspace_t), PERSISTENT_CHUNK);
@@ -79,8 +79,8 @@ ocrSchedulerObject_t* newSchedulerObjectDbspace(ocrSchedulerObjectFactory_t *fac
 ocrSchedulerObject_t* dbspaceSchedulerObjectCreate(ocrSchedulerObjectFactory_t *factory, ocrParamList_t *perInstance) {
 #ifdef OCR_ASSERT
     paramListSchedulerObject_t *paramSchedObj = (paramListSchedulerObject_t*)perInstance;
-    ASSERT(!paramSchedObj->config);
-    ASSERT(!paramSchedObj->guidRequired);
+    ocrAssert(!paramSchedObj->config);
+    ocrAssert(!paramSchedObj->guidRequired);
 #endif
     ocrPolicyDomain_t *pd = factory->pd;
     ocrSchedulerObject_t* schedObj = (ocrSchedulerObject_t*)pd->fcts.pdMalloc(pd, sizeof(ocrSchedulerObjectDbspace_t));
@@ -95,7 +95,7 @@ u8 dbspaceSchedulerObjectDestroy(ocrSchedulerObjectFactory_t *fact, ocrScheduler
     if (IS_SCHEDULER_OBJECT_CONFIG_ALLOCATED(self->kind)) {
         runtimeChunkFree((u64)self, PERSISTENT_CHUNK);
     } else {
-        ASSERT(IS_SCHEDULER_OBJECT_PD_ALLOCATED(self->kind));
+        ocrAssert(IS_SCHEDULER_OBJECT_PD_ALLOCATED(self->kind));
         ocrPolicyDomain_t *pd = fact->pd;
         ocrSchedulerObjectDbspace_t* dbspaceSchedObj = (ocrSchedulerObjectDbspace_t*)self;
         ocrSchedulerObjectFactory_t *listFactory = pd->schedulerObjectFactories[dbspaceSchedObj->dbTimeList->fctId];
@@ -107,41 +107,41 @@ u8 dbspaceSchedulerObjectDestroy(ocrSchedulerObjectFactory_t *fact, ocrScheduler
 
 u8 dbspaceSchedulerObjectInsert(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObject_t *self, ocrSchedulerObject_t *element, ocrSchedulerObjectIterator_t *iterator, u32 properties) {
     ocrSchedulerObjectDbspace_t* dbspaceSchedObj = (ocrSchedulerObjectDbspace_t*)self;
-    ASSERT(SCHEDULER_OBJECT_TYPE(element->kind) == OCR_SCHEDULER_OBJECT_DBTIME);
+    ocrAssert(SCHEDULER_OBJECT_TYPE(element->kind) == OCR_SCHEDULER_OBJECT_DBTIME);
     ocrSchedulerObjectFactory_t *listFact = fact->pd->schedulerObjectFactories[dbspaceSchedObj->listIterator->fctId];
     listFact->fcts.insert(listFact, dbspaceSchedObj->dbTimeList, element, iterator, properties);
     return 0;
 }
 
 u8 dbspaceSchedulerObjectRemove(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObject_t *self, ocrSchedulerObjectKind kind, u32 count, ocrSchedulerObject_t *dst, ocrSchedulerObjectIterator_t *iterator, u32 properties) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 u64 dbspaceSchedulerObjectCount(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObject_t *self, u32 properties) {
-    ASSERT(properties == 0);
+    ocrAssert(properties == 0);
     ocrSchedulerObjectDbspace_t* dbspaceSchedObj = (ocrSchedulerObjectDbspace_t*)self;
     ocrSchedulerObjectFactory_t *listFactory = fact->pd->schedulerObjectFactories[dbspaceSchedObj->dbTimeList->fctId];
     return listFactory->fcts.count(listFactory, dbspaceSchedObj->dbTimeList, 0);
 }
 
 ocrSchedulerObjectIterator_t* dbspaceSchedulerObjectCreateIterator(ocrSchedulerObjectFactory_t *factory, ocrSchedulerObject_t *self, u32 properties) {
-    ASSERT(0);
+    ocrAssert(0);
     return NULL;
 }
 
 u8 dbspaceSchedulerObjectDestroyIterator(ocrSchedulerObjectFactory_t * factory, ocrSchedulerObjectIterator_t *iterator) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 u8 dbspaceSchedulerObjectIterate(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObjectIterator_t *iterator, u32 properties) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 ocrSchedulerObject_t* dbspaceGetSchedulerObjectForLocation(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObject_t *self, ocrSchedulerObjectKind kind, ocrLocation_t loc, ocrSchedulerObjectMappingKind mapping, u32 properties) {
-    ASSERT(0);
+    ocrAssert(0);
     return NULL;
 }
 
@@ -152,32 +152,32 @@ u8 dbspaceSetLocationForSchedulerObject(ocrSchedulerObjectFactory_t *fact, ocrSc
 }
 
 ocrSchedulerObjectActionSet_t* dbspaceSchedulerObjectNewActionSet(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObject_t *self, u32 count) {
-    ASSERT(0);
+    ocrAssert(0);
     return NULL;
 }
 
 u8 dbspaceSchedulerObjectDestroyActionSet(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObjectActionSet_t *actionSet) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 u8 dbspaceSchedulerObjectSwitchRunlevel(ocrSchedulerObject_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_t runlevel,
                                     phase_t phase, u32 properties, void (*callback)(ocrPolicyDomain_t*, u64), u64 val) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 u8 dbspaceSchedulerObjectOcrPolicyMsgGetMsgSize(ocrSchedulerObjectFactory_t *fact, ocrPolicyMsg_t *msg, u64 *marshalledSize, u32 properties) {
-    ASSERT((msg->type & PD_MSG_TYPE_ONLY) == PD_MSG_SCHED_TRANSACT);
+    ocrAssert((msg->type & PD_MSG_TYPE_ONLY) == PD_MSG_SCHED_TRANSACT);
 #define PD_MSG msg
 #define PD_TYPE PD_MSG_SCHED_TRANSACT
     ocrSchedulerObject_t *schedObj = &(PD_MSG_FIELD_IO(schedArgs).schedObj);
 #undef PD_MSG
 #undef PD_TYPE
 
-    ASSERT(schedObj->kind == OCR_SCHEDULER_OBJECT_DBSPACE);
+    ocrAssert(schedObj->kind == OCR_SCHEDULER_OBJECT_DBSPACE);
     ocrSchedulerObjectDbspace_t *dbspaceObj = (ocrSchedulerObjectDbspace_t*)schedObj->guid.metaDataPtr;
-    ASSERT(dbspaceObj && dbspaceObj->dbSize != 0);
+    ocrAssert(dbspaceObj && dbspaceObj->dbSize != 0);
     if ((dbspaceObj->dbPtr == NULL) || (schedObj->mapping == OCR_SCHEDULER_OBJECT_MAPPING_RELEASED)) {
         *marshalledSize = 0;
     } else {
@@ -188,22 +188,22 @@ u8 dbspaceSchedulerObjectOcrPolicyMsgGetMsgSize(ocrSchedulerObjectFactory_t *fac
 
 // BUG #920 Cleanup: This is no longer required.
 u8 dbspaceSchedulerObjectOcrPolicyMsgMarshallMsg(ocrSchedulerObjectFactory_t *fact, ocrPolicyMsg_t *msg, u8 *buffer, u32 properties) {
-    ASSERT((msg->type & PD_MSG_TYPE_ONLY) == PD_MSG_SCHED_TRANSACT);
+    ocrAssert((msg->type & PD_MSG_TYPE_ONLY) == PD_MSG_SCHED_TRANSACT);
 #define PD_MSG msg
 #define PD_TYPE PD_MSG_SCHED_TRANSACT
     ocrSchedulerObject_t *schedObj = &(PD_MSG_FIELD_IO(schedArgs).schedObj);
 #undef PD_MSG
 #undef PD_TYPE
 
-    ASSERT(schedObj->kind == OCR_SCHEDULER_OBJECT_DBSPACE);
-    ASSERT(schedObj->mapping == OCR_SCHEDULER_OBJECT_MAPPING_MAPPED);
+    ocrAssert(schedObj->kind == OCR_SCHEDULER_OBJECT_DBSPACE);
+    ocrAssert(schedObj->mapping == OCR_SCHEDULER_OBJECT_MAPPING_MAPPED);
     ocrSchedulerObjectDbspace_t *dbspaceObj = (ocrSchedulerObjectDbspace_t*)schedObj->guid.metaDataPtr;
 
     //Dbspace critical section start
     hal_lock(&dbspaceObj->lock);
 
-    ASSERT(dbspaceObj && dbspaceObj->dbSize != 0 && dbspaceObj->dbPtr != NULL);
-    ASSERT(dbspaceObj->base.mapping == OCR_SCHEDULER_OBJECT_MAPPING_UNMAPPED);
+    ocrAssert(dbspaceObj && dbspaceObj->dbSize != 0 && dbspaceObj->dbPtr != NULL);
+    ocrAssert(dbspaceObj->base.mapping == OCR_SCHEDULER_OBJECT_MAPPING_UNMAPPED);
 
     hal_memCopy(buffer, dbspaceObj->dbPtr, dbspaceObj->dbSize, false); //TODO: this is overhead!
 
@@ -222,16 +222,16 @@ u8 dbspaceSchedulerObjectOcrPolicyMsgMarshallMsg(ocrSchedulerObjectFactory_t *fa
 
 // BUG #920 Cleanup: This is no longer required.
 u8 dbspaceSchedulerObjectOcrPolicyMsgUnMarshallMsg(ocrSchedulerObjectFactory_t *fact, ocrPolicyMsg_t *msg, u8 *localMainPtr, u8 *localAddlPtr, u32 properties) {
-    ASSERT((msg->type & PD_MSG_TYPE_ONLY) == PD_MSG_SCHED_TRANSACT);
+    ocrAssert((msg->type & PD_MSG_TYPE_ONLY) == PD_MSG_SCHED_TRANSACT);
 #define PD_MSG msg
 #define PD_TYPE PD_MSG_SCHED_TRANSACT
     ocrSchedulerObject_t *schedObj = &(PD_MSG_FIELD_IO(schedArgs).schedObj);
 #undef PD_MSG
 #undef PD_TYPE
 
-    ASSERT(schedObj->kind == OCR_SCHEDULER_OBJECT_DBSPACE);
-    ASSERT(!ocrGuidIsNull(schedObj->guid.guid));
-    ASSERT(schedObj->guid.metaDataPtr != NULL);
+    ocrAssert(schedObj->kind == OCR_SCHEDULER_OBJECT_DBSPACE);
+    ocrAssert(!ocrGuidIsNull(schedObj->guid.guid));
+    ocrAssert(schedObj->guid.metaDataPtr != NULL);
     schedObj->mapping = OCR_SCHEDULER_OBJECT_MAPPING_PINNED;
 
     ocrPolicyDomain_t *pd;
@@ -239,7 +239,7 @@ u8 dbspaceSchedulerObjectOcrPolicyMsgUnMarshallMsg(ocrSchedulerObjectFactory_t *
     ocrSchedulerObject_t *rootObj = pd->schedulers[0]->rootObj;
     ocrSchedulerObjectFactory_t *rootFact = pd->schedulerObjectFactories[rootObj->fctId];
     ocrSchedulerObject_t *dbMap = rootFact->fcts.getSchedulerObjectForLocation(rootFact, rootObj, OCR_SCHEDULER_OBJECT_MAP, pd->myLocation, OCR_SCHEDULER_OBJECT_MAPPING_PINNED, 0);
-    ASSERT(dbMap);
+    ocrAssert(dbMap);
     ocrSchedulerObjectFactory_t *mapFact = pd->schedulerObjectFactories[dbMap->fctId];
     ocrSchedulerObjectIterator_t *mapIt = mapFact->fcts.createIterator(mapFact, dbMap, 0);
 #if GUID_BIT_COUNT == 64
@@ -249,12 +249,12 @@ u8 dbspaceSchedulerObjectOcrPolicyMsgUnMarshallMsg(ocrSchedulerObjectFactory_t *
 #endif
     mapFact->fcts.iterate(mapFact, mapIt, SCHEDULER_OBJECT_ITERATE_SEARCH_KEY);
     ocrSchedulerObjectDbspace_t *dbspaceObj = (ocrSchedulerObjectDbspace_t*)mapIt->data;
-    ASSERT(dbspaceObj);
+    ocrAssert(dbspaceObj);
 
     //Dbspace critical section start
     hal_lock(&dbspaceObj->lock);
 
-    ASSERT(dbspaceObj->dbPtr == NULL);
+    ocrAssert(dbspaceObj->dbPtr == NULL);
     dbspaceObj->dbPtr = schedObj->guid.metaDataPtr;
     schedObj->guid.metaDataPtr = dbspaceObj;
 

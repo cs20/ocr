@@ -34,10 +34,10 @@ u8 handlelessCommSwitchRunlevel(ocrCommApi_t *self, ocrPolicyDomain_t *PD, ocrRu
     u8 toReturn = 0;
 
     // This is an inert module, we do not handle callbacks (caller needs to wait on us)
-    ASSERT(callback == NULL);
+    ocrAssert(callback == NULL);
 
     // Verify properties for this call
-    ASSERT(!(properties & RL_FROM_MSG));
+    ocrAssert(!(properties & RL_FROM_MSG));
 
     if(properties & RL_BRING_UP) {
         toReturn |= self->commPlatform->fcts.switchRunlevel(self->commPlatform, PD, runlevel, phase,
@@ -65,7 +65,7 @@ u8 handlelessCommSwitchRunlevel(ocrCommApi_t *self, ocrPolicyDomain_t *PD, ocrRu
         break;
     default:
         // Unknown runlevel
-        ASSERT(0);
+        ocrAssert(0);
     }
 
     if(properties & RL_TEAR_DOWN) {
@@ -94,8 +94,8 @@ u8 handlelessCommSendMessage(ocrCommApi_t *self, ocrLocation_t target, ocrPolicy
     // This may change in the future when we want to support queries on whether
     // a one way message was properly sent
     if(handle) {
-        ASSERT(properties & TWOWAY_MSG_PROP);
-        ASSERT(*handle); // We need to have a handle that is already allocated
+        ocrAssert(properties & TWOWAY_MSG_PROP);
+        ocrAssert(*handle); // We need to have a handle that is already allocated
         (*handle)->destruct = FUNC_ADDR(
             void (*)(ocrMsgHandle_t*), handlelessCommDestructHandle);
         // If persistent, remember where the message was
@@ -114,7 +114,7 @@ u8 handlelessCommSendMessage(ocrCommApi_t *self, ocrLocation_t target, ocrPolicy
     retval = self->commPlatform->fcts.sendMessage(self->commPlatform, target, message, &id, properties, 0);
     if(retval != 0 && handle) {
         // We need the handle to actually exist
-        ASSERT(*handle);
+        ocrAssert(*handle);
         (*handle)->status = HDL_SEND_ERR;
     }
     return retval;
@@ -126,10 +126,10 @@ u8 handlelessCommPollMessage(ocrCommApi_t *self, ocrMsgHandle_t **handle) {
     // an allocated handle and currently return ANY message (ie: not the one
     // specifically for the handle). This is just because this Comm-API
     // implementation does not internally handle handles
-    ASSERT(handle && *handle);
+    ocrAssert(handle && *handle);
 
     // The handle should be valid
-    ASSERT((*handle)->status == HDL_NORMAL);
+    ocrAssert((*handle)->status == HDL_NORMAL);
 
     // If the in message was persistent, we can always re-use it
     // Pass that as a hint
@@ -157,10 +157,10 @@ u8 handlelessCommPollMessage(ocrCommApi_t *self, ocrMsgHandle_t **handle) {
 u8 handlelessCommWaitMessage(ocrCommApi_t *self, ocrMsgHandle_t **handle) {
     u8 retval;
     // Only works if handle is allocated
-    ASSERT(handle && *handle);
+    ocrAssert(handle && *handle);
 
     // The handle should be valid
-    ASSERT((*handle)->status == HDL_NORMAL);
+    ocrAssert((*handle)->status == HDL_NORMAL);
 
     // If the in message was persistent, we can always re-use it
     // Pass that as a hint
@@ -187,12 +187,12 @@ u8 handlelessCommWaitMessage(ocrCommApi_t *self, ocrMsgHandle_t **handle) {
 
 void handlelessCommDestructHandle(ocrMsgHandle_t *handle) {
     // We should have a handle
-    ASSERT(handle);
+    ocrAssert(handle);
     // We should have received a proper response
-    ASSERT(handle->status == HDL_RESPONSE_OK);
+    ocrAssert(handle->status == HDL_RESPONSE_OK);
     if(handle->properties == 1) {
         // Should have something to free
-        ASSERT(handle->response);
+        ocrAssert(handle->response);
         RESULT_ASSERT(handle->commApi->commPlatform->fcts.destructMessage(
                           handle->commApi->commPlatform, handle->response), ==, 0);
     }

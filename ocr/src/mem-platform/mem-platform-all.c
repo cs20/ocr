@@ -35,7 +35,7 @@ ocrMemPlatformFactory_t *newMemPlatformFactory(memPlatformType_t type, ocrParamL
         return newMemPlatformFactoryFsim(typeArg);
 #endif
     default:
-        ASSERT(0);
+        ocrAssert(0);
         return NULL;
     };
 }

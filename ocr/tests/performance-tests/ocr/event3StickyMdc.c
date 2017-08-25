@@ -26,7 +26,7 @@
 
 ocrGuid_t pdHeadEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
 #ifdef SHOW_PRINT
-    PRINTF("HEAD %"PRIu64"\n", (u64)TEST_NBCONTRIBSPD);
+    ocrPrintf("HEAD %"PRIu64"\n", (u64)TEST_NBCONTRIBSPD);
 #endif
 #ifdef SYNC_HEAD
     ocrGuid_t dbGuid = depv[0].guid;
@@ -81,7 +81,7 @@ ocrGuid_t shutEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
 
 ocrGuid_t satEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
 #ifdef SHOW_PRINT
-    PRINTF("SAT\n");
+    ocrPrintf("SAT\n");
 #endif
     ocrGuid_t dbGuid = depv[0].guid;
     infoDb_t * info = (infoDb_t *) depv[0].ptr;
@@ -101,7 +101,7 @@ ocrGuid_t spawnerEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     infoDb_t * info = (infoDb_t *) depv[0].ptr;
     u64 affinityCount;
     ocrAffinityCount(AFFINITY_PD, &affinityCount);
-    ASSERT(affinityCount >= 1);
+    ocrAssert(affinityCount >= 1);
     ocrGuid_t affinities[affinityCount];
     ocrAffinityGet(AFFINITY_PD, &affinityCount, affinities);
 #ifdef SYNC_HEAD
@@ -117,7 +117,7 @@ ocrGuid_t spawnerEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     u32 i = 0;
     while (i < affinityCount) {
 #ifdef SHOW_PRINT
-        PRINTF("SPAWN\n");
+        ocrPrintf("SPAWN\n");
 #endif
         ocrHint_t edtHint;
         ocrHintInit(&edtHint, OCR_HINT_EDT_T);
@@ -141,7 +141,7 @@ ocrGuid_t spawnerEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
 ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     u64 affinityCount;
     ocrAffinityCount(AFFINITY_PD, &affinityCount);
-    ASSERT(affinityCount >= 1);
+    ocrAssert(affinityCount >= 1);
     ocrGuid_t affinities[affinityCount];
     ocrAffinityGet(AFFINITY_PD, &affinityCount, affinities);
     ocrGuid_t latchGuid;
@@ -189,7 +189,7 @@ ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
 #else
 
 ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
-    PRINTF("Test disabled - ENABLE_EXTENSION_LABELING not defined\n");
+    ocrPrintf("Test disabled - ENABLE_EXTENSION_LABELING not defined\n");
     ocrShutdown();
     return NULL_GUID;
 }

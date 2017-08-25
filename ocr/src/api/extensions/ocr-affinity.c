@@ -55,7 +55,7 @@ u8 ocrAffinityCount(ocrAffinityKind kind, u64 * count) {
         // Change this implementation if 'AFFINITY_CURRENT' cardinality can be > 1
         *count = 1;
     } else {
-        ASSERT(false && "Unknown affinity kind");
+        ocrAssert(false && "Unknown affinity kind");
     }
     RETURN_PROFILE(0);
 }
@@ -75,14 +75,14 @@ u8 ocrAffinityQuery(ocrGuid_t guid, u64 * count, ocrGuid_t * affinities) {
     ocrPlatformModelAffinity_t * platformModel = ((ocrPlatformModelAffinity_t*)pd->platformModel);
     if(platformModel == NULL) {
         if (count != NULL) {
-            ASSERT(*count > 0);
+            ocrAssert(*count > 0);
             *count = 1;
         }
         affinities[0] = NULL_GUID;
         RETURN_PROFILE(0);
     } else {
         if (count != NULL) {
-            ASSERT(*count > 0);
+            ocrAssert(*count > 0);
             *count = 1;
         }
         if (ocrGuidIsNull(guid)) {
@@ -98,10 +98,10 @@ u8 ocrAffinityQuery(ocrGuid_t guid, u64 * count, ocrGuid_t * affinities) {
         //NOTE: Shortcoming is that it assumes location are integers.
 #ifdef TG_XE_TARGET
         u32 loc2 = locationToIdx(loc);
-        ASSERT((loc2) < platformModel->pdLocAffinitiesSize);
+        ocrAssert((loc2) < platformModel->pdLocAffinitiesSize);
         affinities[0] = platformModel->pdLocAffinities[loc2];
 #else
-        ASSERT(((u32)loc) < platformModel->pdLocAffinitiesSize);
+        ocrAssert(((u32)loc) < platformModel->pdLocAffinitiesSize);
         affinities[0] = platformModel->pdLocAffinities[(u32)loc];
 #endif
     }
@@ -113,7 +113,7 @@ u8 ocrAffinityQuery(ocrGuid_t guid, u64 * count, ocrGuid_t * affinities) {
 u8 ocrAffinityGet(ocrAffinityKind kind, u64 * count, ocrGuid_t * affinities) {
 #if defined(TG_CE_TARGET)
     // CE should not ask anything
-    ASSERT(count && (*count) == 0);
+    ocrAssert(count && (*count) == 0);
     return 0;
 #endif
     START_PROFILE(api_ocrAffinityGet);
@@ -121,14 +121,14 @@ u8 ocrAffinityGet(ocrAffinityKind kind, u64 * count, ocrGuid_t * affinities) {
     getCurrentEnv(&pd, NULL, NULL, NULL);
     ocrPlatformModelAffinity_t * platformModel = ((ocrPlatformModelAffinity_t*)pd->platformModel);
     if(platformModel == NULL) {
-        ASSERT(*count > 0);
+        ocrAssert(*count > 0);
         *count = 1;
         affinities[0] = NULL_GUID;
         RETURN_PROFILE(0);
     }
 
     if (kind == AFFINITY_PD) {
-        ASSERT(*count <= (pd->neighborCount + 1));
+        ocrAssert(*count <= (pd->neighborCount + 1));
         u64 i = 0;
         while(i < *count) {
             affinities[i] = platformModel->pdLocAffinities[i];
@@ -140,7 +140,7 @@ u8 ocrAffinityGet(ocrAffinityKind kind, u64 * count, ocrGuid_t * affinities) {
     } else if (kind == AFFINITY_CURRENT) {
         affinities[0] = platformModel->pdLocAffinities[platformModel->current];
     } else {
-        ASSERT(false && "Unknown affinity kind");
+        ocrAssert(false && "Unknown affinity kind");
     }
     RETURN_PROFILE(0);
 }
@@ -162,7 +162,7 @@ u8 ocrAffinityGetAt(ocrAffinityKind kind, u64 idx, ocrGuid_t * affinity) {
     }
     if (kind == AFFINITY_PD) {
         if (idx > (pd->neighborCount + 1)) {
-            ASSERT(false && "error: ocrAffinityGetAt index is out of bounds");
+            ocrAssert(false && "error: ocrAffinityGetAt index is out of bounds");
             RETURN_PROFILE(OCR_EINVAL);
         }
         affinity[0] = platformModel->pdLocAffinities[idx];
@@ -172,7 +172,7 @@ u8 ocrAffinityGetAt(ocrAffinityKind kind, u64 idx, ocrGuid_t * affinity) {
     } else if (kind == AFFINITY_CURRENT) {
         affinity[0] = platformModel->pdLocAffinities[platformModel->current];
     } else {
-        ASSERT(false && "Unknown affinity kind");
+        ocrAssert(false && "Unknown affinity kind");
     }
     RETURN_PROFILE(0);
 }

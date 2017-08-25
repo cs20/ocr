@@ -64,12 +64,12 @@ u8 ceSchedulerHeuristicSwitchRunlevelAff(ocrSchedulerHeuristic_t *self, ocrPolic
     u8 toReturn = 0;
 
     // This is an inert module, we do not handle callbacks (caller needs to wait on us)
-    ASSERT(callback == NULL);
+    ocrAssert(callback == NULL);
 
     // Verify properties for this call
-    ASSERT((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
+    ocrAssert((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
            && !(properties & RL_RELEASE));
-    ASSERT(!(properties & RL_FROM_MSG));
+    ocrAssert(!(properties & RL_FROM_MSG));
 
     switch(runlevel) {
     case RL_CONFIG_PARSE:
@@ -83,9 +83,9 @@ u8 ceSchedulerHeuristicSwitchRunlevelAff(ocrSchedulerHeuristic_t *self, ocrPolic
     case RL_MEMORY_OK:
     {
         DPRINTF(DEBUG_LVL_VVERB, "Runlevel: RL_MEMORY_OK\n");
-        ASSERT(self->scheduler);
+        ocrAssert(self->scheduler);
         self->contextCount = ((ocrPolicyDomainCe_t*)PD)->xeCount + PD->neighborCount;
-        ASSERT(self->contextCount > 0);
+        ocrAssert(self->contextCount > 0);
         DPRINTF(DEBUG_LVL_INFO, "ContextCount: %"PRIu64" (XE: %"PRIu32" + Neighbors: %"PRIu32")\n", self->contextCount, ((ocrPolicyDomainCe_t*)PD)->xeCount, PD->neighborCount);
         break;
     }
@@ -154,7 +154,7 @@ u8 ceSchedulerHeuristicSwitchRunlevelAff(ocrSchedulerHeuristic_t *self, ocrPolic
                 //BUG #920 - Revisit getSchedulerObjectForLocation API
                 ceContext->mySchedulerObject = rootFact->fcts.getSchedulerObjectForLocation(rootFact, rootObj, OCR_SCHEDULER_OBJECT_DEQUE,
                                                     context->location, OCR_SCHEDULER_OBJECT_MAPPING_MAPPED, 0);
-                ASSERT(ceContext->mySchedulerObject && ceContext->mySchedulerObject != rootObj);
+                ocrAssert(ceContext->mySchedulerObject && ceContext->mySchedulerObject != rootObj);
                 if(i < ((ocrPolicyDomainCe_t*)PD)->xeCount)
                     ceContext->stealSchedulerContextIndex = (i + 1) % ((ocrPolicyDomainCe_t*)PD)->xeCount;
                 DPRINTF(DEBUG_LVL_VVERB, "Scheduler object %p (fact: %"PRId32") for location: %"PRIx64"\n", ceContext->mySchedulerObject, ceContext->mySchedulerObject->fctId, context->location);
@@ -166,7 +166,7 @@ u8 ceSchedulerHeuristicSwitchRunlevelAff(ocrSchedulerHeuristic_t *self, ocrPolic
         break;
     default:
         // Unknown runlevel
-        ASSERT(0);
+        ocrAssert(0);
     }
     return toReturn;
 }
@@ -217,8 +217,8 @@ static u8 ceWorkStealingGetAff(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuris
     DPRINTF(DEBUG_LVL_INFO, "Location 0x%"PRIx64" attempting to GET WORK; discardAffinity:%"PRIu32"\n",
         (u64)context->location, (u32)discardAffinity);
 
-    ASSERT(ocrGuidIsNull(fguid->guid));
-    ASSERT(fguid->metaDataPtr == NULL);
+    ocrAssert(ocrGuidIsNull(fguid->guid));
+    ocrAssert(fguid->metaDataPtr == NULL);
 
     ocrSchedulerHeuristicCeAff_t *derived = (ocrSchedulerHeuristicCeAff_t*)self;
     if (derived->workCount == 0) {
@@ -237,7 +237,7 @@ static u8 ceWorkStealingGetAff(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuris
     //First try to pop from own deque
     ocrSchedulerHeuristicContextCeAff_t *ceContext = (ocrSchedulerHeuristicContextCeAff_t*)context;
     ocrSchedulerObject_t *schedObj = ceContext->mySchedulerObject;
-    ASSERT(schedObj);
+    ocrAssert(schedObj);
     ocrSchedulerObjectFactory_t *fact = self->scheduler->pd->schedulerObjectFactories[schedObj->fctId];
     u8 retVal = fact->fcts.remove(fact, schedObj, OCR_SCHEDULER_OBJECT_EDT, 1, &edtObj, NULL, SCHEDULER_OBJECT_REMOVE_TAIL);
     ocrLocation_t foundLocation __attribute__((unused)) = context->location;
@@ -258,7 +258,7 @@ static u8 ceWorkStealingGetAff(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuris
         if(ceContext->stealSchedulerContextIndex != (u32)-1) {
             stealSchedulerObject = ((ocrSchedulerHeuristicContextCeAff_t*)(self->contexts[ceContext->stealSchedulerContextIndex]))->mySchedulerObject;
             DPRINTF(DEBUG_LVL_VVERB, "Attempting steal in last successful place: 0x%"PRIx64"\n", self->contexts[ceContext->stealSchedulerContextIndex]->location);
-            ASSERT(stealSchedulerObject->fctId == schedObj->fctId);
+            ocrAssert(stealSchedulerObject->fctId == schedObj->fctId);
             retVal = fact->fcts.remove(fact, stealSchedulerObject, OCR_SCHEDULER_OBJECT_EDT, 1, &edtObj, NULL, SCHEDULER_OBJECT_REMOVE_HEAD); //try cached deque first
             foundLocation = self->contexts[ceContext->stealSchedulerContextIndex]->location;
         }
@@ -273,7 +273,7 @@ static u8 ceWorkStealingGetAff(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuris
                     ocrSchedulerHeuristicContextCeAff_t *otherCtx = (ocrSchedulerHeuristicContextCeAff_t*)self->contexts[ceContext->stealSchedulerContextIndex];
                     stealSchedulerObject = otherCtx->mySchedulerObject;
                     DPRINTF(DEBUG_LVL_VVERB, "Attempting steal from XE: 0x%"PRIx64"\n", self->contexts[ceContext->stealSchedulerContextIndex]->location);
-                    ASSERT(stealSchedulerObject->fctId == schedObj->fctId);
+                    ocrAssert(stealSchedulerObject->fctId == schedObj->fctId);
                     retVal = fact->fcts.remove(fact, stealSchedulerObject, OCR_SCHEDULER_OBJECT_EDT, 1, &edtObj, NULL, SCHEDULER_OBJECT_REMOVE_HEAD);
                     foundLocation = self->contexts[ceContext->stealSchedulerContextIndex]->location;
                 }
@@ -287,7 +287,7 @@ static u8 ceWorkStealingGetAff(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuris
                             ocrSchedulerHeuristicContextCeAff_t *otherCtx = (ocrSchedulerHeuristicContextCeAff_t*)self->contexts[i];
                             stealSchedulerObject = otherCtx->mySchedulerObject;
                             DPRINTF(DEBUG_LVL_VVERB, "Attempting steal from CE: 0x%"PRIx64"\n", self->contexts[i]->location);
-                            ASSERT(stealSchedulerObject->fctId == schedObj->fctId);
+                            ocrAssert(stealSchedulerObject->fctId == schedObj->fctId);
                             retVal = fact->fcts.remove(fact, stealSchedulerObject, OCR_SCHEDULER_OBJECT_EDT, 1, &edtObj, NULL, SCHEDULER_OBJECT_REMOVE_HEAD);
                             foundLocation = self->contexts[i]->location;
                         }
@@ -299,7 +299,7 @@ static u8 ceWorkStealingGetAff(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuris
             } else {
                 nonAffWork = true;
                 // We are a CE and we know that discardAffinity is true, first loop around the other CEs
-                ASSERT(discardAffinity);
+                ocrAssert(discardAffinity);
                 u32 i;
                 for(i = 1; ocrGuidIsNull(edtObj.guid.guid) && i < (self->contextCount - derived->xeCount); ++i) {
                     ceContext->stealSchedulerContextIndex = (context->id + i);
@@ -309,7 +309,7 @@ static u8 ceWorkStealingGetAff(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuris
                     ocrSchedulerHeuristicContextCeAff_t *otherCtx = (ocrSchedulerHeuristicContextCeAff_t*)self->contexts[ceContext->stealSchedulerContextIndex];
                     stealSchedulerObject = otherCtx->mySchedulerObject;
                     DPRINTF(DEBUG_LVL_VVERB, "Attempting steal from neighbor CE: 0x%"PRIx64"\n", self->contexts[ceContext->stealSchedulerContextIndex]->location);
-                    ASSERT(stealSchedulerObject->fctId == schedObj->fctId);
+                    ocrAssert(stealSchedulerObject->fctId == schedObj->fctId);
                     retVal = fact->fcts.remove(fact, stealSchedulerObject, OCR_SCHEDULER_OBJECT_EDT, 1, &edtObj, NULL, SCHEDULER_OBJECT_REMOVE_HEAD);
                     foundLocation = self->contexts[ceContext->stealSchedulerContextIndex]->location;
                 }
@@ -319,7 +319,7 @@ static u8 ceWorkStealingGetAff(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuris
                     ocrSchedulerHeuristicContextCeAff_t *otherCtx = (ocrSchedulerHeuristicContextCeAff_t*)self->contexts[i];
                     stealSchedulerObject = otherCtx->mySchedulerObject;
                     DPRINTF(DEBUG_LVL_VVERB, "Attempting steal from internal XE: 0x%"PRIx64"\n", self->contexts[i]->location);
-                    ASSERT(stealSchedulerObject->fctId == schedObj->fctId);
+                    ocrAssert(stealSchedulerObject->fctId == schedObj->fctId);
                     retVal = fact->fcts.remove(fact, stealSchedulerObject, OCR_SCHEDULER_OBJECT_EDT, 1, &edtObj, NULL, SCHEDULER_OBJECT_REMOVE_HEAD);
                     foundLocation = self->contexts[i]->location;
                 }
@@ -331,14 +331,14 @@ static u8 ceWorkStealingGetAff(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuris
 #endif
 
     if (!(ocrGuidIsNull(edtObj.guid.guid))) {
-        ASSERT(retVal == 0);
+        ocrAssert(retVal == 0);
         *fguid = edtObj.guid;
         derived->workCount--;
         DPRINTF(DEBUG_LVL_INFO, "Found work: "GUIDF" from 0x%"PRIx64" (nonAffinitized: %"PRIu32")\n", GUIDA(edtObj.guid.guid),
             (u64)foundLocation, (u32)nonAffWork);
     } else {
-        ASSERT(retVal != 0);
-        ASSERT(0); //Check done early
+        ocrAssert(retVal != 0);
+        ocrAssert(0); //Check done early
     }
     return retVal;
 }
@@ -368,7 +368,7 @@ static u8 ceSchedulerHeuristicWorkEdtUserInvokeAff(ocrSchedulerHeuristic_t *self
     if (retVal) {
         ocrSchedulerHeuristicContextCeAff_t *ceContext = (ocrSchedulerHeuristicContextCeAff_t*)context;
         // The neighbor should not make multiple requests before we answer.
-        ASSERT(!ceContext->inWorkRequestPending);
+        ocrAssert(!ceContext->inWorkRequestPending);
         DPRINTF(DEBUG_LVL_VVERB, "TAKE_WORK_INVOKE from %"PRIx64" (pending)\n", context->location);
         // If this is a non-affinitized request, we won't respond until we do get work
         if(discardAffinity || derived->enforceAffinity) {
@@ -382,7 +382,7 @@ static u8 ceSchedulerHeuristicWorkEdtUserInvokeAff(ocrSchedulerHeuristic_t *self
             }
             derived->inPendingCount++;
             ceContext->inWorkRequestPending = true;
-            ASSERT(ceContext->msgId == 0 && hints != NULL);
+            ocrAssert(ceContext->msgId == 0 && hints != NULL);
             ocrPolicyMsg_t *message = (ocrPolicyMsg_t*)hints;
             ceContext->msgId = message->msgId; //HACK: Store the msgId for future response
         } else {
@@ -402,20 +402,20 @@ static u8 ceSchedulerHeuristicWorkEdtUserInvokeAff(ocrSchedulerHeuristic_t *self
 
 u8 ceSchedulerHeuristicGetWorkInvokeAff(ocrSchedulerHeuristic_t *self, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
     ocrSchedulerHeuristicContext_t *context = self->fcts.getContext(self, opArgs->location);
-    ASSERT(context);
+    ocrAssert(context);
     ocrSchedulerOpWorkArgs_t *taskArgs = (ocrSchedulerOpWorkArgs_t*)opArgs;
     switch(taskArgs->kind) {
     case OCR_SCHED_WORK_EDT_USER:
         return ceSchedulerHeuristicWorkEdtUserInvokeAff(self, context, opArgs, hints);
     default:
-        ASSERT(0);
+        ocrAssert(0);
         return OCR_ENOTSUP;
     }
     return 0;
 }
 
 u8 ceSchedulerHeuristicGetWorkSimulateAff(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicContext_t *context, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
@@ -424,8 +424,8 @@ static u8 handleEmptyResponseAff(ocrSchedulerHeuristic_t *self, ocrSchedulerHeur
     DPRINTF(DEBUG_LVL_VVERB, "Got an empty work request response from 0x%"PRIx64"\n", context->location);
     ocrSchedulerHeuristicContextCeAff_t *ceContext = (ocrSchedulerHeuristicContextCeAff_t*)context;
     ocrSchedulerHeuristicCeAff_t *derived = (ocrSchedulerHeuristicCeAff_t*)self;
-    ASSERT(AGENT_FROM_ID(context->location) == ID_AGENT_CE);
-    ASSERT(ceContext->outWorkRequestPending == AFF_REQUEST);
+    ocrAssert(AGENT_FROM_ID(context->location) == ID_AGENT_CE);
+    ocrAssert(ceContext->outWorkRequestPending == AFF_REQUEST);
     ceContext->outWorkRequestPending = AFF_REQUEST_FAIL;
     // We now say that we are available for non-affinitized work requests
     derived->outWorkVictimsAvailable[1]++;
@@ -436,7 +436,7 @@ static u8 ceSchedulerHeuristicNotifyEdtReadyInvokeAff(ocrSchedulerHeuristic_t *s
     ocrSchedulerHeuristicCeAff_t *derived = (ocrSchedulerHeuristicCeAff_t*)self;
     // We should definitely not have EDTs becoming ready after the shutdown is called
     // Maybe if the shutdown is not the last EDT but even then...
-    ASSERT(!derived->shutdownMode);
+    ocrAssert(!derived->shutdownMode);
     ocrSchedulerOpNotifyArgs_t *notifyArgs = (ocrSchedulerOpNotifyArgs_t*)opArgs;
     ocrPolicyDomain_t *pd = self->scheduler->pd;
     ocrFatGuid_t fguid = notifyArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_EDT_READY).guid;
@@ -457,7 +457,7 @@ static u8 ceSchedulerHeuristicNotifyEdtReadyInvokeAff(ocrSchedulerHeuristic_t *s
         DPRINTF(DEBUG_LVL_VERB, "EDT ready notification from 0x%"PRIx64" (XE)\n", (u64)opArgs->location);
     }
     ocrTask_t *task = (ocrTask_t*)fguid.metaDataPtr;
-    ASSERT(task);
+    ocrAssert(task);
 
     // The general algorithm here is as follows:
     //  - check the affinity of the work
@@ -487,7 +487,7 @@ static u8 ceSchedulerHeuristicNotifyEdtReadyInvokeAff(ocrSchedulerHeuristic_t *s
         affGuid.upper = 0ULL;
         affGuid.lower = hintValue;
 #endif
-        ASSERT(!ocrGuidIsNull(affGuid));
+        ocrAssert(!ocrGuidIsNull(affGuid));
         affinityToLocation(&affLoc, affGuid);
         u32 mySocketAndBeyond, affSocketAndBeyond, myCluster, affCluster, myBlock, affBlock;
         mySocketAndBeyond = myLoc >> MAP_SOCKET_SHIFT;
@@ -519,7 +519,7 @@ static u8 ceSchedulerHeuristicNotifyEdtReadyInvokeAff(ocrSchedulerHeuristic_t *s
             // We have to put it somewhere else
             // If this is not true, it means we are going outside of a socket which is not
             // yet supported.
-            ASSERT(mySocketAndBeyond == affSocketAndBeyond);
+            ocrAssert(mySocketAndBeyond == affSocketAndBeyond);
             ocrLocation_t affinityLoc;
             if(myCluster == affCluster) {
                 // We are in the same cluster so we know that we have that we have a queue for that neighbor
@@ -538,19 +538,19 @@ static u8 ceSchedulerHeuristicNotifyEdtReadyInvokeAff(ocrSchedulerHeuristic_t *s
                 }
             }
             // If this fails, it means we somehow don't have the right neighbors
-            ASSERT(found);
+            ocrAssert(found);
             DPRINTF(DEBUG_LVL_INFO, "EDT will be affinitized to remote 0x%"PRIx64" for final affinity 0x%"PRIx64"\n",
                 insertContext->location, affinityLoc);
         }
     } else if (ocrGetHintValue(&edtHint, OCR_HINT_EDT_SLOT_MAX_ACCESS, &affinitySlot) == 0) {
         // If there is no affinity information directly, we see if we can get something from the data-block
-        ASSERT(affinitySlot < task->depc);
+        ocrAssert(affinitySlot < task->depc);
         ocrTaskHc_t *hcTask = (ocrTaskHc_t*)task; //TODO:This is temporary until we get proper introspection support
         ocrEdtDep_t *depv = hcTask->resolvedDeps;
         ocrGuid_t dbGuid = depv[affinitySlot].guid;
         ocrDataBlock_t *db = NULL;
         pd->guidProviders[0]->fcts.getVal(pd->guidProviders[0], dbGuid, (u64*)(&(db)), NULL, MD_LOCAL, NULL);
-        ASSERT(db);
+        ocrAssert(db);
         u64 dbMemAffinity = ((u64)-1);
         ocrHint_t dbHint;
         ocrHintInit(&dbHint, OCR_HINT_DB_T);
@@ -577,7 +577,7 @@ static u8 ceSchedulerHeuristicNotifyEdtReadyInvokeAff(ocrSchedulerHeuristic_t *s
                     break;
                 }
             }
-            ASSERT(found);
+            ocrAssert(found);
         }
     }
 
@@ -590,7 +590,7 @@ static u8 ceSchedulerHeuristicNotifyEdtReadyInvokeAff(ocrSchedulerHeuristic_t *s
 
     ocrSchedulerHeuristicContextCeAff_t *ceInsertContext = (ocrSchedulerHeuristicContextCeAff_t*)insertContext;
     ocrSchedulerObject_t *insertSchedObj = ceInsertContext->mySchedulerObject;
-    ASSERT(insertSchedObj);
+    ocrAssert(insertSchedObj);
     ocrSchedulerObject_t edtObj;
     edtObj.guid = fguid;
     edtObj.kind = OCR_SCHEDULER_OBJECT_EDT;
@@ -602,7 +602,7 @@ static u8 ceSchedulerHeuristicNotifyEdtReadyInvokeAff(ocrSchedulerHeuristic_t *s
         // from it and now it answered us.
         ocrSchedulerHeuristicContextCeAff_t *ceContext = (ocrSchedulerHeuristicContextCeAff_t*)context;
         // Assert that we had actually requested work
-        ASSERT(ceContext->outWorkRequestPending == AFF_REQUEST ||
+        ocrAssert(ceContext->outWorkRequestPending == AFF_REQUEST ||
             ceContext->outWorkRequestPending == NO_AFF_REQUEST);
         // Update the outWorkRequestPending properly as well as outWorkVictimsAvailable
         // Update: we no longer have a request pending
@@ -625,7 +625,7 @@ static u8 ceSchedulerHeuristicNotifyEdtReadyInvokeAff(ocrSchedulerHeuristic_t *s
                 }
             }
             // We should have switched everyone
-            ASSERT(derived->outWorkVictimsAvailable[1] == 0);
+            ocrAssert(derived->outWorkVictimsAvailable[1] == 0);
         }
     }
     DPRINTF(DEBUG_LVL_VVERB, "GIVEN WORK to context %"PRIx64"\n", insertContext->location);
@@ -634,7 +634,7 @@ static u8 ceSchedulerHeuristicNotifyEdtReadyInvokeAff(ocrSchedulerHeuristic_t *s
 
 u8 ceSchedulerHeuristicNotifyInvokeAff(ocrSchedulerHeuristic_t *self, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
     ocrSchedulerHeuristicContext_t *context = self->fcts.getContext(self, opArgs->location);
-    ASSERT(context);
+    ocrAssert(context);
     ocrSchedulerOpNotifyArgs_t *notifyArgs = (ocrSchedulerOpNotifyArgs_t*)opArgs;
     switch(notifyArgs->kind) {
     case OCR_SCHED_NOTIFY_EDT_READY:
@@ -663,34 +663,34 @@ u8 ceSchedulerHeuristicNotifyInvokeAff(ocrSchedulerHeuristic_t *self, ocrSchedul
     case OCR_SCHED_NOTIFY_DB_CREATE:
         break;
     default:
-        ASSERT(0);
+        ocrAssert(0);
         return OCR_ENOTSUP;
     }
     return 0;
 }
 
 u8 ceSchedulerHeuristicNotifySimulateAff(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicContext_t *context, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 u8 ceSchedulerHeuristicTransactInvokeAff(ocrSchedulerHeuristic_t *self, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 u8 ceSchedulerHeuristicTransactSimulateAff(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicContext_t *context, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 u8 ceSchedulerHeuristicAnalyzeInvokeAff(ocrSchedulerHeuristic_t *self, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 u8 ceSchedulerHeuristicAnalyzeSimulateAff(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicContext_t *context, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
@@ -698,9 +698,9 @@ static u8 makeWorkRequestAff(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristi
     u8 returnCode = 0;
     ocrPolicyDomain_t *pd = self->scheduler->pd;
     DPRINTF(DEBUG_LVL_VVERB, "MAKE_WORK_REQUEST to %"PRIx64"\n", context->location);
-    ASSERT(AGENT_FROM_ID(context->location) == ID_AGENT_CE);
+    ocrAssert(AGENT_FROM_ID(context->location) == ID_AGENT_CE);
     ocrSchedulerHeuristicContextCeAff_t *ceContext = (ocrSchedulerHeuristicContextCeAff_t*)context;
-    ASSERT(ceContext->outWorkRequestPending == NO_REQUEST ||
+    ocrAssert(ceContext->outWorkRequestPending == NO_REQUEST ||
         ceContext->outWorkRequestPending == AFF_REQUEST_FAIL);
     PD_MSG_STACK(msg);
     getCurrentEnv(NULL, NULL, NULL, &msg);
@@ -717,7 +717,7 @@ static u8 makeWorkRequestAff(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristi
 
     if (isBlocking) {
         returnCode = pd->fcts.sendMessage(pd, msg.destLocation, &msg, NULL, 0);
-        ASSERT(returnCode == 0);
+        ocrAssert(returnCode == 0);
     } else {
         returnCode = pd->fcts.sendMessage(pd, msg.destLocation, &msg, NULL, 0);
     }
@@ -725,15 +725,15 @@ static u8 makeWorkRequestAff(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristi
 #undef PD_TYPE
     if (returnCode == 0) {
         ocrSchedulerHeuristicCeAff_t *derived = (ocrSchedulerHeuristicCeAff_t*)self;
-        ASSERT(ceContext->outWorkRequestPending == AFF_REQUEST_FAIL ||
+        ocrAssert(ceContext->outWorkRequestPending == AFF_REQUEST_FAIL ||
             ceContext->outWorkRequestPending == NO_REQUEST);
         if(ceContext->outWorkRequestPending == AFF_REQUEST_FAIL) {
             ceContext->outWorkRequestPending = NO_AFF_REQUEST;
-            ASSERT(derived->outWorkVictimsAvailable[1]);
+            ocrAssert(derived->outWorkVictimsAvailable[1]);
             --derived->outWorkVictimsAvailable[1];
         } else {
             ceContext->outWorkRequestPending = AFF_REQUEST;
-            ASSERT(derived->outWorkVictimsAvailable[0]);
+            ocrAssert(derived->outWorkVictimsAvailable[0]);
             --derived->outWorkVictimsAvailable[0];
         }
         DPRINTF(DEBUG_LVL_VVERB, "MAKE_WORK_REQUEST SUCCESS to %"PRIx64"\n", context->location);
@@ -747,8 +747,8 @@ static u8 respondWorkRequestAff(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuri
     DPRINTF(DEBUG_LVL_VVERB, "RESPOND_WORK_REQUEST to %"PRIx64"\n", context->location);
     ocrSchedulerHeuristicCeAff_t *derived = (ocrSchedulerHeuristicCeAff_t*)self;
     ocrSchedulerHeuristicContextCeAff_t *ceContext = (ocrSchedulerHeuristicContextCeAff_t*)context;
-    ASSERT(ceContext->inWorkRequestPending);
-    ASSERT(fguid);
+    ocrAssert(ceContext->inWorkRequestPending);
+    ocrAssert(fguid);
     bool ceMessage = false;
 
     // If the receiver is an XE, wake it up
@@ -824,7 +824,7 @@ u8 ceSchedulerHeuristicUpdateAff(ocrSchedulerHeuristic_t *self, u32 properties) 
 
             if (derived->inPendingCount == 0)
                 break; //Nobody is waiting. Great!... break out and return.
-            ASSERT(derived->inPendingCount <= self->contextCount);
+            ocrAssert(derived->inPendingCount <= self->contextCount);
 
             //If we have work, respond to the pending requests...
             //We satisfy the XEs requests first before giving work to CEs
@@ -853,7 +853,7 @@ u8 ceSchedulerHeuristicUpdateAff(ocrSchedulerHeuristic_t *self, u32 properties) 
             if(derived->outWorkVictimsAvailable[stealIdx] == 0)
                 stealIdx = 1; // Non-affinitized manner
             if (derived->workCount == 0 && derived->inPendingCount != 0 && derived->outWorkVictimsAvailable[stealIdx] != 0) {
-                ASSERT(derived->outWorkVictimsAvailable[stealIdx] <= pd->neighborCount);
+                ocrAssert(derived->outWorkVictimsAvailable[stealIdx] <= pd->neighborCount);
 
                 //No work left... some are still waiting... so, try to find work from neighbors
                 //If work request fails, no problem, try later
@@ -865,14 +865,14 @@ u8 ceSchedulerHeuristicUpdateAff(ocrSchedulerHeuristic_t *self, u32 properties) 
                         u8 returnCode = makeWorkRequestAff(self, context, false);
                         if (returnCode != 0) {
                             if (returnCode == 2) { //Location is dead
-                                ASSERT(context->location != pd->parentLocation); //Make sure parent is not dead
+                                ocrAssert(context->location != pd->parentLocation); //Make sure parent is not dead
                                 ceContext->canAcceptWorkRequest = false;
                                 --derived->outWorkVictimsAvailable[stealIdx];
                             }
                         } else {
-                            ASSERT(ceContext->outWorkRequestPending != NO_REQUEST &&
+                            ocrAssert(ceContext->outWorkRequestPending != NO_REQUEST &&
                                 ceContext->outWorkRequestPending != AFF_REQUEST_FAIL);
-                            ASSERT(derived->outWorkVictimsAvailable[stealIdx] <= pd->neighborCount);
+                            ocrAssert(derived->outWorkVictimsAvailable[stealIdx] <= pd->neighborCount);
                         }
                     }
                 }
@@ -880,7 +880,7 @@ u8 ceSchedulerHeuristicUpdateAff(ocrSchedulerHeuristic_t *self, u32 properties) 
         }
         break;
     case OCR_SCHEDULER_HEURISTIC_UPDATE_PROP_SHUTDOWN: {
-            ASSERT(!derived->shutdownMode);
+            ocrAssert(!derived->shutdownMode);
             derived->shutdownMode = true;
 
             ocrFatGuid_t fguid;
@@ -912,7 +912,7 @@ u8 ceSchedulerHeuristicUpdateAff(ocrSchedulerHeuristic_t *self, u32 properties) 
         }
         break;
     default:
-        ASSERT(0);
+        ocrAssert(0);
         return OCR_ENOTSUP;
     }
     return 0;

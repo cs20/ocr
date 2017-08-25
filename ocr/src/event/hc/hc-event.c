@@ -338,7 +338,7 @@ void setReductionFctPtr(ocrEventHcCollective_t * dself, redOp_t redOp) {
     } else if (REDOP_EQ((REDOP_BS4 | REDOP_UNSIGNED | REDOP_INTEGER | REDOP_BITXOR), redOp)) {
         dself->reduce = reduceU32BitXor; return;
     }
-    ASSERT(false && "Unresolved reduction function pointer");
+    ocrAssert(false && "Unresolved reduction function pointer");
 }
 
 typedef u16 rph_t;
@@ -478,7 +478,7 @@ u8 destructEventHcPersist(ocrEvent_t *base) {
     //
     // By contract the satisfy code should directly call destructEventHc
     // if it wins the right to invoke the destruction code
-    ASSERT(wc != STATE_DESTROY_SEEN);
+    ocrAssert(wc != STATE_DESTROY_SEEN);
     if (wc == STATE_CHECKED_IN) {
         // Competing with the satisfy waiters code
         u32 oldV = hal_cmpswap32(&(event->waitersCount), wc, STATE_DESTROY_SEEN);
@@ -491,7 +491,7 @@ u8 destructEventHcPersist(ocrEvent_t *base) {
         } else { // CAS failed
             // Was competing with the CAS in satisfy which only
             // does one thing: STATE_CHECKED_IN => STATE_CHECKED_OUT
-            ASSERT(event->waitersCount == STATE_CHECKED_OUT);
+            ocrAssert(event->waitersCount == STATE_CHECKED_OUT);
             // fall-through and destroy the event
         }
     }
@@ -546,7 +546,7 @@ ocrFatGuid_t getEventHc(ocrEvent_t *base) {
     }
 #endif
     default:
-        ASSERT(0);
+        ocrAssert(0);
     }
     return res;
 }
@@ -560,7 +560,7 @@ static u8 commonSatisfyRegNode(ocrPolicyDomain_t * pd, ocrPolicyMsg_t * msg,
     statsDEP_SATISFYFromEvt(pd, evtGuid, NULL, node->guid,
                             db.guid, node->slot);
 #endif
-    ASSERT(!ocrGuidIsUninitialized(node->guid));
+    ocrAssert(!ocrGuidIsUninitialized(node->guid));
     DPRINTF(DEBUG_LVL_INFO, "SatisfyFromEvent: src: "GUIDF" dst: "GUIDF" slot:%"PRIu32" \n", GUIDA(evtGuid), GUIDA(node->guid), node->slot);
 #define PD_MSG (msg)
 #define PD_TYPE PD_MSG_DEP_SATISFY
@@ -610,7 +610,7 @@ static u8 commonSatisfyRegNodeEager(ocrPolicyDomain_t * pd, ocrPolicyMsg_t * msg
                     ocrPolicyMsg_t * msgClone;
                     PD_MSG_STACK(msgStack);
                     u64 msgSize = (_PD_MSG_SIZE_IN(PD_MSG_GUID_METADATA_CLONE)) + sizeof(u32) + sizeof(regNode_t) - sizeof(char*);
-                    ASSERT(dstLocation != pd->myLocation); // Per the getVal above
+                    ocrAssert(dstLocation != pd->myLocation); // Per the getVal above
                     if (msgSize > sizeof(ocrPolicyMsg_t)) {
                         //TODO-MD-SLAB
                         msgClone = (ocrPolicyMsg_t *) pd->fcts.pdMalloc(pd, msgSize);
@@ -661,7 +661,7 @@ static u8 commonSatisfyWaiters(ocrPolicyDomain_t *pd, ocrEvent_t *base, ocrFatGu
 #endif
 
     if(waitersCount > 0) {
-        ASSERT(!(ocrGuidIsUninitialized(dbWaiters.guid)));
+        ocrAssert(!(ocrGuidIsUninitialized(dbWaiters.guid)));
         // First acquire the DB that contains the waiters
 #define PD_MSG (msg)
 #define PD_TYPE PD_MSG_DB_ACQUIRE
@@ -679,11 +679,11 @@ static u8 commonSatisfyWaiters(ocrPolicyDomain_t *pd, ocrEvent_t *base, ocrFatGu
             PD_MSG_FIELD_IO(properties) = DB_MODE_CONST | DB_PROP_RT_ACQUIRE;
         }
         u8 res __attribute__((unused)) = pd->fcts.processMessage(pd, msg, true);
-        ASSERT(!res);
+        ocrAssert(!res);
         regNode_t * waiters = (regNode_t*)PD_MSG_FIELD_O(ptr);
         //BUG #273: we should not get an updated deguidification...
         dbWaiters = PD_MSG_FIELD_IO(guid); //Get updated deguidification if needed
-        ASSERT(waiters);
+        ocrAssert(waiters);
 #undef PD_TYPE
 
         // Second, call satisfy on all the waiters
@@ -713,7 +713,7 @@ static u8 commonSatisfyWaiters(ocrPolicyDomain_t *pd, ocrEvent_t *base, ocrFatGu
 // concurrent registerWaiter calls (this would be a programmer error)
 u8 satisfyEventHcOnce(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
     ocrEventHc_t *event = (ocrEventHc_t*)base;
-    ASSERT(slot == 0); // For non-latch events, only one slot
+    ocrAssert(slot == 0); // For non-latch events, only one slot
 
     DPRINTF(DEBUG_LVL_INFO, "Satisfy: "GUIDF" with "GUIDF"\n", GUIDA(base->guid), GUIDA(db.guid));
 
@@ -746,7 +746,7 @@ u8 satisfyEventHcOnce(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
 }
 
 static u8 commonSatisfyEventHcPersist(ocrEvent_t *base, ocrFatGuid_t db, u32 slot, u32 waitersCount) {
-    ASSERT(slot == 0); // Persistent-events are single slot
+    ocrAssert(slot == 0); // Persistent-events are single slot
     DPRINTF(DEBUG_LVL_INFO, "Satisfy %s: "GUIDF" with "GUIDF"\n", eventTypeToString(base),
             GUIDA(base->guid), GUIDA(db.guid));
 
@@ -823,7 +823,7 @@ u8 satisfyEventHcCounted(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
     if ((event->waitersCount == STATE_CHECKED_IN) ||
         (event->waitersCount == STATE_CHECKED_OUT)) {
         DPRINTF(DBG_HCEVT_ERR, "User-level error detected: try to satisfy a counted event that's already satisfied: "GUIDF"\n", GUIDA(base->guid));
-        ASSERT(false);
+        ocrAssert(false);
         hal_unlock(&(event->waitersLock));
         return 1; //BUG #603 error codes: Put some error code here.
     }
@@ -866,7 +866,7 @@ static u32 setSatisfiedEventHcPersist(ocrEvent_t *base, ocrFatGuid_t db, locNode
             // Sticky needs to check for error, idem just ignores by definition.
             //BUG #809 Nanny-mode
             DPRINTF(DBG_HCEVT_ERR, "User-level error detected: try to satisfy a sticky event that's already satisfied: "GUIDF"\n", GUIDA(base->guid));
-            ASSERT(false);
+            ocrAssert(false);
         }
         hal_unlock(&(devt->waitersLock));
         return STATE_CHECKED_IN;
@@ -905,7 +905,7 @@ u8 satisfyEventHcPersistSticky(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
     // Register the satisfy
     locNode_t * curHead;
     u32 waitersCount = setSatisfiedEventHcPersist(base, db, &curHead, /*checkError*/ true);
-    ASSERT(waitersCount != STATE_CHECKED_IN); // i.e. no two satisfy on stickies
+    ocrAssert(waitersCount != STATE_CHECKED_IN); // i.e. no two satisfy on stickies
     //BUG #989: MT opportunity with two following calls micro-tasks and
     //          have a 'join' event to set the destruction flag.
     // Notify peers
@@ -918,7 +918,7 @@ u8 satisfyEventHcPersistSticky(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
 // This is for latch events
 u8 satisfyEventHcLatch(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
     ocrEventHcLatch_t *event = (ocrEventHcLatch_t*)base;
-    ASSERT(slot == OCR_EVENT_LATCH_DECR_SLOT ||
+    ocrAssert(slot == OCR_EVENT_LATCH_DECR_SLOT ||
            slot == OCR_EVENT_LATCH_INCR_SLOT);
 
     s32 incr = (slot == OCR_EVENT_LATCH_DECR_SLOT)?-1:1;
@@ -1005,7 +1005,7 @@ static u8 commonEnqueueWaiter(ocrPolicyDomain_t *pd, ocrEvent_t *base, ocrFatGui
             // Initial setup
             u8 toReturn = createDbRegNode(&(event->waitersDb), HCEVT_WAITER_DYNAMIC_COUNT, false, &waiters);
             if (toReturn) {
-                ASSERT(false && "Failed allocating db waiter");
+                ocrAssert(false && "Failed allocating db waiter");
                 hal_unlock(&(event->waitersLock));
                 return toReturn;
             }
@@ -1026,15 +1026,15 @@ static u8 commonEnqueueWaiter(ocrPolicyDomain_t *pd, ocrEvent_t *base, ocrFatGui
             //Should be a local DB
             if((toReturn = pd->fcts.processMessage(pd, msg, true))) {
                 // should be the only writer active on the waiter DB since we have the lock
-                ASSERT(false); // debug
-                ASSERT(toReturn != OCR_EBUSY);
+                ocrAssert(false); // debug
+                ocrAssert(toReturn != OCR_EBUSY);
                 hal_unlock(&(event->waitersLock));
                 return toReturn; //BUG #603 error codes
             }
             waiters = (regNode_t*)PD_MSG_FIELD_O(ptr);
             //BUG #273
             event->waitersDb = PD_MSG_FIELD_IO(guid);
-            ASSERT(waiters);
+            ocrAssert(waiters);
 #undef PD_TYPE
             if(waitersCount + 1 == event->waitersMax) {
                 // We need to create a new DB and copy things over
@@ -1049,7 +1049,7 @@ static u8 commonEnqueueWaiter(ocrPolicyDomain_t *pd, ocrEvent_t *base, ocrFatGui
                 PD_MSG_FIELD_I(dbType) = RUNTIME_DBTYPE;
                 PD_MSG_FIELD_I(allocator) = NO_ALLOC;
                 if((toReturn = pd->fcts.processMessage(pd, msg, true))) {
-                    ASSERT(false); // debug
+                    ocrAssert(false); // debug
                     hal_unlock(&(event->waitersLock));
                     return toReturn; //BUG #603 error codes
                 }
@@ -1117,7 +1117,7 @@ static u8 commonEnqueueWaiter(ocrPolicyDomain_t *pd, ocrEvent_t *base, ocrFatGui
             PD_MSG_FIELD_I(srcLoc) = pd->myLocation;
             PD_MSG_FIELD_I(properties) = DB_PROP_RT_ACQUIRE;
             if((toReturn = pd->fcts.processMessage(pd, msg, false))) {
-                ASSERT(false); // debug
+                ocrAssert(false); // debug
                 return toReturn; //BUG #603 error codes
             }
 #undef PD_MSG
@@ -1158,7 +1158,7 @@ u8 registerWaiterEventHc(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot, bool i
     if (event->waitersCount == STATE_CHECKED_IN) {
          // This is best effort race check
          DPRINTF(DBG_HCEVT_ERR, "User-level error detected: adding dependence to a non-persistent event that's already satisfied: "GUIDF"\n", GUIDA(base->guid));
-         ASSERT(false);
+         ocrAssert(false);
          return 1; //BUG #603 error codes: Put some error code here.
     }
     ocrFatGuid_t currentEdt = {.guid = curTask!=NULL?curTask->guid:NULL_GUID, .metaDataPtr = curTask};
@@ -1210,7 +1210,7 @@ u8 registerWaiterEventHcPersist(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot,
 #ifndef REG_ASYNC
 #ifndef REG_ASYNC_SGL
     if(isDepAdd && waiterKind == OCR_GUID_EDT) {
-        ASSERT(false && "Should never happen anymore");
+        ocrAssert(false && "Should never happen anymore");
         // If we're adding a dependence and the waiter is an EDT we
         // skip this part. The event is registered on the EDT and
         // the EDT will register on the event only when its dependence
@@ -1219,7 +1219,7 @@ u8 registerWaiterEventHcPersist(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot,
     }
 #endif
 #endif
-    ASSERT(waiterKind == OCR_GUID_EDT || (waiterKind & OCR_GUID_EVENT));
+    ocrAssert(waiterKind == OCR_GUID_EDT || (waiterKind & OCR_GUID_EVENT));
 
     DPRINTF(DEBUG_LVL_INFO, "Register waiter %s: "GUIDF" with waiter "GUIDF" on slot %"PRId32"\n",
             eventTypeToString(base), GUIDA(base->guid), GUIDA(waiter.guid), slot);
@@ -1282,7 +1282,7 @@ u8 registerWaiterEventHcCounted(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot,
 #ifndef REG_ASYNC
 #ifndef REG_ASYNC_SGL
     if(isDepAdd && waiterKind == OCR_GUID_EDT) {
-        ASSERT(false && "Should never happen anymore");
+        ocrAssert(false && "Should never happen anymore");
         // If we're adding a dependence and the waiter is an EDT we
         // skip this part. The event is registered on the EDT and
         // the EDT will register on the event only when its dependence
@@ -1291,7 +1291,7 @@ u8 registerWaiterEventHcCounted(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot,
     }
 #endif
 #endif
-    ASSERT(waiterKind == OCR_GUID_EDT || (waiterKind & OCR_GUID_EVENT));
+    ocrAssert(waiterKind == OCR_GUID_EDT || (waiterKind & OCR_GUID_EVENT));
 
     DPRINTF(DEBUG_LVL_INFO, "Register waiter %s: "GUIDF" with waiter "GUIDF" on slot %"PRId32"\n",
             eventTypeToString(base), GUIDA(base->guid), GUIDA(waiter.guid), slot);
@@ -1315,7 +1315,7 @@ u8 registerWaiterEventHcCounted(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot,
         // Account for this registration. When it reaches zero the event
         // can be deallocated since it is already satisfied and this call
         // was the last ocrAddDependence.
-        ASSERT(devt->nbDeps > 0);
+        ocrAssert(devt->nbDeps > 0);
         devt->nbDeps--;
         u64 nbDeps = devt->nbDeps;
         hal_unlock(&(event->base.waitersLock));
@@ -1371,12 +1371,12 @@ u8 unregisterWaiterEventHc(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot, bool
     PD_MSG_FIELD_IO(properties) = DB_MODE_RW | DB_PROP_RT_ACQUIRE;
     //Should be a local DB
     u8 res __attribute__((unused)) = pd->fcts.processMessage(pd, &msg, true);
-    ASSERT(!res); // Possible corruption of waitersDb
+    ocrAssert(!res); // Possible corruption of waitersDb
 
     waiters = (regNode_t*)PD_MSG_FIELD_O(ptr);
     //BUG #273
     event->waitersDb = PD_MSG_FIELD_IO(guid);
-    ASSERT(waiters);
+    ocrAssert(waiters);
 #undef PD_TYPE
     // We search for the waiter that we need and remove it
     for(i = 0; i < event->waitersCount; ++i) {
@@ -1446,14 +1446,14 @@ u8 unregisterWaiterEventHcPersist(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slo
     PD_MSG_FIELD_IO(properties) = DB_MODE_RW | DB_PROP_RT_ACQUIRE;
     //Should be a local DB
     if((toReturn = pd->fcts.processMessage(pd, &msg, true))) {
-        ASSERT(!toReturn); // Possible corruption of waitersDb
+        ocrAssert(!toReturn); // Possible corruption of waitersDb
         hal_unlock(&(event->base.waitersLock));
         return toReturn;
     }
     //BUG #273: Guid reading
     waiters = (regNode_t*)PD_MSG_FIELD_O(ptr);
     event->base.waitersDb = PD_MSG_FIELD_IO(guid);
-    ASSERT(waiters);
+    ocrAssert(waiters);
 #undef PD_TYPE
     // We search for the waiter that we need and remove it
     for(i = 0; i < event->base.waitersCount; ++i) {
@@ -1532,7 +1532,7 @@ ocrGuidKind eventTypeToGuidKind(ocrEventTypes_t eventType) {
         case OCR_EVENT_LATCH_T:
             return OCR_GUID_EVENT_LATCH;
         default:
-            ASSERT(false && "Unknown type of event");
+            ocrAssert(false && "Unknown type of event");
         return OCR_GUID_NONE;
     }
 }
@@ -1560,7 +1560,7 @@ static ocrEventTypes_t guidKindToEventType(ocrGuidKind kind) {
         case OCR_GUID_EVENT_LATCH:
             return OCR_EVENT_LATCH_T;
         default:
-            ASSERT(false && "Unknown kind of event");
+            ocrAssert(false && "Unknown kind of event");
         return OCR_EVENT_T_MAX;
     }
 }
@@ -1593,7 +1593,7 @@ static void mdPushHcDist(ocrGuid_t evtGuid, ocrLocation_t loc, ocrGuid_t dbGuid,
     PD_MSG_FIELD_I(mdPtr) = NULL;
     DPRINTF (DBG_HCEVT_LOG, "event-md: push "GUIDF" in mode=%d\n", GUIDA(evtGuid), mode);
     PD_MSG_FIELD_I(sizePayload) = 0; // This MUST be set to zero otherwise base size returns random crap
-    ASSERT((ocrPolicyMsgGetMsgBaseSize(&msg, true) + sizeof(ocrLocation_t) + sizeof(ocrGuid_t)) < sizeof(ocrPolicyMsg_t));
+    ocrAssert((ocrPolicyMsgGetMsgBaseSize(&msg, true) + sizeof(ocrLocation_t) + sizeof(ocrGuid_t)) < sizeof(ocrPolicyMsg_t));
     // Always specify where the push comes from
     // TODO: This is redundant with the message header but the header doesn't make it all
     // the way to the recipient OCR object. Would that change if we collapse object's
@@ -1603,14 +1603,14 @@ static void mdPushHcDist(ocrGuid_t evtGuid, ocrLocation_t loc, ocrGuid_t dbGuid,
     // Location is enough for M_REG
     PD_MSG_FIELD_I(sizePayload) = sizeof(ocrLocation_t);
     // Serialization
-    ASSERT((mode == M_REG) || (mode == M_SAT) || (mode == M_DEL));
+    ocrAssert((mode == M_REG) || (mode == M_SAT) || (mode == M_DEL));
     char * ptr = &(PD_MSG_FIELD_I(payload));
     WR_PAYLOAD_DATA(ptr, ocrLocation_t, pd->myLocation);
     // For M_SAT, add the guid the event is satisfied with
     if (mode == M_SAT) {
         SET_PAYLOAD_DATA(ptr, M_SAT, ocrGuid_t, guid, dbGuid);
         // Check alignment issues
-        ASSERT(GET_PAYLOAD_DATA(ptr, M_SAT, ocrLocation_t, location) == pd->myLocation);
+        ocrAssert(GET_PAYLOAD_DATA(ptr, M_SAT, ocrLocation_t, location) == pd->myLocation);
         PD_MSG_FIELD_I(sizePayload) += sizeof(ocrGuid_t);
     }
     pd->fcts.processMessage(pd, &msg, true);
@@ -1621,7 +1621,7 @@ static void mdPushHcDist(ocrGuid_t evtGuid, ocrLocation_t loc, ocrGuid_t dbGuid,
 // Only used in no-forge mode
 static void mdPullHcDist(ocrGuid_t guid, u32 mode, u32 factoryId) {
     // This implementation only pulls in clone mode
-    ASSERT(mode == M_CLONE);
+    ocrAssert(mode == M_CLONE);
     ocrPolicyDomain_t *pd = NULL;
     PD_MSG_STACK(msg);
     getCurrentEnv(&pd, NULL, NULL, &msg);
@@ -1629,7 +1629,7 @@ static void mdPullHcDist(ocrGuid_t guid, u32 mode, u32 factoryId) {
     // always the location that owns the GUID.
     ocrLocation_t destLocation;
     u8 returnValue = pd->guidProviders[0]->fcts.getLocation(pd->guidProviders[0], guid, &destLocation);
-    ASSERT(!returnValue);
+    ocrAssert(!returnValue);
     msg.destLocation = destLocation;
 #define PD_MSG (&msg)
 #define PD_TYPE PD_MSG_METADATA_COMM
@@ -1643,7 +1643,7 @@ static void mdPullHcDist(ocrGuid_t guid, u32 mode, u32 factoryId) {
     PD_MSG_FIELD_I(mdPtr) = NULL;
     DPRINTF (DBG_HCEVT_LOG, "event-md: pull "GUIDF" in mode=%d\n", GUIDA(guid), mode);
     PD_MSG_FIELD_I(sizePayload) = 0; // This MUST be set to zero otherwise base size returns random crap
-    ASSERT((ocrPolicyMsgGetMsgBaseSize(&msg, true) + sizeof(ocrLocation_t)) < sizeof(ocrPolicyMsg_t));
+    ocrAssert((ocrPolicyMsgGetMsgBaseSize(&msg, true) + sizeof(ocrLocation_t)) < sizeof(ocrPolicyMsg_t));
     // Always specify where the push comes from
     // TODO: This is redundant with the message header but the header doesn't make it all
     // the way to the recipient OCR object. Would that change if we collapse object's
@@ -1768,7 +1768,7 @@ static u16 fctRedPeerTopology(ocrEventHcCollective_t * dself, ocrLocation_t myLo
     // Mark the k-tree in-order starting from the root and returning the position in the tree for myLoc
     markInOrder(ktree, k, nbPDs, (u16) myLoc, &myPos);
     if (((u64) myLoc) == 0) printKtree(ktree, nbPDs); // debug
-    ASSERT(myPos != ((u64)-1));
+    ocrAssert(myPos != ((u64)-1));
     // Determine ancestor
     if (myPos == 0) { // root
         dself->ancestorLoc = INVALID_LOCATION;
@@ -1858,9 +1858,9 @@ static u8 initNewEventHc(ocrEventHc_t * event, ocrEventTypes_t eventType, ocrGui
         ocrEventHcChannel_t * devt = ((ocrEventHcChannel_t*)event);
         // Expecting ocrEventParams_t as the paramlist
         ocrEventParams_t * params = (ocrEventParams_t *) perInstance;
-        ASSERT((params->EVENT_CHANNEL.nbSat == 1) && "Channel-event limitation nbSat must be set to 1");
-        ASSERT((params->EVENT_CHANNEL.nbDeps == 1) && "Channel-event limitation nbDeps must be set to 1");
-        ASSERT((params->EVENT_CHANNEL.maxGen != 0) && "Channel-event maxGen=0 invalid value");
+        ocrAssert((params->EVENT_CHANNEL.nbSat == 1) && "Channel-event limitation nbSat must be set to 1");
+        ocrAssert((params->EVENT_CHANNEL.nbDeps == 1) && "Channel-event limitation nbDeps must be set to 1");
+        ocrAssert((params->EVENT_CHANNEL.maxGen != 0) && "Channel-event maxGen=0 invalid value");
         u32 maxGen = (params->EVENT_CHANNEL.maxGen == EVENT_CHANNEL_UNBOUNDED) ? 1 : params->EVENT_CHANNEL.maxGen;
         devt->maxGen = params->EVENT_CHANNEL.maxGen;
         devt->nbSat = params->EVENT_CHANNEL.nbSat;
@@ -1909,11 +1909,11 @@ static u8 initNewEventHc(ocrEventHc_t * event, ocrEventTypes_t eventType, ocrGui
         ocrEventHcCollective_t * devt = ((ocrEventHcCollective_t*)event);
         ocrEventParams_t * params = (ocrEventParams_t *) perInstance;
         devt->params = params->EVENT_COLLECTIVE;
-        ASSERT(params->EVENT_COLLECTIVE.maxGen > 0);
-        ASSERT(params->EVENT_COLLECTIVE.nbDatum > 0);
-        ASSERT(params->EVENT_COLLECTIVE.nbContribs > 0);
-        ASSERT(params->EVENT_COLLECTIVE.nbContribsPd > 0);
-        ASSERT(params->EVENT_COLLECTIVE.nbContribsPd <= params->EVENT_COLLECTIVE.nbContribs);
+        ocrAssert(params->EVENT_COLLECTIVE.maxGen > 0);
+        ocrAssert(params->EVENT_COLLECTIVE.nbDatum > 0);
+        ocrAssert(params->EVENT_COLLECTIVE.nbContribs > 0);
+        ocrAssert(params->EVENT_COLLECTIVE.nbContribsPd > 0);
+        ocrAssert(params->EVENT_COLLECTIVE.nbContribsPd <= params->EVENT_COLLECTIVE.nbContribs);
         // After the reduction event struct, data is organized as is:
         // u32*maxGen | phaseDbResult*maxGen | ((contributor_t | regNodes*maxGen | datum*nbDatum*maxGen) * nbContribsPd)
         setReductionFctPtr(devt, params->EVENT_COLLECTIVE.op);
@@ -1944,7 +1944,7 @@ static u8 initNewEventHc(ocrEventHc_t * event, ocrEventTypes_t eventType, ocrGui
 #endif
         devt->contributors = (contributor_t *) curPtr;
         u32 maxGen = params->EVENT_COLLECTIVE.maxGen;
-        ASSERT(devt->reduce != NULL);
+        ocrAssert(devt->reduce != NULL);
         u32 c, ub;
         c=0; ub = params->EVENT_COLLECTIVE.maxGen;
         while(c < ub) {
@@ -1963,7 +1963,7 @@ static u8 initNewEventHc(ocrEventHc_t * event, ocrEventTypes_t eventType, ocrGui
         while(c < ub) {
             devt->remoteContribs[c++] = rcInit;
         }
-        ASSERT(((ub == 0) || (getRemoteContrib(devt, 0, 0)->msg == NULL)) && "getRemoteContrib not properly init");
+        ocrAssert(((ub == 0) || (getRemoteContrib(devt, 0, 0)->msg == NULL)) && "getRemoteContrib not properly init");
 #endif
 
         c=0; ub = params->EVENT_COLLECTIVE.maxGen;
@@ -1984,7 +1984,7 @@ static u8 initNewEventHc(ocrEventHc_t * event, ocrEventTypes_t eventType, ocrGui
             RESULT_PROPAGATE(pd->fcts.processMessage(pd, &msg, true));
             devt->phaseDbResult[c].fguid = PD_MSG_FIELD_IO(guid);
             devt->phaseDbResult[c].dbBackend = PD_MSG_FIELD_O(ptr);
-            ASSERT(!ocrGuidIsNull(devt->phaseDbResult[c].fguid.guid) &&
+            ocrAssert(!ocrGuidIsNull(devt->phaseDbResult[c].fguid.guid) &&
                     (devt->phaseDbResult[c].fguid.metaDataPtr != NULL));
             c++;
 #undef PD_TYPE
@@ -2044,7 +2044,7 @@ static u8 initNewEventHc(ocrEventHc_t * event, ocrEventTypes_t eventType, ocrGui
         } else {
             DPRINTF(DBG_HCEVT_ERR, "error: Illegal nbDeps value (zero) for OCR_EVENT_COUNTED_T 0x"GUIDF"\n", GUIDA(base->guid));
             factory->fcts[OCR_EVENT_COUNTED_T].destruct(base);
-            ASSERT(false);
+            ocrAssert(false);
             return OCR_EINVAL; // what ?
         }
     }
@@ -2072,9 +2072,9 @@ static u8 allocateNewEventHc(ocrGuidKind guidKind, ocrFatGuid_t * resultGuid, u3
 #ifdef ENABLE_EXTENSION_CHANNEL_EVT
     if(guidKind == OCR_GUID_EVENT_CHANNEL) {
 #ifndef ENABLE_EXTENSION_PARAMS_EVT
-        ASSERT(false && "ENABLE_EXTENSION_PARAMS_EVT must be defined to use Channel-events");
+        ocrAssert(false && "ENABLE_EXTENSION_PARAMS_EVT must be defined to use Channel-events");
 #endif
-        ASSERT((perInstance != NULL) && "error: No parameters specified at Channel-event creation");
+        ocrAssert((perInstance != NULL) && "error: No parameters specified at Channel-event creation");
         // Expecting ocrEventParams_t as the paramlist
         ocrEventParams_t * params = (ocrEventParams_t *) perInstance;
         // Allocate extra space to store backing data-structures that are parameter-dependent
@@ -2091,9 +2091,9 @@ static u8 allocateNewEventHc(ocrGuidKind guidKind, ocrFatGuid_t * resultGuid, u3
 #ifdef ENABLE_EXTENSION_COLLECTIVE_EVT
     if(guidKind == OCR_GUID_EVENT_COLLECTIVE) {
 #ifndef ENABLE_EXTENSION_PARAMS_EVT
-        ASSERT(false && "ENABLE_EXTENSION_PARAMS_EVT must be defined to use Collective-events");
+        ocrAssert(false && "ENABLE_EXTENSION_PARAMS_EVT must be defined to use Collective-events");
 #endif
-        ASSERT((perInstance != NULL) && "error: No parameters specified at Collective-event creation");
+        ocrAssert((perInstance != NULL) && "error: No parameters specified at Collective-event creation");
         // Expecting ocrEventParams_t as the paramlist
         ocrEventParams_t * params = (ocrEventParams_t *) perInstance;
         // Allocate extra space to store backing data-structures that are parameter-dependent
@@ -2137,7 +2137,7 @@ static u8 allocateNewEventHc(ocrGuidKind guidKind, ocrFatGuid_t * resultGuid, u3
     RESULT_PROPAGATE(pd->fcts.processMessage(pd, &msg, true));
     u8 returnValue = PD_MSG_FIELD_O(returnDetail);
     if (returnValue && (returnValue != OCR_EGUIDEXISTS)) {
-        ASSERT(false);
+        ocrAssert(false);
         return returnValue;
     }
     resultGuid->guid = PD_MSG_FIELD_IO(guid.guid);
@@ -2164,16 +2164,16 @@ static u8 allocateNewEventHc(ocrGuidKind guidKind, ocrFatGuid_t * resultGuid, u3
 // - When the clone msg comes back it is deserialized and newEventHcDist is invoked. Calling into allocateNewEventHc which inserts
 //   a new MD proxy. hHnce, this is a BUG
 static u8 newEventHcDist(ocrFatGuid_t * fguid, ocrGuid_t data, ocrEventFactory_t * factory) {
-    ASSERT(!ocrGuidIsNull(fguid->guid));
+    ocrAssert(!ocrGuidIsNull(fguid->guid));
     ocrPolicyDomain_t *pd = NULL;
     getCurrentEnv(&pd, NULL, NULL, NULL);
     ocrGuidKind guidKind;
     u8 returnValue = pd->guidProviders[0]->fcts.getKind(pd->guidProviders[0], fguid->guid, &guidKind);
     ocrEventTypes_t eventType = guidKindToEventType(guidKind);
-    ASSERT(!returnValue);
+    ocrAssert(!returnValue);
     ocrLocation_t guidLoc;
     returnValue = pd->guidProviders[0]->fcts.getLocation(pd->guidProviders[0], fguid->guid, &guidLoc);
-    ASSERT(!returnValue);
+    ocrAssert(!returnValue);
     u32 sizeOfMd;
     returnValue = allocateNewEventHc(guidKind, fguid, &sizeOfMd, /*prop*/GUID_PROP_ISVALID | GUID_PROP_TORECORD, NULL);
     ocrEventHc_t *event = (ocrEventHc_t*) fguid->metaDataPtr;
@@ -2195,7 +2195,7 @@ static u8 newEventHcDist(ocrFatGuid_t * fguid, ocrGuid_t data, ocrEventFactory_t
 #ifdef OCR_ENABLE_STATISTICS
     statsEVT_CREATE(getCurrentPD(), getCurrentEDT(), NULL, fguid->guid, ((ocrEvent_t*) event));
 #endif
-    ASSERT(!returnValue);
+    ocrAssert(!returnValue);
     return returnValue;
 }
 
@@ -2227,11 +2227,11 @@ static u8 newEventHcDist(ocrFatGuid_t * fguid, ocrGuid_t data, ocrEventFactory_t
 }
 
 u8 serializeEventFactoryHc(ocrObjectFactory_t * factory, ocrGuid_t guid, ocrObject_t * src, u64 * mode, ocrLocation_t destLocation, void ** destBuffer, u64 * destSize) {
-    ASSERT(destBuffer != NULL);
-    ASSERT(!ocrGuidIsNull(guid));
-    ASSERT(*destSize != 0);
+    ocrAssert(destBuffer != NULL);
+    ocrAssert(!ocrGuidIsNull(guid));
+    ocrAssert(*destSize != 0);
 #if ENABLE_EVENT_MDC_FORGE
-    ASSERT(false); // Never do a pull when we forge events
+    ocrAssert(false); // Never do a pull when we forge events
 #else
     // More of a proof of concept since we can easily forge events in this implementation
     ocrEvent_t * evt = (ocrEvent_t *) src;
@@ -2251,7 +2251,7 @@ u8 serializeEventFactoryHc(ocrObjectFactory_t * factory, ocrGuid_t guid, ocrObje
             //   all them on destruction
             ocrPolicyDomain_t *pd = NULL;
             getCurrentEnv(&pd, NULL, NULL, NULL);
-            ASSERT(*destSize >= sizeof(ocrGuid_t));
+            ocrAssert(*destSize >= sizeof(ocrGuid_t));
             // Note: this is concurrent with the event being satisfied so it's best effort.
             locNode_t * locNode = (locNode_t *) pd->fcts.pdMalloc(pd, sizeof(locNode_t));
             hal_lock(&(devt->waitersLock));
@@ -2269,7 +2269,7 @@ u8 serializeEventFactoryHc(ocrObjectFactory_t * factory, ocrGuid_t guid, ocrObje
         }
         //COL-EVTX: Lazy discovery of collective events would need serialize impl
     default:
-        ASSERT(false && "Metadata-cloning not supported for this event type");
+        ocrAssert(false && "Metadata-cloning not supported for this event type");
     }
 #endif
     return 0;
@@ -2283,7 +2283,7 @@ u8 newEventHc(ocrEventFactory_t * factory, ocrFatGuid_t *fguid,
 #ifdef ENABLE_EXTENSION_COLLECTIVE_EVT
     bool isColEvent = (guidKind == OCR_GUID_EVENT_COLLECTIVE);
     if (isColEvent) {
-        ASSERT(properties & GUID_PROP_IS_LABELED);
+        ocrAssert(properties & GUID_PROP_IS_LABELED);
         // For reduction events, we delay recording the GUID until after alloc & init, when calling registerGuid.
         properties |= GUID_PROP_ISVALID; // Instruct the allocation code to reuse the labeled GUID
         properties &= ~GUID_PROP_TORECORD;
@@ -2297,7 +2297,7 @@ u8 newEventHc(ocrEventFactory_t * factory, ocrFatGuid_t *fguid,
         do {
             //getVal - resolve
             res = pd->guidProviders[0]->fcts.getVal(pd->guidProviders[0], fguid->guid, &val, NULL, MD_ALLOC, &mdProxy);
-            ASSERT(mdProxy != NULL);
+            ocrAssert(mdProxy != NULL);
         } while (res == OCR_EPEND);
         if (val != 0) { // Either we're spinning or we got lucky and resolved right away
             fguid->metaDataPtr = (void *) mdProxy->ptr;
@@ -2311,7 +2311,8 @@ u8 newEventHc(ocrEventFactory_t * factory, ocrFatGuid_t *fguid,
 #endif
 
     u8 returnValue = allocateNewEventHc(guidKind, fguid, &sizeOfMd, properties, perInstance);
-    if (returnValue) { ASSERT(returnValue == OCR_EGUIDEXISTS); return returnValue; }
+    if (returnValue) { ocrAssert(returnValue == OCR_EGUIDEXISTS); return returnValue; }
+
     ocrEventHc_t *event = (ocrEventHc_t*) fguid->metaDataPtr;
     returnValue = initNewEventHc(event, eventType, UNINITIALIZED_GUID, factory, sizeOfMd, perInstance);
     if (returnValue) { return returnValue; }
@@ -2334,7 +2335,7 @@ u8 newEventHc(ocrEventFactory_t * factory, ocrFatGuid_t *fguid,
 #ifdef OCR_ENABLE_STATISTICS
     statsEVT_CREATE(getCurrentPD(), getCurrentEDT(), NULL, fguid->guid, ((ocrEvent_t*) event));
 #endif
-    ASSERT(!returnValue);
+    ocrAssert(!returnValue);
     return returnValue;
 }
 
@@ -2344,7 +2345,7 @@ u8 deserializeEventFactoryHc(ocrObjectFactory_t * pfactory, ocrGuid_t evtGuid, o
     getCurrentEnv(&pd, NULL, NULL, NULL);
     ocrGuidKind guidKind;
     u8 ret = pd->guidProviders[0]->fcts.getKind(pd->guidProviders[0], evtGuid, &guidKind);
-    ASSERT(!ret);
+    ocrAssert(!ret);
     ocrEventFactory_t * factory = (ocrEventFactory_t *) pfactory;
     if ((guidKindToEventType(guidKind) == OCR_EVENT_STICKY_T) || (guidKindToEventType(guidKind) == OCR_EVENT_IDEM_T)) {
         switch(mode) {
@@ -2358,7 +2359,7 @@ u8 deserializeEventFactoryHc(ocrObjectFactory_t * pfactory, ocrGuid_t evtGuid, o
                 fguid.guid = evtGuid;
                 fguid.metaDataPtr = NULL;
                 newEventHcDist(&fguid, dataGuid, factory);
-                ASSERT(fguid.metaDataPtr != NULL);
+                ocrAssert(fguid.metaDataPtr != NULL);
                 *dest = fguid.metaDataPtr;
             break;
             }
@@ -2377,7 +2378,7 @@ u8 deserializeEventFactoryHc(ocrObjectFactory_t * pfactory, ocrGuid_t evtGuid, o
                 //to determine this context is responsible for sending the M_SAT.
                 bool doSatisfy = (devt->waitersCount == STATE_CHECKED_IN);
                 // Registering while the event is being destroyed: Something is wrong in user code or runtime code
-                ASSERT(devt->waitersCount  != STATE_CHECKED_OUT);
+                ocrAssert(devt->waitersCount  != STATE_CHECKED_OUT);
                 // Whether the event is already satisfied or not, we need
                 // to register so that the peer is notified on 'destruct'
                 locNode->next = devt->mdClass.peers;
@@ -2412,7 +2413,7 @@ u8 deserializeEventFactoryHc(ocrObjectFactory_t * pfactory, ocrGuid_t evtGuid, o
         }
     } else {
         // Other event implementations are not distributed and should not end up calling here
-        ASSERT(false && "event-md: deserialize not supported for this type of event");
+        ocrAssert(false && "event-md: deserialize not supported for this type of event");
     }
     return 0;
 }
@@ -2430,7 +2431,7 @@ u8 deserializeEventFactoryHc(ocrObjectFactory_t * pfactory, ocrGuid_t evtGuid, o
 static void pushDependence(ocrEventHcChannel_t * devt, regNode_t * node) {
     //TODO rollover u32/u64
     // tail - head cannot go be more that the bound
-    ASSERT(devt->tailWaiter < (devt->headWaiter + devt->waitBufSz));
+    ocrAssert(devt->tailWaiter < (devt->headWaiter + devt->waitBufSz));
     u32 idx = devt->tailWaiter % devt->waitBufSz;
     devt->tailWaiter++;
     devt->waiters[idx] = *node;
@@ -2448,7 +2449,7 @@ static u8 popDependence(ocrEventHcChannel_t * devt, regNode_t * node) {
 }
 
 static void pushSatisfy(ocrEventHcChannel_t * devt, ocrGuid_t data) {
-    ASSERT(devt->tailSat < (devt->headSat + devt->satBufSz));
+    ocrAssert(devt->tailSat < (devt->headSat + devt->satBufSz));
     u32 idx = devt->tailSat % devt->satBufSz;
     devt->tailSat++;
     devt->satBuffer[idx] = data;
@@ -2461,7 +2462,7 @@ static ocrGuid_t popSatisfy(ocrEventHcChannel_t * devt) {
         u32 idx = devt->headSat % devt->satBufSz;
         devt->headSat++;
         ocrGuid_t res = devt->satBuffer[idx];
-        ASSERT(!ocrGuidIsUninitialized(res));
+        ocrAssert(!ocrGuidIsUninitialized(res));
         return res;
     }
 }
@@ -2602,7 +2603,7 @@ u8 unregisterWaiterEventHcChannel(ocrEvent_t *base, u32 sslot, ocrFatGuid_t wait
 #else
 u8 unregisterWaiterEventHcChannel(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot, bool isDepRem) {
 #endif
-    ASSERT(false && "Not supported");
+    ocrAssert(false && "Not supported");
     return 0;
 }
 #endif /*Channel implementation*/
@@ -2783,7 +2784,7 @@ static ocrFatGuid_t fctRedRecordDbPhase(ocrEventHcCollective_t * dself, rph_t lp
     // Copy payload to DB. Phase DBs stay acquired.
     collectiveDbRecord_t dbRecord = dself->phaseDbResult[lph];
     ocrFatGuid_t db = dbRecord.fguid;
-    ASSERT((db.metaDataPtr != NULL) && "Collective event datablock not found");
+    ocrAssert((db.metaDataPtr != NULL) && "Collective event datablock not found");
     DPRINTF(DBG_COL_EVT, "Write result to DB="GUIDF" PTR=%p size=%"PRIu64"\n", GUIDA(db.guid), dbRecord.dbBackend, contribSize);
     hal_memCopy(dbRecord.dbBackend, contribPtr, contribSize, false);
     return db;
@@ -2813,7 +2814,7 @@ static void fctRedSetDBSatisfyLocal(ocrEventHcCollective_t * dself, rph_t lph, o
 // the remote binary reduction tree, which is always zero.
 static u16 myRemoteContribSlot(ocrEventHcCollective_t * dself) {
     // if not a leaf, should compete on node 0
-    ASSERT(!isLeaf(dself))
+    ocrAssert(!isLeaf(dself))
     return dself->inOrderIdxToArrayIdx[0];
 }
 
@@ -2907,13 +2908,13 @@ u8 fctRedProcessUpMsg(ocrEventHcCollective_t * dself, ocrPolicyMsg_t * msg, up_p
         // DPRINTF(DBG_COL_EVT, "enter fctRedProcessUpMsg at contribSlot=%"PRIu16" msg=%p phase=%"PRIu16"\n", contribSlot, msg, lph);
         bool isRightMostOdd = (oddContribs && (contribSlot == nbOfDescendants));
         if (isRightMostOdd) {// just record
-            ASSERT(rcontrib->msg == NULL);
-            ASSERT(deleteMsg == NULL);
+            ocrAssert(rcontrib->msg == NULL);
+            ocrAssert(deleteMsg == NULL);
             dstPayload = fctRedResolvePayload(myMsg);
             DPRINTF(DBG_COL_EVT, "fctRedProcessUpMsg detected rightMostOdd at contribSlot=%"PRIu16" msg=%p phase=%"PRIu16"\n", contribSlot, msg, lph);
         } else {
             if (rcontrib->msg == NULL) {
-                ASSERT(myMsg != NULL);
+                ocrAssert(myMsg != NULL);
                 void * oldV;
                 oldV = (void *) hal_cmpswap64(((u64*) &(rcontrib->msg)), ((u64)NULL), myMsg);
                 if (oldV == NULL) { // single contribution yet, next contributor will pick up the reduction from here
@@ -2923,7 +2924,7 @@ u8 fctRedProcessUpMsg(ocrEventHcCollective_t * dself, ocrPolicyMsg_t * msg, up_p
                 DPRINTF(DBG_COL_EVT, "fctRedProcessUpMsg failed CAS at contribSlot=%"PRIu16" msg=%p phase=%"PRIu16"\n", contribSlot, msg, lph);
             }
             DPRINTF(DBG_COL_EVT, "fctRedProcessUpMsg do reduction at contribSlot=%"PRIu16" msg=%p phase=%"PRIu16"\n", contribSlot, msg, lph);
-            ASSERT(rcontrib->msg != NULL);
+            ocrAssert(rcontrib->msg != NULL);
             up_payload_t * storedPayload = fctRedResolvePayload(rcontrib->msg);
             // Correct ordering
             up_payload_t * srcPayload;
@@ -2973,7 +2974,7 @@ u8 fctRedProcessUpMsg(ocrEventHcCollective_t * dself, ocrPolicyMsg_t * msg, up_p
         if (isRoot(dself)) {
             // Single node reduction should not have called into this function
             // but rather directly called fctRedProcessDownMsg.
-            ASSERT(dself->nbOfDescendants);
+            ocrAssert(dself->nbOfDescendants);
             up_payload_t * myPayload = fctRedResolvePayload(dstMsg);
             // At this point myPayload/dstMsg contain the reduced answer
             // If there's enough space, repurpose the message to go down
@@ -2982,7 +2983,7 @@ u8 fctRedProcessUpMsg(ocrEventHcCollective_t * dself, ocrPolicyMsg_t * msg, up_p
             down_payload_t * downPayload;
             if (msgSize <= dstMsg->bufferSize) {
                 // These are alias for now but if we change them we'd need to do more work here
-                ASSERT(sizeof(down_payload_t) == sizeof(up_payload_t));
+                ocrAssert(sizeof(down_payload_t) == sizeof(up_payload_t));
                 DPRINTF(DBG_COL_EVT, "M_DOWN: Repurpose up msg as a down msg\n");
 #define PD_MSG (dstMsg)
 #define PD_TYPE PD_MSG_METADATA_COMM
@@ -3044,9 +3045,9 @@ u8 satisfyEventHcCollective(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
     //there's currently no code that would do the acquire on this callpath.
     if (!ocrGuidIsUninitialized(db.guid)) {
         DPRINTF(DEBUG_LVL_WARN, "RedEvt: get UNINITIALIZED_GUID contribution\n");
-        ASSERT(false && "Collective Event error: does not support DB contributions\n")
+        ocrAssert(false && "Collective Event error: does not support DB contributions\n")
     }
-    ASSERT(contribPtr != NULL);
+    ocrAssert(contribPtr != NULL);
     if (COLEVT_LAZY_REDUCE) {
         rph_t gph = incrIPhase(dself, lslot);
         rph_t lph = getLocalPhase(dself, gph);
@@ -3118,13 +3119,13 @@ u8 satisfyEventHcCollective(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
 #endif /*COLEVT_DIST_REDUCE*/
         }
     } else { //eagerly reduce
-        ASSERT(false && "COL-EVTX: implement eager collective");
+        ocrAssert(false && "COL-EVTX: implement eager collective");
     }
     return 0;
 }
 
 static u8 processEventHcCollective(ocrObjectFactory_t * factory, ocrGuid_t guid, ocrObject_t * mdPtr, ocrPolicyMsg_t * msg) {
-    ASSERT((msg->type & PD_MSG_TYPE_ONLY) == PD_MSG_METADATA_COMM);
+    ocrAssert((msg->type & PD_MSG_TYPE_ONLY) == PD_MSG_METADATA_COMM);
     u8 retCode = 0;
 #define PD_MSG (msg)
 #define PD_TYPE PD_MSG_METADATA_COMM
@@ -3146,12 +3147,12 @@ static u8 processEventHcCollective(ocrObjectFactory_t * factory, ocrGuid_t guid,
                 return fctRedProcessDownMsg(dself, msg, (down_payload_t *) payload);
             break;
             case M_CLONE:
-                ASSERT(false && "COL-EVTX: implement support for cloning\n");
+                ocrAssert(false && "COL-EVTX: implement support for cloning\n");
             break;
         }
     } else {
-        ASSERT(direction == MD_DIR_PULL);
-        ASSERT(false && "COL-EVTX: implement support for cloning\n");
+        ocrAssert(direction == MD_DIR_PULL);
+        ocrAssert(false && "COL-EVTX: implement support for cloning\n");
     }
     return retCode;
 }
@@ -3166,7 +3167,7 @@ static u8 processEventHc(ocrObjectFactory_t * factory, ocrGuid_t guid, ocrObject
     getCurrentEnv(&pd, NULL, NULL, NULL);
     ocrGuidKind guidKind;
     pd->guidProviders[0]->fcts.getKind(pd->guidProviders[0], guid, &guidKind);
-    ASSERT(guidKind == OCR_GUID_EVENT_COLLECTIVE);
+    ocrAssert(guidKind == OCR_GUID_EVENT_COLLECTIVE);
 #endif
     return processEventHcCollective(factory, guid, mdPtr, msg);
 #else
@@ -3191,7 +3192,7 @@ u8 registerWaiterEventHcCollective(ocrEvent_t *base, u32 sslot, ocrFatGuid_t wai
 }
 
 u8 unregisterWaiterEventHcCollective(ocrEvent_t *base, u32 sslot, ocrFatGuid_t waiter, u32 slot, bool isDepRem) {
-    ASSERT(false && "Not supported");
+    ocrAssert(false && "Not supported");
     return 0;
 }
 
@@ -3254,7 +3255,7 @@ u8 getSerializationSizeEventHc(ocrEvent_t* self, u64* size) {
 #endif
     //COL-EVTX: resiliency serialization support
     default:
-        ASSERT(0);
+        ocrAssert(0);
         break;
     }
     self->base.size = evtSize;
@@ -3263,7 +3264,7 @@ u8 getSerializationSizeEventHc(ocrEvent_t* self, u64* size) {
 }
 
 u8 serializeEventHc(ocrEvent_t* self, u8* buffer) {
-    ASSERT(buffer);
+    ocrAssert(buffer);
     u8* bufferHead = buffer;
     ocrEventHc_t *evtHc = (ocrEventHc_t*)self;
     ocrEventHc_t *evtHcBuf = (ocrEventHc_t*)buffer;
@@ -3293,10 +3294,10 @@ u8 serializeEventHc(ocrEvent_t* self, u8* buffer) {
 #endif
     //COL-EVTX: resiliency serialization support
     default:
-        ASSERT(0);
+        ocrAssert(0);
         break;
     }
-    ASSERT(len > 0);
+    ocrAssert(len > 0);
     hal_memCopy(buffer, self, len, false);
     buffer += len;
 
@@ -3354,17 +3355,17 @@ u8 serializeEventHc(ocrEvent_t* self, u8* buffer) {
     //COL-EVTX: resiliency serialization support
 #endif
     default:
-        ASSERT(0);
+        ocrAssert(0);
         break;
     }
-    ASSERT((buffer - bufferHead) == self->base.size);
+    ocrAssert((buffer - bufferHead) == self->base.size);
     return 0;
 }
 
 //TODO: Need to handle waitersDb ptr
 u8 deserializeEventHc(u8* buffer, ocrEvent_t** self) {
-    ASSERT(self);
-    ASSERT(buffer);
+    ocrAssert(self);
+    ocrAssert(buffer);
     u8* bufferHead = buffer;
     ocrPolicyDomain_t *pd = NULL;
     getCurrentEnv(&pd, NULL, NULL, NULL);
@@ -3395,10 +3396,10 @@ u8 deserializeEventHc(u8* buffer, ocrEvent_t** self) {
 #endif
     //COL-EVTX: resiliency serialization support
     default:
-        ASSERT(0);
+        ocrAssert(0);
         break;
     }
-    ASSERT(len > 0);
+    ocrAssert(len > 0);
     u64 extra = (evtHcBuf->hint.hintVal ? OCR_HINT_COUNT_EVT_HC * sizeof(u64) : 0);
     ocrEvent_t *evt = (ocrEvent_t*)pd->fcts.pdMalloc(pd, (len + extra));
 
@@ -3466,12 +3467,12 @@ u8 deserializeEventHc(u8* buffer, ocrEvent_t** self) {
 #endif
     //COL-EVTX: resiliency serialization support
     default:
-        ASSERT(0);
+        ocrAssert(0);
         break;
     }
 
     *self = evt;
-    ASSERT((buffer - bufferHead) == (*self)->base.size);
+    ocrAssert((buffer - bufferHead) == (*self)->base.size);
     return 0;
 }
 
@@ -3481,13 +3482,13 @@ u8 fixupEventHc(ocrEvent_t *base) {
         ocrPolicyDomain_t *pd = NULL;
         getCurrentEnv(&pd, NULL, NULL, NULL);
         //Fixup the DB pointer
-        ASSERT(!ocrGuidIsNull(hcEvent->waitersDb.guid));
+        ocrAssert(!ocrGuidIsNull(hcEvent->waitersDb.guid));
         ocrGuid_t dbGuid = hcEvent->waitersDb.guid;
         ocrObject_t * ocrObj = NULL;
         pd->guidProviders[0]->fcts.getVal(pd->guidProviders[0], dbGuid, (u64*)&ocrObj, NULL, MD_LOCAL, NULL);
-        ASSERT(ocrObj != NULL && ocrObj->kind == OCR_GUID_DB);
+        ocrAssert(ocrObj != NULL && ocrObj->kind == OCR_GUID_DB);
         ocrDataBlock_t *db = (ocrDataBlock_t*)ocrObj;
-        ASSERT(ocrGuidIsEq(dbGuid, db->guid));
+        ocrAssert(ocrGuidIsEq(dbGuid, db->guid));
         hcEvent->waitersDb.metaDataPtr = db;
     }
     return 0;

@@ -57,14 +57,14 @@ static void workerLoop(ocrWorker_t * worker) {
         umsg.type = PD_MSG_SCHED_UPDATE | PD_MSG_REQUEST;
         PD_MSG_FIELD_I(properties) = OCR_SCHEDULER_UPDATE_PROP_IDLE;
         RESULT_ASSERT(pd->fcts.processMessage(pd, &umsg, false), ==, 0);
-        ASSERT(PD_MSG_FIELD_O(returnDetail) == 0);
+        ocrAssert(PD_MSG_FIELD_O(returnDetail) == 0);
 #undef PD_MSG
 #undef PD_TYPE
 
         DPRINTF(DEBUG_LVL_VVERB, "WAIT\n");
         pd->commApis[0]->fcts.initHandle(pd->commApis[0], pHandle);
         RESULT_ASSERT(pd->fcts.waitMessage(pd, &pHandle), ==, 0);
-        ASSERT(pHandle);
+        ocrAssert(pHandle);
         ocrPolicyMsg_t *msg = pHandle->response;
         RESULT_ASSERT(pd->fcts.processMessage(pd, msg, true), ==, 0);
         pHandle->destruct(pHandle);
@@ -108,11 +108,11 @@ u8 ceWorkerSwitchRunlevel(ocrWorker_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_
     u8 toReturn = 0;
 
     // Verify properties
-    ASSERT((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
+    ocrAssert((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
            && !(properties & RL_RELEASE));
-    ASSERT(!(properties & RL_FROM_MSG));
-    ASSERT(properties & RL_PD_MASTER); // One worker per PD.
-    ASSERT(callback == NULL); // This worker does not support callbacks
+    ocrAssert(!(properties & RL_FROM_MSG));
+    ocrAssert(properties & RL_PD_MASTER); // One worker per PD.
+    ocrAssert(callback == NULL); // This worker does not support callbacks
 
     // Call the runlevel change on the underlying platform
     switch (runlevel) {
@@ -123,7 +123,7 @@ u8 ceWorkerSwitchRunlevel(ocrWorker_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_
     case RL_PD_OK:
         if(properties & RL_BRING_UP) {
             // Set the worker properly the first time
-            ASSERT(self->computeCount == 1);
+            ocrAssert(self->computeCount == 1);
             self->computes[0]->worker = self;
             self->pd = PD;
             self->location = PD->myLocation;
@@ -178,7 +178,7 @@ u8 ceWorkerSwitchRunlevel(ocrWorker_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_
         break;
     default:
         // Unknown runlevel
-        ASSERT(0);
+        ocrAssert(0);
     }
 
     toReturn |= self->computes[0]->fcts.switchRunlevel(self->computes[0], PD, runlevel, phase, properties,
@@ -201,7 +201,7 @@ void* ceRunWorker(ocrWorker_t * worker) {
 }
 
 void* ceWorkShift(ocrWorker_t * worker) {
-    ASSERT(0); // Not supported
+    ocrAssert(0); // Not supported
     return NULL;
 }
 

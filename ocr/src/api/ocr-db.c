@@ -274,9 +274,9 @@ u8 ocrDbGetSize(ocrGuid_t db, u64 *size) {
 
     DPRINTF(DEBUG_LVL_INFO, "ENTER ocrDbGetSize(guid="GUIDF", size=%p)\n", GUIDA(db), size);
 
-    ASSERT(!(ocrGuidIsError(db)));
-    ASSERT(!(ocrGuidIsUninitialized(db)));
-    ASSERT(size);
+    ocrAssert(!(ocrGuidIsError(db)));
+    ocrAssert(!(ocrGuidIsUninitialized(db)));
+    ocrAssert(size);
 
     ocrPolicyDomain_t *pd = NULL;
     PD_MSG_STACK(msg);

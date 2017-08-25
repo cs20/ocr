@@ -173,7 +173,7 @@ u8 ocrEdtTemplateCreate_internal(ocrGuid_t *guid, ocrEdt_t funcPtr, u32 paramc, 
             GUIDA(*guid), funcPtr, (s32)paramc, (s32)depc, funcName?funcName:"");
 #if defined(OCR_ENABLE_EDT_NAMING) || defined(OCR_TRACE_BINARY)
     // Please check that OCR_ENABLE_EDT_NAMING is defined in the app's makefile
-    ASSERT(funcName && "error: Check that OCR_ENABLE_EDT_NAMING is defined in the app's makefile");
+    ocrAssert(funcName && "error: Check that OCR_ENABLE_EDT_NAMING is defined in the app's makefile");
 #endif
     PD_MSG_STACK(msg);
     ocrPolicyDomain_t *pd = NULL;
@@ -264,7 +264,7 @@ u8 ocrEdtCreate(ocrGuid_t* edtGuidPtr, ocrGuid_t templateGuid,
 
     if((paramc == EDT_PARAM_UNK) || (depc == EDT_PARAM_UNK)) {
         DPRINTF(DEBUG_LVL_WARN, "error: paramc or depc cannot be set to EDT_PARAM_UNK\n");
-        ASSERT(false);
+        ocrAssert(false);
         RETURN_PROFILE(OCR_EINVAL);
     }
 
@@ -278,7 +278,7 @@ u8 ocrEdtCreate(ocrGuid_t* edtGuidPtr, ocrGuid_t templateGuid,
             depc = 0;
         }
         // You have to give a guid if you expect it to be labeled :)
-        ASSERT(edtGuidPtr);
+        ocrAssert(edtGuidPtr);
         reqResponse = true; // We always need a response in this case (for now)
     } else {
         // If we don't have labeling, we reset this to NULL_GUID to avoid
@@ -297,7 +297,7 @@ u8 ocrEdtCreate(ocrGuid_t* edtGuidPtr, ocrGuid_t templateGuid,
         if ((depc != 0) && (depv == NULL)) {
             // Error since we do not return a GUID, dependences can never be added
             DPRINTF(DEBUG_LVL_WARN,"error: NULL-GUID EDT depv not provided\n");
-            ASSERT(false);
+            ocrAssert(false);
             RETURN_PROFILE(OCR_EPERM);
         } else if (depc == EDT_PARAM_DEF) {
             // Because we'd like to avoid deguidifying the template here
@@ -343,9 +343,9 @@ u8 ocrEdtCreate(ocrGuid_t* edtGuidPtr, ocrGuid_t templateGuid,
     if(!outputEvent) {
         PD_MSG_FIELD_IO(outputEvent.guid) = NULL_GUID;
     } else if(properties & EDT_PROP_OEVT_VALID) {
-        ASSERT( !ocrGuidIsNull(*outputEvent) );
-        ASSERT( !ocrGuidIsUninitialized(*outputEvent) );
-        ASSERT( !ocrGuidIsError(*outputEvent) );
+        ocrAssert( !ocrGuidIsNull(*outputEvent) );
+        ocrAssert( !ocrGuidIsUninitialized(*outputEvent) );
+        ocrAssert( !ocrGuidIsError(*outputEvent) );
 
         PD_MSG_FIELD_IO(outputEvent.guid) = *outputEvent;
     } else {
@@ -375,13 +375,13 @@ u8 ocrEdtCreate(ocrGuid_t* edtGuidPtr, ocrGuid_t templateGuid,
 
     if(returnCode != 0) {
         if(returnCode != OCR_EGUIDEXISTS) {
-            ASSERT(edtGuidPtr);
+            ocrAssert(edtGuidPtr);
             *edtGuidPtr = NULL_GUID;
             DPRINTF(DEBUG_LVL_WARN, "EXIT ocrEdtCreate -> %"PRIu32"\n", returnCode);
             RETURN_PROFILE(returnCode);
         } else {
             DPRINTF(DEBUG_LVL_INFO, "EDT create for "GUIDF" returned OCR_EGUIDEXISTS\n", GUIDA(*edtGuidPtr));
-            ASSERT(edtGuidPtr);
+            ocrAssert(edtGuidPtr);
             *edtGuidPtr = PD_MSG_FIELD_IO(guid.guid);
             RETURN_PROFILE(OCR_EGUIDEXISTS);
         }
@@ -407,8 +407,8 @@ u8 ocrEdtCreate(ocrGuid_t* edtGuidPtr, ocrGuid_t templateGuid,
     if (depv != NULL) {
 #endif
         // Please check that # of dependences agrees with depv vector
-        ASSERT(!(ocrGuidIsNull(edtGuid)));
-        ASSERT(depc != 0);
+        ocrAssert(!(ocrGuidIsNull(edtGuid)));
+        ocrAssert(depc != 0);
         u32 i = 0;
         while(i < depc) {
             if(!(ocrGuidIsUninitialized(depv[i]))) {

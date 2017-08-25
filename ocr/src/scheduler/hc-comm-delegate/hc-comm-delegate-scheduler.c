@@ -31,12 +31,12 @@ u8 hcCommSchedulerSwitchRunlevel(ocrScheduler_t *self, ocrPolicyDomain_t *PD, oc
                                 phase_t phase, u32 properties, void (*callback)(ocrPolicyDomain_t*,u64), u64 val) {
     u8 toReturn = 0;
     // This is an inert module, we do not handle callbacks (caller needs to wait on us)
-    ASSERT(callback == NULL);
+    ocrAssert(callback == NULL);
 
     // Verify properties for this call
-    ASSERT((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
+    ocrAssert((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
            && !(properties & RL_RELEASE));
-    ASSERT(!(properties & RL_FROM_MSG));
+    ocrAssert(!(properties & RL_FROM_MSG));
 
     ocrSchedulerHcCommDelegate_t * commSched = (ocrSchedulerHcCommDelegate_t *) self;
 
@@ -52,7 +52,7 @@ u8 hcCommSchedulerSwitchRunlevel(ocrScheduler_t *self, ocrPolicyDomain_t *PD, oc
         commSched->baseSwitchRunlevel(self, PD, runlevel, phase, properties, callback, val);
         break;
     case RL_GUID_OK:
-        ASSERT(self->pd == PD);
+        ocrAssert(self->pd == PD);
         if((properties & RL_BRING_UP) && RL_IS_LAST_PHASE_UP(PD, RL_GUID_OK, phase)) {
             //Note: pd should have been set in base implementation
             //Create outbox queues for each worker
@@ -91,7 +91,7 @@ u8 hcCommSchedulerSwitchRunlevel(ocrScheduler_t *self, ocrPolicyDomain_t *PD, oc
         break;
     default:
         // Unknown runlevel
-        ASSERT(0);
+        ocrAssert(0);
     }
     return toReturn;
 }
@@ -144,7 +144,7 @@ u8 hcCommSchedulerTakeComm(ocrScheduler_t *self, u32* count, ocrFatGuid_t * fatH
         *count = success;
     } else {
         //BUG #586 Should really revisit this implementation. It sounds awfully slow.
-        ASSERT(((ocrWorkerHc_t *) worker)->hcType == HC_WORKER_COMP);
+        ocrAssert(((ocrWorkerHc_t *) worker)->hcType == HC_WORKER_COMP);
         deque_t * inbox = commSched->inboxes[wid];
         u32 curIdx = 0;
         linkedlist_t * candidateList = NULL;
@@ -190,7 +190,7 @@ u8 hcCommSchedulerTakeComm(ocrScheduler_t *self, u32* count, ocrFatGuid_t * fatH
                 } else {
                     // Found a handle and none specific was required.
                     // Don't think we go through this but double check
-                    ASSERT(false && "comp-worker poll for any");
+                    ocrAssert(false && "comp-worker poll for any");
                     fatHandlers[curIdx].metaDataPtr = candidate;
                     curIdx++;
                 }
@@ -242,7 +242,7 @@ u8 hcCommSchedulerGiveComm(ocrScheduler_t *self, u32* count, ocrFatGuid_t* fatHa
                 // are known to be short lived and are 'sterile' (i.e. do not generate
                 // new communication) beside responding to the message.
                 // In that case, the comm-worker should only be able to give outgoing responses to the scheduler
-                ASSERT(message->type & PD_MSG_RESPONSE);
+                ocrAssert(message->type & PD_MSG_RESPONSE);
                 // Push to the comm worker outbox
                 DPRINTF(DEBUG_LVL_VVERB,"[%"PRId32"] hc-comm-delegate-scheduler:: Comm-worker pushes outgoing to own outbox %"PRId32"\n",
                     (int) self->pd->myLocation, worker->id);
@@ -270,13 +270,13 @@ u8 hcCommSchedulerGiveComm(ocrScheduler_t *self, u32* count, ocrFatGuid_t* fatHa
             delegateMsgHandle_t* delHandle = (delegateMsgHandle_t *) fatHandlers[i].metaDataPtr;
 #ifdef OCR_ASSERT
             ocrPolicyMsg_t * message = (delHandle->handle.status == HDL_RESPONSE_OK) ? delHandle->handle.response : delHandle->handle.msg;
-            ASSERT((message->srcLocation == self->pd->myLocation) && (message->destLocation != self->pd->myLocation));
+            ocrAssert((message->srcLocation == self->pd->myLocation) && (message->destLocation != self->pd->myLocation));
 #endif
             //BUG #587: boxId is defined in del-handle however only the scheduler is using it
             delHandle->boxId = worker->id;
             DPRINTF(DEBUG_LVL_VVERB,"[%"PRId32"] hc-comm-delegate-scheduler:: Comp-worker pushes at tail of box %"PRIu64"\n",
                 (int) self->pd->myLocation, delHandle->boxId);
-            ASSERT((delHandle->boxId >= 0) && (delHandle->boxId < self->pd->workerCount));
+            ocrAssert((delHandle->boxId >= 0) && (delHandle->boxId < self->pd->workerCount));
             // Put handle to worker's outbox
             deque_t * outbox = commSched->outboxes[delHandle->boxId];
             outbox->pushAtTail(outbox, (ocrMsgHandle_t *) delHandle, 0);

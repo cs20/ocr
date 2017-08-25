@@ -12,8 +12,8 @@
 
 ocrGuid_t consumer(u32 paramc, u64 *paramv, u32 depc, ocrEdtDep_t *depv) {
     int i, *ptr = (int*)depv[0].ptr;
-    for(i = 0; i < N; i++) ASSERT(N-i == ptr[i]);
-    PRINTF("Everything went OK\n");
+    for(i = 0; i < N; i++) ocrAssert(N-i == ptr[i]);
+    ocrPrintf("Everything went OK\n");
     ocrShutdown();
     return NULL_GUID;
 }

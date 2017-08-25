@@ -87,7 +87,7 @@ static void doRLBarrier(ocrPolicyDomain_t *policy) {
     while(rself->rlSwitch.barrierState != RL_BARRIER_STATE_PARENT_RESPONSE) {
         policy->commApis[XE_PD_INDEX()]->fcts.initHandle(policy->commApis[XE_PD_INDEX()], pHandle);
         RESULT_ASSERT(policy->fcts.waitMessage(policy, &pHandle), ==, 0);
-        ASSERT(pHandle && pHandle == &handle);
+        ocrAssert(pHandle && pHandle == &handle);
         ocrPolicyMsg_t *msg = pHandle->response;
         RESULT_ASSERT(policy->fcts.processMessage(policy, msg, true), ==, 0);
         pHandle->destruct(pHandle);
@@ -119,7 +119,7 @@ static void findNeighborsPd(ocrPolicyDomain_t *policy) {
     policy->parentPD = neighborsAll[CLUSTER_FROM_ID(policy->parentLocation)*MAX_NUM_BLOCK +
                                     BLOCK_FROM_ID(policy->parentLocation)*(MAX_NUM_XE+MAX_NUM_CE) +
                                     ID_AGENT_CE];
-    ASSERT(policy->parentPD->myLocation == policy->parentLocation);
+    ocrAssert(policy->parentPD->myLocation == policy->parentLocation);
     DPRINTF(DEBUG_LVL_VERB, "PD %p (loc: 0x%"PRIx64") found parent at %p (loc: 0x%"PRIx64")\n",
             policy, policy->myLocation, policy->parentPD, policy->parentPD->myLocation);
 
@@ -163,7 +163,7 @@ u8 xePdSwitchRunlevel(ocrPolicyDomain_t *policy, ocrRunlevel_t runlevel, u32 pro
     if (XE_PDARGS_OFFSET != offsetof(ocrPolicyDomainXe_t, packedArgsLocation)) {
         DPRINTF(DEBUG_LVL_WARN, "XE_PDARGS_OFFSET (in .../ss/common/include/tg-bin-files.h) is 0x%"PRIx64".  Should be 0x%"PRIx64"\n",
             (u64) XE_PDARGS_OFFSET, (u64) offsetof(ocrPolicyDomainXe_t, packedArgsLocation));
-        ASSERT (0);
+        ocrAssert(0);
     }
 #endif
 
@@ -205,7 +205,7 @@ u8 xePdSwitchRunlevel(ocrPolicyDomain_t *policy, ocrRunlevel_t runlevel, u32 pro
             policy->phasesPerRunlevel[RL_CONFIG_PARSE][0] = (1<<4) + 2;
 
 #ifndef OCR_SHARED_XE_POLICY_DOMAIN
-            ASSERT(policy->workerCount == 1); // We only handle one worker per PD
+            ocrAssert(policy->workerCount == 1); // We only handle one worker per PD
 #endif
 
             // See comment in ce-policy.c for why this is here
@@ -278,10 +278,10 @@ u8 xePdSwitchRunlevel(ocrPolicyDomain_t *policy, ocrRunlevel_t runlevel, u32 pro
     {
 #ifdef OCR_SHARED_XE_POLICY_DOMAIN
         // Make sure we have a BR PD in L2
-        ASSERT((u64)policy > BR_L2_BASE && !((u64)policy > AR_L1_BASE && (u64)policy < AR_L1_BASE + MAX_AGENT_L1));
+        ocrAssert((u64)policy > BR_L2_BASE && !((u64)policy > AR_L1_BASE && (u64)policy < AR_L1_BASE + MAX_AGENT_L1));
 #else
         // Make sure we have an AR PD in L1
-        ASSERT((u64)policy > AR_L1_BASE && (u64)policy < AR_L1_BASE + MAX_AGENT_L1);
+        ocrAssert((u64)policy > AR_L1_BASE && (u64)policy < AR_L1_BASE + MAX_AGENT_L1);
 #endif
         // Just pass it down. We don't do much in the XEs
         phaseCount = ((policy->phasesPerRunlevel[RL_PD_OK][0]) >> ((properties&RL_TEAR_DOWN)?4:0)) & 0xF;
@@ -307,7 +307,7 @@ u8 xePdSwitchRunlevel(ocrPolicyDomain_t *policy, ocrRunlevel_t runlevel, u32 pro
     {
         // In this runlevel, in the current implementation, each thread is the
         // PD master after PD_OK so we just check here
-        ASSERT(amPDMaster);
+        ocrAssert(amPDMaster);
         phaseCount = ((policy->phasesPerRunlevel[RL_MEMORY_OK][0]) >> ((properties&RL_TEAR_DOWN)?4:0)) & 0xF;
 
         // We just pass things down
@@ -338,7 +338,7 @@ u8 xePdSwitchRunlevel(ocrPolicyDomain_t *policy, ocrRunlevel_t runlevel, u32 pro
 
         if(properties & RL_BRING_UP) {
             // This step includes a barrier
-            ASSERT(properties & RL_BARRIER);
+            ocrAssert(properties & RL_BARRIER);
             phaseCount = RL_GET_PHASE_COUNT_UP(policy, RL_GUID_OK);
             maxCount = policy->workerCount;
 
@@ -353,7 +353,7 @@ u8 xePdSwitchRunlevel(ocrPolicyDomain_t *policy, ocrRunlevel_t runlevel, u32 pro
 
             if (toReturn) {
                 DPRINTF(DEBUG_LVL_WARN, "Cannot allocate strand tables\n");
-                ASSERT(0);
+                ocrAssert(0);
             } else {
                 DPRINTF(DEBUG_LVL_VERB, "Created EVT strand table @ %p\n",
                         policy->strandTables[PDSTT_EVT-1]);
@@ -376,8 +376,8 @@ u8 xePdSwitchRunlevel(ocrPolicyDomain_t *policy, ocrRunlevel_t runlevel, u32 pro
             if(toReturn == 0) {
                 // At this stage, we need to wait for the barrier. We set it up
                 rself->rlSwitch.properties = origProperties;
-                ASSERT(rself->rlSwitch.barrierRL == RL_GUID_OK);
-                ASSERT(rself->rlSwitch.barrierState == RL_BARRIER_STATE_UNINIT);
+                ocrAssert(rself->rlSwitch.barrierRL == RL_GUID_OK);
+                ocrAssert(rself->rlSwitch.barrierState == RL_BARRIER_STATE_UNINIT);
                 // Do the barrier
                 doRLBarrier(policy);
                 // Setup the next one, in this case, it's the RL_COMPUTE barrier
@@ -445,8 +445,8 @@ u8 xePdSwitchRunlevel(ocrPolicyDomain_t *policy, ocrRunlevel_t runlevel, u32 pro
             if(toReturn == 0) {
                 // At this stage, we need to wait for the barrier. We set it up
                 rself->rlSwitch.properties = origProperties;
-                ASSERT(rself->rlSwitch.barrierRL == RL_COMPUTE_OK);
-                ASSERT(rself->rlSwitch.barrierState == RL_BARRIER_STATE_UNINIT);
+                ocrAssert(rself->rlSwitch.barrierRL == RL_COMPUTE_OK);
+                ocrAssert(rself->rlSwitch.barrierState == RL_BARRIER_STATE_UNINIT);
                 // Do the barrier
                 doRLBarrier(policy);
                 // Setup the next one, in this case, it's the teardown barrier
@@ -494,8 +494,8 @@ u8 xePdSwitchRunlevel(ocrPolicyDomain_t *policy, ocrRunlevel_t runlevel, u32 pro
             if(toReturn == 0) {
                 // At this stage, we need to wait for the barrier. We set it up
                 rself->rlSwitch.properties = origProperties;
-                ASSERT(rself->rlSwitch.barrierRL == RL_COMPUTE_OK);
-                ASSERT(rself->rlSwitch.barrierState == RL_BARRIER_STATE_UNINIT);
+                ocrAssert(rself->rlSwitch.barrierRL == RL_COMPUTE_OK);
+                ocrAssert(rself->rlSwitch.barrierState == RL_BARRIER_STATE_UNINIT);
                 // Do the barrier
                 doRLBarrier(policy);
                 // There is no next barrier on teardown so we clear things
@@ -540,7 +540,7 @@ u8 xePdSwitchRunlevel(ocrPolicyDomain_t *policy, ocrRunlevel_t runlevel, u32 pro
             hal_unlock(&rself->user_ok_teardown_lock); // We were just using this lock as a point to wait at
 #else
             // Make sure no XE has done the RL_USER_OK teardown
-            ASSERT(rself->rlSwitch.barrierRL == RL_USER_OK);
+            ocrAssert(rself->rlSwitch.barrierRL == RL_USER_OK);
 #endif
             if (rself->rlSwitch.barrierRL == RL_USER_OK) {
                 // No other XE has yet done the RL_USER_OK barrier, so do it now.
@@ -576,9 +576,9 @@ u8 xePdSwitchRunlevel(ocrPolicyDomain_t *policy, ocrRunlevel_t runlevel, u32 pro
                 return 0;
             }
 #endif
-            ASSERT(rself->rlSwitch.barrierRL == RL_USER_OK);
-            ASSERT(rself->rlSwitch.barrierState == RL_BARRIER_STATE_UNINIT);
-            ASSERT(rself->rlSwitch.properties & RL_TEAR_DOWN);
+            ocrAssert(rself->rlSwitch.barrierRL == RL_USER_OK);
+            ocrAssert(rself->rlSwitch.barrierState == RL_BARRIER_STATE_UNINIT);
+            ocrAssert(rself->rlSwitch.properties & RL_TEAR_DOWN);
 
             // Do our own teardown
             phaseCount = RL_GET_PHASE_COUNT_DOWN(policy, RL_USER_OK);
@@ -624,7 +624,7 @@ u8 xePdSwitchRunlevel(ocrPolicyDomain_t *policy, ocrRunlevel_t runlevel, u32 pro
     }
     default:
         // Unknown runlevel
-        ASSERT(0);
+        ocrAssert(0);
         break;
     }
 
@@ -710,7 +710,7 @@ static void setReturnDetail(ocrPolicyMsg_t * msg, u8 returnDetail) {
     break;
     }
     default:
-    ASSERT("Unhandled message type in setReturnDetail");
+    ocrAssert("Unhandled message type in setReturnDetail");
     break;
     }
 }
@@ -767,7 +767,7 @@ static void localDeguidify(ocrPolicyDomain_t *self, ocrFatGuid_t *guid) {
         // There are only two places where localDeguidify is called (when
         // tasks come back in) so if this fails, it means the CE is not
         // deguidifying the tasks prior to sending them back to the XE
-        ASSERT(guid->metaDataPtr != NULL);
+        ocrAssert(guid->metaDataPtr != NULL);
     }
 }
 
@@ -852,7 +852,7 @@ static u8 xeProcessResponse(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u32 pr
         msg->type &= ~PD_MSG_REQUEST;
         msg->type |=  PD_MSG_RESPONSE;
     } else {
-        ASSERT(0);
+        ocrAssert(0);
     }
     return 0;
 }
@@ -860,7 +860,7 @@ static u8 xeProcessResponse(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u32 pr
 static u8 xeProcessCeRequest(ocrPolicyDomain_t *self, ocrPolicyMsg_t **msg) {
     u8 returnCode = 0;
     u32 type = ((*msg)->type & PD_MSG_TYPE_ONLY);
-    ASSERT((*msg)->type & PD_MSG_REQUEST);
+    ocrAssert((*msg)->type & PD_MSG_REQUEST);
     if ((*msg)->type & PD_MSG_REQ_RESPONSE) {
         // For blocking messages, we are going to use a persistent buffer
         // and wait for the response
@@ -869,26 +869,26 @@ static u8 xeProcessCeRequest(ocrPolicyDomain_t *self, ocrPolicyMsg_t **msg) {
         returnCode = self->fcts.sendMessage(self, self->parentLocation, (*msg),
                                             &pHandle, (TWOWAY_MSG_PROP | PERSIST_MSG_PROP));
         if (returnCode == 0) {
-            ASSERT(pHandle && pHandle->msg && pHandle == &handle);
-            ASSERT(pHandle->msg == *msg); // This is what we passed in
+            ocrAssert(pHandle && pHandle->msg && pHandle == &handle);
+            ocrAssert(pHandle->msg == *msg); // This is what we passed in
             RESULT_ASSERT(self->fcts.waitMessage(self, &pHandle), ==, 0);
-            ASSERT(pHandle->response);
+            ocrAssert(pHandle->response);
             DPRINTF(DEBUG_LVL_VVERB, "XE got response from CE @ %p of type 0x%"PRIx32"\n",
                     pHandle->response, pHandle->response->type);
             // Check if the message was a proper response and came from the right place
-            ASSERT(pHandle->response->srcLocation == self->parentLocation);
+            ocrAssert(pHandle->response->srcLocation == self->parentLocation);
 #ifdef OCR_SHARED_XE_POLICY_DOMAIN
             if (pHandle->response->destLocation != MY_XE_LOCATION)
                 DPRINTF(DEBUG_LVL_WARN, "XE 0x%lx got response for 0x%lx \n", MY_XE_LOCATION, pHandle->response->destLocation);
-            ASSERT(pHandle->response->destLocation == MY_XE_LOCATION);
+            ocrAssert(pHandle->response->destLocation == MY_XE_LOCATION);
 #else
-            ASSERT(pHandle->response->destLocation == self->myLocation);
+            ocrAssert(pHandle->response->destLocation == self->myLocation);
 #endif
 
             // Check for shutdown message
             if(type != (pHandle->response->type & PD_MSG_TYPE_ONLY)) {
                 // This is currently just the shutdown message
-                ASSERT((pHandle->response->type & PD_MSG_TYPE_ONLY) == PD_MSG_MGT_RL_NOTIFY);
+                ocrAssert((pHandle->response->type & PD_MSG_TYPE_ONLY) == PD_MSG_MGT_RL_NOTIFY);
                 DPRINTF(DEBUG_LVL_VERB, "XE got a shutdown response; processing as new message\n");
                 // We process this as a new message
                 self->fcts.processMessage(self, pHandle->response, false);
@@ -897,7 +897,7 @@ static u8 xeProcessCeRequest(ocrPolicyDomain_t *self, ocrPolicyMsg_t **msg) {
             }
 
             // Fall-through case is if we actually received a non-shutdown response
-            ASSERT((pHandle->response->type & PD_MSG_TYPE_ONLY) == type);
+            ocrAssert((pHandle->response->type & PD_MSG_TYPE_ONLY) == type);
             if(pHandle->response != *msg) {
                 // We need to copy things back into *msg
                 // BUG #68: This should go away when that issue is fully implemented
@@ -907,7 +907,7 @@ static u8 xeProcessCeRequest(ocrPolicyDomain_t *self, ocrPolicyMsg_t **msg) {
                 u64 baseSize = 0, marshalledSize = 0;
                 ocrPolicyMsgGetMsgSize(pHandle->response, &baseSize, &marshalledSize, 0);
                 // For now, it must fit in a single message
-                ASSERT(baseSize + marshalledSize <= (*msg)->bufferSize);
+                ocrAssert(baseSize + marshalledSize <= (*msg)->bufferSize);
                 ocrPolicyMsgMarshallMsg(pHandle->response, baseSize, (u8*)*msg, MARSHALL_DUPLICATE);
             }
             pHandle->destruct(pHandle);
@@ -933,7 +933,7 @@ u8 xePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         START_PROFILE(pd_xe_DbCreate);
 #define PD_MSG msg
 #define PD_TYPE PD_MSG_DB_CREATE
-        ASSERT((PD_MSG_FIELD_I(dbType) == USER_DBTYPE) || (PD_MSG_FIELD_I(dbType) == RUNTIME_DBTYPE));
+        ocrAssert((PD_MSG_FIELD_I(dbType) == USER_DBTYPE) || (PD_MSG_FIELD_I(dbType) == RUNTIME_DBTYPE));
         DPRINTF(DEBUG_LVL_VVERB, "DB_CREATE request from 0x%"PRIx64" for size %"PRIu64"\n",
                 msg->srcLocation, PD_MSG_FIELD_IO(size));
 
@@ -959,12 +959,12 @@ u8 xePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
             PD_MSG_FIELD_O(returnDetail) = ret;
             if(PD_MSG_FIELD_O(returnDetail) == 0) {
                 ocrDataBlock_t *db = PD_MSG_FIELD_IO(guid.metaDataPtr);
-                ASSERT(db);
+                ocrAssert(db);
                 if(doNotAcquireDb) {
                     DPRINTF(DEBUG_LVL_INFO, "Not acquiring DB since disabled by property flags\n");
                     PD_MSG_FIELD_O(ptr) = NULL;
                 } else {
-                    ASSERT(db->fctId == ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->factoryId);
+                    ocrAssert(db->fctId == ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->factoryId);
                     PD_MSG_FIELD_O(returnDetail) = ((ocrDataBlockFactory_t*)(self->factories[self->datablockFactoryIdx]))->fcts.acquire(
                         db, &(PD_MSG_FIELD_O(ptr)), edtFatGuid, self->myLocation, EDT_SLOT_NONE,
                         DB_MODE_RW, !!(PD_MSG_FIELD_IO(properties) & DB_PROP_RT_ACQUIRE), (u32)DB_MODE_RW);
@@ -1067,7 +1067,7 @@ u8 xePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
 #ifdef OCR_ENABLE_XE_GET_MULTI_WORK
 #define PD_MSG (msg)
 #define PD_TYPE PD_MSG_SCHED_GET_WORK
-        ASSERT(msg->type & PD_MSG_REQUEST);
+        ocrAssert(msg->type & PD_MSG_REQUEST);
 
         if (msg->destLocation == self->parentLocation &&
             PD_MSG_FIELD_IO(schedArgs).kind == OCR_SCHED_WORK_MULTI_EDTS_USER)
@@ -1096,7 +1096,7 @@ u8 xePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         returnCode = xeProcessCeRequest(self, &msg);
 
         if (returnCode == 0) {
-            ASSERT(PD_MSG_FIELD_IO(schedArgs).kind == OCR_SCHED_WORK_EDT_USER);
+            ocrAssert(PD_MSG_FIELD_IO(schedArgs).kind == OCR_SCHED_WORK_EDT_USER);
             ocrFatGuid_t *fguid = &PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).edt;
             if (!(ocrGuidIsNull(fguid->guid))) {
                 DPRINTF(DEBUG_LVL_VVERB, "Received EDT with GUID "GUIDF"\n", GUIDA(fguid->guid));
@@ -1123,7 +1123,7 @@ u8 xePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
     {
         DPRINTF(DEBUG_LVL_WARN, "XE PD does not handle call of type 0x%"PRIx32"\n",
                 (u32)(msg->type & PD_MSG_TYPE_ONLY));
-        ASSERT(0);
+        ocrAssert(0);
         returnCode = OCR_ENOTSUP;
         break;
     }
@@ -1138,12 +1138,12 @@ u8 xePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         // Check to make sure that the EDT is only doing this to
         // itself
         // Also, this should only happen when there is an actual EDT
-        ASSERT(curTask &&
+        ocrAssert(curTask &&
                ocrGuidIsEq(curTask->guid, PD_MSG_FIELD_I(edt.guid)));
 
         DPRINTF(DEBUG_LVL_VVERB, "DEP_DYNADD req/resp for GUID "GUIDF"\n",
                 GUIDA(PD_MSG_FIELD_I(db.guid)));
-        ASSERT(curTask->fctId == ((ocrTaskFactory_t*)(self->factories[self->taskFactoryIdx]))->factoryId);
+        ocrAssert(curTask->fctId == ((ocrTaskFactory_t*)(self->factories[self->taskFactoryIdx]))->factoryId);
         PD_MSG_FIELD_O(returnDetail) = ((ocrTaskFactory_t*)(self->factories[self->taskFactoryIdx]))->fcts.notifyDbAcquire(curTask, PD_MSG_FIELD_I(db));
 #undef PD_MSG
 #undef PD_TYPE
@@ -1160,11 +1160,11 @@ u8 xePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         // Check to make sure that the EDT is only doing this to
         // itself
         // Also, this should only happen when there is an actual EDT
-        ASSERT(curTask &&
+        ocrAssert(curTask &&
                ocrGuidIsEq(curTask->guid, PD_MSG_FIELD_I(edt.guid)));
         DPRINTF(DEBUG_LVL_VVERB, "DEP_DYNREMOVE req/resp for GUID "GUIDF"\n",
                 GUIDA(PD_MSG_FIELD_I(db.guid)));
-        ASSERT(curTask->fctId == ((ocrTaskFactory_t*)(self->factories[self->taskFactoryIdx]))->factoryId);
+        ocrAssert(curTask->fctId == ((ocrTaskFactory_t*)(self->factories[self->taskFactoryIdx]))->factoryId);
         PD_MSG_FIELD_O(returnDetail) = ((ocrTaskFactory_t*)(self->factories[self->taskFactoryIdx]))->fcts.notifyDbRelease(curTask, PD_MSG_FIELD_I(db));
 #undef PD_MSG
 #undef PD_TYPE
@@ -1182,13 +1182,13 @@ u8 xePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
             // It is either a request to shutdown (answer given to
             // another query) or a response that we can proceed past
             // a barrier
-            ASSERT(msg->srcLocation == self->parentLocation);
+            ocrAssert(msg->srcLocation == self->parentLocation);
             if(PD_MSG_FIELD_I(properties) & RL_RELEASE) {
                 // This is a release from the CE
                 // Check that we match on the runlevel
                 DPRINTF(DEBUG_LVL_VVERB, "Release from CE\n");
-                ASSERT(PD_MSG_FIELD_I(runlevel) == rself->rlSwitch.barrierRL);
-                ASSERT(rself->rlSwitch.barrierState == RL_BARRIER_STATE_PARENT_NOTIFIED);
+                ocrAssert(PD_MSG_FIELD_I(runlevel) == rself->rlSwitch.barrierRL);
+                ocrAssert(rself->rlSwitch.barrierState == RL_BARRIER_STATE_PARENT_NOTIFIED);
                 rself->rlSwitch.barrierState = RL_BARRIER_STATE_PARENT_RESPONSE;
             } else {
                 // This is a request for a change of runlevel
@@ -1197,7 +1197,7 @@ u8 xePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
                     // Record the shutdown code
                     self->shutdownCode = PD_MSG_FIELD_I(errorCode);
                 }
-                ASSERT(PD_MSG_FIELD_I(runlevel) == rself->rlSwitch.barrierRL);
+                ocrAssert(PD_MSG_FIELD_I(runlevel) == rself->rlSwitch.barrierRL);
                 if(rself->rlSwitch.barrierState == RL_BARRIER_STATE_UNINIT) {
                     DPRINTF(DEBUG_LVL_VVERB, "Request to switch to RL %"PRIu32"\n", rself->rlSwitch.barrierRL);
                     RESULT_ASSERT(self->fcts.switchRunlevel(
@@ -1228,7 +1228,7 @@ u8 xePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
     }
     default: {
         DPRINTF(DEBUG_LVL_WARN, "Unknown message type 0x%"PRIx32"\n", (u32)(msg->type & PD_MSG_TYPE_ONLY));
-        ASSERT(0);
+        ocrAssert(0);
     }
     }; // End of giant switch
 
@@ -1238,8 +1238,8 @@ u8 xePolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
 u8 xePdProcessEvent(ocrPolicyDomain_t* self, pdEvent_t **evt, u32 idx) {
     // Simple version to test out micro tasks for now. This just executes a blocking
     // call to the regular process message and returns NULL
-    ASSERT(idx == 0);
-    ASSERT(((*evt)->properties & PDEVT_TYPE_MASK) == PDEVT_TYPE_MSG);
+    ocrAssert(idx == 0);
+    ocrAssert(((*evt)->properties & PDEVT_TYPE_MASK) == PDEVT_TYPE_MSG);
     pdEventMsg_t *evtMsg = (pdEventMsg_t*)*evt;
     xePolicyDomainProcessMessage(self, evtMsg->msg, true);
     *evt = NULL;
@@ -1251,7 +1251,7 @@ u8 xePdSendMessage(ocrPolicyDomain_t* self, ocrLocation_t target, ocrPolicyMsg_t
 
     ocrMsgHandle_t thandle;
     ocrMsgHandle_t *pthandle = &thandle;
-    ASSERT(target == self->parentLocation); // We should only be sending to our parent
+    ocrAssert(target == self->parentLocation); // We should only be sending to our parent
     // Update the message fields
     message->destLocation = target;
     message->srcLocation = self->myLocation;
@@ -1300,7 +1300,7 @@ void* xePdMalloc(ocrPolicyDomain_t *self, u64 size) {
     PD_MSG_FIELD_I(type) = DB_MEMTYPE;
     PD_MSG_FIELD_I(size) = size;
 #ifndef OCR_SHARED_XE_POLICY_DOMAIN
-    ASSERT(self->workerCount == 1);              // Assert this XE has exactly one worker.
+    ocrAssert(self->workerCount == 1);              // Assert this XE has exactly one worker.
 #endif
     u8 msgResult = xeProcessCeRequest(self, &pmsg);
     if(msgResult == 0) {
@@ -1345,7 +1345,7 @@ ocrPolicyDomain_t * newPolicyDomainXe(ocrPolicyDomainFactory_t * factory,
                                       ocrParamList_t *perInstance) {
     ocrPolicyDomainXe_t * derived = (ocrPolicyDomainXe_t *) runtimeChunkAlloc(sizeof(ocrPolicyDomainXe_t), PERSISTENT_CHUNK);
     ocrPolicyDomain_t * base = (ocrPolicyDomain_t *) derived;
-    ASSERT(base);
+    ocrAssert(base);
 #ifdef OCR_ENABLE_STATISTICS
     factory->initialize(factory, base, statsObject, perInstance);
 #else
@@ -1382,7 +1382,7 @@ static void destructPolicyDomainFactoryXe(ocrPolicyDomainFactory_t * factory) {
 ocrPolicyDomainFactory_t * newPolicyDomainFactoryXe(ocrParamList_t *perType) {
     ocrPolicyDomainFactory_t* base = (ocrPolicyDomainFactory_t*) runtimeChunkAlloc(sizeof(ocrPolicyDomainFactoryXe_t), NONPERSISTENT_CHUNK);
 
-    ASSERT(base); // Check allocation
+    ocrAssert(base); // Check allocation
 
 #ifdef OCR_ENABLE_STATISTICS
     base->instantiate = FUNC_ADDR(ocrPolicyDomain_t*(*)(ocrPolicyDomainFactory_t*,ocrCost_t*,

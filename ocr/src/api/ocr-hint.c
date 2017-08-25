@@ -133,7 +133,7 @@ u8 ocrSetHint(ocrGuid_t guid, ocrHint_t *hint) {
     START_PROFILE(api_ocrSetHint);
 #ifdef ENABLE_HINTS
     DPRINTF(DEBUG_LVL_INFO, "Hints Enabled!\n");
-    ASSERT(hint != NULL_HINT);
+    ocrAssert(hint != NULL_HINT);
     if (hint->type == OCR_HINT_UNDEF_T) {
         DPRINTF(DEBUG_LVL_WARN, "EXIT ocrSetHint: Invalid hint type\n");
         RETURN_PROFILE(OCR_EINVAL);
@@ -170,7 +170,7 @@ u8 ocrSetHint(ocrGuid_t guid, ocrHint_t *hint) {
 u8 ocrGetHint(ocrGuid_t guid, ocrHint_t *hint) {
     START_PROFILE(api_ocrGetHint);
 #ifdef ENABLE_HINTS
-    ASSERT(hint != NULL_HINT);
+    ocrAssert(hint != NULL_HINT);
     if (hint->type == OCR_HINT_UNDEF_T) {
         DPRINTF(DEBUG_LVL_WARN, "EXIT ocrGetHint: Invalid hint type\n");
         RETURN_PROFILE(OCR_EINVAL);

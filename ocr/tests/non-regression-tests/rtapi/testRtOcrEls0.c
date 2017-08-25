@@ -24,7 +24,7 @@
 
 void someUserFunction(ocrGuid_t dbGuid) {
     ocrGuid_t elsGuid = ocrElsUserGet(ELS_OFFSET);
-    ASSERT(ocrGuidIsEq(dbGuid, elsGuid));
+    ocrAssert(ocrGuidIsEq(dbGuid, elsGuid));
 }
 
 ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {

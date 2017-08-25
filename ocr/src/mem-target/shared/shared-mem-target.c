@@ -30,7 +30,7 @@
 /******************************************************/
 
 void sharedDestruct(ocrMemTarget_t *self) {
-    ASSERT(self->memoryCount == 1);
+    ocrAssert(self->memoryCount == 1);
     self->memories[0]->fcts.destruct(self->memories[0]);
     // BUG #673: Deal with objects that are shared across PDs.
     /*
@@ -48,14 +48,14 @@ u8 sharedSwitchRunlevel(ocrMemTarget_t *self, ocrPolicyDomain_t *PD, ocrRunlevel
     u8 toReturn = 0;
 
     // This is an inert module, we do not handle callbacks (caller needs to wait on us)
-    ASSERT(callback == NULL);
+    ocrAssert(callback == NULL);
 
     // Verify properties for this call
-    ASSERT((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
+    ocrAssert((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
            && !(properties & RL_RELEASE));
-    ASSERT(!(properties & RL_FROM_MSG));
+    ocrAssert(!(properties & RL_FROM_MSG));
 
-    ASSERT(self->memoryCount == 1);
+    ocrAssert(self->memoryCount == 1);
     if(properties & RL_BRING_UP) {
         toReturn |= self->memories[0]->fcts.switchRunlevel(
             self->memories[0], PD, runlevel, phase, properties, NULL, self->level);
@@ -108,7 +108,7 @@ u8 sharedSwitchRunlevel(ocrMemTarget_t *self, ocrPolicyDomain_t *PD, ocrRunlevel
         break;
     default:
         // Unknown runlevel
-        ASSERT(0);
+        ocrAssert(0);
     }
     if(properties & RL_TEAR_DOWN) {
         toReturn |= self->memories[0]->fcts.switchRunlevel(

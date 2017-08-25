@@ -20,7 +20,7 @@ ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     void *programArg = depv[0].ptr;
     u64* dbAsU64 = (u64*)programArg;
     argc = dbAsU64[0];
-    ASSERT(argc == 2);
+    ocrAssert(argc == 2);
 
     ocrGuid_t tplGuid;
     ocrEdtTemplateCreate(&tplGuid, otherEdt, 0 /*paramc*/, 1 /*depc*/);

@@ -38,7 +38,7 @@ static void _baseBinHeapInit(binHeap_t* heap, ocrPolicyDomain_t *pd) {
     heap->count = 0;
     heap->data = NULL;
     heap->data = pd->fcts.pdMalloc(pd, sizeof(ocrBinHeapEntry_t)*INIT_BIN_HEAP_CAPACITY);
-    ASSERT(heap->data != NULL);
+    ocrAssert(heap->data != NULL);
     heap->destruct = binHeapDestroy;
     // Set by derived implementation
     heap->push = NULL;
@@ -64,7 +64,7 @@ static binHeap_t * _newBaseBinHeap(ocrPolicyDomain_t *pd, ocrBinHeapType_t type)
             // Warning: function pointers must be specialized in caller
             break;
     default:
-        ASSERT(0);
+        ocrAssert(0);
     }
     heap->type = type;
     return heap;
@@ -128,9 +128,9 @@ static void _checkHeap(binHeap_t *heap) {
     u32 i;
     for (i=0;;i++) {
         if (_left(i) > n) break;
-        ASSERT(heap->data[i].priority >= heap->data[_left(i)].priority);
+        ocrAssert(heap->data[i].priority >= heap->data[_left(i)].priority);
         if (_right(i) > n) break;
-        ASSERT(heap->data[i].priority >= heap->data[_right(i)].priority);
+        ocrAssert(heap->data[i].priority >= heap->data[_right(i)].priority);
     }
 #endif /* _OCR_BIN_HEAP_DEBUG */
 }
@@ -141,7 +141,7 @@ static void _checkHeap(binHeap_t *heap) {
 void nonConcBinHeapPush(binHeap_t *heap, void *entry, s64 priority, u8 doTry) {
     const u32 n = heap->count;
     if (n == INIT_BIN_HEAP_CAPACITY) { /* binHeap looks full */
-        ASSERT("Binary heap full, increase bin-heap's size" && 0);
+        ocrAssert("Binary heap full, increase bin-heap's size" && 0);
     }
     heap->count++;
     ocrBinHeapEntry_t node = { priority, entry };
@@ -216,7 +216,7 @@ binHeap_t * newBinHeap(ocrPolicyDomain_t *pd, ocrBinHeapType_t type) {
         heap->pop = lockedBinHeapPop;
         break;
     default:
-        ASSERT(0);
+        ocrAssert(0);
     }
     heap->type = type;
     return heap;

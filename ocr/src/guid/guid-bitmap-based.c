@@ -52,14 +52,14 @@ static u64 locationToLocId(ocrLocation_t location) {
     u64 locId = (u64)(location);
 #endif
     // Make sure we're not overflowing location size
-    ASSERT((locId < MAX_VAL(LOCHOME)) && "GUID location ID overflows");
+    ocrAssert((locId < MAX_VAL(LOCHOME)) && "GUID location ID overflows");
     return locId;
 }
 
 static bool isLocalGuidCheck(ocrGuidProvider_t* self, ocrGuid_t guid) {
 #if defined(OCR_ASSERT) && !(defined(TG_XE_TARGET)) && !(defined(TG_CE_TARGET)) && !(defined(TG_X86_TARGET))
     int oth = (int) locIdtoLocation(extractLocIdFromGuid(guid));
-    ASSERT((oth >= 0) && (oth <= self->pd->neighborCount) && "Invalid neighbor ID");
+    ocrAssert((oth >= 0) && (oth <= self->pd->neighborCount) && "Invalid neighbor ID");
 #endif
     return self->pd->myLocation == locIdtoLocation(extractLocIdFromGuid(guid));
 }
@@ -84,7 +84,7 @@ static u64 generateNextGuid(ocrGuidProvider_t* self, ocrGuidKind kind, ocrLocati
     u64 newCount = hal_xadd64(counterPtr, card);
 #endif
     // double check if we overflow the guid's counter size
-    ASSERT(((newCount + card) < MAX_VAL(COUNTER)) && "GUID counter overflows");
+    ocrAssert(((newCount + card) < MAX_VAL(COUNTER)) && "GUID counter overflows");
     guid |= newCount;
     return guid;
 }

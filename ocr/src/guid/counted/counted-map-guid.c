@@ -101,12 +101,12 @@ u8 countedMapSwitchRunlevel(ocrGuidProvider_t *self, ocrPolicyDomain_t *PD, ocrR
     u8 toReturn = 0;
 
     // This is an inert module, we do not handle callbacks (caller needs to wait on us)
-    ASSERT(callback == NULL);
+    ocrAssert(callback == NULL);
 
     // Verify properties for this call
-    ASSERT((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
+    ocrAssert((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
            && !(properties & RL_RELEASE));
-    ASSERT(!(properties & RL_FROM_MSG));
+    ocrAssert(!(properties & RL_FROM_MSG));
 
     switch(runlevel) {
     case RL_CONFIG_PARSE:
@@ -133,7 +133,7 @@ u8 countedMapSwitchRunlevel(ocrGuidProvider_t *self, ocrPolicyDomain_t *PD, ocrR
 #ifdef GUID_PROVIDER_WID_INGUID
             ocrGuidProviderCountedMap_t *rself = (ocrGuidProviderCountedMap_t*)self;
             u32 i = 0, ub = PD->workerCount;
-            ASSERT(ub <= MAX_VAL(LOCWID));
+            ocrAssert(ub <= MAX_VAL(LOCWID));
             u64 max = MAX_VAL(COUNTER);
             u64 incr = (max/ub);
             while (i < ub) {
@@ -171,14 +171,14 @@ u8 countedMapSwitchRunlevel(ocrGuidProvider_t *self, ocrPolicyDomain_t *PD, ocrR
 #endif
             GP_HASHTABLE_DESTRUCT(((ocrGuidProviderCountedMap_t *) self)->guidImplTable, NULL, entryDeallocator, deallocParam);
 #ifdef GUID_PROVIDER_DESTRUCT_CHECK
-            PRINTF("=========================\n");
-            PRINTF("Remnant GUIDs summary:\n");
+            ocrPrintf("=========================\n");
+            ocrPrintf("Remnant GUIDs summary:\n");
             for(i=0; i < OCR_GUID_MAX; i++) {
                 if (guidTypeCounters[i] != 0) {
-                    PRINTF("%s => %"PRIu32" instances\n", ocrGuidKindToChar(i), guidTypeCounters[i]);
+                    ocrPrintf("%s => %"PRIu32" instances\n", ocrGuidKindToChar(i), guidTypeCounters[i]);
                 }
             }
-            PRINTF("=========================\n");
+            ocrPrintf("=========================\n");
 #endif
         }
         break;
@@ -188,7 +188,7 @@ u8 countedMapSwitchRunlevel(ocrGuidProvider_t *self, ocrPolicyDomain_t *PD, ocrR
             ocrGuidProviderCountedMap_t * derived = (ocrGuidProviderCountedMap_t *) self;
             derived->guidImplTable = GP_HASHTABLE_CREATE_MODULO(PD, GUID_PROVIDER_NB_BUCKETS, hashGuidCounterModulo);
 #ifdef GUID_PROVIDER_WID_INGUID
-            ASSERT(((PD->workerCount-1) < MAX_VAL(LOCWID)) && "GUID worker count overflows");
+            ocrAssert(((PD->workerCount-1) < MAX_VAL(LOCWID)) && "GUID worker count overflows");
 #endif
         }
         break;
@@ -199,7 +199,7 @@ u8 countedMapSwitchRunlevel(ocrGuidProvider_t *self, ocrPolicyDomain_t *PD, ocrR
         break;
     default:
         // Unknown runlevel
-        ASSERT(0);
+        ocrAssert(0);
     }
     return toReturn;
 }
@@ -310,7 +310,7 @@ u8 countedMapCreateGuid(ocrGuidProvider_t* self, ocrFatGuid_t *fguid, u64 size, 
     if(properties & GUID_PROP_IS_LABELED) {
         // Not supported; use labeled provider
         DPRINTF(DEBUG_LVL_WARN, "error: Must use labeled GUID provider for labeled GUID support, current is counted-map\n");
-        ASSERT(false);
+        ocrAssert(false);
     }
 
     PD_MSG_STACK(msg);
@@ -359,7 +359,7 @@ u8 countedMapCreateGuid(ocrGuidProvider_t* self, ocrFatGuid_t *fguid, u64 size, 
                           (properties & GUID_PROP_TORECORD) ? GUID_PROP_TORECORD : 0);
         DPRINTF(DEBUG_LVL_VVERB, "Generating GUID "GUIDF"\n", GUIDA(fguid->guid));
     }
-    ASSERT(!ocrGuidIsNull(fguid->guid) && !ocrGuidIsUninitialized(fguid->guid));
+    ocrAssert(!ocrGuidIsNull(fguid->guid) && !ocrGuidIsUninitialized(fguid->guid));
     // Update the fat GUID's metaDataPtr
     fguid->metaDataPtr = ptr;
 #undef PD_MSG
@@ -386,11 +386,11 @@ u8 countedMapRegisterGuid(ocrGuidProvider_t* self, ocrGuid_t guid, u64 val) {
     if (isLocalGuidCheck(self, guid)) {
         // See BUG #928 on GUID issues
         GP_HASHTABLE_PUT(dself->guidImplTable, (void *) rguid, (void *) val);
-        ASSERT(oth == self->pd->myLocation);
+        ocrAssert(oth == self->pd->myLocation);
     } else {
         MdProxy_t * mdProxy = (MdProxy_t *) GP_HASHTABLE_GET(dself->guidImplTable, rguid);
         // Must have setup a mdProxy before being able to register.
-        ASSERT(mdProxy != NULL);
+        ocrAssert(mdProxy != NULL);
         mdProxy->ptr = val;
         hal_fence(); // This may be redundant with the CAS
         u64 newValue = (u64) REG_CLOSED;
@@ -399,7 +399,7 @@ u8 countedMapRegisterGuid(ocrGuidProvider_t* self, ocrGuid_t guid, u64 val) {
         u64 oldValue = 0;
         do {
             MdProxyNode_t * head = mdProxy->queueHead;
-            ASSERT(head != REG_CLOSED);
+            ocrAssert(head != REG_CLOSED);
             curValue = (u64) head;
             oldValue = hal_cmpswap64((u64*) &(mdProxy->queueHead), curValue, newValue);
         } while(oldValue != curValue);
@@ -418,7 +418,7 @@ u8 countedMapRegisterGuid(ocrGuidProvider_t* self, ocrGuid_t guid, u64 val) {
                     //TODO-MD-DBRTACQ
                     // This is to let the PD know the message is re-processed and
                     // there's no calling context that will read the response.
-                    ASSERT(msg->type & PD_MSG_REQ_RESPONSE);
+                    ocrAssert(msg->type & PD_MSG_REQ_RESPONSE);
                     msg->type &= ~PD_MSG_REQ_RESPONSE;
                 }
                 u64 paramv = (u64) queueHead->msg;
@@ -443,7 +443,7 @@ u8 countedMapRegisterGuid(ocrGuidProvider_t* self, ocrGuid_t guid, u64 val) {
  *
  */
 static u8 countedMapGetVal(ocrGuidProvider_t* self, ocrGuid_t guid, u64* val, ocrGuidKind* kind, u32 mode, MdProxy_t ** proxy) {
-    ASSERT(!ocrGuidIsNull(guid) && !ocrGuidIsError(guid) && !ocrGuidIsUninitialized(guid));
+    ocrAssert(!ocrGuidIsNull(guid) && !ocrGuidIsError(guid) && !ocrGuidIsUninitialized(guid));
 
     ocrGuidProviderCountedMap_t * dself = (ocrGuidProviderCountedMap_t *) self;
     if (kind) {
@@ -470,7 +470,7 @@ static u8 countedMapGetVal(ocrGuidProvider_t* self, ocrGuid_t guid, u64* val, oc
                 return 0;
             } // else the mode is fetch
             // This is a concurrent operation. Multiple concurrent call may try to do the fetch
-            ASSERT(((mode == MD_FETCH) || (mode == MD_PROXY)) && (proxy != NULL));
+            ocrAssert(((mode == MD_FETCH) || (mode == MD_PROXY)) && (proxy != NULL));
             // Optimistically try to enqueue.
             ocrPolicyDomain_t * pd = self->pd;
             mdProxy = (MdProxy_t *) pd->fcts.pdMalloc(pd, sizeof(MdProxy_t));
@@ -508,12 +508,12 @@ static u8 countedMapGetVal(ocrGuidProvider_t* self, ocrGuid_t guid, u64* val, oc
                     *proxy = NULL;
                 } else {
                     // Warning: after this call we're potentially concurrent with the MD being registered on the GP
-                    ASSERT(returnCode == OCR_EPEND);
+                    ocrAssert(returnCode == OCR_EPEND);
                 }
 #undef PD_MSG
 #undef PD_TYPE
             } else {
-                ASSERT(mode != MD_PROXY); // By contract, no competition on MD_PROXY
+                ocrAssert(mode != MD_PROXY); // By contract, no competition on MD_PROXY
                 // lost competition, 2 cases:
                 // 1) The MD is available (it's concurrent to this thread of execution)
                 // 2) The MD is still being fetch
@@ -543,11 +543,11 @@ static u8 countedMapGetVal(ocrGuidProvider_t* self, ocrGuid_t guid, u64* val, oc
             *val = (u64) mdProxy->ptr;
         }
         if (mode == MD_FETCH) {
-            ASSERT(proxy != NULL);
+            ocrAssert(proxy != NULL);
             *proxy = mdProxy;
             DPRINTF(DEBUG_LVL_VVERB, "MD_FETCH for "GUIDF"\n", GUIDA(guid));
         } else {
-            ASSERT(proxy == NULL);
+            ocrAssert(proxy == NULL);
         }
     } // end GUID is not local
     return (*val) ? 0 : OCR_EPEND;
@@ -607,7 +607,7 @@ u8 countedMapReleaseGuid(ocrGuidProvider_t *self, ocrFatGuid_t fatGuid, bool rel
 //Returns the serialization size of the MdProxy only,
 //excluding the size of linked OCR object in mdProxy->ptr
 u64 getSerializationSizeMdProxy(MdProxy_t *mdProxy) {
-    ASSERT((mdProxy != NULL) && (mdProxy->base.kind == OCR_GUID_MD_PROXY));
+    ocrAssert((mdProxy != NULL) && (mdProxy->base.kind == OCR_GUID_MD_PROXY));
     u64 mdProxySize = sizeof(MdProxy_t);
     mdProxy->numNodes = 0;
     if (mdProxy->queueHead != REG_CLOSED) {
@@ -629,8 +629,8 @@ u64 getSerializationSizeMdProxy(MdProxy_t *mdProxy) {
 //excluding the linked OCR object in mdProxy->ptr
 //Returns the size of buffer used to serialize
 u64 serializeMdProxy(MdProxy_t *mdProxy, u8* buffer) {
-    ASSERT(buffer);
-    ASSERT((mdProxy != NULL) && (mdProxy->base.kind == OCR_GUID_MD_PROXY));
+    ocrAssert(buffer);
+    ocrAssert((mdProxy != NULL) && (mdProxy->base.kind == OCR_GUID_MD_PROXY));
     u8* bufferHead = buffer;
     MdProxy_t *mdProxyBuf = (MdProxy_t*)buffer;
     u64 len = sizeof(MdProxy_t);
@@ -655,7 +655,7 @@ u64 serializeMdProxy(MdProxy_t *mdProxy, u8* buffer) {
             ocrPolicyMsg_t *msgBuf = (ocrPolicyMsg_t*)buffer;
             initializePolicyMessage(msgBuf, len);
             ocrPolicyMsgMarshallMsg(queueNode->msg, baseSize, buffer, MARSHALL_FULL_COPY | MARSHALL_NSADDR);
-            ASSERT(queueBuf->msg->bufferSize == len);
+            ocrAssert(queueBuf->msg->bufferSize == len);
             buffer += len;
 
             numNodes++;
@@ -663,15 +663,15 @@ u64 serializeMdProxy(MdProxy_t *mdProxy, u8* buffer) {
             if (queueNode != ((void*) REG_OPEN)) {
                 queueBuf->next = (MdProxyNode_t*)buffer;
             } else {
-                ASSERT(queueBuf->next == ((void*) REG_OPEN));
+                ocrAssert(queueBuf->next == ((void*) REG_OPEN));
             }
         }
     }
 
     mdProxyBuf->ptr = (u64) buffer; //ocrObject in ptr will be serialized after this function returns
     u64 offset = buffer - bufferHead;
-    ASSERT(numNodes == mdProxy->numNodes);
-    ASSERT(offset == mdProxy->base.size);
+    ocrAssert(numNodes == mdProxy->numNodes);
+    ocrAssert(offset == mdProxy->base.size);
     return offset;
 }
 
@@ -679,15 +679,15 @@ u64 serializeMdProxy(MdProxy_t *mdProxy, u8* buffer) {
 //excluding the linked OCR object in mdProxy->ptr
 //Returns the size of buffer used to deserialize
 u64 deserializeMdProxy(u8* buffer, MdProxy_t **proxy) {
-    ASSERT(buffer);
-    ASSERT(proxy);
+    ocrAssert(buffer);
+    ocrAssert(proxy);
     u8* bufferHead = buffer;
     ocrPolicyDomain_t *pd = NULL;
     getCurrentEnv(&pd, NULL, NULL, NULL);
     u64 len = sizeof(MdProxy_t);
     MdProxy_t *mdProxy = (MdProxy_t*)pd->fcts.pdMalloc(pd, len);
     hal_memCopy(mdProxy, buffer, len, false);
-    ASSERT(mdProxy->base.kind == OCR_GUID_MD_PROXY);
+    ocrAssert(mdProxy->base.kind == OCR_GUID_MD_PROXY);
     mdProxy->ptr = 0; //this will be setup after the ocr object is deserialized
     buffer += len;
 
@@ -703,7 +703,7 @@ u64 deserializeMdProxy(u8* buffer, MdProxy_t **proxy) {
             if (mdProxy->queueHead == NULL) {
                 mdProxy->queueHead = mdProxyNode;
             } else {
-                ASSERT(queuePrev != NULL);
+                ocrAssert(queuePrev != NULL);
                 queuePrev->next = mdProxyNode;
             }
             queuePrev = mdProxyNode;
@@ -720,7 +720,7 @@ u64 deserializeMdProxy(u8* buffer, MdProxy_t **proxy) {
     }
 
     u64 offset = buffer - bufferHead;
-    ASSERT(offset == mdProxy->base.size);
+    ocrAssert(offset == mdProxy->base.size);
     *proxy = mdProxy;
     return offset;
 }
@@ -735,7 +735,7 @@ void fixupMdProxy(MdProxy_t *mdProxy) {
 //Destructs an MdProxy object excluding the
 //linked OCR object in mdProxy->ptr
 void destructMdProxy(MdProxy_t *mdProxy) {
-    ASSERT((mdProxy != NULL) && (mdProxy->base.kind == OCR_GUID_MD_PROXY));
+    ocrAssert((mdProxy != NULL) && (mdProxy->base.kind == OCR_GUID_MD_PROXY));
     ocrPolicyDomain_t *pd = NULL;
     getCurrentEnv(&pd, NULL, NULL, NULL);
     if (mdProxy->queueHead != REG_CLOSED) {
@@ -743,7 +743,7 @@ void destructMdProxy(MdProxy_t *mdProxy) {
         while (queueNode != ((void*) REG_OPEN)) { // sentinel value
             MdProxyNode_t * curNode = (MdProxyNode_t*)queueNode;
             queueNode = queueNode->next;
-            ASSERT(curNode->msg);
+            ocrAssert(curNode->msg);
             pd->fcts.pdFree(pd, curNode->msg);
             pd->fcts.pdFree(pd, curNode);
         }
@@ -752,9 +752,9 @@ void destructMdProxy(MdProxy_t *mdProxy) {
 }
 
 void calcSerializationSize(void * key, void * value, void * args) {
-    ASSERT(key != NULL);
-    ASSERT(value != NULL);
-    ASSERT(args != NULL);
+    ocrAssert(key != NULL);
+    ocrAssert(value != NULL);
+    ocrAssert(args != NULL);
 
     ocrPolicyDomain_t *pd = NULL;
     ocrTask_t * curEdt = NULL;
@@ -784,37 +784,37 @@ void calcSerializationSize(void * key, void * value, void * args) {
     u64 mdProxySize = 0;
     if (!isLocalGuidCheck(self, guid)) {
         mdProxy = (MdProxy_t*)value;
-        ASSERT(mdProxy->base.kind == OCR_GUID_MD_PROXY);
+        ocrAssert(mdProxy->base.kind == OCR_GUID_MD_PROXY);
         ocrObj = (ocrObject_t*)mdProxy->ptr;
-        ASSERT(ocrObj); // TODO-resilience: this can be null if the MD hasn't been resolved yet
+        ocrAssert(ocrObj); // TODO-resilience: this can be null if the MD hasn't been resolved yet
         mdProxySize = getSerializationSizeMdProxy(mdProxy);
-        ASSERT(mdProxySize > 0 && mdProxy->base.size == mdProxySize);
+        ocrAssert(mdProxySize > 0 && mdProxy->base.size == mdProxySize);
     }
 
     u64 mdSize = 0;
     if (kind == OCR_GUID_DB) {
-        ASSERT(ocrObj->kind == kind);
+        ocrAssert(ocrObj->kind == kind);
         ocrDataBlock_t *db = (ocrDataBlock_t*)ocrObj;
-        ASSERT(ocrGuidIsEq(guid, db->guid));
+        ocrAssert(ocrGuidIsEq(guid, db->guid));
         ((ocrDataBlockFactory_t*)(pd->factories[pd->datablockFactoryIdx]))->fcts.getSerializationSize(db, &mdSize);
-        ASSERT(mdSize > 0 || ocrObj->size == mdSize);
+        ocrAssert(mdSize > 0 || ocrObj->size == mdSize);
     } else if (kind == OCR_GUID_EDT) {
-        ASSERT(ocrObj->kind == kind);
+        ocrAssert(ocrObj->kind == kind);
         ocrTask_t *edt = (ocrTask_t*)ocrObj;
-        ASSERT(ocrGuidIsEq(guid, edt->guid));
+        ocrAssert(ocrGuidIsEq(guid, edt->guid));
         ((ocrTaskFactory_t*)(pd->factories[pd->taskFactoryIdx]))->fcts.getSerializationSize(edt, &mdSize);
-        ASSERT(mdSize > 0 || ocrObj->size == mdSize);
+        ocrAssert(mdSize > 0 || ocrObj->size == mdSize);
     } else if (kind == OCR_GUID_EDT_TEMPLATE) {
-        ASSERT(ocrObj->kind == kind);
+        ocrAssert(ocrObj->kind == kind);
         ocrTaskTemplate_t *tmpl = (ocrTaskTemplate_t*)ocrObj;
         ((ocrTaskTemplateFactory_t*)(pd->factories[pd->taskTemplateFactoryIdx]))->fcts.getSerializationSize(tmpl, &mdSize);
-        ASSERT(mdSize > 0 || ocrObj->size == mdSize);
+        ocrAssert(mdSize > 0 || ocrObj->size == mdSize);
     } else if (kind & OCR_GUID_EVENT) {
-        ASSERT(ocrObj->kind == kind);
+        ocrAssert(ocrObj->kind == kind);
         ocrEvent_t *evt = (ocrEvent_t*)ocrObj;
-        ASSERT(ocrGuidIsEq(guid, evt->guid));
+        ocrAssert(ocrGuidIsEq(guid, evt->guid));
         ((ocrEventFactory_t*)(pd->factories[pd->eventFactoryIdx]))->commonFcts.getSerializationSize(evt, &mdSize);
-        ASSERT(mdSize > 0 || ocrObj->size == mdSize);
+        ocrAssert(mdSize > 0 || ocrObj->size == mdSize);
     } else if (kind == OCR_GUID_AFFINITY) {
         mdSize = sizeof(ocrAffinity_t);
     } else {
@@ -831,18 +831,18 @@ void calcSerializationSize(void * key, void * value, void * args) {
         case OCR_GUID_SCHEDULER_HEURISTIC:
         case OCR_GUID_GUIDMAP:
             {
-                ASSERT(mdProxy == NULL);
+                ocrAssert(mdProxy == NULL);
                 return;
             }
         default:
             {
                 DPRINTF(DEBUG_LVL_WARN, "Unknown guid kind found\n");
-                ASSERT(0);
+                ocrAssert(0);
                 return;
             }
         }
     }
-    ASSERT(mdSize > 0);
+    ocrAssert(mdSize > 0);
     *size += sizeof(ocrGuid_t) + mdProxySize + mdSize;
 
     ocrGuidProviderCountedMap_t * derived = (ocrGuidProviderCountedMap_t *) self;
@@ -854,7 +854,7 @@ u8 getSerializationSizeGuidProviderCounted(ocrGuidProvider_t* self, u64* size) {
     derived->objectsCounted = 0;
     *size = 0;
     GP_HASHTABLE_ITERATE(derived->guidImplTable, calcSerializationSize, (void*)size);
-    ASSERT(derived->objectsCounted > 0 && *size > 0);
+    ocrAssert(derived->objectsCounted > 0 && *size > 0);
     *size += sizeof(ocrObject_t) + sizeof(u64);
 #ifdef GUID_PROVIDER_WID_INGUID
 #error "Unsupported option for resiliency"
@@ -865,9 +865,9 @@ u8 getSerializationSizeGuidProviderCounted(ocrGuidProvider_t* self, u64* size) {
 }
 
 void serializeGuid(void * key, void * value, void * args) {
-    ASSERT(key != NULL);
-    ASSERT(value != NULL);
-    ASSERT(args != NULL);
+    ocrAssert(key != NULL);
+    ocrAssert(value != NULL);
+    ocrAssert(args != NULL);
 
     ocrPolicyDomain_t *pd = NULL;
     ocrTask_t * curEdt = NULL;
@@ -901,39 +901,39 @@ void serializeGuid(void * key, void * value, void * args) {
     MdProxy_t * mdProxy = NULL;
     if (!isLocalGuidCheck(self, guid)) {
         mdProxy = (MdProxy_t*)value;
-        ASSERT(mdProxy->base.kind == OCR_GUID_MD_PROXY);
+        ocrAssert(mdProxy->base.kind == OCR_GUID_MD_PROXY);
         ocrObj = (ocrObject_t*)mdProxy->ptr;
         len = serializeMdProxy(mdProxy, ptr);
         ptr += len;
     }
-    ASSERT(ocrObj);
+    ocrAssert(ocrObj);
 
     u64 size = 0;
     if (kind == OCR_GUID_DB) {
-        ASSERT(ocrObj->kind == kind);
+        ocrAssert(ocrObj->kind == kind);
         size = ocrObj->size;
         ocrDataBlock_t *db = (ocrDataBlock_t*)ocrObj;
-        ASSERT(ocrGuidIsEq(guid, db->guid));
+        ocrAssert(ocrGuidIsEq(guid, db->guid));
         //TODO-resilience: use standard API
         ((ocrDataBlockFactory_t*)(pd->factories[pd->datablockFactoryIdx]))->fcts.serialize(db, ptr);
     } else if (kind == OCR_GUID_EDT) {
-        ASSERT(ocrObj->kind == kind);
+        ocrAssert(ocrObj->kind == kind);
         size = ocrObj->size;
         ocrTask_t *edt = (ocrTask_t*)ocrObj;
-        ASSERT(ocrGuidIsEq(guid, edt->guid));
+        ocrAssert(ocrGuidIsEq(guid, edt->guid));
         //TODO-resilience: use standard API
         ((ocrTaskFactory_t*)(pd->factories[pd->taskFactoryIdx]))->fcts.serialize(edt, ptr);
     } else if (kind == OCR_GUID_EDT_TEMPLATE) {
-        ASSERT(ocrObj->kind == kind);
+        ocrAssert(ocrObj->kind == kind);
         size = ocrObj->size;
         ocrTaskTemplate_t *tmpl = (ocrTaskTemplate_t*)ocrObj;
         //TODO-resilience: use standard API
         ((ocrTaskTemplateFactory_t*)(pd->factories[pd->taskTemplateFactoryIdx]))->fcts.serialize(tmpl, ptr);
     } else if (kind & OCR_GUID_EVENT) {
-        ASSERT(ocrObj->kind == kind);
+        ocrAssert(ocrObj->kind == kind);
         size = ocrObj->size;
         ocrEvent_t *evt = (ocrEvent_t*)ocrObj;
-        ASSERT(ocrGuidIsEq(guid, evt->guid));
+        ocrAssert(ocrGuidIsEq(guid, evt->guid));
         //TODO-resilience: use standard API
         ((ocrEventFactory_t*)(pd->factories[pd->eventFactoryIdx]))->commonFcts.serialize(evt, ptr);
     } else if (kind == OCR_GUID_AFFINITY) {
@@ -953,18 +953,18 @@ void serializeGuid(void * key, void * value, void * args) {
         case OCR_GUID_SCHEDULER_HEURISTIC:
         case OCR_GUID_GUIDMAP:
             {
-                ASSERT(mdProxy == NULL);
+                ocrAssert(mdProxy == NULL);
                 return;
             }
         default:
             {
                 DPRINTF(DEBUG_LVL_WARN, "Unknown guid kind found in serialize\n");
-                ASSERT(0);
+                ocrAssert(0);
                 return;
             }
         }
     }
-    ASSERT(size > 0);
+    ocrAssert(size > 0);
     ptr += size;
 
     *buffer = ptr;
@@ -990,7 +990,7 @@ u8 serializeGuidProviderCounted(ocrGuidProvider_t* self, u8* buffer) {
         DPRINTF(DEBUG_LVL_WARN, "Checkpoint buffer overflow! (Buffer Size: %lu Serialized Size: %lu Overflow: %lu Start: %p End: %p)\n",
             self->base.size, (buffer - bufferHead), ((buffer - bufferHead) - self->base.size), bufferHead, buffer);
         DPRINTF(DEBUG_LVL_WARN, "Objects counted: %lu Objects serialized: %lu\n", derived->objectsCounted, derived->objectsSerialized);
-        ASSERT(0);
+        ocrAssert(0);
     }
     return 0;
 }
@@ -1001,7 +1001,7 @@ u8 deserializeGuidProviderCounted(ocrGuidProvider_t* self, u8* buffer) {
     ocrGuidProviderCountedMap_t * derived = (ocrGuidProviderCountedMap_t *) self;
 
     ocrObject_t * ocrObj = (ocrObject_t *)buffer;
-    ASSERT(ocrObj->kind == OCR_GUID_GUIDMAP);
+    ocrAssert(ocrObj->kind == OCR_GUID_GUIDMAP);
     u8* endOfBuffer = buffer + ocrObj->size;
     buffer += sizeof(ocrObject_t);
     u64 *guidCounter = (u64*)buffer;
@@ -1010,7 +1010,7 @@ u8 deserializeGuidProviderCounted(ocrGuidProvider_t* self, u8* buffer) {
 
     while(buffer < endOfBuffer) {
         ocrGuid_t guid = *((ocrGuid_t*)buffer);
-        ASSERT(!ocrGuidIsNull(guid));
+        ocrAssert(!ocrGuidIsNull(guid));
         buffer += sizeof(ocrGuid_t);
 
         ocrGuidKind kind;
@@ -1019,7 +1019,7 @@ u8 deserializeGuidProviderCounted(ocrGuidProvider_t* self, u8* buffer) {
         MdProxy_t * mdProxy = NULL;
         if (!isLocalGuidCheck(self, guid)) {
             u64 mdProxySize = deserializeMdProxy(buffer, &mdProxy);
-            ASSERT(mdProxySize > 0 && mdProxy != NULL);
+            ocrAssert(mdProxySize > 0 && mdProxy != NULL);
             buffer += mdProxySize;
         }
 
@@ -1028,33 +1028,33 @@ u8 deserializeGuidProviderCounted(ocrGuidProvider_t* self, u8* buffer) {
         if (kind == OCR_GUID_DB) {
             ocrObj = (ocrObject_t *)buffer;
             size = ocrObj->size;
-            ASSERT(ocrObj->kind == kind);
+            ocrAssert(ocrObj->kind == kind);
             ocrDataBlock_t *db = NULL;
             ((ocrDataBlockFactory_t*)(pd->factories[pd->datablockFactoryIdx]))->fcts.deserialize(buffer, &db);
-            ASSERT(db != NULL && ocrGuidIsEq(guid, db->guid));
+            ocrAssert(db != NULL && ocrGuidIsEq(guid, db->guid));
             val = db;
         } else if (kind == OCR_GUID_EDT) {
             ocrObj = (ocrObject_t *)buffer;
-            ASSERT(ocrObj->kind == kind);
+            ocrAssert(ocrObj->kind == kind);
             size = ocrObj->size;
             ocrTask_t *edt = NULL;
             ((ocrTaskFactory_t*)(pd->factories[pd->taskFactoryIdx]))->fcts.deserialize(buffer, &edt);
-            ASSERT(edt != NULL && ocrGuidIsEq(guid, edt->guid));
+            ocrAssert(edt != NULL && ocrGuidIsEq(guid, edt->guid));
             val = edt;
         } else if (kind == OCR_GUID_EDT_TEMPLATE) {
             ocrObj = (ocrObject_t *)buffer;
-            ASSERT(ocrObj->kind == kind);
+            ocrAssert(ocrObj->kind == kind);
             size = ocrObj->size;
             ocrTaskTemplate_t *tmpl = NULL;
             ((ocrTaskTemplateFactory_t*)(pd->factories[pd->taskTemplateFactoryIdx]))->fcts.deserialize(buffer, &tmpl);
             val = tmpl;
         } else if (kind & OCR_GUID_EVENT) {
             ocrObj = (ocrObject_t *)buffer;
-            ASSERT(ocrObj->kind == kind);
+            ocrAssert(ocrObj->kind == kind);
             size = ocrObj->size;
             ocrEvent_t *evt = NULL;
             ((ocrEventFactory_t*)(pd->factories[pd->eventFactoryIdx]))->commonFcts.deserialize(buffer, &evt);
-            ASSERT(evt != NULL && ocrGuidIsEq(guid, evt->guid));
+            ocrAssert(evt != NULL && ocrGuidIsEq(guid, evt->guid));
             val = evt;
         } else if (kind == OCR_GUID_AFFINITY) {
             size = sizeof(ocrAffinity_t);
@@ -1063,10 +1063,10 @@ u8 deserializeGuidProviderCounted(ocrGuidProvider_t* self, u8* buffer) {
             val = aff;
         } else {
             DPRINTF(DEBUG_LVL_WARN, "Unknown guid kind found in deserialize\n");
-            ASSERT(0);
+            ocrAssert(0);
             return 1;
         }
-        ASSERT(size > 0 && val != NULL);
+        ocrAssert(size > 0 && val != NULL);
 
         if (mdProxy != NULL) {
             mdProxy->ptr = (u64)val;
@@ -1086,9 +1086,9 @@ u8 deserializeGuidProviderCounted(ocrGuidProvider_t* self, u8* buffer) {
 }
 
 void fixupGuid(void * key, void * value, void * args) {
-    ASSERT(key != NULL);
-    ASSERT(value != NULL);
-    ASSERT(args != NULL);
+    ocrAssert(key != NULL);
+    ocrAssert(value != NULL);
+    ocrAssert(args != NULL);
 
     ocrPolicyDomain_t *pd = NULL;
     ocrTask_t * curEdt = NULL;
@@ -1114,34 +1114,34 @@ void fixupGuid(void * key, void * value, void * args) {
     MdProxy_t * mdProxy = NULL;
     if (!isLocalGuidCheck(self, guid)) {
         mdProxy = (MdProxy_t*)value;
-        ASSERT(mdProxy->base.kind == OCR_GUID_MD_PROXY);
+        ocrAssert(mdProxy->base.kind == OCR_GUID_MD_PROXY);
         value = (void*)mdProxy->ptr;
-        ASSERT(value);
+        ocrAssert(value);
         fixupMdProxy(mdProxy);
     }
 
     if (kind == OCR_GUID_DB) {
         ocrObject_t * ocrObj = (ocrObject_t*)value;
-        ASSERT(ocrObj->kind == kind);
+        ocrAssert(ocrObj->kind == kind);
         ocrDataBlock_t *db = (ocrDataBlock_t*)value;
-        ASSERT(ocrGuidIsEq(guid, db->guid));
+        ocrAssert(ocrGuidIsEq(guid, db->guid));
         ((ocrDataBlockFactory_t*)(pd->factories[pd->datablockFactoryIdx]))->fcts.fixup(db);
     } else if (kind == OCR_GUID_EDT) {
         ocrObject_t * ocrObj = (ocrObject_t*)value;
-        ASSERT(ocrObj->kind == kind);
+        ocrAssert(ocrObj->kind == kind);
         ocrTask_t *edt = (ocrTask_t*)value;
-        ASSERT(ocrGuidIsEq(guid, edt->guid));
+        ocrAssert(ocrGuidIsEq(guid, edt->guid));
         ((ocrTaskFactory_t*)(pd->factories[pd->taskFactoryIdx]))->fcts.fixup(edt);
     } else if (kind == OCR_GUID_EDT_TEMPLATE) {
         ocrObject_t * ocrObj = (ocrObject_t*)value;
-        ASSERT(ocrObj->kind == kind);
+        ocrAssert(ocrObj->kind == kind);
         ocrTaskTemplate_t *tmpl = (ocrTaskTemplate_t*)value;
         ((ocrTaskTemplateFactory_t*)(pd->factories[pd->taskTemplateFactoryIdx]))->fcts.fixup(tmpl);
     } else if (kind & OCR_GUID_EVENT) {
         ocrObject_t * ocrObj = (ocrObject_t*)value;
-        ASSERT(ocrObj->kind == kind);
+        ocrAssert(ocrObj->kind == kind);
         ocrEvent_t *evt = (ocrEvent_t*)value;
-        ASSERT(ocrGuidIsEq(guid, evt->guid));
+        ocrAssert(ocrGuidIsEq(guid, evt->guid));
         ((ocrEventFactory_t*)(pd->factories[pd->eventFactoryIdx]))->commonFcts.fixup(evt);
     } else if (kind == OCR_GUID_AFFINITY) {
         //Nothing to fixup
@@ -1162,7 +1162,7 @@ void fixupGuid(void * key, void * value, void * args) {
         default:
             {
                 DPRINTF(DEBUG_LVL_WARN, "Unknown guid kind found\n");
-                ASSERT(0);
+                ocrAssert(0);
                 return;
             }
         }
@@ -1176,9 +1176,9 @@ u8 fixupGuidProviderCounted(ocrGuidProvider_t* self) {
 }
 
 void resetProgramState(void * key, void * value, void * args) {
-    ASSERT(key != NULL);
-    ASSERT(value != NULL);
-    ASSERT(args != NULL);
+    ocrAssert(key != NULL);
+    ocrAssert(value != NULL);
+    ocrAssert(args != NULL);
     ocrGuidProviderCountedMap_t * derived = (ocrGuidProviderCountedMap_t *) args;
 
     ocrPolicyDomain_t *pd = NULL;
@@ -1205,46 +1205,46 @@ void resetProgramState(void * key, void * value, void * args) {
     MdProxy_t * mdProxy = NULL;
     if (!isLocalGuidCheck(self, guid)) {
         mdProxy = (MdProxy_t*)value;
-        ASSERT(mdProxy->base.kind == OCR_GUID_MD_PROXY);
+        ocrAssert(mdProxy->base.kind == OCR_GUID_MD_PROXY);
         value = (void*)mdProxy->ptr;
-        ASSERT(value);
+        ocrAssert(value);
     }
 
     void *val = NULL;
     if (kind == OCR_GUID_DB) {
         GP_HASHTABLE_DEL(derived->guidImplTable, key, &val);
-        ASSERT((value == val) || (mdProxy == val));
+        ocrAssert((value == val) || (mdProxy == val));
         ocrObject_t * ocrObj = (ocrObject_t*)value;
-        ASSERT(ocrObj->kind == kind);
+        ocrAssert(ocrObj->kind == kind);
         ocrDataBlock_t *db = (ocrDataBlock_t*)value;
-        ASSERT(ocrGuidIsEq(guid, db->guid));
+        ocrAssert(ocrGuidIsEq(guid, db->guid));
         ((ocrDataBlockFactory_t*)(pd->factories[pd->datablockFactoryIdx]))->fcts.reset(db);
     } else if (kind == OCR_GUID_EDT) {
         GP_HASHTABLE_DEL(derived->guidImplTable, key, &val);
-        ASSERT((value == val) || (mdProxy == val));
+        ocrAssert((value == val) || (mdProxy == val));
         ocrObject_t * ocrObj = (ocrObject_t*)value;
-        ASSERT(ocrObj->kind == kind);
+        ocrAssert(ocrObj->kind == kind);
         ocrTask_t *edt = (ocrTask_t*)value;
-        ASSERT(ocrGuidIsEq(guid, edt->guid));
+        ocrAssert(ocrGuidIsEq(guid, edt->guid));
         ((ocrTaskFactory_t*)(pd->factories[pd->taskFactoryIdx]))->fcts.reset(edt);
     } else if (kind == OCR_GUID_EDT_TEMPLATE) {
         GP_HASHTABLE_DEL(derived->guidImplTable, key, &val);
-        ASSERT((value == val) || (mdProxy == val));
+        ocrAssert((value == val) || (mdProxy == val));
         ocrObject_t * ocrObj = (ocrObject_t*)value;
-        ASSERT(ocrObj->kind == kind);
+        ocrAssert(ocrObj->kind == kind);
         ocrTaskTemplate_t *tmpl = (ocrTaskTemplate_t*)value;
         ((ocrTaskTemplateFactory_t*)(pd->factories[pd->taskTemplateFactoryIdx]))->fcts.reset(tmpl);
     } else if (kind & OCR_GUID_EVENT) {
         GP_HASHTABLE_DEL(derived->guidImplTable, key, &val);
-        ASSERT((value == val) || (mdProxy == val));
+        ocrAssert((value == val) || (mdProxy == val));
         ocrObject_t * ocrObj = (ocrObject_t*)value;
-        ASSERT(ocrObj->kind == kind);
+        ocrAssert(ocrObj->kind == kind);
         ocrEvent_t *evt = (ocrEvent_t*)value;
-        ASSERT(ocrGuidIsEq(guid, evt->guid));
+        ocrAssert(ocrGuidIsEq(guid, evt->guid));
         ((ocrEventFactory_t*)(pd->factories[pd->eventFactoryIdx]))->commonFcts.reset(evt);
     } else if (kind == OCR_GUID_AFFINITY) {
         GP_HASHTABLE_DEL(derived->guidImplTable, key, &val);
-        ASSERT(value == val);
+        ocrAssert(value == val);
         pd->fcts.pdFree(pd, value);
     } else {
         switch(kind) {
@@ -1263,7 +1263,7 @@ void resetProgramState(void * key, void * value, void * args) {
         default:
             {
                 DPRINTF(DEBUG_LVL_WARN, "Unknown guid kind found\n");
-                ASSERT(0);
+                ocrAssert(0);
                 return;
             }
         }

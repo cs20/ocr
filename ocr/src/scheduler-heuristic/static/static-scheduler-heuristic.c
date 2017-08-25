@@ -56,12 +56,12 @@ u8 staticSchedulerHeuristicSwitchRunlevel(ocrSchedulerHeuristic_t *self, ocrPoli
     u8 toReturn = 0;
 
     // This is an inert module, we do not handle callbacks (caller needs to wait on us)
-    ASSERT(callback == NULL);
+    ocrAssert(callback == NULL);
 
     // Verify properties for this call
-    ASSERT((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
+    ocrAssert((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
            && !(properties & RL_RELEASE));
-    ASSERT(!(properties & RL_FROM_MSG));
+    ocrAssert(!(properties & RL_FROM_MSG));
 
     switch(runlevel) {
     case RL_CONFIG_PARSE:
@@ -72,9 +72,9 @@ u8 staticSchedulerHeuristicSwitchRunlevel(ocrSchedulerHeuristic_t *self, ocrPoli
         break;
     case RL_PD_OK:
     {
-        ASSERT(self->scheduler);
+        ocrAssert(self->scheduler);
         self->contextCount = PD->workerCount; //Shared mem heuristic
-        ASSERT(self->contextCount > 0);
+        ocrAssert(self->contextCount > 0);
         break;
     }
     case RL_MEMORY_OK:
@@ -114,14 +114,14 @@ u8 staticSchedulerHeuristicSwitchRunlevel(ocrSchedulerHeuristic_t *self, ocrPoli
             for (i = 0; i < self->contextCount; i++) {
                 ocrSchedulerHeuristicContextStatic_t *staticContext = (ocrSchedulerHeuristicContextStatic_t*)self->contexts[i];
                 staticContext->mySchedulerObject = rootFact->fcts.getSchedulerObjectForLocation(rootFact, rootObj, OCR_SCHEDULER_OBJECT_DEQUE, i, OCR_SCHEDULER_OBJECT_MAPPING_WORKER, 0);
-                ASSERT(staticContext->mySchedulerObject);
+                ocrAssert(staticContext->mySchedulerObject);
             }
 #ifdef ENABLE_WORKER_HC
 #ifdef ENABLE_WORKER_HC_COMM
             ocrWorkerHc_t *w0 = (ocrWorkerHc_t*)PD->workers[0];
             if (w0->hcType == HC_WORKER_COMM) {
                 //NOTE: For distributed, we are making the assumption that only worker 0 is comm worker.
-                ASSERT(self->contextCount > 1);
+                ocrAssert(self->contextCount > 1);
                 ocrSchedulerHeuristicStatic_t *dself = (ocrSchedulerHeuristicStatic_t*)self;
                 dself->isDistributed = true;
                 ocrSchedulerHeuristicContextStatic_t *commContext = (ocrSchedulerHeuristicContextStatic_t*)self->contexts[0];
@@ -137,7 +137,7 @@ u8 staticSchedulerHeuristicSwitchRunlevel(ocrSchedulerHeuristic_t *self, ocrPoli
             //NOTE: By convenvtion, worker[numWorkers-1] is the system worker.
             ocrWorkerHc_t *wMax = (ocrWorkerHc_t *)PD->workers[PD->workerCount-1];
             if(wMax->hcType == HC_WORKER_SYSTEM){
-                ASSERT(self->contextCount > 1);
+                ocrAssert(self->contextCount > 1);
                 ocrSchedulerHeuristicStatic_t *dself = (ocrSchedulerHeuristicStatic_t*)self;
                 dself->isTraceActive = true;
 
@@ -149,7 +149,7 @@ u8 staticSchedulerHeuristicSwitchRunlevel(ocrSchedulerHeuristic_t *self, ocrPoli
         break;
     default:
         // Unknown runlevel
-        ASSERT(0);
+        ocrAssert(0);
     }
     return toReturn;
 }
@@ -182,7 +182,7 @@ static u8 staticSchedulerHeuristicWorkEdtUserInvoke(ocrSchedulerHeuristic_t *sel
     ocrSchedulerHeuristicContextStatic_t *staticContext = (ocrSchedulerHeuristicContextStatic_t*)context;
     ocrSchedulerObject_t *schedObj = staticContext->mySchedulerObject;  //The deque owned by this worker
     ocrSchedulerObject_t *commObj = staticContext->commSchedulerObject; //The comm worker deque for distributed scheduling
-    ASSERT(schedObj);
+    ocrAssert(schedObj);
 
     ocrSchedulerObjectFactory_t *fact = self->scheduler->pd->schedulerObjectFactories[schedObj->fctId];
     ocrSchedulerObject_t *rootObj = self->scheduler->rootObj;
@@ -197,7 +197,7 @@ static u8 staticSchedulerHeuristicWorkEdtUserInvoke(ocrSchedulerHeuristic_t *sel
     }
 
     if (!ocrGuidIsNull(edtObj.guid.guid)) {
-        ASSERT(retVal == 0);
+        ocrAssert(retVal == 0);
         taskArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).edt = edtObj.guid;
         //Add same steal determining flag
 #ifdef OCR_MONITOR_SCHEDULER
@@ -220,14 +220,14 @@ u8 staticSchedulerHeuristicGetWorkInvoke(ocrSchedulerHeuristic_t *self, ocrSched
         return staticSchedulerHeuristicWorkEdtUserInvoke(self, context, opArgs, hints);
     // Unknown ops
     default:
-        ASSERT(0);
+        ocrAssert(0);
         return OCR_ENOTSUP;
     }
     return 0;
 }
 
 u8 staticSchedulerHeuristicGetWorkSimulate(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicContext_t *context, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
@@ -236,7 +236,7 @@ static u8 staticSchedulerHeuristicNotifyEdtReadyInvoke(ocrSchedulerHeuristic_t *
     ocrSchedulerObject_t *schedObj = NULL;
 
     ocrTask_t *task = (ocrTask_t*)notifyArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_EDT_READY).guid.metaDataPtr;
-    ASSERT(task);
+    ocrAssert(task);
     ocrPolicyDomain_t *pd;
     getCurrentEnv(&pd, NULL, NULL, NULL);
     u64 contextId = (u64)(-1);
@@ -244,14 +244,14 @@ static u8 staticSchedulerHeuristicNotifyEdtReadyInvoke(ocrSchedulerHeuristic_t *
     ocrHintInit(&edtHint, OCR_HINT_EDT_T);
     RESULT_ASSERT(((ocrTaskFactory_t*)(pd->factories[pd->taskFactoryIdx]))->fcts.getHint(task, &edtHint), ==, 0);
     if (ocrGetHintValue(&edtHint, OCR_HINT_EDT_SPACE, &contextId) == 0) {
-        ASSERT(contextId < self->contextCount);
+        ocrAssert(contextId < self->contextCount);
         ocrSchedulerHeuristicContextStatic_t *staticContext = (ocrSchedulerHeuristicContextStatic_t*)self->contexts[contextId];
         schedObj = staticContext->mySchedulerObject;
     } else {
         ocrSchedulerHeuristicContextStatic_t *staticContext = (ocrSchedulerHeuristicContextStatic_t*)context;
         schedObj = staticContext->mySchedulerObject;
     }
-    ASSERT(schedObj);
+    ocrAssert(schedObj);
 
     ocrSchedulerObject_t edtObj;
     edtObj.guid = notifyArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_EDT_READY).guid;
@@ -286,11 +286,11 @@ static u8 staticSchedulerHeuristicNotifyPreProcessMsgInvoke(ocrSchedulerHeuristi
             //If no "disperse" hint is given, the EDT will be scheduled to execute in the
             //worker that created it.
             if (PD_MSG_FIELD_I(workType) == EDT_USER_WORKTYPE) {
-                ASSERT((msg->type & PD_MSG_REQUEST) && (msg->srcLocation == pd->myLocation) && (msg->destLocation == pd->myLocation));
+                ocrAssert((msg->type & PD_MSG_REQUEST) && (msg->srcLocation == pd->myLocation) && (msg->destLocation == pd->myLocation));
                 u64 workerId = ((u64)-1);
                 ocrHint_t *edtHint = NULL;
                 if (PD_MSG_FIELD_I(hint) != NULL_HINT) {
-                    ASSERT(PD_MSG_FIELD_I(hint->type) == OCR_HINT_EDT_T);
+                    ocrAssert(PD_MSG_FIELD_I(hint->type) == OCR_HINT_EDT_T);
                     edtHint = PD_MSG_FIELD_I(hint);
 
                     //Read the affinity hint if any
@@ -317,7 +317,7 @@ static u8 staticSchedulerHeuristicNotifyPreProcessMsgInvoke(ocrSchedulerHeuristi
                                 //setup destination PD
                                 ocrPlatformModelAffinity_t * platformModel = ((ocrPlatformModelAffinity_t*)pd->platformModel);
                                 ocrLocation_t dstLoc = (contextId / (self->contextCount - 1)) % platformModel->pdLocAffinitiesSize; //Note: Assume worker 0 is comm worker
-                                ASSERT(dstLoc < platformModel->pdLocAffinitiesSize);
+                                ocrAssert(dstLoc < platformModel->pdLocAffinitiesSize);
                                 ocrGuid_t affGuid = platformModel->pdLocAffinities[dstLoc];
                                 RESULT_ASSERT(ocrSetHintValue(edtHint, OCR_HINT_EDT_AFFINITY, ocrAffinityToHintValue(affGuid)), ==, 0);
                                 msg->destLocation = dstLoc;
@@ -346,7 +346,7 @@ static u8 staticSchedulerHeuristicNotifyPreProcessMsgInvoke(ocrSchedulerHeuristi
                     PD_MSG_FIELD_I(hint) = edtHint;
                     PD_MSG_FIELD_I(properties) |= EDT_PROP_RT_HINT_ALLOC;
                 }
-                ASSERT(edtHint);
+                ocrAssert(edtHint);
                 RESULT_ASSERT(ocrSetHintValue(edtHint, OCR_HINT_EDT_SPACE, workerId), ==, 0);
                 DPRINTF(DEBUG_LVL_VERB, "WORK_CREATE: msg: %p msgId: %"PRIx64" Affinity (PD: %"PRIx64" Worker: %"PRIx64")\n", msg, msg->msgId, msg->destLocation, workerId);
             }
@@ -360,7 +360,7 @@ static u8 staticSchedulerHeuristicNotifyPreProcessMsgInvoke(ocrSchedulerHeuristi
 #define PD_TYPE PD_MSG_DB_CREATE
             // When we do place DBs make sure we only place USER DBs
             if (PD_MSG_FIELD_I(dbType) == USER_DBTYPE && PD_MSG_FIELD_I(hint) != NULL_HINT && dself->isDistributed) {
-                ASSERT(PD_MSG_FIELD_I(hint->type) == OCR_HINT_DB_T);
+                ocrAssert(PD_MSG_FIELD_I(hint->type) == OCR_HINT_DB_T);
                 ocrHint_t *dbHint = PD_MSG_FIELD_I(hint);
                 //Read the affinity hint if any
                 u64 userAffinity = (u64)(-1);
@@ -424,34 +424,34 @@ u8 staticSchedulerHeuristicNotifyInvoke(ocrSchedulerHeuristic_t *self, ocrSchedu
         return OCR_ENOP;
     // Unknown ops
     default:
-        ASSERT(0);
+        ocrAssert(0);
         return OCR_ENOTSUP;
     }
     return 0;
 }
 
 u8 staticSchedulerHeuristicNotifySimulate(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicContext_t *context, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 u8 staticSchedulerHeuristicTransactInvoke(ocrSchedulerHeuristic_t *self, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 u8 staticSchedulerHeuristicTransactSimulate(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicContext_t *context, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 u8 staticSchedulerHeuristicAnalyzeInvoke(ocrSchedulerHeuristic_t *self, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 u8 staticSchedulerHeuristicAnalyzeSimulate(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicContext_t *context, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 

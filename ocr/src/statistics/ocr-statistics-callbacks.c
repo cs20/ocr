@@ -44,8 +44,8 @@ void statsTEMP_CREATE(ocrPolicyDomain_t *pd, ocrGuid_t edtGuid, ocrTask_t *task,
         deguidify(pd, edtGuid, (u64*)&task, NULL);
     }
 
-    ASSERT(task->guid == edtGuid);
-    ASSERT(ttemplate->guid == templateGuid);
+    ocrAssert(task->guid == edtGuid);
+    ocrAssert(ttemplate->guid == templateGuid);
 
     ocrStatsProcess_t *srcProcess = task->statProcess;
     ocrStatsMessage_t *mess = stats->fctPtrs->createMessage(
@@ -70,8 +70,8 @@ void statsTEMP_USE(ocrPolicyDomain_t *pd, ocrGuid_t edtGuid, ocrTask_t *task,
         deguidify(pd, templateGuid, (u64*)&ttemplate, NULL);
     }
 
-    ASSERT(task->guid == edtGuid);
-    ASSERT(ttemplate->guid == templateGuid);
+    ocrAssert(task->guid == edtGuid);
+    ocrAssert(ttemplate->guid == templateGuid);
 
     ocrStatsProcess_t *srcProcess = task->statProcess;
 
@@ -98,8 +98,8 @@ void statsTEMP_DESTROY(ocrPolicyDomain_t *pd, ocrGuid_t edtGuid, ocrTask_t *task
         deguidify(pd, edtGuid, (u64*)&task, NULL);
     }
 
-    ASSERT(task->guid == edtGuid);
-    ASSERT(ttemplate->guid == templateGuid);
+    ocrAssert(task->guid == edtGuid);
+    ocrAssert(ttemplate->guid == templateGuid);
 
     ocrStatsProcess_t *srcProcess = task->statProcess;
 
@@ -129,9 +129,9 @@ void statsEDT_CREATE(ocrPolicyDomain_t *pd, ocrGuid_t edtGuid, ocrTask_t *task,
         deguidify(pd, edtGuid, (u64*)&task, NULL);
     }
 
-    ASSERT(task->guid == edtGuid);
-    ASSERT(createTask->guid == createGuid);
-    ASSERT(createGuid != edtGuid);
+    ocrAssert(task->guid == edtGuid);
+    ocrAssert(createTask->guid == createGuid);
+    ocrAssert(createGuid != edtGuid);
 
     ocrStatsProcess_t *srcProcess = task->statProcess;
 
@@ -158,8 +158,8 @@ void statsEDT_DESTROY(ocrPolicyDomain_t *pd, ocrGuid_t edtGuid, ocrTask_t *task,
         deguidify(pd, edtGuid, (u64*)&task, NULL);
     }
 
-    ASSERT(task->guid == edtGuid);
-    ASSERT(destroyTask->guid == destroyGuid);
+    ocrAssert(task->guid == edtGuid);
+    ocrAssert(destroyTask->guid == destroyGuid);
 
     ocrStatsProcess_t *srcProcess = task->statProcess;
 
@@ -181,8 +181,8 @@ void statsEDT_START(ocrPolicyDomain_t *pd, ocrGuid_t workerGuid, ocrWorker_t *wo
         deguidify(pd, edtGuid, (u64*)&task, NULL);
     }
 
-    ASSERT(worker->guid == workerGuid);
-    ASSERT(task->guid == edtGuid);
+    ocrAssert(worker->guid == workerGuid);
+    ocrAssert(task->guid == edtGuid);
 
     ocrStatsMessage_t *mess = stats->fctPtrs->createMessage(
                                   stats, STATS_EDT_START, workerGuid, edtGuid, NULL);
@@ -191,7 +191,7 @@ void statsEDT_START(ocrPolicyDomain_t *pd, ocrGuid_t workerGuid, ocrWorker_t *wo
     if(usesDb)
         _threadInstrumentOn = 1;
     else
-        ASSERT(_threadInstrumentOn == 0);
+        ocrAssert(_threadInstrumentOn == 0);
 
     _threadInstructionCount = 0ULL;
     _threadFPInstructionCount = 0ULL;
@@ -212,8 +212,8 @@ void statsEDT_END(ocrPolicyDomain_t *pd, ocrGuid_t workerGuid, ocrWorker_t *work
         deguidify(pd, edtGuid, (u64*)&task, NULL);
     }
 
-    ASSERT(worker->guid == workerGuid);
-    ASSERT(task->guid == edtGuid);
+    ocrAssert(worker->guid == workerGuid);
+    ocrAssert(task->guid == edtGuid);
 
     ocrStatsMessage_t *mess = stats->fctPtrs->createMessage(
                                   stats, STATS_EDT_END, workerGuid, edtGuid, NULL);
@@ -241,10 +241,10 @@ void statsDB_CREATE(ocrPolicyDomain_t *pd, ocrGuid_t edtGuid, ocrTask_t *task,
         deguidify(pd, allocatorGuid, (u64*)&allocator, NULL);
     }
 
-    ASSERT(edtGuid == task->guid);
-    ASSERT(allocatorGuid == allocator->guid);
-    ASSERT(dbGuid == db->guid);
-    ASSERT(db->allocator == allocatorGuid);
+    ocrAssert(edtGuid == task->guid);
+    ocrAssert(allocatorGuid == allocator->guid);
+    ocrAssert(dbGuid == db->guid);
+    ocrAssert(db->allocator == allocatorGuid);
 
     statsParamDb_t params = { .offset = 0, .size = db->size, .isWrite = 1 };
 
@@ -276,10 +276,10 @@ void statsDB_DESTROY(ocrPolicyDomain_t *pd, ocrGuid_t edtGuid, ocrTask_t *task,
         deguidify(pd, allocatorGuid, (u64*)&allocator, NULL);
     }
 
-    ASSERT(edtGuid == task->guid);
-    ASSERT(allocatorGuid == allocator->guid);
-    ASSERT(dbGuid == db->guid);
-    ASSERT(db->allocator == allocatorGuid);
+    ocrAssert(edtGuid == task->guid);
+    ocrAssert(allocatorGuid == allocator->guid);
+    ocrAssert(dbGuid == db->guid);
+    ocrAssert(db->allocator == allocatorGuid);
 
     statsParamDb_t params = { .offset = 0, .size = db->size, .isWrite = 1 };
     ocrStatsMessage_t *mess = stats->fctPtrs->createMessage(stats, STATS_DB_DESTROY, edtGuid, allocatorGuid,
@@ -305,8 +305,8 @@ void statsDB_ACQ(ocrPolicyDomain_t *pd, ocrGuid_t edtGuid, ocrTask_t *task,
         deguidify(pd, edtGuid, (u64*)&task, NULL);
     }
 
-    ASSERT(edtGuid == task->guid);
-    ASSERT(dbGuid == db->guid);
+    ocrAssert(edtGuid == task->guid);
+    ocrAssert(dbGuid == db->guid);
 
     statsParamDb_t params = { .offset = 0, .size = db->size, .isWrite = 1 };
     ocrStatsMessage_t *mess = stats->fctPtrs->createMessage(stats, STATS_DB_ACQ, edtGuid, dbGuid,
@@ -330,8 +330,8 @@ void statsDB_REL(ocrPolicyDomain_t *pd, ocrGuid_t edtGuid, ocrTask_t *task,
         deguidify(pd, edtGuid, (u64*)&task, NULL);
     }
 
-    ASSERT(edtGuid == task->guid);
-    ASSERT(dbGuid == db->guid);
+    ocrAssert(edtGuid == task->guid);
+    ocrAssert(dbGuid == db->guid);
 
     statsParamDb_t params = { .offset = 0, .size = db->size, .isWrite = 1 };
     ocrStatsMessage_t *mess = stats->fctPtrs->createMessage(stats, STATS_DB_REL, edtGuid, dbGuid,
@@ -344,7 +344,7 @@ void statsDB_ACCESS(ocrPolicyDomain_t *pd, ocrGuid_t edtGuid, ocrTask_t *task,
                     u64 offset, u64 size, u8 isWrite) {
 
     ocrStats_t *stats = pd->getStats(pd);
-    ASSERT(edtGuid);
+    ocrAssert(edtGuid);
     if(!task) {
         deguidify(pd, edtGuid, (u64*)&task, NULL);
     }
@@ -352,8 +352,8 @@ void statsDB_ACCESS(ocrPolicyDomain_t *pd, ocrGuid_t edtGuid, ocrTask_t *task,
         deguidify(pd, dbGuid, (u64*)&db, NULL);
     }
 
-    ASSERT(edtGuid == task->guid);
-    ASSERT(dbGuid == db->guid);
+    ocrAssert(edtGuid == task->guid);
+    ocrAssert(dbGuid == db->guid);
 
     statsParamDb_t params = { .offset = offset, .size = size, .isWrite = isWrite };
     ocrStatsMessage_t *mess = stats->fctPtrs->createMessage(stats, STATS_DB_ACCESS, edtGuid, dbGuid,
@@ -446,7 +446,7 @@ void statsDEP_SATISFYFromEvt(ocrPolicyDomain_t *pd, ocrGuid_t evtGuid, ocrEvent_
         deguidify(pd, destGuid, (u64*)&tmp, NULL);
         dstProcess = tmp->statProcess;
     } else {
-        ASSERT(0);
+        ocrAssert(0);
     }
 
     statsParamEvt_t params = { .dbPayload = dbGuid, .slot = slot };
@@ -483,7 +483,7 @@ void statsDEP_ADD(ocrPolicyDomain_t *pd, ocrGuid_t edtGuid, ocrTask_t *task, ocr
         deguidify(pd, depSrcGuid, (u64*)&tmp, NULL);
         midProcess = tmp->statProcess;
     } else {
-        ASSERT(0);
+        ocrAssert(0);
     }
     statsParamEvt_t params = { .dbPayload = NULL_GUID, .slot = slot };
 
@@ -506,8 +506,8 @@ void statsWORKER_START(ocrPolicyDomain_t *pd, ocrGuid_t workerGuid, ocrWorker_t 
 
     worker->statProcess = stats->fctPtrs->createStatsProcess(stats, workerGuid);
 
-    ASSERT(workerGuid == worker->guid);
-    ASSERT(compTargetGuid == compTarget->guid);
+    ocrAssert(workerGuid == worker->guid);
+    ocrAssert(compTargetGuid == compTarget->guid);
 
     ocrStatsMessage_t *mess = stats->fctPtrs->createMessage(stats, STATS_WORKER_START, workerGuid, compTargetGuid, NULL);
     ocrStatsSyncMessage(worker->statProcess, compTarget->statProcess, mess);
@@ -524,8 +524,8 @@ void statsWORKER_STOP(ocrPolicyDomain_t *pd, ocrGuid_t workerGuid, ocrWorker_t *
         deguidify(pd, compTargetGuid, (u64*)&compTarget, NULL);
     }
 
-    ASSERT(workerGuid == worker->guid);
-    ASSERT(compTargetGuid == compTarget->guid);
+    ocrAssert(workerGuid == worker->guid);
+    ocrAssert(compTargetGuid == compTarget->guid);
 
     ocrStatsMessage_t *mess = stats->fctPtrs->createMessage(stats, STATS_WORKER_STOP, workerGuid, compTargetGuid, NULL);
     ocrStatsSyncMessage(worker->statProcess, compTarget->statProcess, mess);
@@ -546,8 +546,8 @@ void statsALLOCATOR_START(ocrPolicyDomain_t *pd, ocrGuid_t allocatorGuid, ocrAll
 
     allocator->statProcess = stats->fctPtrs->createStatsProcess(stats, allocatorGuid);
 
-    ASSERT(allocatorGuid == allocator->guid);
-    ASSERT(memTargetGuid == memTarget->guid);
+    ocrAssert(allocatorGuid == allocator->guid);
+    ocrAssert(memTargetGuid == memTarget->guid);
 
     ocrStatsMessage_t *mess = stats->fctPtrs->createMessage(stats, STATS_ALLOCATOR_START, allocatorGuid, memTargetGuid, NULL);
     ocrStatsSyncMessage(allocator->statProcess, memTarget->statProcess, mess);
@@ -564,8 +564,8 @@ void statsALLOCATOR_STOP(ocrPolicyDomain_t *pd, ocrGuid_t allocatorGuid, ocrAllo
         deguidify(pd, memTargetGuid, (u64*)&memTarget, NULL);
     }
 
-    ASSERT(allocatorGuid == allocator->guid);
-    ASSERT(memTargetGuid == memTarget->guid);
+    ocrAssert(allocatorGuid == allocator->guid);
+    ocrAssert(memTargetGuid == memTarget->guid);
 
     ocrStatsMessage_t *mess = stats->fctPtrs->createMessage(stats, STATS_ALLOCATOR_STOP, allocatorGuid, memTargetGuid, NULL);
     ocrStatsSyncMessage(allocator->statProcess, memTarget->statProcess, mess);
@@ -582,7 +582,7 @@ void statsCOMPTARGET_START(ocrPolicyDomain_t *pd, ocrGuid_t compTargetGuid, ocrC
         deguidify(pd, compTargetGuid, (u64*)&compTarget, NULL);
     }
 
-    ASSERT(compTargetGuid == compTarget->guid);
+    ocrAssert(compTargetGuid == compTarget->guid);
 
     compTarget->statProcess = stats->fctPtrs->createStatsProcess(stats, compTargetGuid);
 }
@@ -595,7 +595,7 @@ void statsCOMPTARGET_STOP(ocrPolicyDomain_t *pd, ocrGuid_t compTargetGuid, ocrCo
         deguidify(pd, compTargetGuid, (u64*)&compTarget, NULL);
     }
 
-    ASSERT(compTargetGuid == compTarget->guid);
+    ocrAssert(compTargetGuid == compTarget->guid);
 
     stats->fctPtrs->destructStatsProcess(stats, compTarget->statProcess);
 }
@@ -608,7 +608,7 @@ void statsMEMTARGET_START(ocrPolicyDomain_t *pd, ocrGuid_t memTargetGuid, ocrMem
         deguidify(pd, memTargetGuid, (u64*)&memTarget, NULL);
     }
 
-    ASSERT(memTargetGuid == memTarget->guid);
+    ocrAssert(memTargetGuid == memTarget->guid);
 
     memTarget->statProcess = stats->fctPtrs->createStatsProcess(stats, memTargetGuid);
 }
@@ -621,7 +621,7 @@ void statsMEMTARGET_STOP(ocrPolicyDomain_t *pd, ocrGuid_t memTargetGuid, ocrMemT
         deguidify(pd, memTargetGuid, (u64*)&memTarget, NULL);
     }
 
-    ASSERT(memTargetGuid == memTarget->guid);
+    ocrAssert(memTargetGuid == memTarget->guid);
 
     stats->fctPtrs->destructStatsProcess(stats, memTarget->statProcess);
 }

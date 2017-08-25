@@ -49,8 +49,8 @@ static void binHeapSchedulerObjectInitialize(ocrSchedulerObjectFactory_t *fact, 
 
 ocrSchedulerObject_t* newSchedulerObjectBinHeap(ocrSchedulerObjectFactory_t *factory, ocrParamList_t *perInstance) {
     paramListSchedulerObject_t *paramSchedObj __attribute__((unused)) = (paramListSchedulerObject_t*)perInstance;
-    ASSERT(paramSchedObj->config);
-    ASSERT(!paramSchedObj->guidRequired);
+    ocrAssert(paramSchedObj->config);
+    ocrAssert(!paramSchedObj->guidRequired);
     ocrSchedulerObject_t* schedObj = (ocrSchedulerObject_t*)runtimeChunkAlloc(sizeof(ocrSchedulerObjectBinHeap_t), PERSISTENT_CHUNK);
     binHeapSchedulerObjectInitialize(factory, schedObj);
     schedObj->kind |= OCR_SCHEDULER_OBJECT_ALLOC_CONFIG;
@@ -59,8 +59,8 @@ ocrSchedulerObject_t* newSchedulerObjectBinHeap(ocrSchedulerObjectFactory_t *fac
 
 ocrSchedulerObject_t* binHeapSchedulerObjectCreate(ocrSchedulerObjectFactory_t *factory, ocrParamList_t *perInstance) {
     paramListSchedulerObject_t *paramSchedObj __attribute__((unused)) = (paramListSchedulerObject_t*)perInstance;
-    ASSERT(!paramSchedObj->config);
-    ASSERT(!paramSchedObj->guidRequired);
+    ocrAssert(!paramSchedObj->config);
+    ocrAssert(!paramSchedObj->guidRequired);
     ocrPolicyDomain_t *pd = NULL;
     getCurrentEnv(&pd, NULL, NULL, NULL);
     ocrSchedulerObject_t* schedObj = (ocrSchedulerObject_t*)pd->fcts.pdMalloc(pd, sizeof(ocrSchedulerObjectBinHeap_t));
@@ -75,7 +75,7 @@ u8 binHeapSchedulerObjectDestroy(ocrSchedulerObjectFactory_t *fact, ocrScheduler
     if (IS_SCHEDULER_OBJECT_CONFIG_ALLOCATED(self->kind)) {
         runtimeChunkFree((u64)self, PERSISTENT_CHUNK);
     } else {
-        ASSERT(IS_SCHEDULER_OBJECT_PD_ALLOCATED(self->kind));
+        ocrAssert(IS_SCHEDULER_OBJECT_PD_ALLOCATED(self->kind));
         ocrPolicyDomain_t *pd = NULL;
         getCurrentEnv(&pd, NULL, NULL, NULL);
         ocrSchedulerObjectBinHeap_t* binHeapSchedObj = (ocrSchedulerObjectBinHeap_t*)self;
@@ -87,7 +87,7 @@ u8 binHeapSchedulerObjectDestroy(ocrSchedulerObjectFactory_t *fact, ocrScheduler
 
 u8 binHeapSchedulerObjectInsert(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObject_t *self, ocrSchedulerObject_t *element, ocrSchedulerObjectIterator_t *iterator, u32 properties) {
     ocrSchedulerObjectBinHeap_t *schedObj = (ocrSchedulerObjectBinHeap_t*)self;
-    ASSERT(IS_SCHEDULER_OBJECT_TYPE_SINGLETON(element->kind));
+    ocrAssert(IS_SCHEDULER_OBJECT_TYPE_SINGLETON(element->kind));
     binHeap_t * heap = schedObj->binHeap;
     ocrGuid_t edtGuid = element->guid.guid;
     s64 priority = 0;
@@ -99,7 +99,7 @@ u8 binHeapSchedulerObjectInsert(ocrSchedulerObjectFactory_t *fact, ocrSchedulerO
     }
 
     { // read EDT hint
-        ASSERT(element->kind == OCR_SCHEDULER_OBJECT_EDT);
+        ocrAssert(element->kind == OCR_SCHEDULER_OBJECT_EDT);
         ocrHint_t edtHints;
         ocrHintInit(&edtHints, OCR_HINT_EDT_T);
         ocrGetHint(edtGuid, &edtHints);
@@ -137,7 +137,7 @@ static inline ocrGuid_t _popGuid(binHeap_t *binHeap, int flag) {
 u8 binHeapSchedulerObjectRemove(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObject_t *self, ocrSchedulerObjectKind kind, u32 count, ocrSchedulerObject_t *dst, ocrSchedulerObjectIterator_t *iterator, u32 properties) {
     u32 i;
     ocrSchedulerObjectBinHeap_t *schedObj = (ocrSchedulerObjectBinHeap_t*)self;
-    ASSERT(IS_SCHEDULER_OBJECT_TYPE_SINGLETON(kind));
+    ocrAssert(IS_SCHEDULER_OBJECT_TYPE_SINGLETON(kind));
     binHeap_t * binHeap = schedObj->binHeap;
     if (binHeap == NULL) return count;
 
@@ -159,7 +159,7 @@ u8 binHeapSchedulerObjectRemove(ocrSchedulerObjectFactory_t *fact, ocrSchedulerO
             }
             break;
         default:
-            ASSERT(0);
+            ocrAssert(0);
             return OCR_ENOTSUP;
         }
 
@@ -167,7 +167,7 @@ u8 binHeapSchedulerObjectRemove(ocrSchedulerObjectFactory_t *fact, ocrSchedulerO
             break;
 
         if (IS_SCHEDULER_OBJECT_TYPE_SINGLETON(dst->kind)) {
-            ASSERT(ocrGuidIsNull(dst->guid.guid) && count == 1);
+            ocrAssert(ocrGuidIsNull(dst->guid.guid) && count == 1);
             dst->guid.guid = retGuid;
         } else {
             ocrSchedulerObject_t taken;
@@ -190,22 +190,22 @@ u64 binHeapSchedulerObjectCount(ocrSchedulerObjectFactory_t *fact, ocrSchedulerO
 }
 
 ocrSchedulerObjectIterator_t* binHeapSchedulerObjectCreateIterator(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObject_t *self, u32 properties) {
-    ASSERT(0);
+    ocrAssert(0);
     return NULL;
 }
 
 u8 binHeapSchedulerObjectDestroyIterator(ocrSchedulerObjectFactory_t * fact, ocrSchedulerObjectIterator_t *iterator) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 u8 binHeapSchedulerObjectIterate(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObjectIterator_t *iterator, u32 properties) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 ocrSchedulerObject_t* binHeapGetSchedulerObjectForLocation(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObject_t *self, ocrSchedulerObjectKind kind, ocrLocation_t loc, ocrSchedulerObjectMappingKind mapping, u32 properties) {
-    ASSERT(self->loc == loc && self->mapping == mapping);
+    ocrAssert(self->loc == loc && self->mapping == mapping);
     return self;
 }
 
@@ -216,33 +216,33 @@ u8 binHeapSetLocationForSchedulerObject(ocrSchedulerObjectFactory_t *fact, ocrSc
 }
 
 ocrSchedulerObjectActionSet_t* binHeapSchedulerObjectNewActionSet(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObject_t *self, u32 count) {
-    ASSERT(0);
+    ocrAssert(0);
     return NULL;
 }
 
 u8 binHeapSchedulerObjectDestroyActionSet(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObjectActionSet_t *actionSet) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 u8 binHeapSchedulerObjectSwitchRunlevel(ocrSchedulerObject_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_t runlevel,
                                     phase_t phase, u32 properties, void (*callback)(ocrPolicyDomain_t*, u64), u64 val) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 u8 binHeapSchedulerObjectOcrPolicyMsgGetMsgSize(ocrSchedulerObjectFactory_t *fact, ocrPolicyMsg_t *msg, u64 *marshalledSize, u32 properties) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 u8 binHeapSchedulerObjectOcrPolicyMsgMarshallMsg(ocrSchedulerObjectFactory_t *fact, ocrPolicyMsg_t *msg, u8 *buffer, u32 properties) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 u8 binHeapSchedulerObjectOcrPolicyMsgUnMarshallMsg(ocrSchedulerObjectFactory_t *fact, ocrPolicyMsg_t *msg, u8 *localMainPtr, u8 *localAddlPtr, u32 properties) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 

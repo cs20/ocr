@@ -29,7 +29,7 @@ ocrGuid_t eWriteEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     TYPE_ELEM_DB c = data[0];
     u32 i = 0;
     while (i < NB_ELEM_DB) {
-        ASSERT (data[i] == c);
+        ocrAssert(data[i] == c);
         i++;
     }
     // Then write a new value
@@ -46,7 +46,7 @@ ocrGuid_t eWriteEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
 ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     u64 affinityCount;
     ocrAffinityCount(AFFINITY_PD, &affinityCount);
-    ASSERT(affinityCount >= 1);
+    ocrAssert(affinityCount >= 1);
     ocrGuid_t affinities[affinityCount];
     ocrAffinityGet(AFFINITY_PD, &affinityCount, affinities);
     ocrGuid_t affinity = affinities[affinityCount-1];

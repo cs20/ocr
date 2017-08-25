@@ -49,7 +49,7 @@ ocrSchedulerFactory_t * newSchedulerFactory(schedulerType_t type, ocrParamList_t
         return newOcrSchedulerFactoryCe(perType);
 #endif
     default:
-        ASSERT(0);
+        ocrAssert(0);
     }
     return NULL;
 }

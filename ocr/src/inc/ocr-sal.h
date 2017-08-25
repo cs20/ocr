@@ -24,6 +24,7 @@ void getCurrentEnv(struct _ocrPolicyDomain_t** pd, struct _ocrWorker_t** worker,
 
 
 u32 SNPRINTF(char * buf, u32 size, const char * fmt, ...) __attribute__((__format__ (__printf__, 3, 4)));;
+u32 ocrPrintf(const char * fmt, ...) __attribute__((__format__ (__printf__, 1, 2)));;
 u32 PRINTF(const char * fmt, ...) __attribute__((__format__ (__printf__, 1, 2)));;
 void _ocrAssert(bool val, const char* str, const char* file, u32 line);
 u64 salGetTime();

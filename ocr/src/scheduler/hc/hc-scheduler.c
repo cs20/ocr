@@ -88,12 +88,12 @@ u8 hcSchedulerSwitchRunlevel(ocrScheduler_t *self, ocrPolicyDomain_t *PD, ocrRun
     u8 toReturn = 0;
 
     // This is an inert module, we do not handle callbacks (caller needs to wait on us)
-    ASSERT(callback == NULL);
+    ocrAssert(callback == NULL);
 
     // Verify properties for this call
-    ASSERT((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
+    ocrAssert((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
            && !(properties & RL_RELEASE));
-    ASSERT(!(properties & RL_FROM_MSG));
+    ocrAssert(!(properties & RL_FROM_MSG));
 
     u64 i;
     if(properties & RL_BRING_UP) {
@@ -171,7 +171,7 @@ u8 hcSchedulerSwitchRunlevel(ocrScheduler_t *self, ocrPolicyDomain_t *PD, ocrRun
         break;
     default:
         // Unknown runlevel
-        ASSERT(0);
+        ocrAssert(0);
     }
 
     if(properties & RL_TEAR_DOWN) {
@@ -195,7 +195,7 @@ u8 hcSchedulerTakeEdt (ocrScheduler_t *self, u32 *count, ocrFatGuid_t *edts) {
     getCurrentEnv(NULL, &worker, NULL, NULL);
     ocrFatGuid_t popped;
     u64 workerId = worker->id;
-    ASSERT(edts != NULL); // Array should be allocated at least
+    ocrAssert(edts != NULL); // Array should be allocated at least
 #ifdef ENABLE_EXTENSION_BLOCKING_SUPPORT
     ocrWorkerHc_t * hcWorker = (ocrWorkerHc_t *) worker;
     if (!hcWorker->stealFirst) {
@@ -292,7 +292,7 @@ u8 hcSchedulerGetWorkInvoke(ocrScheduler_t *self, ocrSchedulerOpArgs_t *opArgs, 
         }
     // Unknown ops
     default:
-        ASSERT(0);
+        ocrAssert(0);
         return OCR_ENOTSUP;
     }
     return 0;
@@ -339,7 +339,7 @@ u8 hcSchedulerNotifyInvoke(ocrScheduler_t *self, ocrSchedulerOpArgs_t *opArgs, o
                 // ensure more fairness.
             } else {
 #endif
-                ASSERT(curTask->state == REAPING_EDTSTATE);
+                ocrAssert(curTask->state == REAPING_EDTSTATE);
                 // Destroy the work
                 ocrPolicyDomain_t *pd;
                 PD_MSG_STACK(msg);
@@ -373,7 +373,7 @@ u8 hcSchedulerNotifyInvoke(ocrScheduler_t *self, ocrSchedulerOpArgs_t *opArgs, o
         return OCR_ENOP;
     // Unknown ops
     default:
-        ASSERT(0);
+        ocrAssert(0);
         return OCR_ENOTSUP;
     }
     return 0;

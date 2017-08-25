@@ -63,7 +63,7 @@ char * pd_msg_type_to_str(int type) {
 void initializePolicyMessage(ocrPolicyMsg_t* msg, u64 bufferSize) {
     msg->bufferSize = bufferSize;
     //BUG #581: Shouldn't be mandatory
-    // ASSERT(bufferSize >= sizeof(ocrPolicyMsg_t));
+    // ocrAssert(bufferSize >= sizeof(ocrPolicyMsg_t));
     msg->usefulSize = 0;
 }
 
@@ -86,7 +86,7 @@ ocrPolicyDomainFactory_t * newPolicyDomainFactory(policyDomainType_t type, ocrPa
         return newPolicyDomainFactoryCe(perType);
 #endif
     default:
-        ASSERT(0);
+        ocrAssert(0);
     }
     return NULL;
 }
@@ -156,7 +156,7 @@ u64 ocrPolicyMsgGetMsgBaseSize(ocrPolicyMsg_t *msg, bool isIn) {
 #undef PER_TYPE
     default:
         DPRINTF(DEBUG_LVL_WARN, "Error: Message type 0x%"PRIx64" not handled in getMsgSize\n", (u64)(msg->type & PD_MSG_TYPE_ONLY));
-        ASSERT(false);
+        ocrAssert(false);
     }
     // The message is already serialized and must account for the payload
     // Note that are few cases where we issue responses too, so discriminate on message's type
@@ -178,7 +178,7 @@ u8 ocrPolicyMsgGetMsgSize(ocrPolicyMsg_t *msg, u64 *baseSize,
     *baseSize = 0;
     *marshalledSize = 0;
     u8 flags = mode & MARSHALL_FLAGS;
-    ASSERT(((msg->type & (PD_MSG_REQUEST | PD_MSG_RESPONSE)) != (PD_MSG_REQUEST | PD_MSG_RESPONSE)) &&
+    ocrAssert(((msg->type & (PD_MSG_REQUEST | PD_MSG_RESPONSE)) != (PD_MSG_REQUEST | PD_MSG_RESPONSE)) &&
            ((msg->type & PD_MSG_REQUEST) || (msg->type & PD_MSG_RESPONSE)));
 
     u8 isIn = (msg->type & PD_MSG_REQUEST) != 0ULL;
@@ -190,7 +190,7 @@ u8 ocrPolicyMsgGetMsgSize(ocrPolicyMsg_t *msg, u64 *baseSize,
     case PD_MSG_DB_CREATE:
 #define PD_TYPE PD_MSG_DB_CREATE
         if(isIn) {
-            ASSERT(MAX_ALIGN % sizeof(u64) == 0);
+            ocrAssert(MAX_ALIGN % sizeof(u64) == 0);
             *marshalledSize = ((PD_MSG_FIELD_I(hint) != NULL_HINT)?sizeof(ocrHint_t):0ULL);
         }
         break;
@@ -199,7 +199,7 @@ u8 ocrPolicyMsgGetMsgSize(ocrPolicyMsg_t *msg, u64 *baseSize,
     case PD_MSG_WORK_CREATE:
 #define PD_TYPE PD_MSG_WORK_CREATE
         if(isIn) {
-            ASSERT(MAX_ALIGN % sizeof(u64) == 0);
+            ocrAssert(MAX_ALIGN % sizeof(u64) == 0);
             *marshalledSize = (PD_MSG_FIELD_I(paramv)?sizeof(u64)*PD_MSG_FIELD_IO(paramc):0ULL) +
                 (PD_MSG_FIELD_I(depv)?sizeof(ocrFatGuid_t)*PD_MSG_FIELD_IO(depc):0ULL) +
                 ((PD_MSG_FIELD_I(hint) != NULL_HINT)?sizeof(ocrHint_t):0ULL);
@@ -279,7 +279,7 @@ u8 ocrPolicyMsgGetMsgSize(ocrPolicyMsg_t *msg, u64 *baseSize,
                     case OCR_SCHED_ANALYZE_RESPONSE:
                         break;
                     default:
-                        ASSERT(0);
+                        ocrAssert(0);
                         break;
                     }
                 }
@@ -288,7 +288,7 @@ u8 ocrPolicyMsgGetMsgSize(ocrPolicyMsg_t *msg, u64 *baseSize,
             case OCR_SCHED_ANALYZE_SPACETIME_DB:
                 break;
             default:
-                ASSERT(0);
+                ocrAssert(0);
                 break;
             }
         }
@@ -358,8 +358,8 @@ u8 ocrPolicyMsgGetMsgSize(ocrPolicyMsg_t *msg, u64 *baseSize,
     case PD_MSG_HINT_SET:
 #define PD_TYPE PD_MSG_HINT_SET
         if(isIn) {
-            ASSERT(MAX_ALIGN % sizeof(u64) == 0);
-            ASSERT(PD_MSG_FIELD_I(hint) != NULL_HINT);
+            ocrAssert(MAX_ALIGN % sizeof(u64) == 0);
+            ocrAssert(PD_MSG_FIELD_I(hint) != NULL_HINT);
             *marshalledSize = sizeof(ocrHint_t);
         }
         break;
@@ -367,8 +367,8 @@ u8 ocrPolicyMsgGetMsgSize(ocrPolicyMsg_t *msg, u64 *baseSize,
 
     case PD_MSG_HINT_GET:
 #define PD_TYPE PD_MSG_HINT_GET
-        ASSERT(MAX_ALIGN % sizeof(u64) == 0);
-        ASSERT(PD_MSG_FIELD_IO(hint) != NULL_HINT);
+        ocrAssert(MAX_ALIGN % sizeof(u64) == 0);
+        ocrAssert(PD_MSG_FIELD_IO(hint) != NULL_HINT);
         *marshalledSize = sizeof(ocrHint_t);
         break;
 #undef PD_TYPE
@@ -405,14 +405,14 @@ u8 ocrPolicyMsgMarshallMsg(ocrPolicyMsg_t* msg, u64 baseSize, u8* buffer, u32 mo
         baseSize = (baseSize + MAX_ALIGN -1)&(~(MAX_ALIGN-1));
     }
 
-    ASSERT(((msg->type & (PD_MSG_REQUEST | PD_MSG_RESPONSE)) != (PD_MSG_REQUEST | PD_MSG_RESPONSE)) &&
+    ocrAssert(((msg->type & (PD_MSG_REQUEST | PD_MSG_RESPONSE)) != (PD_MSG_REQUEST | PD_MSG_RESPONSE)) &&
            ((msg->type & PD_MSG_REQUEST) || (msg->type & PD_MSG_RESPONSE)));
 
     // The usefulSize is set by the marshalling code so unless the message
     // has been already marshalled, it is zero.
     // Hence, first thing is to set the msg's usefulSize field.
     if(msg->usefulSize == 0) {
-        ASSERT((((u8*)msg) == buffer) ? (baseSize <= msg->bufferSize) : true);
+        ocrAssert((((u8*)msg) == buffer) ? (baseSize <= msg->bufferSize) : true);
         msg->usefulSize = baseSize;
     }
 
@@ -434,7 +434,7 @@ u8 ocrPolicyMsgMarshallMsg(ocrPolicyMsg_t* msg, u64 baseSize, u8* buffer, u32 mo
         ocrPolicyMsg_t * bufferMsg = (ocrPolicyMsg_t*) buffer;
         u32 bufBSize = bufferMsg->bufferSize;
         u32 bufUSize = bufferMsg->usefulSize;
-        ASSERT(((ocrPolicyMsg_t*)buffer)->bufferSize >= baseSize);
+        ocrAssert(((ocrPolicyMsg_t*)buffer)->bufferSize >= baseSize);
         // Copy msg into the buffer for the common part
         hal_memCopy(buffer, msg, baseSize, false);
         bufferMsg->bufferSize = bufBSize;
@@ -445,10 +445,10 @@ u8 ocrPolicyMsgMarshallMsg(ocrPolicyMsg_t* msg, u64 baseSize, u8* buffer, u32 mo
         break;
     }
     case MARSHALL_APPEND:
-        ASSERT((u64)buffer == (u64)msg);
+        ocrAssert((u64)buffer == (u64)msg);
         startPtr = (u8*)(msg);
         curPtr = startPtr + baseSize;
-        ASSERT(msg->bufferSize >= baseSize); // Make sure the message is not of zero size
+        ocrAssert(msg->bufferSize >= baseSize); // Make sure the message is not of zero size
         outputMsg = msg;
         break;
     case MARSHALL_ADDL:
@@ -457,7 +457,7 @@ u8 ocrPolicyMsgMarshallMsg(ocrPolicyMsg_t* msg, u64 baseSize, u8* buffer, u32 mo
         outputMsg = msg;
         break;
     default:
-        ASSERT(0);
+        ocrAssert(0);
     }
 
     DPRINTF(DEBUG_LVL_VERB, "Got message 0x%"PRIx64" to marshall into 0x%"PRIx64" mode %"PRId32": "
@@ -499,7 +499,7 @@ u8 ocrPolicyMsgMarshallMsg(ocrPolicyMsg_t* msg, u64 baseSize, u8* buffer, u32 mo
 #define PD_TYPE PD_MSG_WORK_CREATE
         if(isIn) {
             // Catch misuse for paramc
-            ASSERT(((PD_MSG_FIELD_IO(paramc) != 0) && (PD_MSG_FIELD_I(paramv) != NULL))
+            ocrAssert(((PD_MSG_FIELD_IO(paramc) != 0) && (PD_MSG_FIELD_I(paramv) != NULL))
                    || ((PD_MSG_FIELD_IO(paramc) == 0) && (PD_MSG_FIELD_I(paramv) == NULL)));
 
             // First copy things over
@@ -737,7 +737,7 @@ u8 ocrPolicyMsgMarshallMsg(ocrPolicyMsg_t* msg, u64 baseSize, u8* buffer, u32 mo
                     case OCR_SCHED_ANALYZE_RESPONSE:
                         break;
                     default:
-                        ASSERT(0);
+                        ocrAssert(0);
                         break;
                     }
                 }
@@ -746,7 +746,7 @@ u8 ocrPolicyMsgMarshallMsg(ocrPolicyMsg_t* msg, u64 baseSize, u8* buffer, u32 mo
             case OCR_SCHED_ANALYZE_SPACETIME_DB:
                 break;
             default:
-                ASSERT(0);
+                ocrAssert(0);
                 break;
             }
         }
@@ -937,7 +937,7 @@ u8 ocrPolicyMsgMarshallMsg(ocrPolicyMsg_t* msg, u64 baseSize, u8* buffer, u32 mo
 #define PD_TYPE PD_MSG_HINT_SET
         if(isIn) {
             // marshall hints if passed by user
-            ASSERT(PD_MSG_FIELD_I(hint) != NULL_HINT);
+            ocrAssert(PD_MSG_FIELD_I(hint) != NULL_HINT);
             u64 s = sizeof(ocrHint_t);
             if(s) {
                 hal_memCopy(curPtr, PD_MSG_FIELD_I(hint), s, false);
@@ -961,7 +961,7 @@ u8 ocrPolicyMsgMarshallMsg(ocrPolicyMsg_t* msg, u64 baseSize, u8* buffer, u32 mo
     case PD_MSG_HINT_GET: {
 #define PD_TYPE PD_MSG_HINT_GET
         // marshall hints if passed by user
-        ASSERT(PD_MSG_FIELD_IO(hint) != NULL_HINT);
+        ocrAssert(PD_MSG_FIELD_IO(hint) != NULL_HINT);
         u64 s = sizeof(ocrHint_t);
         if(s) {
             hal_memCopy(curPtr, PD_MSG_FIELD_IO(hint), s, false);
@@ -985,8 +985,8 @@ u8 ocrPolicyMsgMarshallMsg(ocrPolicyMsg_t* msg, u64 baseSize, u8* buffer, u32 mo
 #define PD_TYPE PD_MSG_METADATA_COMM
         // Sometime issues two-way for ordering purposes so it can be in or out
         if (isIn) {
-            ASSERT(PD_MSG_FIELD_I(response) == NULL);
-            ASSERT(PD_MSG_FIELD_I(mdPtr) == NULL);
+            ocrAssert(PD_MSG_FIELD_I(response) == NULL);
+            ocrAssert(PD_MSG_FIELD_I(mdPtr) == NULL);
         }
 #undef PD_TYPE
         break;
@@ -1025,7 +1025,7 @@ u8 ocrPolicyMsgUnMarshallMsg(u8* mainBuffer, u8* addlBuffer,
     u64 baseSize=0, marshalledSize=0;
     u8 isIn = (((ocrPolicyMsg_t*)mainBuffer)->type & PD_MSG_REQUEST) != 0ULL;
 
-    ASSERT(((((ocrPolicyMsg_t*)mainBuffer)->type & (PD_MSG_REQUEST | PD_MSG_RESPONSE)) != (PD_MSG_REQUEST | PD_MSG_RESPONSE)) &&
+    ocrAssert(((((ocrPolicyMsg_t*)mainBuffer)->type & (PD_MSG_REQUEST | PD_MSG_RESPONSE)) != (PD_MSG_REQUEST | PD_MSG_RESPONSE)) &&
            ((((ocrPolicyMsg_t*)mainBuffer)->type & PD_MSG_REQUEST) ||
             (((ocrPolicyMsg_t*)mainBuffer)->type & PD_MSG_RESPONSE)));
 
@@ -1035,8 +1035,8 @@ u8 ocrPolicyMsgUnMarshallMsg(u8* mainBuffer, u8* addlBuffer,
     switch(mode) {
     case MARSHALL_FULL_COPY:
         ocrPolicyMsgGetMsgSize((ocrPolicyMsg_t*)mainBuffer, &baseSize, &marshalledSize, mode | flags);
-        ASSERT(((ocrPolicyMsg_t*)mainBuffer)->usefulSize <= baseSize + marshalledSize);
-        ASSERT(((ocrPolicyMsg_t*)mainBuffer)->usefulSize >= baseSize);
+        ocrAssert(((ocrPolicyMsg_t*)mainBuffer)->usefulSize <= baseSize + marshalledSize);
+        ocrAssert(((ocrPolicyMsg_t*)mainBuffer)->usefulSize >= baseSize);
 
         DPRINTF(DEBUG_LVL_VVERB, "Unmarshall full-copy: 0x%"PRIx64" -> 0x%"PRIx64" of useful size %"PRId64"\n",
                 (u64)mainBuffer, (u64)msg, ((ocrPolicyMsg_t*)mainBuffer)->usefulSize);
@@ -1048,10 +1048,10 @@ u8 ocrPolicyMsgUnMarshallMsg(u8* mainBuffer, u8* addlBuffer,
 
     case MARSHALL_APPEND:
         // Same as above except that msg and mainBuffer are one and the same
-        ASSERT((u64)msg == (u64)mainBuffer);
+        ocrAssert((u64)msg == (u64)mainBuffer);
         ocrPolicyMsgGetMsgSize(msg, &baseSize, &marshalledSize, mode | flags);
-        ASSERT(msg->usefulSize <= baseSize + marshalledSize);
-        ASSERT(msg->usefulSize >= baseSize);
+        ocrAssert(msg->usefulSize <= baseSize + marshalledSize);
+        ocrAssert(msg->usefulSize >= baseSize);
         localAddlPtr = (u8*)msg + baseSize;
         break;
 
@@ -1071,15 +1071,15 @@ u8 ocrPolicyMsgUnMarshallMsg(u8* mainBuffer, u8* addlBuffer,
             ocrPolicyDomain_t *pd = NULL;
             getCurrentEnv(&pd, NULL, NULL, NULL);
             localAddlPtr = (u8*)pd->fcts.pdMalloc(pd, marshalledSize);
-            ASSERT(localAddlPtr);
+            ocrAssert(localAddlPtr);
 
             // Check if the marshalled information was appended to
             // the mainBuffer
             if(origSize != baseSize) {
-                ASSERT(addlBuffer == NULL); // We can't have both
+                ocrAssert(addlBuffer == NULL); // We can't have both
                 hal_memCopy(localAddlPtr, mainBuffer + origSize, marshalledSize, false);
             } else {
-                ASSERT(addlBuffer != NULL);
+                ocrAssert(addlBuffer != NULL);
                 // Will be copied later
             }
         }
@@ -1087,11 +1087,11 @@ u8 ocrPolicyMsgUnMarshallMsg(u8* mainBuffer, u8* addlBuffer,
     }
 
     default:
-        ASSERT(0);
+        ocrAssert(0);
     } // End of switch
 
     if(addlBuffer != NULL) {
-        ASSERT(localAddlPtr != NULL && marshalledSize != 0);
+        ocrAssert(localAddlPtr != NULL && marshalledSize != 0);
         hal_memCopy(localAddlPtr, addlBuffer, marshalledSize, false);
     }
     DPRINTF(DEBUG_LVL_VERB, "Unmarshalling message with mainAddr 0x%"PRIx64" and addlAddr 0x%"PRIx64"\n",
@@ -1218,7 +1218,7 @@ u8 ocrPolicyMsgUnMarshallMsg(u8* mainBuffer, u8* addlBuffer,
         case OCR_SCHED_WORK_COMM: {
                 if(PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_COMM).guidCount > 0) {
                     u64 t = (u64)(PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_COMM).guids);
-                    ASSERT(t);
+                    ocrAssert(t);
                     PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_COMM).guids = (ocrFatGuid_t*)((t&1?localAddlPtr:localMainPtr) + (t>>1));
                     DPRINTF(DEBUG_LVL_VVERB, "Converted field guids from 0x%"PRIx64" to 0x%"PRIx64"\n",
                         t, (u64)PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_COMM).guids);
@@ -1281,7 +1281,7 @@ u8 ocrPolicyMsgUnMarshallMsg(u8* mainBuffer, u8* addlBuffer,
                     case OCR_SCHED_ANALYZE_RESPONSE:
                         break;
                     default:
-                        ASSERT(0);
+                        ocrAssert(0);
                         break;
                     }
                 }
@@ -1290,7 +1290,7 @@ u8 ocrPolicyMsgUnMarshallMsg(u8* mainBuffer, u8* addlBuffer,
             case OCR_SCHED_ANALYZE_SPACETIME_DB:
                 break;
             default:
-                ASSERT(0);
+                ocrAssert(0);
                 break;
             }
         }
@@ -1311,7 +1311,7 @@ u8 ocrPolicyMsgUnMarshallMsg(u8* mainBuffer, u8* addlBuffer,
         } else {
             if(PD_MSG_FIELD_IO(guidCount) > 0) {
                 u64 t = (u64)(PD_MSG_FIELD_IO(guids));
-                ASSERT(t);
+                ocrAssert(t);
                 PD_MSG_FIELD_IO(guids) = (ocrFatGuid_t*)((t&1?localAddlPtr:localMainPtr) + (t>>1));
                 DPRINTF(DEBUG_LVL_VVERB, "Converted field guids from 0x%"PRIx64" to 0x%"PRIx64"\n",
                         t, (u64)PD_MSG_FIELD_IO(guids));
@@ -1351,7 +1351,7 @@ u8 ocrPolicyMsgUnMarshallMsg(u8* mainBuffer, u8* addlBuffer,
     case PD_MSG_GUID_METADATA_CLONE: {
 #define PD_TYPE PD_MSG_GUID_METADATA_CLONE
         if(!isIn) {
-            ASSERT(PD_MSG_FIELD_O(size) > 0);
+            ocrAssert(PD_MSG_FIELD_O(size) > 0);
             u64 t = (u64)(PD_MSG_FIELD_IO(guid.metaDataPtr));
             PD_MSG_FIELD_IO(guid.metaDataPtr) = (void*)((t&1?localAddlPtr:localMainPtr) + (t>>1));
             DPRINTF(DEBUG_LVL_VVERB, "Converted metadata ptr from 0x%"PRIx64" to 0x%"PRIx64"\n",
@@ -1384,7 +1384,7 @@ u8 ocrPolicyMsgUnMarshallMsg(u8* mainBuffer, u8* addlBuffer,
     case PD_MSG_DB_ACQUIRE: {
         if((flags & MARSHALL_DBPTR) && (!isIn)) {
 #define PD_TYPE PD_MSG_DB_ACQUIRE
-            ASSERT(PD_MSG_FIELD_O(size) > 0);
+            ocrAssert(PD_MSG_FIELD_O(size) > 0);
             u64 t = (u64)(PD_MSG_FIELD_O(ptr));
             PD_MSG_FIELD_O(ptr) = (void*)((t&1?localAddlPtr:localMainPtr) + (t>>1));
             DPRINTF(DEBUG_LVL_VVERB, "Converted DB acquire ptr from 0x%"PRIx64" to 0x%"PRIx64"\n",
@@ -1410,7 +1410,7 @@ u8 ocrPolicyMsgUnMarshallMsg(u8* mainBuffer, u8* addlBuffer,
     case PD_MSG_HINT_SET: {
 #define PD_TYPE PD_MSG_HINT_SET
         if(isIn) {
-            ASSERT(PD_MSG_FIELD_I(hint) != NULL_HINT);
+            ocrAssert(PD_MSG_FIELD_I(hint) != NULL_HINT);
             u64 t = (u64)(PD_MSG_FIELD_I(hint));
             PD_MSG_FIELD_I(hint) = (ocrHint_t*)((t&1?localAddlPtr:localMainPtr) + (t>>1));
             DPRINTF(DEBUG_LVL_VVERB, "Converted field hint from 0x%"PRIx64" to 0x%"PRIx64"\n",
@@ -1422,7 +1422,7 @@ u8 ocrPolicyMsgUnMarshallMsg(u8* mainBuffer, u8* addlBuffer,
 
     case PD_MSG_HINT_GET: {
 #define PD_TYPE PD_MSG_HINT_GET
-        ASSERT(PD_MSG_FIELD_IO(hint) != NULL_HINT);
+        ocrAssert(PD_MSG_FIELD_IO(hint) != NULL_HINT);
         u64 t = (u64)(PD_MSG_FIELD_IO(hint));
         PD_MSG_FIELD_IO(hint) = (ocrHint_t*)((t&1?localAddlPtr:localMainPtr) + (t>>1));
         DPRINTF(DEBUG_LVL_VVERB, "Converted field hint from 0x%"PRIx64" to 0x%"PRIx64"\n",
@@ -1435,8 +1435,8 @@ u8 ocrPolicyMsgUnMarshallMsg(u8* mainBuffer, u8* addlBuffer,
 #define PD_TYPE PD_MSG_METADATA_COMM
         // Sometime issues two-way for ordering purposes so it can be in or out
         if (isIn) {
-            ASSERT(PD_MSG_FIELD_I(response) == NULL);
-            ASSERT(PD_MSG_FIELD_I(mdPtr) == NULL);
+            ocrAssert(PD_MSG_FIELD_I(response) == NULL);
+            ocrAssert(PD_MSG_FIELD_I(mdPtr) == NULL);
         }
 #undef PD_TYPE
         break;
@@ -1492,12 +1492,12 @@ u8 ocrPolicyMsgUnMarshallMsg(u8* mainBuffer, u8* addlBuffer,
 #define PD_MSG msg
 #define PD_TYPE PD_MSG_GUID_CREATE
                         if(PD_MSG_FIELD_I(size) != 0) {
-                            ASSERT(guids->metaDataPtr == NULL);
+                            ocrAssert(guids->metaDataPtr == NULL);
                         }
 #undef PD_MSG
 #undef PD_TYPE
                     } else {
-                        ASSERT(guids->metaDataPtr == NULL);
+                        ocrAssert(guids->metaDataPtr == NULL);
                     }
                 }
                 ++guids;
@@ -1524,7 +1524,7 @@ u8 ocrPolicyMsgUnMarshallMsg(u8* mainBuffer, u8* addlBuffer,
 #include "ocr-policy-msg-list.h"
 #undef PER_TYPE
             default:
-                ASSERT(0);
+                ocrAssert(0);
             }
 
             while(count) {
@@ -1547,7 +1547,7 @@ u8 ocrPolicyMsgUnMarshallMsg(u8* mainBuffer, u8* addlBuffer,
                         guids->metaDataPtr = (void *) val;
                     }
                 } else {
-                    ASSERT(guids->metaDataPtr == NULL);
+                    ocrAssert(guids->metaDataPtr == NULL);
                 }
                 ++guids;
                 --count;
@@ -1579,7 +1579,7 @@ u8 ocrPolicyMsgUnMarshallMsg(u8* mainBuffer, u8* addlBuffer,
 u8 processIncomingMsg(ocrPolicyDomain_t * pd, ocrPolicyMsg_t * msg) {
     // This is meant to execute incoming request and asynchronously processed responses (two-way asynchronous)
     // Regular responses are routed back to requesters by the scheduler and are processed by them.
-    ASSERT((msg->type & PD_MSG_REQUEST) || ((msg->type & PD_MSG_RESPONSE) &&
+    ocrAssert((msg->type & PD_MSG_REQUEST) || ((msg->type & PD_MSG_RESPONSE) &&
                 (((msg->type & PD_MSG_TYPE_ONLY) == PD_MSG_DB_ACQUIRE) ||
                 ((msg->type & PD_MSG_TYPE_ONLY) == PD_MSG_GUID_METADATA_CLONE))));
     // Important to read this before calling processMessage. If the message requires
@@ -1597,7 +1597,7 @@ u8 processIncomingMsg(ocrPolicyDomain_t * pd, ocrPolicyMsg_t * msg) {
 #define PD_MSG (msg)
 #define PD_TYPE PD_MSG_EVT_CREATE
         u32 properties = PD_MSG_FIELD_I(properties);
-        ASSERT((properties & GUID_PROP_IS_LABELED)); // Only labeled guid can be remotely created
+        ocrAssert((properties & GUID_PROP_IS_LABELED)); // Only labeled guid can be remotely created
         checkLabeled = ((properties & GUID_PROP_BLOCK) == GUID_PROP_BLOCK);
         if (checkLabeled) { // Make the check asynchronous
             PD_MSG_FIELD_I(properties) |= GUID_PROP_CHECK;
@@ -1623,7 +1623,7 @@ u8 processIncomingMsg(ocrPolicyDomain_t * pd, ocrPolicyMsg_t * msg) {
             task->state = RESCHED_EDTSTATE;
         } else {
 #endif
-            ASSERT((msgTypeOnly == PD_MSG_WORK_CREATE) || (msgTypeOnly == PD_MSG_METADATA_COMM));
+            ocrAssert((msgTypeOnly == PD_MSG_WORK_CREATE) || (msgTypeOnly == PD_MSG_METADATA_COMM));
             // Do not deallocate: Message has been enqueued for further processing.
             // Actually, message may have been deallocated in the meanwhile because
             // the callback has been invoked.
@@ -1640,7 +1640,7 @@ u8 processIncomingMsg(ocrPolicyDomain_t * pd, ocrPolicyMsg_t * msg) {
             // are currently setup, the various policy-domain implementations are always setting
             // the response flag although req_response is not set but the destLocation is still local.
             // Hence there are no race between freeing the message and sending the hypotetical response.
-            ASSERT(processResponse || (msg->destLocation == pd->myLocation));
+            ocrAssert(processResponse || (msg->destLocation == pd->myLocation));
             DPRINTF(DEBUG_LVL_VVERB,"processIncomingMsg: Deleted incoming EDT request msg=%p of type=0x%"PRIx32"\n", msg, msg->type);
             // if request was an incoming one-way we can delete the message now.
             pd->fcts.pdFree(pd, msg);
@@ -1682,7 +1682,7 @@ ocrObjectFactory_t * resolveObjectFactory(ocrPolicyDomain_t *pd, ocrGuidKind kin
     if(kind & OCR_GUID_EVENT) {
         return pd->factories[pd->eventFactoryIdx];
     }
-    ASSERT(false);
+    ocrAssert(false);
     return NULL;
 }
 
@@ -1763,8 +1763,8 @@ u8 resolveRemoteMetaData(ocrPolicyDomain_t * pd, ocrFatGuid_t * fatGuid,
     MdProxy_t * mdProxy = NULL;
     u8 res __attribute__((unused)) = pd->guidProviders[0]->fcts.getVal(pd->guidProviders[0], fatGuid->guid, &val, NULL, (fetch ? MD_FETCH : MD_PROXY), &mdProxy);
 #endif
-    ASSERT(val != 0);
-    ASSERT(res == 0);
+    ocrAssert(val != 0);
+    ocrAssert(res == 0);
     fatGuid->metaDataPtr = (void *) val;
     return 0;
 }
@@ -1772,7 +1772,7 @@ u8 resolveRemoteMetaData(ocrPolicyDomain_t * pd, ocrFatGuid_t * fatGuid,
 
 void mdLocalDeguidify(ocrPolicyDomain_t *self, ocrFatGuid_t *guid) {
     START_PROFILE(pd_hc_mdLocalDeguidify);
-    ASSERT(self->guidProviderCount == 1);
+    ocrAssert(self->guidProviderCount == 1);
     if((guid->metaDataPtr == NULL) && !(ocrGuidIsNull(guid->guid)) && !(ocrGuidIsUninitialized(guid->guid))) {
         //getVal - resolve
         self->guidProviders[0]->fcts.getVal(self->guidProviders[0], guid->guid,

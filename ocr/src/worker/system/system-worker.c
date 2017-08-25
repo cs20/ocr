@@ -66,7 +66,7 @@ static void drainSysDeques(FILE *f){
         for(j = 0; j < remaining; j++){
             //Pop and process all remaining records
             ocrTraceObj_t *tr = (ocrTraceObj_t *)(deq->popFromHead(deq,0));
-            ASSERT(tr != NULL);
+            ocrAssert(tr != NULL);
 
             processTraceObject(tr, f);
             pd->fcts.pdFree(pd, tr);
@@ -80,7 +80,7 @@ void drainCurrentDeque(ocrWorker_t *worker, FILE *f, s32 head, s32 tail, deque_t
     u32 i;
     for(i = 0; i < remaining; i++){
         ocrTraceObj_t *tr = (ocrTraceObj_t *)(deq->popFromHead(deq, 0));
-        ASSERT(tr != NULL);
+        ocrAssert(tr != NULL);
 #ifdef OCR_TRACE_BINARY
         processTraceObject(tr, f);
 #endif
@@ -91,7 +91,7 @@ void drainCurrentDeque(ocrWorker_t *worker, FILE *f, s32 head, s32 tail, deque_t
 //workLoop for system worker: strictly responsible for querying/processing records in trace queues.
 void workerLoopSystem(ocrWorker_t *worker){
 
-    ASSERT(worker->curState == GET_STATE(RL_USER_OK, (RL_GET_PHASE_COUNT_DOWN(worker->pd, RL_USER_OK))));
+    ocrAssert(worker->curState == GET_STATE(RL_USER_OK, (RL_GET_PHASE_COUNT_DOWN(worker->pd, RL_USER_OK))));
 
 #ifdef OCR_TRACE_BINARY
     ocrPolicyDomain_t *pd;
@@ -131,8 +131,8 @@ void workerLoopSystem(ocrWorker_t *worker){
         switch(GET_STATE_RL(worker->desiredState)){
         case RL_USER_OK: {
             u8 desiredPhase = GET_STATE_PHASE(worker->desiredState);
-            ASSERT(desiredPhase != RL_GET_PHASE_COUNT_DOWN(worker->pd, RL_USER_OK));
-            ASSERT(worker->callback != NULL);
+            ocrAssert(desiredPhase != RL_GET_PHASE_COUNT_DOWN(worker->pd, RL_USER_OK));
+            ocrAssert(worker->callback != NULL);
             worker->curState = GET_STATE(RL_USER_OK, desiredPhase);
             worker->callback(worker->pd, worker->callbackArg);
             break;
@@ -157,12 +157,12 @@ void workerLoopSystem(ocrWorker_t *worker){
                 continueLoop = false;
 
             }else{
-                ASSERT(0);
+                ocrAssert(0);
             }
             break;
         }
         default:
-            ASSERT(0);
+            ocrAssert(0);
         }
     } while(continueLoop);
 
@@ -217,7 +217,7 @@ u8 systemWorkerSwitchRunlevel(ocrWorker_t *self, ocrPolicyDomain_t *PD, ocrRunle
             break;
         }
         default:
-            ASSERT(0);
+            ocrAssert(0);
     }
 
     return toReturn;
@@ -227,7 +227,7 @@ void* systemRunWorker(ocrWorker_t * worker){
 
     inside_trace = true; // The system worker should never output any traces
 
-    ASSERT(worker->callback != NULL);
+    ocrAssert(worker->callback != NULL);
     worker->callback(worker->pd, worker->callbackArg);
 
     worker->computes[0]->fcts.setCurrentEnv(worker->computes[0], worker->pd, worker);
@@ -235,12 +235,12 @@ void* systemRunWorker(ocrWorker_t * worker){
 
     while(worker->curState == worker->desiredState);
 
-    ASSERT(worker->desiredState == GET_STATE(RL_USER_OK, (RL_GET_PHASE_COUNT_DOWN(worker->pd, RL_USER_OK))));
+    ocrAssert(worker->desiredState == GET_STATE(RL_USER_OK, (RL_GET_PHASE_COUNT_DOWN(worker->pd, RL_USER_OK))));
 
     worker->curState = worker->desiredState;
     workerLoopSystem(worker);
 
-    ASSERT((worker->curState == worker->desiredState) &&
+    ocrAssert((worker->curState == worker->desiredState) &&
             (worker->curState == GET_STATE(RL_COMPUTE_OK, (RL_GET_PHASE_COUNT_DOWN(worker->pd, RL_COMPUTE_OK) - 1))));
     return NULL;
 

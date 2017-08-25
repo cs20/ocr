@@ -41,12 +41,12 @@ u8 ptrSwitchRunlevel(ocrGuidProvider_t *self, ocrPolicyDomain_t *PD, ocrRunlevel
     u8 toReturn = 0;
 
     // This is an inert module, we do not handle callbacks (caller needs to wait on us)
-    ASSERT(callback == NULL);
+    ocrAssert(callback == NULL);
 
     // Verify properties for this call
-    ASSERT((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
+    ocrAssert((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
            && !(properties & RL_RELEASE));
-    ASSERT(!(properties & RL_FROM_MSG));
+    ocrAssert(!(properties & RL_FROM_MSG));
 
     switch(runlevel) {
     case RL_CONFIG_PARSE:
@@ -81,7 +81,7 @@ u8 ptrSwitchRunlevel(ocrGuidProvider_t *self, ocrPolicyDomain_t *PD, ocrRunlevel
         break;
     default:
         // Unknown runlevel
-        ASSERT(0);
+        ocrAssert(0);
     }
     return toReturn;
 }
@@ -141,7 +141,7 @@ u8 ptrGetGuid(ocrGuidProvider_t* self, ocrGuid_t* guid, u64 val, ocrGuidKind kin
 
 u8 ptrCreateGuid(ocrGuidProvider_t* self, ocrFatGuid_t *fguid, u64 size, ocrGuidKind kind, ocrLocation_t targetLoc, u32 properties) {
     if(properties & GUID_PROP_IS_LABELED) {
-        ASSERT(0); // Not supported; use labeled provider
+        ocrAssert(0); // Not supported; use labeled provider
     }
 
     PD_MSG_STACK(msg);
@@ -185,14 +185,14 @@ u8 ptrCreateGuid(ocrGuidProvider_t* self, ocrFatGuid_t *fguid, u64 size, ocrGuid
 
 
 u8 ptrGetVal(ocrGuidProvider_t* self, ocrGuid_t guid, u64* val, ocrGuidKind* kind, u32 mode, MdProxy_t ** proxy) {
-    ASSERT(!(ocrGuidIsNull(guid)));
+    ocrAssert(!(ocrGuidIsNull(guid)));
     // See BUG #928 on GUID issues
 #if GUID_BIT_COUNT == 64
-    ASSERT(!(ocrGuidIsNull(guid)));
+    ocrAssert(!(ocrGuidIsNull(guid)));
     ocrGuidImpl_t * guidInst = (ocrGuidImpl_t *) guid.guid;
     *val = (u64) guidInst->guid.guid;
 #elif GUID_BIT_COUNT == 128
-    ASSERT(!(ocrGuidIsNull(guid)));
+    ocrAssert(!(ocrGuidIsNull(guid)));
     ocrGuidImpl_t * guidInst = (ocrGuidImpl_t *) guid.lower;
     *val = (u64) guidInst->guid.lower;
 #endif
@@ -202,7 +202,7 @@ u8 ptrGetVal(ocrGuidProvider_t* self, ocrGuid_t guid, u64* val, ocrGuidKind* kin
 }
 
 u8 ptrGetKind(ocrGuidProvider_t* self, ocrGuid_t guid, ocrGuidKind* kind) {
-    ASSERT(!(ocrGuidIsNull(guid)));
+    ocrAssert(!(ocrGuidIsNull(guid)));
     // See BUG #928 on GUID issues
 #if GUID_BIT_COUNT == 64
     ocrGuidImpl_t * guidInst = (ocrGuidImpl_t *) guid.guid;
@@ -215,7 +215,7 @@ u8 ptrGetKind(ocrGuidProvider_t* self, ocrGuid_t guid, ocrGuidKind* kind) {
 }
 
 u8 ptrGetLocation(ocrGuidProvider_t* self, ocrGuid_t guid, ocrLocation_t* location) {
-    ASSERT(!(ocrGuidIsNull(guid)));
+    ocrAssert(!(ocrGuidIsNull(guid)));
     // See BUG #928 on GUID issues
 #if GUID_BIT_COUNT == 64
     ocrGuidImpl_t * guidInst = (ocrGuidImpl_t *) guid.guid;
@@ -239,12 +239,12 @@ u8 ptrUnregisterGuid(ocrGuidProvider_t* self, ocrGuid_t guid, u64 ** val) {
 
 u8 ptrReleaseGuid(ocrGuidProvider_t *self, ocrFatGuid_t guid, bool releaseVal) {
     if(releaseVal) {
-        ASSERT(guid.metaDataPtr);
+        ocrAssert(guid.metaDataPtr);
         // See BUG #928 on GUID issues
 #if GUID_BIT_COUNT == 64
-        ASSERT((u64)guid.metaDataPtr == (u64)guid.guid.guid + sizeof(ocrGuidImpl_t));
+        ocrAssert((u64)guid.metaDataPtr == (u64)guid.guid.guid + sizeof(ocrGuidImpl_t));
 #elif GUID_BIT_COUNT == 128
-        ASSERT((u64)guid.metaDataPtr == (u64)guid.guid.lower + sizeof(ocrGuidImpl_t));
+        ocrAssert((u64)guid.metaDataPtr == (u64)guid.guid.lower + sizeof(ocrGuidImpl_t));
 #endif
 
     }

@@ -42,7 +42,7 @@ u8 affinityToLocation(ocrLocation_t* result, ocrGuid_t affinityGuid) {
     ocrPolicyDomain_t * pd;
     getCurrentEnv(&pd, NULL, NULL, NULL);
     resolveRemoteMetaData(pd, &fguid, NULL, true, true);
-    ASSERT((fguid.metaDataPtr != NULL) && "ERROR: cannot deguidify affinity GUID");
+    ocrAssert((fguid.metaDataPtr != NULL) && "ERROR: cannot deguidify affinity GUID");
     *result = ((ocrAffinity_t *) fguid.metaDataPtr)->place;
     RETURN_PROFILE(0);
 }
@@ -59,7 +59,7 @@ ocrPlatformModel_t * createPlatformModelAffinity(ocrPolicyDomain_t *pd) {
     // pd->neighbors is initialized at boot before creating the affinity list
     // These are the known neighbors at startup
     for(i=0; i < pd->neighborCount; i++) {
-        ASSERT(pd->neighbors[i] < countAff);
+        ocrAssert(pd->neighbors[i] < countAff);
         ocrFatGuid_t fguid;
         pd->guidProviders[0]->fcts.createGuid(pd->guidProviders[0], &fguid, sizeof(ocrAffinity_t), OCR_GUID_AFFINITY, pd->myLocation, GUID_PROP_TORECORD);
         ((ocrAffinity_t*)fguid.metaDataPtr)->place = pd->neighbors[i];
@@ -126,7 +126,7 @@ ocrPlatformModel_t * createPlatformModelAffinityXE(ocrPolicyDomain_t *pd) {
     for( ; i < countAff; ++i) {
         ocrLocation_t tLocation = MAKE_CORE_ID(0, 0, 0, clusterCount, blockCount, ID_AGENT_CE);
         u64 idx = locationToIdx(tLocation);
-        ASSERT(idx < countAff + 1);
+        ocrAssert(idx < countAff + 1);
         ocrFatGuid_t fguid;
         getCurrentEnv(NULL, NULL, NULL, &msg);
 #define PD_MSG (&msg)

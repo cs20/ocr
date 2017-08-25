@@ -21,7 +21,7 @@ ocrCompTargetFactory_t *newCompTargetFactory(compTargetType_t type, ocrParamList
         return newCompTargetFactoryPt(typeArg);
 #endif
     default:
-        ASSERT(0);
+        ocrAssert(0);
         return NULL;
     };
 }

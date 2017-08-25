@@ -9,9 +9,9 @@
 
 ocrGuid_t checker(u32 paramc, u64 *paramv, u32 depc, ocrEdtDep_t *depv) {
   ocrGuid_t queryGuid;
-  ASSERT(!ocrCurrentEdtGet(&queryGuid) && !ocrGuidIsNull(queryGuid));
-  ASSERT(!ocrCurrentEdtOutputGet(&queryGuid) && ocrGuidIsNull(queryGuid));
-  PRINTF("Checks out ok\n");
+  ocrAssert(!ocrCurrentEdtGet(&queryGuid) && !ocrGuidIsNull(queryGuid));
+  ocrAssert(!ocrCurrentEdtOutputGet(&queryGuid) && ocrGuidIsNull(queryGuid));
+  ocrPrintf("Checks out ok\n");
   ocrShutdown();
   return NULL_GUID;
 }
@@ -20,9 +20,9 @@ ocrGuid_t creator(u32 paramc, u64 *paramv, u32 depc, ocrEdtDep_t *depv) {
   ocrGuid_t queryGuid;
   ocrGuid_t *input = (ocrGuid_t *)depv[0].ptr;
 
-  ASSERT(!ocrCurrentEdtGet(&queryGuid) && !ocrGuidIsNull(queryGuid));
-  ASSERT(!ocrCurrentEdtOutputGet(&queryGuid) && !ocrGuidIsNull(queryGuid));
-  ASSERT(ocrGuidIsEq(queryGuid, *input));
+  ocrAssert(!ocrCurrentEdtGet(&queryGuid) && !ocrGuidIsNull(queryGuid));
+  ocrAssert(!ocrCurrentEdtOutputGet(&queryGuid) && !ocrGuidIsNull(queryGuid));
+  ocrAssert(ocrGuidIsEq(queryGuid, *input));
 
   ocrDbDestroy(depv[0].guid);
   return NULL_GUID;
@@ -59,7 +59,7 @@ ocrGuid_t mainEdt(u32 paramc, u64 *paramv, u32 depc, ocrEdtDep_t *depv) {
 #else
 
 ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
-    PRINTF("No RT API\n");
+    ocrPrintf("No RT API\n");
     ocrShutdown();
     return NULL_GUID;
 }

@@ -43,7 +43,7 @@ static void mapSchedulerObjectStart(ocrSchedulerObject_t *self, ocrPolicyDomain_
         }
         break;
     default:
-        ASSERT(0);
+        ocrAssert(0);
         break;
     }
 }
@@ -63,8 +63,8 @@ static void mapSchedulerObjectInitialize(ocrSchedulerObjectFactory_t *fact, ocrS
 ocrSchedulerObject_t* newSchedulerObjectMap(ocrSchedulerObjectFactory_t *factory, ocrParamList_t *perInstance) {
 #ifdef OCR_ASSERT
     paramListSchedulerObject_t *paramSchedObj = (paramListSchedulerObject_t*)perInstance;
-    ASSERT(paramSchedObj->config);
-    ASSERT(!paramSchedObj->guidRequired);
+    ocrAssert(paramSchedObj->config);
+    ocrAssert(!paramSchedObj->guidRequired);
 #endif
     ocrSchedulerObject_t* schedObj = (ocrSchedulerObject_t*)runtimeChunkAlloc(sizeof(ocrSchedulerObjectMap_t), PERSISTENT_CHUNK);
     mapSchedulerObjectInitialize(factory, schedObj);
@@ -75,8 +75,8 @@ ocrSchedulerObject_t* newSchedulerObjectMap(ocrSchedulerObjectFactory_t *factory
 ocrSchedulerObject_t* mapSchedulerObjectCreate(ocrSchedulerObjectFactory_t *factory, ocrParamList_t *perInstance) {
 #ifdef OCR_ASSERT
     paramListSchedulerObject_t *paramSchedObj = (paramListSchedulerObject_t*)perInstance;
-    ASSERT(!paramSchedObj->config);
-    ASSERT(!paramSchedObj->guidRequired);
+    ocrAssert(!paramSchedObj->config);
+    ocrAssert(!paramSchedObj->guidRequired);
 #endif
     ocrPolicyDomain_t *pd = factory->pd;
     ocrSchedulerObject_t *schedObj = (ocrSchedulerObject_t*)pd->fcts.pdMalloc(pd, sizeof(ocrSchedulerObjectMap_t));
@@ -91,7 +91,7 @@ u8 mapSchedulerObjectDestroy(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObje
     if (IS_SCHEDULER_OBJECT_CONFIG_ALLOCATED(self->kind)) {
         runtimeChunkFree((u64)self, PERSISTENT_CHUNK);
     } else {
-        ASSERT(IS_SCHEDULER_OBJECT_PD_ALLOCATED(self->kind));
+        ocrAssert(IS_SCHEDULER_OBJECT_PD_ALLOCATED(self->kind));
         ocrPolicyDomain_t *pd = fact->pd;
         ocrSchedulerObjectMap_t* mapSchedObj = (ocrSchedulerObjectMap_t*)self;
         switch(mapSchedObj->type) {
@@ -102,7 +102,7 @@ u8 mapSchedulerObjectDestroy(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObje
             destructHashtableBucketLocked(mapSchedObj->map, NULL, NULL);
             break;
         default:
-            ASSERT(0);
+            ocrAssert(0);
             return OCR_ENOTSUP;
         }
         pd->fcts.pdFree(pd, self);
@@ -121,7 +121,7 @@ u8 mapSchedulerObjectInsert(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObjec
     case SCHEDULER_OBJECT_INSERT_POSITION_ITERATOR:
         {
             ocrSchedulerObjectMapIterator_t *mit = (ocrSchedulerObjectMapIterator_t*)iterator;
-            ASSERT(mit->key);
+            ocrAssert(mit->key);
             switch(properties & SCHEDULER_OBJECT_INSERT_KIND) {
             case SCHEDULER_OBJECT_INSERT_BEFORE:
                 return OCR_ENOTSUP;
@@ -135,18 +135,18 @@ u8 mapSchedulerObjectInsert(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObjec
                     } else {
                         value = iterator->data;
                     }
-                    ASSERT(value);
+                    ocrAssert(value);
                     mapObj->mapFcts.put(mapObj->map, mit->key, value);
                 }
                 break;
             default:
-                ASSERT(0);
+                ocrAssert(0);
                 break;
             }
         }
         break;
     default:
-        ASSERT(0);
+        ocrAssert(0);
         break;
     }
     return 0;
@@ -162,7 +162,7 @@ u8 mapSchedulerObjectRemove(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObjec
         {
             ocrSchedulerObjectMap_t *mapObj = (ocrSchedulerObjectMap_t*)iterator->schedObj;
             ocrSchedulerObjectMapIterator_t *mit = (ocrSchedulerObjectMapIterator_t*)iterator;
-            ASSERT(mit->key);
+            ocrAssert(mit->key);
             void* value = NULL;
             mapObj->mapFcts.remove(mapObj->map, mit->key, &value);
             iterator->data = value;
@@ -170,14 +170,14 @@ u8 mapSchedulerObjectRemove(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObjec
         }
         break;
     default:
-        ASSERT(0);
+        ocrAssert(0);
         break;
     }
     return 0;
 }
 
 u64 mapSchedulerObjectCount(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObject_t *self, u32 properties) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
@@ -201,7 +201,7 @@ u8 mapSchedulerObjectDestroyIterator(ocrSchedulerObjectFactory_t * fact, ocrSche
 
 u8 mapSchedulerObjectIterate(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObjectIterator_t *iterator, u32 properties) {
     ocrSchedulerObjectMap_t *mapObj = (ocrSchedulerObjectMap_t*)iterator->schedObj;
-    ASSERT(mapObj);
+    ocrAssert(mapObj);
     ocrSchedulerObjectMapIterator_t *mit = (ocrSchedulerObjectMapIterator_t*)iterator;
     if (mit->internal != iterator->schedObj) {
         mit->internal = iterator->schedObj;
@@ -224,20 +224,20 @@ u8 mapSchedulerObjectIterate(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObje
         return OCR_ENOTSUP;
     case SCHEDULER_OBJECT_ITERATE_SEARCH_KEY:
         {
-            ASSERT(iterator->data);
+            ocrAssert(iterator->data);
             mit->key = iterator->data;
             iterator->data = mapObj->mapFcts.get(mapObj->map, mit->key);
         }
         break;
     default:
-        ASSERT(0);
+        ocrAssert(0);
         break;
     }
     return 0;
 }
 
 ocrSchedulerObject_t* mapGetSchedulerObjectForLocation(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObject_t *self, ocrSchedulerObjectKind kind, ocrLocation_t loc, ocrSchedulerObjectMappingKind mapping, u32 properties) {
-    ASSERT(0);
+    ocrAssert(0);
     return NULL;
 }
 
@@ -248,33 +248,33 @@ u8 mapSetLocationForSchedulerObject(ocrSchedulerObjectFactory_t *fact, ocrSchedu
 }
 
 ocrSchedulerObjectActionSet_t* mapSchedulerObjectNewActionSet(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObject_t *self, u32 count) {
-    ASSERT(0);
+    ocrAssert(0);
     return NULL;
 }
 
 u8 mapSchedulerObjectDestroyActionSet(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObjectActionSet_t *actionSet) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 u8 mapSchedulerObjectSwitchRunlevel(ocrSchedulerObject_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_t runlevel,
                                     phase_t phase, u32 properties, void (*callback)(ocrPolicyDomain_t*, u64), u64 val) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 u8 mapSchedulerObjectOcrPolicyMsgGetMsgSize(ocrSchedulerObjectFactory_t *fact, ocrPolicyMsg_t *msg, u64 *marshalledSize, u32 properties) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 u8 mapSchedulerObjectOcrPolicyMsgMarshallMsg(ocrSchedulerObjectFactory_t *fact, ocrPolicyMsg_t *msg, u8 *buffer, u32 properties) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 u8 mapSchedulerObjectOcrPolicyMsgUnMarshallMsg(ocrSchedulerObjectFactory_t *fact, ocrPolicyMsg_t *msg, u8 *localMainPtr, u8 *localAddlPtr, u32 properties) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 

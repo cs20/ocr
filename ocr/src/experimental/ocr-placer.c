@@ -74,7 +74,7 @@ u8 suggestLocationPlacement(ocrPolicyDomain_t *pd, ocrLocation_t curLoc, ocrPlat
                             affGuid.upper = 0ULL;
                             affGuid.lower = hintValue;
     #endif
-                            ASSERT(!ocrGuidIsNull(affGuid));
+                            ocrAssert(!ocrGuidIsNull(affGuid));
                             affinityToLocation(&(msg->destLocation), affGuid);
                             doAutoPlace = false;
                         }
@@ -103,7 +103,7 @@ u8 suggestLocationPlacement(ocrPolicyDomain_t *pd, ocrLocation_t curLoc, ocrPlat
                         affGuid.upper = 0ULL;
                         affGuid.lower = hintValue;
 #endif
-                        ASSERT(!ocrGuidIsNull(affGuid));
+                        ocrAssert(!ocrGuidIsNull(affGuid));
                         affinityToLocation(&(msg->destLocation), affGuid);
                         return 0;
                     }

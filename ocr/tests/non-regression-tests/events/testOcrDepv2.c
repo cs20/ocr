@@ -10,7 +10,7 @@
  */
 
 ocrGuid_t taskForEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
-    ASSERT(ocrGuidIsNull(depv[0].guid));
+    ocrAssert(ocrGuidIsNull(depv[0].guid));
     // This is the last EDT to execute, terminate
     ocrShutdown();
     return NULL_GUID;

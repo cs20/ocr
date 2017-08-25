@@ -37,12 +37,12 @@ u8 cePthreadCommSwitchRunlevel(ocrCommPlatform_t *self, ocrPolicyDomain_t *PD, o
     u8 toReturn = 0;
 
     // This is an inert module, we do not handle callbacks (caller needs to wait on us)
-    ASSERT(callback == NULL);
+    ocrAssert(callback == NULL);
 
     // Verify properties for this call
-    ASSERT((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
+    ocrAssert((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
            && !(properties & RL_RELEASE));
-    ASSERT(!(properties & RL_FROM_MSG));
+    ocrAssert(!(properties & RL_FROM_MSG));
 
     switch(runlevel) {
     case RL_CONFIG_PARSE:
@@ -54,7 +54,7 @@ u8 cePthreadCommSwitchRunlevel(ocrCommPlatform_t *self, ocrPolicyDomain_t *PD, o
                 // Double check requirements are taken into account
                 if(RL_GET_PHASE_COUNT_UP(PD, RL_NETWORK_OK) < 2) {
                     DPRINTF(DEBUG_LVL_WARN, "CE comm-platform needs at least two RL_NETWORK_OK phases\n");
-                    ASSERT(0);
+                    ocrAssert(0);
                 }
                 // This assumes that there is only one NODE master because we use
                 // the implicit barrier that exists between RL due to only one
@@ -76,8 +76,8 @@ u8 cePthreadCommSwitchRunlevel(ocrCommPlatform_t *self, ocrPolicyDomain_t *PD, o
 
                 // We can only use a maximum of 256 slots due to a restriction on how we
                 // encode the slot for the return message
-                ASSERT(numSlotsXE+1 < 256);
-                ASSERT(numSlotsCE+1 < 256);
+                ocrAssert(numSlotsXE+1 < 256);
+                ocrAssert(numSlotsCE+1 < 256);
                 comQueueInit(&(rself->inQueueXE), numSlotsXE+1,
                              (comQueueSlot_t*)runtimeChunkAlloc((numSlotsXE+1)*sizeof(comQueueSlot_t),
                                                                 PERSISTENT_CHUNK));
@@ -110,7 +110,7 @@ u8 cePthreadCommSwitchRunlevel(ocrCommPlatform_t *self, ocrPolicyDomain_t *PD, o
                 u32 i;
                 u32 xeCount = ((ocrPolicyDomainCe_t*)PD)->xeCount;;
                 ocrCommPlatformCePthread_t * rself = (ocrCommPlatformCePthread_t*) self;
-                ASSERT(rself->numOutQueues == PD->neighborCount + xeCount);
+                ocrAssert(rself->numOutQueues == PD->neighborCount + xeCount);
                 for(i=0; i<xeCount; ++i) {
                     ocrPolicyDomain_t *neighborPD = PD->neighborPDs[i];
                     ocrCommPlatformXePthread_t *neighbor =
@@ -148,7 +148,7 @@ u8 cePthreadCommSwitchRunlevel(ocrCommPlatform_t *self, ocrPolicyDomain_t *PD, o
         break;
     default:
         // Unknown runlevel
-        ASSERT(0);
+        ocrAssert(0);
 
     }
     return toReturn;
@@ -161,7 +161,7 @@ u8 cePthreadCommSendMessage(ocrCommPlatform_t *self, ocrLocation_t target, ocrPo
     u32 queueIdx, outSlot, inSlot;
     u8 status;
     ocrCommPlatformCePthread_t * rself = (ocrCommPlatformCePthread_t*)self;
-    ASSERT(target != self->pd->myLocation);
+    ocrAssert(target != self->pd->myLocation);
 
     // First we find the proper queue to send to
     comQueue_t *queue = NULL, *returnQueue = NULL;
@@ -174,7 +174,7 @@ u8 cePthreadCommSendMessage(ocrCommPlatform_t *self, ocrLocation_t target, ocrPo
     // We don't know how to send to this neighbor
     if(queue == NULL) {
         DPRINTF(DEBUG_LVL_WARN, "Cannot send to 0x%"PRIx64": no queue to destination\n", target);
-        ASSERT(0);
+        ocrAssert(0);
         return OCR_EINTR;
     }
     DPRINTF(DEBUG_LVL_VERB, "Sending msg %p (type: 0x%"PRIx32") to 0x%"PRIx64"; using out queue @ %p\n",
@@ -215,14 +215,14 @@ u8 cePthreadCommSendMessage(ocrCommPlatform_t *self, ocrLocation_t target, ocrPo
     // If this is a response, we should already have a slot reserved for us
     if(msg->type & (PD_MSG_RESPONSE | PD_MSG_RESPONSE_OVERRIDE)) {
         // We can't just be sending responses to no questions
-        ASSERT(msg->type & (PD_MSG_REQ_RESPONSE | PD_MSG_RESPONSE_OVERRIDE));
+        ocrAssert(msg->type & (PD_MSG_REQ_RESPONSE | PD_MSG_RESPONSE_OVERRIDE));
         msg->type &= ~PD_MSG_RESPONSE_OVERRIDE;
 
         // Check if the queue matches (ie: we are sending back where we reserved)
         if((((u64)queue) << 8) != (msg->msgId & 0xFFFFFFFFFFFFFF00ULL)) {
             DPRINTF(DEBUG_LVL_WARN, "Expected to send response to queue 0x%"PRIx64" but found queue @ %p\n",
                     msg->msgId >> 8, queue);
-            ASSERT(0);
+            ocrAssert(0);
         }
         outSlot = (u32)(msg->msgId & 0xFFULL);
         status = 0;
@@ -255,7 +255,7 @@ u8 cePthreadCommSendMessage(ocrCommPlatform_t *self, ocrLocation_t target, ocrPo
             u64 baseSize = 0, marshalledSize = 0;
             ocrPolicyMsgGetMsgSize(msg, &baseSize, &marshalledSize, 0);
             // We do not support too large messages
-            ASSERT(queue->slots[outSlot].msgBuffer.bufferSize >= baseSize + marshalledSize);
+            ocrAssert(queue->slots[outSlot].msgBuffer.bufferSize >= baseSize + marshalledSize);
             ocrPolicyMsgMarshallMsg(msg, baseSize, (u8*)(&(queue->slots[outSlot].msgBuffer)),
                                     MARSHALL_FULL_COPY);
             queue->slots[outSlot].msgPtr = NULL; // Indicates that we need to use the msgBuffer
@@ -413,7 +413,7 @@ u8 cePthreadCommWaitMessage(ocrCommPlatform_t *self, ocrPolicyMsg_t **msg,
 }
 
 u64 cePthreadGetSeqIdAtNeighbor(ocrCommPlatform_t *self, ocrLocation_t neighborLoc, u64 neighborId) {
-    ASSERT(0); // Not used
+    ocrAssert(0); // Not used
     return 0;
 }
 

@@ -38,7 +38,7 @@ static inline ocrStatsFactory_t *newStatsFactory(statisticsType_t type, ocrParam
         return newStatsFactoryDefault(typeArg);
     case statisticsMax_id:
     default:
-        ASSERT(0);
+        ocrAssert(0);
         return NULL;
     };
 }

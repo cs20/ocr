@@ -20,7 +20,7 @@
 #define N 1000
 
 ocrGuid_t done(u32 paramc, u64 paramv[], u32 depc, ocrEdtDep_t depv[]) {
-    PRINTF("Success!\n");
+    ocrPrintf("Success!\n");
     ocrShutdown();
     return NULL_GUID;
 }
@@ -29,7 +29,7 @@ ocrGuid_t A(u32 paramc, u64 paramv[], u32 depc, ocrEdtDep_t depv[]) {
     int i = paramv[0];
     ocrGuid_t *event_array = (ocrGuid_t*)depv[0].ptr;
     if(!event_array || (((u64)event_array) == ((u64)-3)))
-        PRINTF("[%"PRId32"] I AM GOING TO CRASH: depv[0].guid="GUIDF", depv[0].ptr=%p\n", i, GUIDA(depv[0].guid), depv[0].ptr);
+        ocrPrintf("[%"PRId32"] I AM GOING TO CRASH: depv[0].guid="GUIDF", depv[0].ptr=%p\n", i, GUIDA(depv[0].guid), depv[0].ptr);
     ocrEventSatisfy(event_array[i], NULL_GUID);
     // usleep(300);
     return NULL_GUID;

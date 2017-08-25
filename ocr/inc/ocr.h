@@ -83,18 +83,20 @@ void ocrAbort(u8 errorCode);
  * @param dbPtr    Pointer to the start of the argument data block
  * @return         Number of arguments
  */
+u64 ocrGetArgc(void* dbPtr);
 u64 getArgc(void* dbPtr);
 
 /**
  * @brief Gets the argument 'count' from the data-block containing the
  * arguments
  *
- * @see getArgc() for an explanation
+ * @see ocrGetArgc() for an explanation
  *
  * @param dbPtr    Pointer to the start of the argument data-block
  * @param count    Index of the argument to extract
  * @return A NULL terminated string
  */
+char* ocrGetArgv(void* dbPtr, u64 count);
 char* getArgv(void* dbPtr, u64 count);
 #ifdef __cplusplus
 }

@@ -17,7 +17,7 @@ ocrGuid_t consumer(u32 paramc, u64 *paramv, u32 depc, ocrEdtDep_t *depv) {
     int i, *ptr = (int*)depv[0].ptr;
     for(i = 0; i < N; i++) ASSERT(N-i == ptr[i]);
     ocrDbDestroy( depv[0].guid );
-    PRINTF("Everything went OK\n");
+    ocrPrintf("Everything went OK\n");
     ocrShutdown();
     return NULL_GUID;
 }
@@ -69,7 +69,7 @@ ocrGuid_t mainEdt(u32 paramc, u64 *paramv, u32 depc, ocrEdtDep_t *depv) {
 #else
 
 ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
-    PRINTF("Test disabled - ENABLE_EXTENSION_COUNTED_EVT not defined\n");
+    ocrPrintf("Test disabled - ENABLE_EXTENSION_COUNTED_EVT not defined\n");
     ocrShutdown();
     return NULL_GUID;
 }

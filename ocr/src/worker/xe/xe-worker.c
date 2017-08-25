@@ -85,7 +85,7 @@ static void workerLoop(ocrWorker_t * worker) {
                 requestIsAffinitized = true; // We will make the next request in an affinitized manner
                 DPRINTF(DEBUG_LVL_VVERB, "XE %"PRIx64" EXECUTING TASK "GUIDF"\n", worker->location, GUIDA(taskGuid.guid));
                 // Task sanity checks
-                ASSERT(taskGuid.metaDataPtr != NULL);
+                ocrAssert(taskGuid.metaDataPtr != NULL);
                 worker->curTask = (ocrTask_t*)taskGuid.metaDataPtr;
                 u32 factoryId = PD_MSG_FIELD_O(factoryId);
 #ifdef ENABLE_EXTENSION_PERF
@@ -181,7 +181,7 @@ static void workerLoop(ocrWorker_t * worker) {
             count = PD_MSG_FIELD_IO(guidCount);
             if(count == 1) {
                 taskGuid = PD_MSG_FIELD_IO(guids[0]);
-                ASSERT(taskGuid.guid != NULL_GUID && taskGuid.metaDataPtr != NULL);
+                ocrAssert(taskGuid.guid != NULL_GUID && taskGuid.metaDataPtr != NULL);
                 worker->curTask = (ocrTask_t*)taskGuid.metaDataPtr;
                 u8 (*executeFunc)(ocrTask_t *) = (u8 (*)(ocrTask_t*))PD_MSG_FIELD_IO(extra); // Execute is stored in extra
                 executeFunc(worker->curTask);
@@ -200,7 +200,7 @@ static void workerLoop(ocrWorker_t * worker) {
 #undef PD_TYPE
             } else if (count > 1) {
                 // BUG #586: GIVE/TAKE will go away and multiple work items may be transferred
-                ASSERT(0);
+                ocrAssert(0);
             } else {
                 // count = 0; no work received; do something else if required.
             }
@@ -233,9 +233,9 @@ u8 xeWorkerSwitchRunlevel(ocrWorker_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_
     __attribute__((unused)) ocrWorkerXe_t* rself = (ocrWorkerXe_t*) self;
 
     // Verify properties
-    ASSERT((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
+    ocrAssert((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
            && !(properties & RL_RELEASE));
-    ASSERT(!(properties & RL_FROM_MSG));
+    ocrAssert(!(properties & RL_FROM_MSG));
 
     // Call the runlevel change on the underlying platform
     switch (runlevel) {
@@ -246,13 +246,13 @@ u8 xeWorkerSwitchRunlevel(ocrWorker_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_
     case RL_PD_OK:
         if(properties & RL_BRING_UP) {
             // Set the worker properly the first time
-            ASSERT(self->computeCount == 1);
+            ocrAssert(self->computeCount == 1);
             self->computes[0]->worker = self;
             self->pd = PD;
 #ifdef OCR_SHARED_XE_POLICY_DOMAIN
             ocrLocation_t xe_loc = (ocrLocation_t)(*(u64*)(AR_MSR_BASE + CORE_LOCATION_NUM * sizeof(u64)));
             // We must be the 0th XE in the block to be setting things up
-            ASSERT( AGENT_FROM_ID(xe_loc) == ID_AGENT_XE0 );
+            ocrAssert( AGENT_FROM_ID(xe_loc) == ID_AGENT_XE0 );
             self->location = xe_loc;
             if (rself->id > 0) {
                 self->location += ID_AGENT_XE(rself->id - 1) << ID_AGENT_SHIFT;
@@ -306,12 +306,12 @@ u8 xeWorkerSwitchRunlevel(ocrWorker_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_
             DPRINTF(DEBUG_LVL_INFO, "XE %"PRIx64" Started\n", self->location);
 #ifdef OCR_SHARED_XE_POLICY_DOMAIN
             if(properties & RL_PD_MASTER) {
-                ASSERT(rself->id == 0); // We must be the 0th XE to be the PD MASTER
+                ocrAssert(rself->id == 0); // We must be the 0th XE to be the PD MASTER
                 self->fcts.run(self);
             }
             else {
                 // This woker is not the MASTER XE, so it needs to be cold started.
-                ASSERT(rself->id != 0); // Don't clobber our own pc!
+                ocrAssert(rself->id != 0); // Don't clobber our own pc!
                 *(volatile u64 *)(BR_MSR_BASE(ID_AGENT_XE(rself->id)) + CURRENT_PC * sizeof(u64)) = (u64)workerMain;
                 *(volatile u64 *)(BR_PRF_BASE(ID_AGENT_XE(rself->id)) + 0 * sizeof(u64)) = (u64)self;
                 *(volatile u8 *)(BR_XE_CONTROL(rself->id)) = 0x00;
@@ -327,7 +327,7 @@ u8 xeWorkerSwitchRunlevel(ocrWorker_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_
         }
         break;
     default:
-        ASSERT(0);
+        ocrAssert(0);
     }
 
     toReturn |= self->computes[0]->fcts.switchRunlevel(self->computes[0], PD, runlevel, phase, properties,
@@ -424,7 +424,7 @@ void* xeRunWorker(ocrWorker_t * worker) {
 }
 
 void* xeWorkShift(ocrWorker_t* worker) {
-    ASSERT(0); // Not supported
+    ocrAssert(0); // Not supported
     return NULL;
 }
 

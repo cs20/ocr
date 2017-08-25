@@ -112,7 +112,7 @@ void _profilerInit(_profiler *self, u32 event, u64 prevTicks) {
         // If we are here, we need to track this
         self->flags.active = true;
         if(self->myData->level >= 1) {
-            ASSERT(prevTicks != 0);
+            ocrAssert(prevTicks != 0);
             if(self->myData->stack[self->myData->level-1]->myEvent == event) {
                 ++(self->myData->stack[self->myData->level-1]->onStackCount);
                 self->endTicks = prevTicks; // We cheat to keep track of this overhead
@@ -132,7 +132,7 @@ void _profilerInit(_profiler *self, u32 event, u64 prevTicks) {
                                          self->myData->stack[self->previousLastLevel-1]->flags.active);
 
                 ++(self->myData->level);
-                ASSERT(self->myData->level < MAX_PROFILER_LEVEL);
+                ocrAssert(self->myData->level < MAX_PROFILER_LEVEL);
                 self->myData->stackPosition[event] = self->myData->level; // +1 taken care of above
                 // _gettime will be called after we returned to remove the return overhead
 
@@ -144,7 +144,7 @@ void _profilerInit(_profiler *self, u32 event, u64 prevTicks) {
             self->myData->stack[self->myData->level] = self;
 
             ++(self->myData->level);
-            ASSERT(self->myData->level < MAX_PROFILER_LEVEL);
+            ocrAssert(self->myData->level < MAX_PROFILER_LEVEL);
             self->myData->stackPosition[event] = self->myData->level; // +1 taken care of above
             // _gettime will be called after we returned to remove the return overhead
         }
@@ -154,7 +154,7 @@ void _profilerInit(_profiler *self, u32 event, u64 prevTicks) {
 _profiler* _profilerDestroy(_profiler *self, u64 end) {
     u8 removedFromStack = 0;
     if(self->flags.active && !self->flags.isPaused) {
-        ASSERT(self->myData->stack[self->myData->level-1]->onStackCount >= 1);
+        ocrAssert(self->myData->stack[self->myData->level-1]->onStackCount >= 1);
         if(--(self->myData->stack[self->myData->level-1]->onStackCount) == 0) {
             --(self->myData->level);
             self->myData->stack[self->myData->level] = NULL;
@@ -196,7 +196,7 @@ _profiler* _profilerDestroy(_profiler *self, u64 end) {
             // Remove the time from our self-entry. We only do this for our own entry because
             // this is the only place that the time is counted twice (once for the execution of the child of the same
             // type and once inside the execution time of the parent).
-            ASSERT(self->accumulatorTicks > self->recurseAccumulate);
+            ocrAssert(self->accumulatorTicks > self->recurseAccumulate);
             u64 t = self->accumulatorTicks - self->recurseAccumulate;
             u64 tt = t/PROFILER_KHZ;
 
@@ -312,7 +312,7 @@ void _profilerDataInit(_profilerData *self) {
             );
     }
     _gettime(end);
-    ASSERT(end > start);
+    ocrAssert(end > start);
     self->overheadTimer = (end - start)/1000;
     //fprintf(stderr, "Got RDTSCP overhead of %"PRIu64" ticks\n", self->overheadTimer);
 

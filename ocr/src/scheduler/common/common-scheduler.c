@@ -65,7 +65,7 @@ static void parseConfigStr(ocrSchedulerHeuristic_t ** pdSchedulerHeuristics, ocr
         } else {
             cfgStr[r] = '\0';
             DPRINTF(DEBUG_LVL_WARN, "error: Unrecognized heuristic %"PRId32"\n", (s32)cfgStr[l]);
-            ASSERT(false);
+            ocrAssert(false);
         }
         schedulerHeuristics[id] = pdSchedulerHeuristics[sglAtoi(cfgStr[r])];
         r+=2; //skip digit and delimiter
@@ -95,12 +95,12 @@ u8 commonSchedulerSwitchRunlevel(ocrScheduler_t *self, ocrPolicyDomain_t *PD, oc
     u8 toReturn = 0;
 
     // This is an inert module, we do not handle callbacks (caller needs to wait on us)
-    ASSERT(callback == NULL);
+    ocrAssert(callback == NULL);
 
     // Verify properties for this call
-    ASSERT((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
+    ocrAssert((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
            && !(properties & RL_RELEASE));
-    ASSERT(!(properties & RL_FROM_MSG));
+    ocrAssert(!(properties & RL_FROM_MSG));
 
     u64 i;
     if(runlevel == RL_CONFIG_PARSE && (properties & RL_BRING_UP) && RL_IS_FIRST_PHASE_UP(PD, RL_CONFIG_PARSE, phase)) {
@@ -113,7 +113,7 @@ u8 commonSchedulerSwitchRunlevel(ocrScheduler_t *self, ocrPolicyDomain_t *PD, oc
             heuristic->scheduler = self;
             if (heuristic->isMaster) {
                 self->masterHeuristicId = i;
-                ASSERT(!masterFound);
+                ocrAssert(!masterFound);
                 masterFound = true;
             }
         }
@@ -183,7 +183,7 @@ u8 commonSchedulerSwitchRunlevel(ocrScheduler_t *self, ocrPolicyDomain_t *PD, oc
         break;
     default:
         // Unknown runlevel
-        ASSERT(0);
+        ocrAssert(0);
     }
 
     if(properties & RL_TEAR_DOWN) {
@@ -200,22 +200,22 @@ u8 commonSchedulerSwitchRunlevel(ocrScheduler_t *self, ocrPolicyDomain_t *PD, oc
 }
 
 u8 commonSchedulerTakeEdt (ocrScheduler_t *self, u32 *count, ocrFatGuid_t *edts) {
-    ASSERT(false && "deprecated scheduler interface");
+    ocrAssert(false && "deprecated scheduler interface");
     return OCR_ENOTSUP;
 }
 
 u8 commonSchedulerGiveEdt (ocrScheduler_t* base, u32* count, ocrFatGuid_t* edts) {
-    ASSERT(false && "deprecated scheduler interface");
+    ocrAssert(false && "deprecated scheduler interface");
     return OCR_ENOTSUP;
 }
 
 u8 commonSchedulerTakeComm(ocrScheduler_t *self, u32* count, ocrFatGuid_t* handlers, u32 properties) {
-    ASSERT(false && "deprecated scheduler interface");
+    ocrAssert(false && "deprecated scheduler interface");
     return OCR_ENOTSUP;
 }
 
 u8 commonSchedulerGiveComm(ocrScheduler_t *self, u32* count, ocrFatGuid_t* handlers, u32 properties) {
-    ASSERT(false && "deprecated scheduler interface");
+    ocrAssert(false && "deprecated scheduler interface");
     return OCR_ENOTSUP;
 }
 
@@ -287,7 +287,7 @@ u8 commonSchedulerNotifyInvoke(ocrScheduler_t *self, ocrSchedulerOpArgs_t *opArg
             return schedulerHeuristic->fcts.op[OCR_SCHEDULER_HEURISTIC_OP_NOTIFY].invoke(schedulerHeuristic, opArgs, hints);
         } else {
             // COMP heuristic agreed to take on this EDT
-            ASSERT(res == 0);
+            ocrAssert(res == 0);
             return OCR_ENOP; // Allows caller to proceed
         }
         break;
@@ -299,7 +299,7 @@ u8 commonSchedulerNotifyInvoke(ocrScheduler_t *self, ocrSchedulerOpArgs_t *opArg
     }
     default: {
         //We assume the master heuristic is the default target for all notify unless overriden
-        ASSERT(COMP_HEURISTIC_ID == self->masterHeuristicId);
+        ocrAssert(COMP_HEURISTIC_ID == self->masterHeuristicId);
         schedulerHeuristic = dself->schedulerHeuristics[COMP_HEURISTIC_ID];
     }
     }
@@ -388,7 +388,7 @@ ocrScheduler_t* newSchedulerCommon(ocrSchedulerFactory_t * factory, ocrParamList
             dself->schedulerHeuristics[i] = heuristic;
             if (heuristic->isMaster) {
                 // Report if there are two master heuristics defined
-                ASSERT((masterHeuristicId == -1) && "error: Multiple master heuristics defiend for COMMON scheduler.");
+                ocrAssert((masterHeuristicId == -1) && "error: Multiple master heuristics defiend for COMMON scheduler.");
                 masterHeuristicId = i;
             }
         }

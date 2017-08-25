@@ -30,10 +30,10 @@
 void chunkInit(u64 startChunk, u64 size) {
     u64* bitVector = (u64*)startChunk;
     *bitVector = 0x0ULL;
-    ASSERT(size >= sizeof(u64));
-    ASSERT(size <= sizeof(u64)+64*sizeof(avlBinaryNode_t));
+    ocrAssert(size >= sizeof(u64));
+    ocrAssert(size <= sizeof(u64)+64*sizeof(avlBinaryNode_t));
     size -= sizeof(u64);
-    ASSERT(size % sizeof(avlBinaryNode_t) == 0); // Let's be clean
+    ocrAssert(size % sizeof(avlBinaryNode_t) == 0); // Let's be clean
     size /= sizeof(avlBinaryNode_t);
     // Size now contains the number of "slots" we need to have
     u64 shiftAmount = 0;
@@ -72,12 +72,12 @@ void chunkInit(u64 startChunk, u64 size) {
         size -= 1;
         shiftAmount += 1;
     }
-    ASSERT(size == 0);
+    ocrAssert(size == 0);
 }
 
 void* chunkMalloc(u64 startChunk, u64 size) {
     u64* bitVector = (u64*)startChunk;
-    ASSERT(size <= sizeof(avlBinaryNode_t));
+    ocrAssert(size <= sizeof(avlBinaryNode_t));
     if(*bitVector == 0) {
         return NULL;;
     } else {
@@ -91,7 +91,7 @@ void chunkFree(u64 startChunk, void* addr) {
     u64* bitVector = (u64*)startChunk;
     u64 pos = (u64)addr;
     pos = (u64)addr - startChunk - sizeof(u64);
-    ASSERT(pos % sizeof(avlBinaryNode_t) == 0);
+    ocrAssert(pos % sizeof(avlBinaryNode_t) == 0);
     pos /= sizeof(avlBinaryNode_t);
     *bitVector |= (1ULL<<pos);
 }
@@ -180,7 +180,7 @@ static u32 height(avlBinaryNode_t *node) {
 static avlBinaryNode_t *newTree(u64 startChunk) {
     avlBinaryNode_t *tree = (avlBinaryNode_t*)MALLOC(startChunk, sizeof(avlBinaryNode_t));
     DPRINTF(DEBUG_LVL_INFO, "Created AVL tree/node @ 0x%"PRIx64"\n", (u64)tree);
-    ASSERT(tree);
+    ocrAssert(tree);
     tree->key = 0;
     tree->value = 0;
     tree->left = tree->right = NULL;
@@ -254,7 +254,7 @@ static avlBinaryNode_t* avlFindMax(avlBinaryNode_t *root) {
 
 // Helper function for the search
 static avlBinaryNode_t* avlSearchSub(avlBinaryNode_t *root, avlBinaryNode_t *upperBoundParent, u64 key, s8 mode) {
-    ASSERT(root);
+    ocrAssert(root);
     DPRINTF(DEBUG_LVL_VERB, "Going to search for 0x%"PRIx64" (mode %"PRId32") in root 0x%"PRIx64"\n",
             key, mode, (u64)root);
     if(key == root->key) {
@@ -279,9 +279,9 @@ static avlBinaryNode_t* avlSearchSub(avlBinaryNode_t *root, avlBinaryNode_t *upp
             // that is bigger
             return upperBoundParent;
         default:
-            ASSERT(0);
+            ocrAssert(0);
         }
-        ASSERT(0); // Unreachable
+        ocrAssert(0); // Unreachable
     }
     if(key < root->key) {
         // Update upperBoundParent if needed
@@ -307,9 +307,9 @@ static avlBinaryNode_t* avlSearchSub(avlBinaryNode_t *root, avlBinaryNode_t *upp
         case 2:
             return upperBoundParent;
         default:
-            ASSERT(0);
+            ocrAssert(0);
         }
-        ASSERT(0); // Unreachable
+        ocrAssert(0); // Unreachable
     }
     if(key > root->key) {
         // We need to go search on the right of the tree
@@ -330,11 +330,11 @@ static avlBinaryNode_t* avlSearchSub(avlBinaryNode_t *root, avlBinaryNode_t *upp
         case 2:
             return upperBoundParent;
         default:
-            ASSERT(0);
+            ocrAssert(0);
         }
-        ASSERT(0); // unreachable
+        ocrAssert(0); // unreachable
     }
-    ASSERT(0); // Unreachable
+    ocrAssert(0); // Unreachable
     return NULL; // Keep compiler happy
 }
 
@@ -345,7 +345,7 @@ static avlBinaryNode_t* avlSearchSub(avlBinaryNode_t *root, avlBinaryNode_t *upp
 // Remove the tag referred to by idx
 // Assumes the lock is held (for the range)
 static void unlinkTag(rangeTracker_t *range, u64 idx) {
-    ASSERT(idx < range->nextTag);
+    ocrAssert(idx < range->nextTag);
     tagNode_t *tag = &(range->tags[idx]);
     u64 keyToRemove = tag->node->key;
     DPRINTF(DEBUG_LVL_VERB, "Range 0x%"PRIx64": unlinking node IDX %"PRId64" for tag %"PRId32" and key 0x%"PRIx64"\n",
@@ -363,7 +363,7 @@ static void unlinkTag(rangeTracker_t *range, u64 idx) {
     }
 
     // Swap with the last tag
-    ASSERT(range->nextTag > 0); // We are unlinking one so there should be one that exists
+    ocrAssert(range->nextTag > 0); // We are unlinking one so there should be one that exists
     if(idx != range->nextTag - 1) {
         range->tags[idx].node = range->tags[range->nextTag - 1].node;
         range->tags[idx].tag = range->tags[range->nextTag - 1].tag;
@@ -381,10 +381,10 @@ static void unlinkTag(rangeTracker_t *range, u64 idx) {
 
     // If we "moved" a node, reflect that
     if(modified) {
-        ASSERT(deleted->key != keyToRemove);
+        ocrAssert(deleted->key != keyToRemove);
         range->tags[modified->value].node = modified;
     } else {
-        ASSERT(deleted->key = keyToRemove);
+        ocrAssert(deleted->key = keyToRemove);
     }
     FREE(range->startBKHeap, deleted);
 }
@@ -393,13 +393,13 @@ static void unlinkTag(rangeTracker_t *range, u64 idx) {
 // Assumes the lock is held (for the range)
 static void linkTag(rangeTracker_t *range, u64 addr, ocrMemoryTag_t tag) {
 
-    ASSERT(tag < MAX_TAG);
+    ocrAssert(tag < MAX_TAG);
     u32 tagIdxToUse = range->nextTag++;
-    ASSERT(tagIdxToUse < range->maxSplits);
+    ocrAssert(tagIdxToUse < range->maxSplits);
     avlBinaryNode_t *insertedNode = NULL;
     range->rangeSplits = avlInsert(range->startBKHeap, range->rangeSplits, addr,
                                    tagIdxToUse, &insertedNode);
-    ASSERT(insertedNode);
+    ocrAssert(insertedNode);
     range->tags[tagIdxToUse].node = insertedNode;
     range->tags[tagIdxToUse].tag = tag;
     range->tags[tagIdxToUse].nextTag = range->heads[tag].headIdx;
@@ -456,7 +456,7 @@ static avlBinaryNode_t* avlInsert(u64 startChunk, avlBinaryNode_t *root,
             root = rotateWithLeft(root);
         }
     } else {
-        ASSERT(key > root->key);
+        ocrAssert(key > root->key);
         // Got insert on the right
         DPRINTF(DEBUG_LVL_VVERB, "Inserting to the right (from 0x%"PRIx64" to 0x%"PRIx64")\n",
                 (u64)root, (u64)root->right);
@@ -512,7 +512,7 @@ static avlBinaryNode_t* avlDelete(avlBinaryNode_t *root, u64 key,
             root->right = avlDelete(root->right, key,
                                     modifiedNode, deletedNode);
         } else {
-            ASSERT(root->key > key);
+            ocrAssert(root->key > key);
             root->left = avlDelete(root->left, key,
                                    modifiedNode, deletedNode);
         }
@@ -552,16 +552,16 @@ static void avlDestroy(u64 startChunk, avlBinaryNode_t *root) {
 // Range functions
 rangeTracker_t *initializeRange(u32 maxSplits,
                      u64 minRange, u64 maxRange, ocrMemoryTag_t initTag) {
-    ASSERT(minRange < maxRange);
-    ASSERT(initTag < MAX_TAG);
-    ASSERT(maxSplits > 0);
+    ocrAssert(minRange < maxRange);
+    ocrAssert(initTag < MAX_TAG);
+    ocrAssert(maxSplits > 0);
     u32 i;
 
     rangeTracker_t *dest = (rangeTracker_t *)minRange;
 
     LOCK(&(dest->lock));           // pool->lock is already 0 at startup (for x86, it's done at mallocBegin())
     if (dest->startBKHeap) {       // already init'ed? use startBKHeap as a initialization flag
-        ASSERT(dest->count);
+        ocrAssert(dest->count);
         DPRINTF(DEBUG_LVL_INFO, "Initializing a range @ 0x%"PRIx64" from 0x%"PRIx64" to 0x%"PRIx64" -- SKIP\n",
             (u64)dest, minRange, maxRange);
         goto init_range_skip;
@@ -597,7 +597,7 @@ rangeTracker_t *initializeRange(u32 maxSplits,
     // Set up one point with initTag
 
     dest->rangeSplits = avlInsert(dest->startBKHeap, dest->rangeSplits, minRange, 0, NULL);
-    ASSERT(dest->rangeSplits);
+    ocrAssert(dest->rangeSplits);
 
     dest->tags[0].tag = initTag;
     dest->tags[0].node = dest->rangeSplits;
@@ -678,7 +678,7 @@ u8 splitRange(rangeTracker_t *range, u64 startAddr, u64 size, ocrMemoryTag_t tag
                 break;
         }
     } while(range->rangeSplits); // We may remove everything
-    ASSERT(oldLastTag < MAX_TAG);
+    ocrAssert(oldLastTag < MAX_TAG);
 
     // Add start and end points
     linkTag(range, startAddr, tag);
@@ -691,14 +691,14 @@ u8 splitRange(rangeTracker_t *range, u64 startAddr, u64 size, ocrMemoryTag_t tag
 
 u8 getTag(rangeTracker_t *range, u64 addr, u64 *startRange, u64 *endRange, ocrMemoryTag_t *tag) {
 
-    ASSERT(range);
-    ASSERT(addr >= range->minimum && addr < range->maximum);
+    ocrAssert(range);
+    ocrAssert(addr >= range->minimum && addr < range->maximum);
 
     LOCK(&(range->lock));
     avlBinaryNode_t *lowerBound = avlSearch(range->rangeSplits, addr, -1);
     avlBinaryNode_t *upperBound = avlSearch(range->rangeSplits, addr, 2);
 
-    ASSERT(lowerBound); // This should always be in the tree
+    ocrAssert(lowerBound); // This should always be in the tree
     if(startRange)
         *startRange = lowerBound->key;
     *tag = range->tags[lowerBound->value].tag;
@@ -711,7 +711,7 @@ u8 getTag(rangeTracker_t *range, u64 addr, u64 *startRange, u64 *endRange, ocrMe
 u8 getRegionWithTag(rangeTracker_t *range, ocrMemoryTag_t tag, u64 *startRange, u64 *endRange,
                     u64 *iterate) {
 
-    ASSERT(tag < MAX_TAG);
+    ocrAssert(tag < MAX_TAG);
     u64 iterationCount = *iterate;
     if(iterationCount >= range->maxSplits)
         return 3;
@@ -727,7 +727,7 @@ u8 getRegionWithTag(rangeTracker_t *range, ocrMemoryTag_t tag, u64 *startRange, 
             UNLOCK(&(range->lock));
             return 1; // Not found or no more things to iterate
         }
-        ASSERT(tag);
+        ocrAssert(tag);
         *startRange = tagNode->node->key;
         avlBinaryNode_t *upperBound = avlSearch(range->rangeSplits, *startRange, 2);
         *endRange = upperBound?upperBound->key:range->maximum;

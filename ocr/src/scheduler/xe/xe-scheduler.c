@@ -31,11 +31,11 @@ u8 xeSchedulerSwitchRunlevel(ocrScheduler_t *self, ocrPolicyDomain_t *PD, ocrRun
     ocrSchedulerXe_t *rself = (ocrSchedulerXe_t*) self;
 
     // This is an inert module, we do not handle callbacks (caller needs to wait on us)
-    ASSERT(callback == NULL);
+    ocrAssert(callback == NULL);
 
     // Verify properties for this call
-    ASSERT((properties & RL_REQUEST) && !(properties & RL_RESPONSE) && !(properties & RL_RELEASE));
-    ASSERT(!(properties & RL_FROM_MSG));
+    ocrAssert((properties & RL_REQUEST) && !(properties & RL_RESPONSE) && !(properties & RL_RELEASE));
+    ocrAssert(!(properties & RL_FROM_MSG));
 
     // Take care of all other sub-objects
     int i;
@@ -92,7 +92,7 @@ u8 xeSchedulerSwitchRunlevel(ocrScheduler_t *self, ocrPolicyDomain_t *PD, ocrRun
         break;
     default:
         // Unknown runlevel
-        ASSERT(0);
+        ocrAssert(0);
     }
 
     return toReturn;
@@ -125,7 +125,7 @@ u8 xeSchedulerGetWorkInvoke(ocrScheduler_t *self, ocrSchedulerOpArgs_t *opArgs, 
 #define PD_MSG (msg)
 #define PD_TYPE PD_MSG_SCHED_GET_WORK
     // We can't handle OCR_SCHED_WORD_MULTI_EDTS_USER kinds of work requests
-    ASSERT(PD_MSG_FIELD_IO(schedArgs).kind == OCR_SCHED_WORK_EDT_USER);
+    ocrAssert(PD_MSG_FIELD_IO(schedArgs).kind == OCR_SCHED_WORK_EDT_USER);
 #undef PD_MSG
 #undef PD_TYPE
 
@@ -206,7 +206,7 @@ u8 xeSchedulerGetWorkInvoke(ocrScheduler_t *self, ocrSchedulerOpArgs_t *opArgs, 
                         edtp = &(PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).edt);
                         DPRINTF(DEBUG_LVL_VVERB, "Received single EDT response with GUID "GUIDF"\n", GUIDA(edtp->guid));
                     } else {
-                        ASSERT(0);
+                        ocrAssert(0);
                     }
 #undef PD_MSG
 #undef PD_TYPE

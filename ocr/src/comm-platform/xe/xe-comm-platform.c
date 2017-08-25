@@ -84,12 +84,12 @@ u8 xeCommSwitchRunlevel(ocrCommPlatform_t *self, ocrPolicyDomain_t *PD, ocrRunle
     u8 toReturn = 0;
 
     // This is an inert module, we do not handle callbacks (caller needs to wait on us)
-    ASSERT(callback == NULL);
+    ocrAssert(callback == NULL);
 
     // Verify properties for this call
-    ASSERT((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
+    ocrAssert((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
            && !(properties & RL_RELEASE));
-    ASSERT(!(properties & RL_FROM_MSG));
+    ocrAssert(!(properties & RL_FROM_MSG));
 
     switch(runlevel) {
     case RL_CONFIG_PARSE:
@@ -139,7 +139,7 @@ u8 xeCommSwitchRunlevel(ocrCommPlatform_t *self, ocrPolicyDomain_t *PD, ocrRunle
         break;
     default:
         // Unknown runlevel
-        ASSERT(0);
+        ocrAssert(0);
     }
     return toReturn;
 }
@@ -149,15 +149,15 @@ u8 xeCommSendMessage(ocrCommPlatform_t *self, ocrLocation_t target,
                      u32 properties, u32 mask) {
 
 #ifndef ENABLE_BUILDER_ONLY
-    ASSERT(self != NULL);
-    ASSERT(message != NULL && message->bufferSize != 0);
+    ocrAssert(self != NULL);
+    ocrAssert(message != NULL && message->bufferSize != 0);
 
     ocrCommPlatformXe_t * cp = (ocrCommPlatformXe_t *)self;
 
     // For now, XEs only sent to their CE; make sure!
     if(target != self->pd->parentLocation)
         DPRINTF(DEBUG_LVL_WARN, "XE trying to send to %"PRIx64" not parent %"PRIx64"\n", target, self->pd->parentLocation);
-    ASSERT(target == self->pd->parentLocation);
+    ocrAssert(target == self->pd->parentLocation);
 
     // - Atomically test & set remote stage to Busy. Error if already non-Empty.
     DPRINTF(DEBUG_LVL_VVERB, "XE trying to grab its remote slot @ %p\n", cp->rq);
@@ -213,7 +213,7 @@ u8 xeCommSendMessage(ocrCommPlatform_t *self, ocrLocation_t target,
 #ifndef OCR_SHARED_XE_POLICY_DOMAIN
             // Our PD is AR in XE L1 so we need to convert tmsg to BR
             u64 taddr = (u64)tmsg;
-            ASSERT(taddr & _AR_LEAD_ONE);
+            ocrAssert(taddr & _AR_LEAD_ONE);
             taddr = BR_L1_BASE(cp->N + ID_AGENT_XE0) + taddr - AR_L1_BASE;
             tmsg = (ocrPolicyMsg_t*)taddr;
 #endif
@@ -254,8 +254,8 @@ u8 xeCommSendMessage(ocrCommPlatform_t *self, ocrLocation_t target,
 u8 xeCommPollMessage(ocrCommPlatform_t *self, ocrPolicyMsg_t **msg,
                      u32 properties, u32 *mask) {
 
-    ASSERT(self != NULL);
-    ASSERT(msg != NULL);
+    ocrAssert(self != NULL);
+    ocrAssert(msg != NULL);
 
     ocrCommPlatformXe_t *cp = (ocrCommPlatformXe_t*)self;
     // Local stage is at well-known address
@@ -306,8 +306,8 @@ u8 xeCommWaitMessage(ocrCommPlatform_t *self,  ocrPolicyMsg_t **msg,
                      u32 properties, u32 *mask) {
 
     DPRINTF(DEBUG_LVL_VERB, "Waiting for message\n");
-    ASSERT(self != NULL);
-    ASSERT(msg != NULL);
+    ocrAssert(self != NULL);
+    ocrAssert(msg != NULL);
 
     ocrCommPlatformXe_t *cp = (ocrCommPlatformXe_t*)self;
 
@@ -357,24 +357,24 @@ u8 xeCommWaitMessage(ocrCommPlatform_t *self,  ocrPolicyMsg_t **msg,
 }
 
 u8 xeCommSetMaxExpectedMessageSize(ocrCommPlatform_t *self, u64 size, u32 mask) {
-    ASSERT(0);
+    ocrAssert(0);
     return 0;
 }
 
 u8 xeCommDestructMessage(ocrCommPlatform_t *self, ocrPolicyMsg_t *msg) {
 
-    ASSERT(self != NULL);
-    ASSERT(msg != NULL);
+    ocrAssert(self != NULL);
+    ocrAssert(msg != NULL);
     DPRINTF(DEBUG_LVL_VERB, "Resetting incomming message buffer, freeing %p\n", msg);
 #ifndef ENABLE_BUILDER_ONLY
     ocrCommPlatformXe_t *cp = (ocrCommPlatformXe_t*)self;
     // Local stage is at well-known address
     fsimCommSlot_t *lq = (fsimCommSlot_t*)(AR_L1_BASE + MSG_QUEUE_OFFT);
-    ASSERT(msg == lq->laddr); // We should only be destroying the message we received
+    ocrAssert(msg == lq->laddr); // We should only be destroying the message we received
     if(lq->laddr != &(cp->inBuffer[0])) {
         self->pd->fcts.pdFree(self->pd, msg);
     } else {
-        ASSERT(!cp->inBufferFree);
+        ocrAssert(!cp->inBufferFree);
         cp->inBufferFree = true;
     }
 

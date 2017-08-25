@@ -55,7 +55,7 @@ static PDQueue_t* getPDQueue(ocrCommPlatformGasnet_t *self) {
 ocrCommPlatformGasnet_t * getCommPlatform() {
     PDQueue_t *current = SPLAY_ROOT(&root);
     ocrCommPlatformGasnet_t *platform = current->platform;
-    ASSERT(platform != NULL);
+    ocrAssert(platform != NULL);
 
     // it is tolearable to have a race condition for the counter since
     // it isn't really important at the moment

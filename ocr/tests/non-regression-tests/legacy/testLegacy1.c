@@ -15,7 +15,7 @@
  */
 
 ocrGuid_t rootEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
-    PRINTF("Running rootEdt\n");
+    ocrPrintf("Running rootEdt\n");
     ocrShutdown();
     return NULL_GUID;
 }

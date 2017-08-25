@@ -14,18 +14,18 @@
 #define COUNT_EDT 10
 
 ocrGuid_t shutdownEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
-    PRINTF("[remote] shutdownEdt: executing\n");
+    ocrPrintf("[remote] shutdownEdt: executing\n");
     ocrShutdown();
     return NULL_GUID;
 }
 
 ocrGuid_t remoteEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
-    PRINTF("[remote] RemoteEdt: executing\n");
+    ocrPrintf("[remote] RemoteEdt: executing\n");
     ocrGuid_t eventGuid = ((ocrGuid_t *) depv[0].ptr)[0];
     ocrGuid_t expectedAffinityGuid = ((ocrGuid_t *) depv[0].ptr)[1];
     ocrGuid_t currentAffinity;
     ocrAffinityGetCurrent(&currentAffinity);
-    ASSERT(ocrGuidIsEq(expectedAffinityGuid, currentAffinity));
+    ocrAssert(ocrGuidIsEq(expectedAffinityGuid, currentAffinity));
     ocrEventSatisfy(eventGuid, NULL_GUID);
     return NULL_GUID;
 }
@@ -37,7 +37,7 @@ ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     ocrGuid_t * dbAffPtr;
     ocrDbCreate(&dbAffGuid, (void **)&dbAffPtr, sizeof(ocrGuid_t) * affinityCount, DB_PROP_NONE, NULL_HINT, NO_ALLOC);
     ocrAffinityGet(AFFINITY_PD, &affinityCount, dbAffPtr);
-    ASSERT(affinityCount >= 1);
+    ocrAssert(affinityCount >= 1);
     ocrGuid_t firstAffinityGuid = dbAffPtr[0];
     ocrDbRelease(dbAffGuid);
 

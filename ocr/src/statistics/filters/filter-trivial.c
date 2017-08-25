@@ -54,7 +54,7 @@ FILTER_DUMP {
     if(rself->count == 0)
         return 0;
 
-    ASSERT(chunk < rself->count);
+    ocrAssert(chunk < rself->count);
 
     *out = (char*)malloc(sizeof(char)*82); // The output message should always fit in 80 chars given the format
 
@@ -94,7 +94,7 @@ FILTER_NOTIFY {
 }
 
 FILTER_MERGE {
-    ASSERT(0);
+    ocrAssert(0);
 }
 
 FILTER_CREATE {

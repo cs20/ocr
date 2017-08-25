@@ -61,12 +61,12 @@ static u8 hcCommDelegateSchedulerHeuristicSwitchRunlevel(ocrSchedulerHeuristic_t
     u8 toReturn = 0;
 
     // This is an inert module, we do not handle callbacks (caller needs to wait on us)
-    ASSERT(callback == NULL);
+    ocrAssert(callback == NULL);
 
     // Verify properties for this call
-    ASSERT((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
+    ocrAssert((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
            && !(properties & RL_RELEASE));
-    ASSERT(!(properties & RL_FROM_MSG));
+    ocrAssert(!(properties & RL_FROM_MSG));
 
     switch(runlevel) {
     case RL_CONFIG_PARSE:
@@ -77,9 +77,9 @@ static u8 hcCommDelegateSchedulerHeuristicSwitchRunlevel(ocrSchedulerHeuristic_t
         break;
     case RL_PD_OK:
     {
-        ASSERT(self->scheduler);
+        ocrAssert(self->scheduler);
         self->contextCount = PD->workerCount; //Shared mem heuristic
-        ASSERT(self->contextCount > 0);
+        ocrAssert(self->contextCount > 0);
         break;
     }
     case RL_MEMORY_OK:
@@ -144,7 +144,7 @@ static u8 hcCommDelegateSchedulerHeuristicSwitchRunlevel(ocrSchedulerHeuristic_t
         break;
     default:
         // Unknown runlevel
-        ASSERT(0);
+        ocrAssert(0);
     }
     return toReturn;
 }
@@ -158,7 +158,7 @@ static u8 hcCommDelegateSchedulerHeuristicUpdate(ocrSchedulerHeuristic_t *self, 
 }
 
 static ocrSchedulerHeuristicContext_t* hcCommDelegateSchedulerHeuristicGetContext(ocrSchedulerHeuristic_t *self, ocrLocation_t loc) {
-    ASSERT(loc == self->scheduler->pd->myLocation);
+    ocrAssert(loc == self->scheduler->pd->myLocation);
     ocrWorker_t * worker = NULL;
     getCurrentEnv(NULL, &worker, NULL, NULL);
     return self->contexts[worker->id];
@@ -217,7 +217,7 @@ static inline u8 hcCommDelegateWorkEdtUserInvoke(ocrSchedulerHeuristic_t *self, 
         count = success;
     } else {
         //BUG #586 Should really revisit this implementation. It sounds awfully slow.
-        ASSERT(((ocrWorkerHc_t *) worker)->hcType == HC_WORKER_COMP);
+        ocrAssert(((ocrWorkerHc_t *) worker)->hcType == HC_WORKER_COMP);
         deque_t * inbox = commSched->inboxes[wid];
         u32 curIdx = 0;
         linkedlist_t * candidateList = NULL;
@@ -262,7 +262,7 @@ static inline u8 hcCommDelegateWorkEdtUserInvoke(ocrSchedulerHeuristic_t *self, 
                 } else {
                     // Found a handle and none specific was required.
                     // Don't think we go through this but double check
-                    ASSERT(false && "comp-worker poll for any");
+                    ocrAssert(false && "comp-worker poll for any");
                     fatHandlers[curIdx].metaDataPtr = candidate;
                     curIdx++;
                 }
@@ -308,14 +308,14 @@ static u8 hcCommDelegateSchedulerHeuristicGetWorkInvoke(ocrSchedulerHeuristic_t 
         return hcCommDelegateWorkEdtUserInvoke(self, context, opArgs, hints);
     // Unknown ops
     default:
-        ASSERT(0);
+        ocrAssert(0);
         return OCR_ENOTSUP;
     }
     return 0;
 }
 
 static u8 hcCommDelegateSchedulerHeuristicGetWorkSimulate(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicContext_t *context, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
@@ -343,7 +343,7 @@ static inline u8 hcCommDelegateNotifyCommReadyInvoke(ocrSchedulerHeuristic_t *se
                 // are known to be short lived and are 'sterile' (i.e. do not generate
                 // new communication) beside responding to the message.
                 // In that case, the comm-worker should only be able to give outgoing responses to the scheduler
-                ASSERT(message->type & PD_MSG_RESPONSE);
+                ocrAssert(message->type & PD_MSG_RESPONSE);
                 // Push to the comm worker outbox
                 DPRINTF(DEBUG_LVL_VVERB,"[%"PRId32"] hc-comm-delegate-scheduler:: Comm-worker pushes outgoing to own outbox %"PRId32"\n",
                     (int) pd->myLocation, worker->id);
@@ -371,13 +371,13 @@ static inline u8 hcCommDelegateNotifyCommReadyInvoke(ocrSchedulerHeuristic_t *se
             delegateMsgHandle_t* delHandle = (delegateMsgHandle_t *) fatHandlers[i].metaDataPtr;
 #ifdef OCR_ASSERT
             ocrPolicyMsg_t * message = (delHandle->handle.status == HDL_RESPONSE_OK) ? delHandle->handle.response : delHandle->handle.msg;
-            ASSERT((message->srcLocation == pd->myLocation) && (message->destLocation != pd->myLocation));
+            ocrAssert((message->srcLocation == pd->myLocation) && (message->destLocation != pd->myLocation));
 #endif
             //BUG #587: boxId is defined in del-handle however only the scheduler is using it
             delHandle->boxId = worker->id;
             DPRINTF(DEBUG_LVL_VVERB,"[%"PRIu64"] hc-comm-delegate-scheduler:: Comp-worker pushes at tail of box %"PRIu64"\n",
                 pd->myLocation, delHandle->boxId);
-            ASSERT((delHandle->boxId >= 0) && (delHandle->boxId < pd->workerCount));
+            ocrAssert((delHandle->boxId >= 0) && (delHandle->boxId < pd->workerCount));
             // Put handle to worker's outbox
             deque_t * outbox = commSched->outboxes[delHandle->boxId];
             outbox->pushAtTail(outbox, (ocrMsgHandle_t *) delHandle, 0);
@@ -397,34 +397,34 @@ static u8 hcCommDelegateSchedulerHeuristicNotifyInvoke(ocrSchedulerHeuristic_t *
         return hcCommDelegateNotifyCommReadyInvoke(self, context, opArgs, hints);
     // Unknown ops
     default:
-        ASSERT(false && "error: hcCommDelegate doesn't support notify message");
+        ocrAssert(false && "error: hcCommDelegate doesn't support notify message");
         return OCR_ENOTSUP;
     }
     return 0;
 }
 
 static u8 hcCommDelegateSchedulerHeuristicNotifySimulate(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicContext_t *context, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 static u8 hcCommDelegateSchedulerHeuristicTransactInvoke(ocrSchedulerHeuristic_t *self, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 static u8 hcCommDelegateSchedulerHeuristicTransactSimulate(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicContext_t *context, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 static u8 hcCommDelegateSchedulerHeuristicAnalyzeInvoke(ocrSchedulerHeuristic_t *self, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 static u8 hcCommDelegateSchedulerHeuristicAnalyzeSimulate(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicContext_t *context, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
