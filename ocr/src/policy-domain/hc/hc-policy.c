@@ -553,7 +553,17 @@ u8 hcPdSwitchRunlevel(ocrPolicyDomain_t *policy, ocrRunlevel_t runlevel, u32 pro
 
 #ifdef ENABLE_EXTENSION_PERF
 #define MAX_EDT_TEMPLATES 64
-                policy->taskPerfs = newBoundedQueue(policy, MAX_EDT_TEMPLATES);
+            u32 k;
+            policy->taskPerfs = newBoundedQueue(policy, MAX_EDT_TEMPLATES);
+            policy->myNodeStats = policy->fcts.pdMalloc(policy, sizeof(u64)*NODE_PERF_MAX);
+            for(k = 0; k<NODE_PERF_MAX; k++) policy->myNodeStats[k] = 0;
+            policy->bestNodeStats = policy->fcts.pdMalloc(policy, sizeof(u64)*NODE_PERF_MAX);
+            for(k = 0; k<NODE_PERF_MAX; k++) policy->bestNodeStats[k] = NODE_STATS_MAX;
+            policy->bestNodes = policy->fcts.pdMalloc(policy, sizeof(u64)*NODE_PERF_MAX);
+            for(k = 0; k<NODE_PERF_MAX; k++) policy->bestNodes[k] = UNINIT_NODE_ID;
+#endif
+#ifdef LOAD_BALANCING_TEST
+            policy->migrationCount = 0;
 #endif
 
             phaseCount = policy->phasesPerRunlevel[RL_COMPUTE_OK][0] & 0xF;
@@ -645,7 +655,14 @@ u8 hcPdSwitchRunlevel(ocrPolicyDomain_t *policy, ocrRunlevel_t runlevel, u32 pro
 #ifdef OCR_ENABLE_SIMULATOR
                 char fname[64];
                 sprintf(fname, "output_%ld", (u64)policy->myLocation);
-                FILE *fp = fopen(fname, "w");
+                FILE *fpSim = fopen(fname, "w");
+#endif
+#ifdef ENABLE_POLICY_DOMAIN_HC_DIST
+                char filename[16];
+                sprintf(filename, "PerfNode%ld", policy->myLocation);
+                FILE *fp = fopen(filename, "w");
+#endif
+#ifdef ENABLE_POLICY_DOMAIN_HC_DIST
                 fprintf(fp, "EDT\tCount\tHW_CYCLES\tL1_HITS\tL1_MISS\tFLOAT_OPS\tEDT_CREATES\tDB_TOTAL\tDB_CREATES\tDB_DESTROYS\tEVT_SATISFIES\tMask\n");
 #else
 #ifdef ENABLE_EXTENSION_PERF_KNL
@@ -659,20 +676,44 @@ u8 hcPdSwitchRunlevel(ocrPolicyDomain_t *policy, ocrRunlevel_t runlevel, u32 pro
                     u32 i;
                     counters = queueRemoveLast(policy->taskPerfs);
 #ifdef OCR_ENABLE_SIMULATOR
+                    fprintf(fpSim, "%p\t%"PRId32"\t", counters->edt, counters->count);
+                    for(i = 0; i < PERF_MAX; i++) fprintf(fpSim, "%"PRId64"\t", counters->stats[i].average);
+                    fprintf(fpSim, "%"PRIx32"\n", counters->steadyStateMask);
+#endif
+#ifdef ENABLE_POLICY_DOMAIN_HC_DIST
                     fprintf(fp, "%p\t%"PRId32"\t", counters->edt, counters->count);
-                    for(i = 0; i < PERF_MAX; i++) fprintf(fp, "%"PRId64"\t", counters->stats[i].average);
-                    fprintf(fp, "%"PRIx32"\n", counters->steadyStateMask);
 #else
                     PRINTF("%p\t%"PRId32"\t", counters->edt, counters->count);
-                    for(i = 0; i < PERF_MAX; i++) PRINTF("%"PRId64"\t", counters->stats[i].average);
+#endif
+                    for(i = 0; i < PERF_MAX; i++)
+#ifdef ENABLE_POLICY_DOMAIN_HC_DIST
+                        fprintf(fp, "%"PRId64"\t", counters->stats[i].average);
+#else
+                        PRINTF("%"PRId64"\t", counters->stats[i].average);
+#endif
+#ifdef ENABLE_POLICY_DOMAIN_HC_DIST
+                    fprintf(fp, "%"PRIx32"\n", counters->steadyStateMask);
+#else
                     PRINTF("%"PRIx32"\n", counters->steadyStateMask);
 #endif
                     policy->fcts.pdFree(policy, counters);
                 }
 #ifdef OCR_ENABLE_SIMULATOR
-                fclose(fp);
+                fclose(fpSim);
 #endif
                 queueDestroy(policy->taskPerfs);
+#ifdef ENABLE_POLICY_DOMAIN_HC_DIST
+                fprintf(fp, "Node stats:\t"); for(i = 0; i < NODE_PERF_MAX; i++) fprintf(fp, "%ld\t", policy->myNodeStats[i]);
+                fclose(fp);
+#else
+                PRINTF("Node stats:\t"); for(i = 0; i < NODE_PERF_MAX; i++) PRINTF("%ld\t", policy->myNodeStats[i]); PRINTF("\n");
+#endif
+                policy->fcts.pdFree(policy, policy->myNodeStats);
+                policy->fcts.pdFree(policy, policy->bestNodes);
+                policy->fcts.pdFree(policy, policy->bestNodeStats);
+#endif
+#ifdef LOAD_BALANCING_TEST
+                PRINTF("Total migrations on %ld = %d\n", policy->myLocation, policy->migrationCount);
 #endif
 #ifdef SHOW_BINDING_INFO
                 printBindingInfo(policy);
@@ -2822,6 +2863,7 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
 
     case PD_MSG_SCHED_GET_WORK: {
         START_PROFILE(pd_hc_Sched_Work);
+        ocrFatGuid_t *fguid = NULL;
 #define PD_MSG msg
 #define PD_TYPE PD_MSG_SCHED_GET_WORK
         ocrSchedulerOpWorkArgs_t *taskArgs = &PD_MSG_FIELD_IO(schedArgs);
@@ -2832,10 +2874,41 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
 
         if (taskArgs->kind == OCR_SCHED_WORK_EDT_USER) {
             PD_MSG_FIELD_O(factoryId) = 0; //taskHc_id;
-            ocrFatGuid_t *fguid = &(taskArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).edt);
+            fguid = &(taskArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).edt);
             localDeguidify(self, fguid);
         }
 #undef PD_MSG
+#ifdef ENABLE_EXTENSION_PERF
+        ocrTask_t *task = (ocrTask_t *)(fguid)?fguid->metaDataPtr:NULL;
+        if (task)
+        {
+            u32 k;
+            ocrPerfCounters_t *taskCtrs = NULL;
+            for (k = 0; k < queueGetSize(self->taskPerfs); k++)
+                if(((ocrPerfCounters_t*)queueGet(self->taskPerfs, k))->edt == task->funcPtr) break;
+
+            if(k<queueGetSize(self->taskPerfs)) {
+                taskCtrs = (ocrPerfCounters_t *)queueGet(self->taskPerfs, k);
+
+                // Update only if we have accumulated a sizable number of EDTs
+                if (taskCtrs->count > COUNT_THRESHOLD) {
+                    self->myNodeStats[NODE_PERF_ALLOC_PRESSURE] -= (taskCtrs->stats[PERF_DB_CREATES].average -
+                                                                    taskCtrs->stats[PERF_DB_DESTROYS].average);
+                    self->myNodeStats[NODE_PERF_PROGRESS] -= (taskCtrs->stats[PERF_EDT_CREATES].average +
+                                                                    taskCtrs->stats[PERF_EVT_SATISFIES].average);
+                    self->myNodeStats[NODE_PERF_LOAD] -= taskCtrs->stats[PERF_HW_CYCLES].average;
+                    self->myNodeStats[NODE_PERF_FP_LOAD] -= taskCtrs->stats[PERF_FLOAT_OPS].average;
+                    self->myNodeStats[NODE_PERF_CACHE] -= taskCtrs->stats[PERF_L1_HITS].average;
+                    self->myNodeStats[NODE_PERF_MEM] -= taskCtrs->stats[PERF_L1_MISSES].average;
+
+                    u32 j;
+                    for(j = 0; j < NODE_PERF_MAX; j++) if(((s64)self->myNodeStats[j])<0) self->myNodeStats[j] = 0;
+                }
+            }
+            self->myNodeStats[NODE_PERF_EDTS]--;
+            //hal_xadd64(&self->myNodeStats[NODE_PERF_EDTS], -1); // Can be simple add w/ loss of accuracy
+        }
+#endif
 #undef PD_TYPE
         msg->type &= ~PD_MSG_REQUEST;
         msg->type |= PD_MSG_RESPONSE;
@@ -2852,6 +2925,31 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         if(PD_MSG_FIELD_IO(schedArgs).kind == OCR_SCHED_NOTIFY_EDT_READY){
             ocrGuid_t taskGuid = PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_EDT_READY).guid.guid;
             OCR_TOOL_TRACE(false, OCR_TRACE_TYPE_SCHEDULER, OCR_ACTION_SCHED_MSG_RCV, taskGuid);
+        }
+#endif
+#ifdef ENABLE_EXTENSION_PERF
+        if(PD_MSG_FIELD_IO(schedArgs).kind == OCR_SCHED_NOTIFY_EDT_READY){
+            u32 k;
+            ocrPerfCounters_t *taskCtrs = NULL;
+            ocrTask_t *task = PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_EDT_READY).guid.metaDataPtr;
+            for (k = 0; k < queueGetSize(self->taskPerfs); k++)
+                if(((ocrPerfCounters_t*)queueGet(self->taskPerfs, k))->edt == task->funcPtr) break;
+            if(k<queueGetSize(self->taskPerfs)) {
+                taskCtrs = (ocrPerfCounters_t *)queueGet(self->taskPerfs, k);
+
+                if(taskCtrs->count > COUNT_THRESHOLD) {
+                    self->myNodeStats[NODE_PERF_ALLOC_PRESSURE] += (taskCtrs->stats[PERF_DB_CREATES].average -
+                                                                    taskCtrs->stats[PERF_DB_DESTROYS].average);
+                    self->myNodeStats[NODE_PERF_PROGRESS] += (taskCtrs->stats[PERF_EDT_CREATES].average +
+                                                                    taskCtrs->stats[PERF_EVT_SATISFIES].average);
+                    self->myNodeStats[NODE_PERF_LOAD] += taskCtrs->stats[PERF_HW_CYCLES].average;
+                    self->myNodeStats[NODE_PERF_FP_LOAD] += taskCtrs->stats[PERF_FLOAT_OPS].average;
+                    self->myNodeStats[NODE_PERF_CACHE] += taskCtrs->stats[PERF_L1_HITS].average;
+                    self->myNodeStats[NODE_PERF_MEM] += taskCtrs->stats[PERF_L1_MISSES].average;
+                }
+            }
+            self->myNodeStats[NODE_PERF_EDTS]++;
+            //hal_xadd64(&self->myNodeStats[NODE_PERF_EDTS], 1);
         }
 #endif
         notifyArgs->base.location = msg->srcLocation;
@@ -3317,9 +3415,15 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         ocrPolicyDomainHc_t *rself = (ocrPolicyDomainHc_t *)self;
 #endif
 #ifdef ENABLE_EXTENSION_PERF
-        ocrTask_t * curEdt = PD_MSG_FIELD_I(satisfierGuid).metaDataPtr;
-        if(curEdt) curEdt->swPerfCtrs[PERF_EVT_SATISFIES - PERF_HW_MAX]++;
+        if(!ocrGuidIsNull(PD_MSG_FIELD_I(satisfierGuid.guid))) {
+            self->guidProviders[0]->fcts.getVal(
+                self->guidProviders[0], PD_MSG_FIELD_I(satisfierGuid.guid),
+                (u64*)(&(PD_MSG_FIELD_I(satisfierGuid.metaDataPtr))), &dstKind, MD_LOCAL, NULL);
+            ocrTask_t * curEdt = PD_MSG_FIELD_I(satisfierGuid).metaDataPtr;
+            if(curEdt) curEdt->swPerfCtrs[PERF_EVT_SATISFIES - PERF_HW_MAX]++;
+         }
 #endif
+        PD_MSG_FIELD_I(guid.metaDataPtr) = NULL;
         self->guidProviders[0]->fcts.getVal(
             self->guidProviders[0], PD_MSG_FIELD_I(guid.guid),
             (u64*)(&(PD_MSG_FIELD_I(guid.metaDataPtr))), &dstKind, MD_LOCAL, NULL);

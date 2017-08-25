@@ -128,9 +128,10 @@ void addPerfEntry(ocrPolicyDomain_t *pd, void *executePtr,
             cumulativeStats->edt = executePtr;
             if(queueIsFull(pd->taskPerfs)) queueDoubleResize(pd->taskPerfs, true);
             queueAddLast(pd->taskPerfs, cumulativeStats);
-            taskT->taskPerfsEntry = cumulativeStats;
-        } else taskT->taskPerfsEntry = queueGet(pd->taskPerfs, k);
+            if(taskT) taskT->taskPerfsEntry = cumulativeStats;
+        } else if(taskT) taskT->taskPerfsEntry = queueGet(pd->taskPerfs, k);
     }
+ASSERT(taskT->taskPerfsEntry);
 }
 #endif
 
@@ -947,6 +948,10 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
     if (hintc == 0) {
         dself->hint.hintMask = 0;
         dself->hint.hintVal = NULL;
+#ifdef ENABLE_EXTENSION_PERF
+        ocrTaskTemplateHc_t *derived = (ocrTaskTemplateHc_t*)(edtTemplate.metaDataPtr);
+        self->taskPerfsEntry = derived->base.taskPerfsEntry;
+#endif
     } else {
         self->flags |= OCR_TASK_FLAG_USES_HINTS;
         ocrTaskTemplateHc_t *derived = (ocrTaskTemplateHc_t*)(edtTemplate.metaDataPtr);

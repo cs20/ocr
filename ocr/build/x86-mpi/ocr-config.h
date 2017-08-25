@@ -153,6 +153,9 @@
 // Performance monitoring
 //#define ENABLE_EXTENSION_PERF
 
+// Load balancing
+//#define LOAD_BALANCING_TEST
+
 //#define ENABLE_RESILIENCY
 
 #ifdef ENABLE_RESILIENCY

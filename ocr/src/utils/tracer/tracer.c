@@ -189,9 +189,10 @@ void populateTraceObject(u64 location, bool evtType, ocrTraceType_t objType, ocr
                 ocrGuid_t taskGuid = va_arg(ap, ocrGuid_t);
                 void* edt = va_arg(ap, void *);
                 u32 count = va_arg(ap, u32);
-                ocrPerfStat_t *stats = va_arg(ap, ocrPerfStat_t *);
                 TRACE_FIELD(TASK, taskExeEnd, tr, taskGuid) = taskGuid;
                 TRACE_FIELD(TASK, taskExeEnd, tr, count) = count;
+#ifdef ENABLE_EXTENSION_PERF
+                ocrPerfStat_t *stats = va_arg(ap, ocrPerfStat_t *);
                 TRACE_FIELD(TASK, taskExeEnd, tr, hwCycles) = stats[PERF_HW_CYCLES].current;
                 TRACE_FIELD(TASK, taskExeEnd, tr, hwCacheRefs) = stats[PERF_L1_HITS].current;
                 TRACE_FIELD(TASK, taskExeEnd, tr, hwCacheMisses) = stats[PERF_L1_MISSES].current;
@@ -201,6 +202,7 @@ void populateTraceObject(u64 location, bool evtType, ocrTraceType_t objType, ocr
                 TRACE_FIELD(TASK, taskExeEnd, tr, swDbCreates) = stats[PERF_DB_CREATES].current;
                 TRACE_FIELD(TASK, taskExeEnd, tr, swDbDestroys) = stats[PERF_DB_DESTROYS].current;
                 TRACE_FIELD(TASK, taskExeEnd, tr, swEvtSats) = stats[PERF_EVT_SATISFIES].current;
+#endif
                 TRACE_FIELD(TASK, taskExeEnd, tr, edt) = edt;
                 PUSH_TO_TRACE_DEQUE();
 #endif

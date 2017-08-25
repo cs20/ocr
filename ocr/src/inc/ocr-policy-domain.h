@@ -436,6 +436,9 @@ typedef struct _ocrPolicyMsg_t {
 #ifdef OCR_ENABLE_SIMULATOR
     u64 msgTime;
 #endif
+#ifdef ENABLE_EXTENSION_PERF
+    u64 nodeStats[NODE_PERF_MAX];       /**< Field maintaining performance statistics of entire node */
+#endif
 
     /* The following rules apply to all fields in the message:
      *     - All ocrFatGuid_t are in/out parameters in the sense
@@ -1541,6 +1544,14 @@ typedef struct _ocrPolicyDomain_t {
     struct _pdStrandTable_t* strandTables[2];
 
     Queue_t* taskPerfs;                        /**< Table maintaining performance statistics of each EDT */
+#ifdef ENABLE_EXTENSION_PERF
+    u64 *myNodeStats;                          /**< Performance statistics of this node */
+    u64 *bestNodes;                            /**< 'Best' node for each metric */
+    u64 *bestNodeStats;                        /**< Stat value for best node, for each metric  */
+#endif
+#ifdef LOAD_BALANCING_TEST
+    u32 migrationCount;
+#endif
 
     /**
      * @brief Two dimensional array:

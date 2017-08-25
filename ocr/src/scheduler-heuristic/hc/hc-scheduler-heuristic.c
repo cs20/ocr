@@ -235,7 +235,19 @@ static u8 hcSchedulerHeuristicNotifyEdtSatisfiedInvoke(ocrSchedulerHeuristic_t *
     ocrLocation_t edtLoc;
     pd->guidProviders[0]->fcts.getLocation(pd->guidProviders[0], edtObj.guid.guid, &edtLoc);
     if (edtLoc != pd->myLocation) {
-        DPRINTF(DEBUG_LVL_VVERB, "[LB] Scheduler: Received foreign EDT for execution\n");
+        ocrTask_t * edt = (ocrTask_t *) edtObj.guid.metaDataPtr;
+        ASSERT(edt != NULL);
+        DPRINTF(DEBUG_LVL_VERB, "[LB] Scheduler: Received foreign EDT "GUIDF" for execution\n", GUIDA(edtObj.guid.guid));
+#ifdef ENABLE_EXTENSION_PERF
+        {
+            u32 k;
+            for (k = 0; k < queueGetSize(pd->taskPerfs); k++)
+                if(((ocrPerfCounters_t*)queueGet(pd->taskPerfs, k))->edt == edt->funcPtr) break;
+            if(k<queueGetSize(pd->taskPerfs))
+                edt->taskPerfsEntry = (ocrPerfCounters_t *)queueGet(pd->taskPerfs, k);
+            else edt->taskPerfsEntry = NULL;
+        }
+#endif
     } else {
         ocrTask_t * edt = (ocrTask_t *) edtObj.guid.metaDataPtr;
         ASSERT(edt != NULL);
@@ -248,7 +260,7 @@ static u8 hcSchedulerHeuristicNotifyEdtSatisfiedInvoke(ocrSchedulerHeuristic_t *
         u8 noPlcHint = noHint || (!noHint && ocrGetHintValue(&edtHints, OCR_HINT_EDT_AFFINITY, &edtAff));
         bool loadBalance = ((edt->funcPtr != &processRequestEdt) && noPlcHint);
         if (loadBalance) {
-            DPRINTF(DEBUG_LVL_VVERB, "[LB] Scheduler node-level load balancing "GUIDF"\n", GUIDA(edtObj.guid.guid));
+            DPRINTF(DEBUG_LVL_VERB, "[LB] Scheduler node-level load balancing "GUIDF"\n", GUIDA(edtObj.guid.guid));
             return OCR_ENOSPC;
         } // else fall-through and continue with scheduling
     }

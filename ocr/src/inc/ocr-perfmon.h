@@ -54,6 +54,12 @@ typedef enum _perfEvents {
 #define STEADY_STATE_SHIFT  4         // Absolute difference is < 6.25% (1/1<<4)
 #endif
 
+#define UNINIT_NODE_ID     (u64)(-1)  // Uninitialized node ID
+#define NODE_STATS_MAX     0xfffffffffffffff // Default maximum value of per-node statistics
+#define STATS_RESET_FREQ   100        // How often should the stats be reset?
+#define COUNT_THRESHOLD    10         // How many times should the EDT have run before its
+                                      // stats are considered for node counts
+
 typedef struct _ocrPerfCounters {
     void *edt;                        // EDT identified by its function pointer
     ocrPerfStat_t stats[PERF_MAX];    // Performance statistics for each counter
@@ -61,6 +67,16 @@ typedef struct _ocrPerfCounters {
     u32 steadyStateMask;              // Mask indicating which counters haven't reached 'steady state'
 } ocrPerfCounters_t;
 
+typedef enum _nodePerf {
+    NODE_PERF_ALLOC_PRESSURE,       // "Pressure" on the allocator - i.e., sum of active DBs
+    NODE_PERF_PROGRESS,             // How many EDTs spawned & events satisfied
+    NODE_PERF_LOAD,                 // Sum of HW cycles
+    NODE_PERF_FP_LOAD,              // Sum of FP ops
+    NODE_PERF_CACHE,                // Sum of cache hits
+    NODE_PERF_MEM,                  // Sum of memory accesses
+    NODE_PERF_EDTS,                 // Outstanding EDTs
+    NODE_PERF_MAX
+} nodePerf;
 
 #endif /* __OCR_PERFSTAT_H__ */
 

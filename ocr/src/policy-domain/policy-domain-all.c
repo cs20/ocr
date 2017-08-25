@@ -416,6 +416,17 @@ u8 ocrPolicyMsgMarshallMsg(ocrPolicyMsg_t* msg, u64 baseSize, u8* buffer, u32 mo
         msg->usefulSize = baseSize;
     }
 
+#ifdef ENABLE_EXTENSION_PERF
+    {
+        u32 k;
+        ocrPolicyDomain_t *pd = NULL;
+        getCurrentEnv(&pd, NULL, NULL, NULL);
+        for(k = 0; k < NODE_PERF_MAX; k++)
+            msg->nodeStats[k] =
+                ((s64)pd->myNodeStats[k]>0)?pd->myNodeStats[k]:NODE_STATS_MAX;
+    }
+#endif
+
     switch(mode) {
     case MARSHALL_FULL_COPY:
     case MARSHALL_DUPLICATE:
@@ -1085,6 +1096,45 @@ u8 ocrPolicyMsgUnMarshallMsg(u8* mainBuffer, u8* addlBuffer,
     }
     DPRINTF(DEBUG_LVL_VERB, "Unmarshalling message with mainAddr 0x%"PRIx64" and addlAddr 0x%"PRIx64"\n",
             (u64)localMainPtr, (u64)localAddlPtr);
+
+#ifdef ENABLE_EXTENSION_PERF
+    //For each metric, if this is better than the existing one, update
+    {
+        u32 k;
+        static u32 loop = 0;
+        ocrPolicyDomain_t *policy = NULL;
+        getCurrentEnv(&policy, NULL, NULL, NULL);
+        for(k=0; k<NODE_PERF_MAX; k++) {
+            u64 myNodeStats = policy->myNodeStats[k];
+            if(((s64)myNodeStats)<0) continue;
+            // If incoming msg comes from the best node, update
+            if(msg->nodeStats[k] < policy->bestNodeStats[k]) {
+                policy->bestNodes[k] = msg->srcLocation;
+                policy->bestNodeStats[k] = msg->nodeStats[k];
+            }
+            // if this is not the best anymore, reset
+            if((policy->bestNodes[k] == msg->srcLocation) &&
+               (msg->nodeStats[k] > policy->bestNodeStats[k])) {
+               policy->bestNodes[k] = policy->myLocation;
+               policy->bestNodeStats[k] = myNodeStats;
+            }
+            // If my counts are better, update best node as myself
+            if(myNodeStats < policy->bestNodeStats[k]) {
+                policy->bestNodes[k] = policy->myLocation;
+                policy->bestNodeStats[k] = myNodeStats;
+            }
+        }
+        loop++;
+
+        // Reset the counts every once in a while
+        if((msg->msgId % STATS_RESET_FREQ) == (STATS_RESET_FREQ-1)) {
+            for(k=0; k<NODE_PERF_MAX; k++) {
+                policy->bestNodes[k] = policy->myLocation;
+                policy->bestNodeStats[k] = policy->myNodeStats[k];
+            }
+        }
+    }
+#endif
 
     // At this point, we go over the pointers that we care about and
     // fix them up

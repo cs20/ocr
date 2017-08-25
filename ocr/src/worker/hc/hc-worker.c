@@ -159,6 +159,7 @@ static void hcWorkShift(ocrWorker_t * worker) {
 
                 ocrPerfCounters_t* ctrs = worker->curTask->taskPerfsEntry;
 
+if (ctrs) {
                 if(curTask->flags & OCR_TASK_FLAG_PERFMON_ME) {
                     ctrs->count++;
                     // Update this value - atomic update is not necessary,
@@ -205,6 +206,7 @@ static void hcWorkShift(ocrWorker_t * worker) {
                         ctrs->steadyStateMask = 0;
                     }
                 }
+}
 #endif
                 //Store state at worker level to report most recent state on pause.
                 hcWorker->edtGuid = curTask->guid;
