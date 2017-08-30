@@ -33,12 +33,12 @@ u8 delegateCommSwitchRunlevel(ocrCommApi_t *self, ocrPolicyDomain_t *PD, ocrRunl
     u8 toReturn = 0;
 
     // This is an inert module, we do not handle callbacks (caller needs to wait on us)
-    ASSERT(callback == NULL);
+    ocrAssert(callback == NULL);
 
     // Verify properties for this call
-    ASSERT((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
+    ocrAssert((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
            && !(properties & RL_RELEASE));
-    ASSERT(!(properties & RL_FROM_MSG));
+    ocrAssert(!(properties & RL_FROM_MSG));
 
     if(properties & RL_BRING_UP) {
         toReturn |= self->commPlatform->fcts.switchRunlevel(self->commPlatform, PD, runlevel, phase,
@@ -68,7 +68,7 @@ u8 delegateCommSwitchRunlevel(ocrCommApi_t *self, ocrPolicyDomain_t *PD, ocrRunl
         break;
     default:
         // Unknown runlevel
-        ASSERT(0);
+        ocrAssert(0);
     }
 
     if(properties & RL_TEAR_DOWN) {
@@ -99,7 +99,7 @@ void destructMsgHandlerDelegate(ocrMsgHandle_t * handler) {
  */
 ocrMsgHandle_t * createMsgHandlerDelegate(ocrCommApi_t *self, ocrPolicyMsg_t * message, u32 properties) {
     ocrMsgHandle_t * handle = (ocrMsgHandle_t *) self->pd->fcts.pdMalloc(self->pd, sizeof(delegateMsgHandle_t));
-    ASSERT(handle != NULL);
+    ocrAssert(handle != NULL);
     handle->msg = message;
     handle->response = NULL;
     handle->status = HDL_NORMAL;
@@ -110,7 +110,7 @@ ocrMsgHandle_t * createMsgHandlerDelegate(ocrCommApi_t *self, ocrPolicyMsg_t * m
 }
 
 u8 delegateCommInitHandle(ocrCommApi_t *self, ocrMsgHandle_t *handle) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
@@ -123,8 +123,8 @@ u8 delegateCommSendMessage(ocrCommApi_t *self, ocrLocation_t target,
     START_PROFILE(commapi_delegateCommSendMessage);
     ocrPolicyDomain_t * pd = self->pd;
     // Message source/destination is corrupted
-    ASSERT((pd->myLocation == message->srcLocation) && (target == message->destLocation));
-    ASSERT(pd->myLocation != target); // Do not support sending to 'itself' (current PD).
+    ocrAssert((pd->myLocation == message->srcLocation) && (target == message->destLocation));
+    ocrAssert(pd->myLocation != target); // Do not support sending to 'itself' (current PD).
     // If the message is not persistent and the marshall mode is set, we do the specified
     // copy. Otherwise it is just the mode the buffer has been copied in the first place.
     // Modified this to experiment with asynchronous remote edt creation
@@ -137,7 +137,7 @@ u8 delegateCommSendMessage(ocrCommApi_t *self, ocrLocation_t target,
         }
         // NOTE: here we could support _APPEND or _ADDL although we would still
         //       have to create a new message anyway because of PERSIST_MSG_PROP
-        ASSERT((marshallMode & MARSHALL_DUPLICATE) || (marshallMode & MARSHALL_FULL_COPY));
+        ocrAssert((marshallMode & MARSHALL_DUPLICATE) || (marshallMode & MARSHALL_FULL_COPY));
         u64 baseSize = 0, marshalledSize = 0;
         ocrPolicyMsgGetMsgSize(message, &baseSize, &marshalledSize, marshallMode);
         u64 fullSize = baseSize + marshalledSize;
@@ -206,7 +206,7 @@ u8 delegateCommPollMessage(ocrCommApi_t *self, ocrMsgHandle_t **handle) {
             #ifdef OCR_ASSERT
             // was polling for a specific handle, check if that's what we got
             if (*handle != NULL)
-                ASSERT(*handle == ((ocrMsgHandle_t*)delHandle));
+                ocrAssert(*handle == ((ocrMsgHandle_t*)delHandle));
             #endif
             // Set the handle for the caller
             *handle = (ocrMsgHandle_t *) delHandle;

@@ -21,7 +21,7 @@ ocrGuid_t shutEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
 }
 
 ocrGuid_t runEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
-    PRINTF("runEdt\n");
+    ocrPrintf("runEdt\n");
     return NULL_GUID;
 }
 
@@ -42,7 +42,7 @@ ocrGuid_t headEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
 ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     u64 affinityCount;
     ocrAffinityCount(AFFINITY_PD, &affinityCount);
-    ASSERT(affinityCount >= 1);
+    ocrAssert(affinityCount >= 1);
     ocrGuid_t affinities[affinityCount];
     ocrAffinityGet(AFFINITY_PD, &affinityCount, affinities);
     ocrGuid_t dbGuid;

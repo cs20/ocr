@@ -22,7 +22,7 @@
         DPRINTF(DEBUG_LVL_WARN, "Cannot allocate memory for \"" #expr "\"\n");   \
         toReturn = OCR_ENOMEM;      \
         cleanup;                    \
-        ASSERT(false);              \
+        ocrAssert(false);              \
         goto _END_FUNC;             \
     }                               \
 } while(0);
@@ -35,7 +35,7 @@
         DPRINTF(DEBUG_LVL_WARN, "Error in check \"" #expr "\" on line %"PRIu32"; aborting\n", __LINE__);   \
         cleanup;                    \
         newcode;                    \
-        ASSERT(false);              \
+        ocrAssert(false);              \
         goto _END_FUNC;             \
     }                               \
 } while(0);
@@ -334,11 +334,11 @@ static inline u32 selectFreeSlot(pdStrandTableNode_t *node, u32 fudge) {
     // so we look at both
     // This also favors inserting in the fudgeMask part (ie: the mask is a higher
     // priority than the needProcess vectors)
-    ASSERT(NP_COUNT == 2); // We deal only with hardcoded NP_COUNT for now
+    ocrAssert(NP_COUNT == 2); // We deal only with hardcoded NP_COUNT for now
 
     // The fudgeMask is the part of nodeFree that we look at.
     u64 fudgeMask = 0ULL;
-    ASSERT(node->nodeFree); // We should at least have some free slot, otherwise the while
+    ocrAssert(node->nodeFree); // We should at least have some free slot, otherwise the while
                             // loop will run forever
     while(true) {
         // Divide into 4 chunks
@@ -373,7 +373,7 @@ static inline u32 selectFreeSlot(pdStrandTableNode_t *node, u32 fudge) {
                 val = startVal;
             }
         }
-        ASSERT(val); // At this point, we should have something
+        ocrAssert(val); // At this point, we should have something
         return ctz(val);
     }
 #else
@@ -390,7 +390,7 @@ static inline u32 selectProcessSlot(pdStrandTableNode_t *node, u32 npIdx, u32 fu
     // The fudgeMask is the part of needsProcess that we look at.
     u64 fudgeMask = 0ULL;
     u64 val = 0ULL;
-    ASSERT(node->nodeNeedsProcess[npIdx]); // We should at least have some slot
+    ocrAssert(node->nodeNeedsProcess[npIdx]); // We should at least have some slot
     while(true) {
         // Divide into 8 chunks
         fudgeMask = (0xFFULL)<<((fudge & 0x7)<<3);
@@ -399,7 +399,7 @@ static inline u32 selectProcessSlot(pdStrandTableNode_t *node, u32 npIdx, u32 fu
 
         if(val != 0ULL) break;
     }
-    ASSERT(val); // At this point, we should have something
+    ocrAssert(val); // At this point, we should have something
     return ctz(val);
 #else
     // Default behavior is simply to use ctz and figure out the first one that needs
@@ -417,7 +417,7 @@ u8 pdCreateEvent(ocrPolicyDomain_t *pd, pdEvent_t **event, u32 type, u8 reserveI
             pd, event, *event, type, reserveInTable);
 
 #define _END_FUNC createEventEnd
-    ASSERT(event); // Cannot call if you don't want the event back.
+    ocrAssert(event); // Cannot call if you don't want the event back.
     u8 toReturn = 0;
     if (pd == NULL) {
         getCurrentEnv(&pd, NULL, NULL, NULL);
@@ -532,7 +532,7 @@ u8 pdDestroyEvent(ocrPolicyDomain_t *pd, pdEvent_t *event) {
     DPRINTF(DEBUG_LVL_INFO, "ENTER pdDestroyEvent(pd:%p, event*:%p)\n", pd, event);
 #define _END_FUNC destroyEventEnd
 
-    ASSERT(event);
+    ocrAssert(event);
     u8 toReturn = 0;
     if (pd == NULL) {
         getCurrentEnv(&pd, NULL, NULL, NULL);
@@ -613,12 +613,12 @@ u8 pdResolveEvent(ocrPolicyDomain_t *pd, u64 *evtValue, u8 clearFwdHold) {
         CHECK_RESULT(toReturn |= _pdLockStrand(myStrand, BLOCK), ,);
         DPRINTF(DEBUG_LVL_VVERB, "Event 0x%"PRIx64" -> strand %p (props: 0x%"PRIx32")\n",
                 *evtValue, myStrand, myStrand->properties);
-        ASSERT(hal_islocked(&(myStrand->lock)));
+        ocrAssert(hal_islocked(&(myStrand->lock)));
         if((myStrand->properties & PDST_WAIT) == 0) {
             // Event is ready
             // The following assert ensures that the event in the slot has
             // the slot's index. Failure indicates a runtime error
-            ASSERT(myStrand->index == (*evtValue));
+            ocrAssert(myStrand->index == (*evtValue));
             DPRINTF(DEBUG_LVL_VERB, "Event 0x%"PRIx64" -> %p\n",
                     *evtValue, myStrand->curEvent);
             *evtValue = (u64)(myStrand->curEvent);
@@ -667,7 +667,7 @@ u8 pdResolveEvent(ocrPolicyDomain_t *pd, u64 *evtValue, u8 clearFwdHold) {
                     RESULT_ASSERT(_pdLockStrand(evt->strand, BLOCK), ==, 0);
                     DPRINTF(DEBUG_LVL_VVERB, "Event %p has strand %p (props: 0x%"PRIx32")\n",
                             evt, evt->strand, evt->strand->properties);
-                    ASSERT(hal_islocked(&(evt->strand->lock)));
+                    ocrAssert(hal_islocked(&(evt->strand->lock)));
                     if((evt->strand->properties & PDST_WAIT) != 0) {
                         // Event is not fully ready, there is some stuff left to process
                         DPRINTF(DEBUG_LVL_VERB, "Event %p is ready but strand is not\n", evt);
@@ -714,13 +714,13 @@ u8 pdMarkReadyEvent(ocrPolicyDomain_t *pd, pdEvent_t *evt) {
         pdStrand_t *strand = evt->strand;
         u32 stIdx = strand->index & ((1<<BV_SIZE_LOG2) - 1);
         pdStrandTableNode_t *curNode = strand->parent;
-        ASSERT(curNode);
+        ocrAssert(curNode);
 
         // Lock the strand
         RESULT_ASSERT(_pdLockStrand(strand, BLOCK), ==, 0);
 
         // This should be the case since the event was not ready yet
-        ASSERT((strand->properties & PDST_WAIT_EVT) != 0);
+        ocrAssert((strand->properties & PDST_WAIT_EVT) != 0);
         strand->properties &= ~PDST_WAIT_EVT;
 
         // Here, we only propagate if we are not the processing worker
@@ -770,7 +770,7 @@ u8 pdMarkReadyEvent(ocrPolicyDomain_t *pd, pdEvent_t *evt) {
                     curNode->nodeReady &= ~(1ULL<<stIdx);
                     hal_unlock(&(curNode->lock));
                     RESULT_ASSERT(_pdDestroyStrand(pd, strand), ==, 0);
-                    ASSERT(!propagateNP);
+                    ocrAssert(!propagateNP);
                     propagateReady = false; // No need to change this since we freed the node
                     didFree = true;
                 } else {
@@ -784,12 +784,12 @@ u8 pdMarkReadyEvent(ocrPolicyDomain_t *pd, pdEvent_t *evt) {
 
             // We still hold lock on curNode EXCEPT if didFree
             if (propagateReady || propagateNP) {
-                ASSERT(!didFree);
+                ocrAssert(!didFree);
                 DPRINTF(DEBUG_LVL_VERB, "Propagating properties: ready: %"PRIu32"; np: %"PRIu32"\n",
                         propagateReady, propagateNP);
 
                 pdStrandTableNode_t *parent = curNode->parent;
-                ASSERT(hal_islocked(&(curNode->lock)));
+                ocrAssert(hal_islocked(&(curNode->lock)));
                 // We flipped nodeReady from 0 to 1; to up until we see a 1
                 // We flipped nodeNeedsProcessing from 0 to 1; same as above
                 u8 tNpIdx __attribute__((unused)) = npIdx[0]?(npIdx[0]-1):0;
@@ -854,13 +854,13 @@ u8 pdMarkWaitEvent(ocrPolicyDomain_t *pd, pdEvent_t *evt) {
         pdStrand_t *strand = evt->strand;
         u32 stIdx = strand->index & ((1<<BV_SIZE_LOG2) - 1);
         pdStrandTableNode_t *curNode = strand->parent;
-        ASSERT(curNode);
+        ocrAssert(curNode);
 
         // Lock the strand
         RESULT_ASSERT(_pdLockStrand(strand, BLOCK), ==, 0);
 
         // This should be the case since the event was ready prior to this
-        ASSERT((strand->properties & PDST_WAIT_EVT) == 0);
+        ocrAssert((strand->properties & PDST_WAIT_EVT) == 0);
         strand->properties |= PDST_WAIT_EVT;
 
         // Here, we only propagate if we are not the processing worker
@@ -897,7 +897,7 @@ u8 pdMarkWaitEvent(ocrPolicyDomain_t *pd, pdEvent_t *evt) {
             } else {
                 DPRINTF(DEBUG_LVL_VERB, "Strand %p is no longer ready\n", strand);
                 // If we are still around, it means we have an active hold
-                ASSERT(strand->properties & PDST_HOLD);
+                ocrAssert(strand->properties & PDST_HOLD);
                 curNode->nodeReady &= ~(1ULL<<stIdx);
                 propagateReady = curNode->nodeReady == 0ULL;
             }
@@ -910,7 +910,7 @@ u8 pdMarkWaitEvent(ocrPolicyDomain_t *pd, pdEvent_t *evt) {
                     propagateReady, propagateNP);
 
                 pdStrandTableNode_t *parent = curNode->parent;
-                ASSERT(hal_islocked(&(curNode->lock)));
+                ocrAssert(hal_islocked(&(curNode->lock)));
                 // We flipped nodeReady from 1 to 0; to up until we see a sibbling
                 // We flipped nodeNeedsProcessing from 1 to 0; same as above
                 u8 tNpIdx __attribute__((unused)) = npIdx[0]?(npIdx[0]-1):0;
@@ -987,14 +987,14 @@ END_LABEL(markWaitEventEnd)
 
 pdAction_t* pdGetProcessMessageAction(u32 workType) {
     DPRINTF(DEBUG_LVL_INFO, "ENTER pdGetProcessMessageAction(%"PRIu32")\n", workType);
-    ASSERT(workType == NP_COMM || workType == NP_WORK);
+    ocrAssert(workType == NP_COMM || workType == NP_WORK);
     DPRINTF(DEBUG_LVL_INFO, "EXIT pdGetProcessMessageAction -> action:0x%"PRIx64"\n", (u64)(((u64)workType<<3) | PDACTION_ENC_PROCESS_MESSAGE));
     return (pdAction_t*)(((u64)workType<<3) | PDACTION_ENC_PROCESS_MESSAGE);
 }
 
 pdAction_t* pdGetProcessEventAction(ocrObject_t* object) {
     DPRINTF(DEBUG_LVL_INFO, "ENTER pdGetProcessEventAction(%p)\n", object);
-    ASSERT(((u64)object & 0x7) == 0);
+    ocrAssert(((u64)object & 0x7) == 0);
     DPRINTF(DEBUG_LVL_INFO, "EXIT pdGetProcessEventAction -> action:0x%"PRIx64"\n", (u64)(((u64)object) | PDACTION_ENC_PROCESS_EVENT));
     return (pdAction_t*)(((u64)object) | PDACTION_ENC_PROCESS_EVENT);
 }
@@ -1012,7 +1012,7 @@ pdAction_t* pdGetMarkReadyAction(pdEvent_t *event) {
         returnedAction = PDACTION_ENCEXT_2ARG(stIdx, stTableIdx, PDACTION_ENCEXT_MAKEREADY);
     } else {
         // We can get the strand directly so we just code that directly
-        ASSERT(((u64)(event->strand) & 0x7) == 0);
+        ocrAssert(((u64)(event->strand) & 0x7) == 0);
         returnedAction = (u64)(event->strand) | PDACTION_ENC_MAKEREADYST;
     }
     DPRINTF(DEBUG_LVL_INFO, "EXIT pdGetMarkReadyAction -> action:0x%"PRIx64"\n", returnedAction);
@@ -1141,7 +1141,7 @@ u8 pdGetNewStrand(ocrPolicyDomain_t *pd, pdStrand_t **returnStrand, pdStrandTabl
             //To maximize parallelism, we always build the
             // initial table with 2 levels so that during processing, workers never keep
             // the lock on the top-level node.
-            ASSERT(table->head == NULL);
+            ocrAssert(table->head == NULL);
             pdStrandTableNode_t *tempHead = NULL; // Use a temporary because with the MT_OPTI_TABLELOCK, we don't
             // grab a lock when reading so can't write directly to head
             DPRINTF(DEBUG_LVL_VERB, "Table %p: empty -- adding non-leaf level 1 and one level 2 leaf\n",
@@ -1179,7 +1179,7 @@ u8 pdGetNewStrand(ocrPolicyDomain_t *pd, pdStrand_t **returnStrand, pdStrandTabl
             // Lock held here: leafToUse
             break; // We don't need to try anything anymore
 #else
-            ASSERT(table->head == NULL);
+            ocrAssert(table->head == NULL);
             DPRINTF(DEBUG_LVL_VERB, "Table %p: empty -- adding level 1\n",
                     table);
             pdStrandTableNode_t *tempHead = NULL; // Use a temporary because with the MT_OPTI_TABLELOCK, we don't
@@ -1251,16 +1251,16 @@ u8 pdGetNewStrand(ocrPolicyDomain_t *pd, pdStrand_t **returnStrand, pdStrandTabl
                     table->head = newNode;
                     hal_unlock(&(table->lock));
                     // Check to make sure the state is still consistent
-                    ASSERT((newNode->nodeFree & 1ULL) == (curNode->nodeFree != 0ULL));
+                    ocrAssert((newNode->nodeFree & 1ULL) == (curNode->nodeFree != 0ULL));
 #ifdef OCR_ASSERT
                     {
                         u32 i = 0;
                         for(; i < NP_COUNT; ++i) {
-                            ASSERT((newNode->nodeNeedsProcess[i] & 1ULL) == (curNode->nodeNeedsProcess[i] != 0ULL));
+                            ocrAssert((newNode->nodeNeedsProcess[i] & 1ULL) == (curNode->nodeNeedsProcess[i] != 0ULL));
                         }
                     }
 #endif
-                    ASSERT((newNode->nodeReady & 1ULL) == (curNode->nodeReady != 0ULL));
+                    ocrAssert((newNode->nodeReady & 1ULL) == (curNode->nodeReady != 0ULL));
 
                     hal_unlock(&(curNode->lock));
                     // We hold newNode's lock. Set curNode to that so we will hold only curNode's lock
@@ -1283,7 +1283,7 @@ u8 pdGetNewStrand(ocrPolicyDomain_t *pd, pdStrand_t **returnStrand, pdStrandTabl
 #endif
             } else {
 #ifdef MT_OPTI_2LEVEL
-                ASSERT(table->levelCount > 1); // We should never have a level of only 1
+                ocrAssert(table->levelCount > 1); // We should never have a level of only 1
 #endif
                 DPRINTF(DEBUG_LVL_VERB, "Proceeding down table with curNode %p\n",
                         curNode);
@@ -1303,7 +1303,7 @@ u8 pdGetNewStrand(ocrPolicyDomain_t *pd, pdStrand_t **returnStrand, pdStrandTabl
                     breakOut = true;
                     continue;
                 }
-                ASSERT(curLevel < cachedLevelCount); // We never go all the way to the leaf
+                ocrAssert(curLevel < cachedLevelCount); // We never go all the way to the leaf
                 // Increase fudge factor if we are going to go back around.
                 u32 freeSlot = selectFreeSlot(curNode, fudgeFactor++);
 
@@ -1375,10 +1375,10 @@ u8 pdGetNewStrand(ocrPolicyDomain_t *pd, pdStrand_t **returnStrand, pdStrandTabl
                 ++curLevel;
             }
             if(breakOut) {
-                ASSERT(leafToUse == NULL);
+                ocrAssert(leafToUse == NULL);
                 continue;
             }
-            ASSERT(leafToUse != NULL);
+            ocrAssert(leafToUse != NULL);
             break;
         }
     }
@@ -1391,12 +1391,12 @@ u8 pdGetNewStrand(ocrPolicyDomain_t *pd, pdStrand_t **returnStrand, pdStrandTabl
     // them for the first leaf node and then don't create any or just half).
 
     // We should have room in our leaf
-    ASSERT(leafToUse);
-    ASSERT(leafToUse->nodeFree);
-    ASSERT(curLevel == cachedLevelCount); // We should be at the leaf level
+    ocrAssert(leafToUse);
+    ocrAssert(leafToUse->nodeFree);
+    ocrAssert(curLevel == cachedLevelCount); // We should be at the leaf level
 
 #ifdef MT_OPTI_2LEVEL
-    ASSERT(curLevel > 1); // We never have just one level
+    ocrAssert(curLevel > 1); // We never have just one level
 #endif
 
     u32 freeSlot = selectFreeSlot(leafToUse, fudgeFactor);
@@ -1406,7 +1406,7 @@ u8 pdGetNewStrand(ocrPolicyDomain_t *pd, pdStrand_t **returnStrand, pdStrandTabl
             freeSlot, strand, curLevel, leafToUse);
 
     // All strands should be initialized here.
-    ASSERT(strand);
+    ocrAssert(strand);
 
     // The strand should be free
     RESULT_ASSERT(_pdLockStrand(strand, 0), ==, 0);
@@ -1420,7 +1420,7 @@ u8 pdGetNewStrand(ocrPolicyDomain_t *pd, pdStrand_t **returnStrand, pdStrandTabl
     strand->properties |= properties;
     DPRINTF(DEBUG_LVL_VVERB, "Strand %p: event: %p | actions: %p | props: 0x%"PRIx32"\n",
             strand, strand->curEvent, strand->actions, strand->properties);
-    ASSERT(hal_islocked(&(strand->lock)));
+    ocrAssert(hal_islocked(&(strand->lock)));
     // Now set the value for the event
     event->strand = strand;
     *returnStrand = strand;
@@ -1447,7 +1447,7 @@ u8 pdGetNewStrand(ocrPolicyDomain_t *pd, pdStrand_t **returnStrand, pdStrandTabl
 
     pdStrandTableNode_t *curNode = leafToUse;
     pdStrandTableNode_t *parent = leafToUse->parent;
-    ASSERT(hal_islocked(&(curNode->lock)));
+    ocrAssert(hal_islocked(&(curNode->lock)));
     // We propagate only until we have nothing left to change
     PROPAGATE_UP_TREE(curNode, parent, 0, propagateReady || propagateFree, {
             if(propagateFree) {
@@ -1459,7 +1459,7 @@ u8 pdGetNewStrand(ocrPolicyDomain_t *pd, pdStrand_t **returnStrand, pdStrandTabl
                 // the destruction of strands), we don't release curNode (old parent) between
                 // the time we check the condition to set propagateFree and the time
                 // we come to check the ASSERT
-                ASSERT(curNode->nodeFree == 0ULL);
+                ocrAssert(curNode->nodeFree == 0ULL);
                 parent->nodeFree &= ~(1ULL<<curNode->parentSlot);
                 propagateFree = parent->nodeFree == 0ULL;
             }
@@ -1469,7 +1469,7 @@ u8 pdGetNewStrand(ocrPolicyDomain_t *pd, pdStrand_t **returnStrand, pdStrandTabl
                 parent->nodeReady |= (1ULL << curNode->parentSlot);
             }
         });
-    ASSERT(hal_islocked(&(strand->lock)));
+    ocrAssert(hal_islocked(&(strand->lock)));
 END_LABEL(getNewStrandEnd)
     DPRINTF(DEBUG_LVL_INFO, "EXIT pdGetNewStrand -> %"PRIu32" [strand: %p]\n",
             toReturn, *returnStrand);
@@ -1520,7 +1520,7 @@ u8 pdGetStrandForIndex(ocrPolicyDomain_t* pd, pdStrand_t **returnStrand, pdStran
     *returnStrand = curNode->data.slots[index & _LVL_MASK];
 
     // This makes sure that the strand actually has the proper index
-    ASSERT((*returnStrand)->index == index);
+    ocrAssert((*returnStrand)->index == index);
 
 END_LABEL(getStrandForIndex)
     DPRINTF(DEBUG_LVL_INFO, "EXIT pdStrandForIndex -> %"PRIu32" [strand: %p]\n",
@@ -1549,7 +1549,7 @@ u8 pdEnqueueActions(ocrPolicyDomain_t *pd, pdStrand_t* strand, u32 actionCount,
 
     // A lock should be held while we enqueue actions. Make sure it is. If this
     // fails, most likely an internal runtime error
-    ASSERT(hal_islocked(&(strand->lock)));
+    ocrAssert(hal_islocked(&(strand->lock)));
 
     u32 npIdxCounter = 0;
     u8 npIdx[NP_COUNT];
@@ -1575,7 +1575,7 @@ u8 pdEnqueueActions(ocrPolicyDomain_t *pd, pdStrand_t* strand, u32 actionCount,
         // This means that no actions were pending
         DPRINTF(DEBUG_LVL_VVERB, "Strand %p had no actions [props: 0x%"PRIx32"] -> setting WAIT_ACT\n",
                 strand, strand->properties);
-        ASSERT((strand->properties & PDST_WAIT_ACT) == 0);
+        ocrAssert((strand->properties & PDST_WAIT_ACT) == 0);
         strand->properties |= PDST_WAIT_ACT;
         DPRINTF(DEBUG_LVL_VVERB, "Strand %p [props: 0x%"PRIx32"]\n", strand,
                 strand->properties);
@@ -1585,7 +1585,7 @@ u8 pdEnqueueActions(ocrPolicyDomain_t *pd, pdStrand_t* strand, u32 actionCount,
             // the case, we need to switch to being *not* ready
             // We need to propagate that back up the tree
             pdStrandTableNode_t *curNode = strand->parent;
-            ASSERT(curNode);
+            ocrAssert(curNode);
             pdStrandTableNode_t *parent = curNode->parent;
             u32 stIdx = strand->index & ((1<<BV_SIZE_LOG2)-1);
             bool propagateReady = false, propagateNP = false;
@@ -1605,10 +1605,10 @@ u8 pdEnqueueActions(ocrPolicyDomain_t *pd, pdStrand_t* strand, u32 actionCount,
             }
 
             // We are no longer ready
-            ASSERT((curNode->nodeReady & (1ULL<<stIdx)) != 0);
+            ocrAssert((curNode->nodeReady & (1ULL<<stIdx)) != 0);
             curNode->nodeReady &= ~(1ULL<<stIdx);
             propagateReady = (curNode->nodeReady == 0ULL);
-            ASSERT(hal_islocked(&(curNode->lock)));
+            ocrAssert(hal_islocked(&(curNode->lock)));
 
             // In this case, we flipped:
             // NP from 0 to 1 (stop when we see a 1)
@@ -1737,8 +1737,8 @@ u32 _pdProcessNStrands(ocrPolicyDomain_t *pd, u32 processType, u32 count, u32 pr
             pd, processType, count, properties);
 #define _END_FUNC processNStrandsEnd
 
-    ASSERT(processType < NP_COUNT);
-    ASSERT(pd);
+    ocrAssert(processType < NP_COUNT);
+    ocrAssert(pd);
 
     /* In this function, we are currently very dumb and follow a simple algorithm.
      * In the future, this could be extended to having a plug-in model to write
@@ -1829,8 +1829,8 @@ u32 _pdProcessNStrands(ocrPolicyDomain_t *pd, u32 processType, u32 count, u32 pr
             // and they will each pick a different path ensuring at most 64 way parallelism
             // in this endeavor. This can also happen concurrently with adding new strands and
             // what not
-            ASSERT(curNode);
-            ASSERT(hal_islocked(&(curNode->lock)));
+            ocrAssert(curNode);
+            ocrAssert(hal_islocked(&(curNode->lock)));
             DPRINTF(DEBUG_LVL_VERB, "Looking at node %p with children nodeNeedsProcess[%"PRIu32"] = [0x%"PRIx64"]\n",
                 curNode, processType, curNode->nodeNeedsProcess[processType]);
             if (curNode->nodeNeedsProcess[processType]) {
@@ -1839,7 +1839,7 @@ u32 _pdProcessNStrands(ocrPolicyDomain_t *pd, u32 processType, u32 count, u32 pr
                 if(!IS_LEAF_NODE(curNode->lmIndex)) {
                     // This is not a leaf node so we attempt to go down
                     tentativeChild = curNode->data.nodes[processSlot];
-                    ASSERT(tentativeChild);
+                    ocrAssert(tentativeChild);
                     hal_unlock(&(curNode->lock));
 
                     if(hal_trylock(&(tentativeChild->lock)) == 0) {
@@ -1866,7 +1866,7 @@ u32 _pdProcessNStrands(ocrPolicyDomain_t *pd, u32 processType, u32 count, u32 pr
                     pdStrand_t *toProcess = curNode->data.slots[processSlot];
                     pdAction_t *curAction = NULL;
                     bool propagateNP = false;
-                    ASSERT(arrayDequeSize(toProcess->actions) > 0);
+                    ocrAssert(arrayDequeSize(toProcess->actions) > 0);
                     RESULT_ASSERT(arrayDequePeekFromHead(toProcess->actions, (void**)&curAction), ==, 0);
                     _pdActionToNP(npIdx, curAction);
 #ifdef OCR_ASSERT
@@ -1880,7 +1880,7 @@ u32 _pdProcessNStrands(ocrPolicyDomain_t *pd, u32 processType, u32 count, u32 pr
                     }
                     // Somehow we are trying to process something that we shouldn't be. Runtime error most likely
                     if(npIdxCounter != (u32)-1)
-                        ASSERT(0);
+                        ocrAssert(0);
 #endif
                     npIdxCounter = 0;
                     while(npIdx[npIdxCounter]) {
@@ -1914,7 +1914,7 @@ u32 _pdProcessNStrands(ocrPolicyDomain_t *pd, u32 processType, u32 count, u32 pr
                                 // we don't release curNode (old parent) between the time
                                 // we check the condition to set propagateNP and the time
                                 // we check with the assert
-                                ASSERT(curNode->nodeNeedsProcess[npIdx[i]-1] == 0ULL);
+                                ocrAssert(curNode->nodeNeedsProcess[npIdx[i]-1] == 0ULL);
                                 parent->nodeNeedsProcess[npIdx[i]-1] &= ~(1ULL<<curNode->parentSlot);
                                 if(parent->nodeNeedsProcess[npIdx[i]-1] == 0ULL) {
                                     propagateNP = true;
@@ -1931,10 +1931,10 @@ u32 _pdProcessNStrands(ocrPolicyDomain_t *pd, u32 processType, u32 count, u32 pr
                 // to process
                 // We hold no locks here
 #ifdef MT_OPTI_2LEVEL
-                ASSERT(curLevel > 1);
+                ocrAssert(curLevel > 1);
 #endif
                 // These are both safe to read without lock
-                ASSERT((curNode->nodeNeedsProcess[processType] & (1ULL<<processSlot)) == 0);
+                ocrAssert((curNode->nodeNeedsProcess[processType] & (1ULL<<processSlot)) == 0);
                 pdStrand_t *toProcess = curNode->data.slots[processSlot];
                 DPRINTF(DEBUG_LVL_VERB, "Found strand %p in slot %"PRIu32" and level %"PRIu32"\n",
                         toProcess, processSlot, curLevel);
@@ -1951,7 +1951,7 @@ u32 _pdProcessNStrands(ocrPolicyDomain_t *pd, u32 processType, u32 count, u32 pr
                 // use getCurrentEnv as if we were executing the EDT from which we originate
                 // First some sanity checks: if the node needed processing, it should be in this state
                 worker->curTask = toProcess->contextTask;
-                ASSERT((toProcess->properties & PDST_WAIT) == PDST_WAIT_ACT);
+                ocrAssert((toProcess->properties & PDST_WAIT) == PDST_WAIT_ACT);
                 // We loop while the event is ready and there is stuff to do
                 // Note that the actions may make the event not ready thus the importance
                 // of checking every time
@@ -1960,7 +1960,7 @@ u32 _pdProcessNStrands(ocrPolicyDomain_t *pd, u32 processType, u32 count, u32 pr
                     pdAction_t *curAction = NULL;
                     bool canProcess = false;
                     RESULT_ASSERT(arrayDequePeekFromHead(toProcess->actions, (void**)&curAction), ==, 0);
-                    ASSERT(curAction);
+                    ocrAssert(curAction);
                     npIdxCounter = 0;
                     _pdActionToNP(npIdx, curAction);
                     while(npIdx[npIdxCounter]) {
@@ -1973,7 +1973,7 @@ u32 _pdProcessNStrands(ocrPolicyDomain_t *pd, u32 processType, u32 count, u32 pr
                     if(canProcess) {
                         pdAction_t *tAction __attribute__((unused)) = NULL;
                         RESULT_ASSERT(arrayDequePopFromHead(toProcess->actions, (void**)&tAction), ==, 0);
-                        ASSERT(tAction == curAction);
+                        ocrAssert(tAction == curAction);
                         DPRINTF(DEBUG_LVL_VERB, "Processing action %p\n", curAction);
                         RESULT_ASSERT(_pdProcessAction(pd, worker, toProcess, curAction, 0), ==, 0);
                         DPRINTF(DEBUG_LVL_VERB, "Done processing action %p\n", curAction);
@@ -1999,8 +1999,8 @@ u32 _pdProcessNStrands(ocrPolicyDomain_t *pd, u32 processType, u32 count, u32 pr
 
                         // Some sanity checks: we should not need processing (since we were just
                         // processing) and we should not be ready (since we needed processing)
-                        ASSERT((curNode->nodeReady & (1ULL<<processSlot)) == 0);
-                        ASSERT((curNode->nodeNeedsProcess[processType] & (1ULL<<processSlot)) == 0);
+                        ocrAssert((curNode->nodeReady & (1ULL<<processSlot)) == 0);
+                        ocrAssert((curNode->nodeNeedsProcess[processType] & (1ULL<<processSlot)) == 0);
 
                         // We check if there is a hold on the strand -- if so, we leave in the
                         // strand table and propagate that. Otherwise, we remove it
@@ -2024,12 +2024,12 @@ u32 _pdProcessNStrands(ocrPolicyDomain_t *pd, u32 processType, u32 count, u32 pr
                         DPRINTF(DEBUG_LVL_VERB, "Strand %p is not ready and has no actions\n",
                                 toProcess);
                         // We don't have anything to set here
-                        ASSERT((curNode->nodeReady & (1ULL<<processSlot)) == 0);
-                        ASSERT((curNode->nodeNeedsProcess[processType] & (1ULL<<processSlot)) == 0);
-                        ASSERT((curNode->nodeReady & (1ULL<<processSlot)) == 0);
+                        ocrAssert((curNode->nodeReady & (1ULL<<processSlot)) == 0);
+                        ocrAssert((curNode->nodeNeedsProcess[processType] & (1ULL<<processSlot)) == 0);
+                        ocrAssert((curNode->nodeReady & (1ULL<<processSlot)) == 0);
                     }
                 } else {
-                    ASSERT(toProcess->properties & PDST_WAIT_ACT);
+                    ocrAssert(toProcess->properties & PDST_WAIT_ACT);
                     if((toProcess->properties & PDST_WAIT_EVT) == 0) {
                         DPRINTF(DEBUG_LVL_VERB, "Strand %p still has pending actions that need processing\n",
                                 toProcess);
@@ -2051,13 +2051,13 @@ u32 _pdProcessNStrands(ocrPolicyDomain_t *pd, u32 processType, u32 count, u32 pr
                             ++npIdxCounter;
                         }
 
-                        ASSERT((curNode->nodeReady & (1ULL<<processSlot)) == 0);
+                        ocrAssert((curNode->nodeReady & (1ULL<<processSlot)) == 0);
                     } else {
                         DPRINTF(DEBUG_LVL_VERB, "Strand %p has pending actions but not ready\n",
                                 toProcess);
                         // Nothing to do again since it does not need processing and is not ready
-                        ASSERT((curNode->nodeNeedsProcess[processType] & (1ULL<<processSlot)) == 0);
-                        ASSERT((curNode->nodeReady & (1ULL<<processSlot)) == 0);
+                        ocrAssert((curNode->nodeNeedsProcess[processType] & (1ULL<<processSlot)) == 0);
+                        ocrAssert((curNode->nodeReady & (1ULL<<processSlot)) == 0);
                     }
                 }
 
@@ -2068,12 +2068,12 @@ u32 _pdProcessNStrands(ocrPolicyDomain_t *pd, u32 processType, u32 count, u32 pr
                 // Holding lock on curNode->lock EXCEPT if freed strand
                 // (in that case, the following if statement is false)
                 if (propagateReady || propagateNP) {
-                    ASSERT(!didFree);
+                    ocrAssert(!didFree);
                     DPRINTF(DEBUG_LVL_VERB, "Propagating properties: ready: %"PRIu32"; np: %"PRIu32"\n",
                             propagateReady, propagateNP);
 
                     pdStrandTableNode_t *parent = curNode->parent;
-                    ASSERT(hal_islocked(&(curNode->lock)));
+                    ocrAssert(hal_islocked(&(curNode->lock)));
                     // We flip nodeReady from 0 to 1; to up until we see a 1
                     // We flip nodeNeedsProcessing from 0 to 1; same as above
                     u8 tNpIdx __attribute__((unused)) = npIdx[0]?(npIdx[0]-1):0;
@@ -2117,7 +2117,7 @@ u32 _pdProcessNStrands(ocrPolicyDomain_t *pd, u32 processType, u32 count, u32 pr
 #ifndef MT_OPTI_LOCKTABLE
                 hal_unlock(&(table->lock));
 #endif
-                ASSERT(curNode); // The table can't empty out from under us
+                ocrAssert(curNode); // The table can't empty out from under us
                 hal_lock(&(curNode->lock));
             } else {
                 // Nothing left to process
@@ -2165,7 +2165,7 @@ u8 pdProcessResolveEvents(ocrPolicyDomain_t *pd, u32 processType, u32 count, pdE
 
     bool doClearHold = properties & PDSTT_CLEARHOLD;
     // HACK: For now limit ourselves to 64 so we can track what we resolved easily
-    ASSERT(count < 64);
+    ocrAssert(count < 64);
     u64 isNotReady = 0ULL;
     u32 i;
 
@@ -2224,7 +2224,7 @@ u8 pdProcessResolveEvents(ocrPolicyDomain_t *pd, u32 processType, u32 count, pdE
                     DPRINTF(DEBUG_LVL_VERB, "Event %"PRIu32" (@ %p) is ready but has actions -- processing strand %p\n",
                             curEvent, events[curEvent], toProcess);
                     u32 stIdx = toProcess->index & ((1<<BV_SIZE_LOG2) - 1);
-                    ASSERT(toProcess); // If we have a ready event but not fully resolved, there
+                    ocrAssert(toProcess); // If we have a ready event but not fully resolved, there
                                        // must be a strand
                     // Lock the strand and try to process things. To do so in a way that won't break
                     // the usual "go-down-the-tree" approach, we lock our parent, check that we need
@@ -2232,13 +2232,13 @@ u8 pdProcessResolveEvents(ocrPolicyDomain_t *pd, u32 processType, u32 count, pdE
                     pdStrandTableNode_t *curNode = toProcess->parent;
                     hal_lock(&(curNode->lock));
                     // We should be looking at toProcess
-                    ASSERT(curNode->data.slots[stIdx] == toProcess);
+                    ocrAssert(curNode->data.slots[stIdx] == toProcess);
                     if(curNode->nodeNeedsProcess[processType] & (1ULL<<stIdx)) {
                         DPRINTF(DEBUG_LVL_VVERB, "Strand %p [idx %"PRIu32"] needs processing we can do\n",
                                 toProcess, stIdx);
                         pdAction_t *curAction = NULL;
                         bool propagateNP = false;
-                        ASSERT(arrayDequeSize(toProcess->actions) > 0);
+                        ocrAssert(arrayDequeSize(toProcess->actions) > 0);
                         RESULT_ASSERT(arrayDequePeekFromHead(toProcess->actions, (void**)&curAction), ==, 0);
                                             _pdActionToNP(npIdx, curAction);
                         _pdActionToNP(npIdx, curAction);
@@ -2253,7 +2253,7 @@ u8 pdProcessResolveEvents(ocrPolicyDomain_t *pd, u32 processType, u32 count, pdE
                         }
                         // Somehow we are trying to process something that we shouldn't be. Runtime error most likely
                         if(npIdxCounter != (u32)-1)
-                            ASSERT(0);
+                            ocrAssert(0);
 #endif
                         npIdxCounter = 0;
                         while(npIdx[npIdxCounter]) {
@@ -2292,7 +2292,7 @@ u8 pdProcessResolveEvents(ocrPolicyDomain_t *pd, u32 processType, u32 count, pdE
                                     // we don't release curNode (old parent) between the time
                                     // we check the condition to set propagateNP and the time
                                     // we check with the assert
-                                    ASSERT(curNode->nodeNeedsProcess[npIdx[i]-1] == 0ULL);
+                                    ocrAssert(curNode->nodeNeedsProcess[npIdx[i]-1] == 0ULL);
                                     parentNode->nodeNeedsProcess[npIdx[i]-1] &= ~(1ULL<<curNode->parentSlot);
                                     if(parentNode->nodeNeedsProcess[npIdx[i]-1] == 0ULL) {
                                         propagateNP = true;
@@ -2312,7 +2312,7 @@ u8 pdProcessResolveEvents(ocrPolicyDomain_t *pd, u32 processType, u32 count, pdE
                         worker->curTask = toProcess->contextTask;
 
                         // It should be in this state if we are ready to process it.
-                        ASSERT((toProcess->properties & PDST_WAIT) == PDST_WAIT_ACT);
+                        ocrAssert((toProcess->properties & PDST_WAIT) == PDST_WAIT_ACT);
                         // We loop while the event is ready and there is stuff to do
                         // Note that the actions may make the event not ready thus the importance
                         // of checking every time
@@ -2322,7 +2322,7 @@ u8 pdProcessResolveEvents(ocrPolicyDomain_t *pd, u32 processType, u32 count, pdE
                             pdAction_t *curAction = NULL;
                             RESULT_ASSERT(arrayDequePeekFromHead(toProcess->actions, (void**)&curAction),
                                           ==, 0);
-                            ASSERT(curAction);
+                            ocrAssert(curAction);
                             npIdxCounter = 0;
                             _pdActionToNP(npIdx, curAction);
                             while(npIdx[npIdxCounter]) {
@@ -2336,7 +2336,7 @@ u8 pdProcessResolveEvents(ocrPolicyDomain_t *pd, u32 processType, u32 count, pdE
                                 pdAction_t *tAction __attribute__((unused)) = NULL;
                                 RESULT_ASSERT(arrayDequePopFromHead(toProcess->actions, (void**)&tAction),
                                               ==, 0);
-                                ASSERT(tAction == curAction);
+                                ocrAssert(tAction == curAction);
                                 DPRINTF(DEBUG_LVL_VERB, "Processing action %p\n", curAction);
                                 RESULT_ASSERT(_pdProcessAction(pd, worker, toProcess, curAction, 0), ==, 0);
                                 DPRINTF(DEBUG_LVL_VERB, "Done processing action %p\n", curAction);
@@ -2360,8 +2360,8 @@ u8 pdProcessResolveEvents(ocrPolicyDomain_t *pd, u32 processType, u32 count, pdE
                                 DPRINTF(DEBUG_LVL_VVERB, "Strand %p now ready\n", toProcess);
                                 // Some sanity checks: we should not need processing (since we were just
                                 // processing) and we should not be ready (since we needed processing)
-                                ASSERT((curNode->nodeReady & (1ULL<<stIdx)) == 0);
-                                ASSERT((curNode->nodeNeedsProcess[processType] & (1ULL<<stIdx)) == 0);
+                                ocrAssert((curNode->nodeReady & (1ULL<<stIdx)) == 0);
+                                ocrAssert((curNode->nodeNeedsProcess[processType] & (1ULL<<stIdx)) == 0);
 
                                 // Clear isNotReady since we actually have the result now
                                 isNotReady &= ~(1ULL<<curEvent);
@@ -2390,12 +2390,12 @@ u8 pdProcessResolveEvents(ocrPolicyDomain_t *pd, u32 processType, u32 count, pdE
                             } else {
                                 DPRINTF(DEBUG_LVL_VVERB, "Strand %p is not ready and has no actions\n",
                                         toProcess);
-                                ASSERT((curNode->nodeReady & (1ULL<<stIdx)) == 0);
-                                ASSERT((curNode->nodeNeedsProcess[processType] & (1ULL<<stIdx)) == 0);
-                                ASSERT((curNode->nodeReady & (1ULL<<stIdx)) == 0);
+                                ocrAssert((curNode->nodeReady & (1ULL<<stIdx)) == 0);
+                                ocrAssert((curNode->nodeNeedsProcess[processType] & (1ULL<<stIdx)) == 0);
+                                ocrAssert((curNode->nodeReady & (1ULL<<stIdx)) == 0);
                             }
                         } else {
-                            ASSERT(toProcess->properties & PDST_WAIT_ACT);
+                            ocrAssert(toProcess->properties & PDST_WAIT_ACT);
                             if((toProcess->properties & PDST_WAIT_EVT) == 0) {
                                 DPRINTF(DEBUG_LVL_VERB, "Strand %p still has pending actions that need processing\n",
                                         toProcess);
@@ -2420,13 +2420,13 @@ u8 pdProcessResolveEvents(ocrPolicyDomain_t *pd, u32 processType, u32 count, pdE
 #endif
                                     ++npIdxCounter;
                                 }
-                                ASSERT((curNode->nodeReady & (1ULL<<stIdx)) == 0);
+                                ocrAssert((curNode->nodeReady & (1ULL<<stIdx)) == 0);
                             } else {
                                 DPRINTF(DEBUG_LVL_VERB, "Strand %p has pending actions but not ready\n",
                                         toProcess);
 
-                                ASSERT((curNode->nodeNeedsProcess[processType] & (1ULL<<stIdx)) == 0);
-                                ASSERT((curNode->nodeReady & (1ULL<<stIdx)) == 0);
+                                ocrAssert((curNode->nodeNeedsProcess[processType] & (1ULL<<stIdx)) == 0);
+                                ocrAssert((curNode->nodeReady & (1ULL<<stIdx)) == 0);
                             }
                         }
 
@@ -2437,12 +2437,12 @@ u8 pdProcessResolveEvents(ocrPolicyDomain_t *pd, u32 processType, u32 count, pdE
                         // Holding lock on curNode->lock EXCEPT if freed strand
                         // (in that case, the following if statement is false)
                         if (propagateReady || propagateNP) {
-                            ASSERT(!didFree);
+                            ocrAssert(!didFree);
                             DPRINTF(DEBUG_LVL_VERB, "Propagating properties: ready: %"PRIu32"; np: %"PRIu32"\n",
                                     propagateReady, propagateNP);
 
                             pdStrandTableNode_t *parent = curNode->parent;
-                            ASSERT(hal_islocked(&(curNode->lock)));
+                            ocrAssert(hal_islocked(&(curNode->lock)));
                             u8 tNpIdx __attribute__((unused)) = npIdx[0]?(npIdx[0]-1):0;
                             if(npIdx[1]) {
                                 DPRINTF(DEBUG_LVL_VVERB, "WARNING: The below status of propagation will not print all NP vectors affected\n");
@@ -2504,7 +2504,7 @@ u8 pdProcessResolveEvents(ocrPolicyDomain_t *pd, u32 processType, u32 count, pdE
         }
     } /* End of while(isNotReady) */
 
-    ASSERT(isNotReady == 0); // We should have all events ready
+    ocrAssert(isNotReady == 0); // We should have all events ready
 
 END_LABEL(processResolveEventsEnd)
     DPRINTF(DEBUG_LVL_VERB, "EXIT pdProcessResolveEvents -> %"PRIu32"\n", toReturn);
@@ -2548,7 +2548,7 @@ static void _pdActionToNP(u8 *npIdx, pdAction_t* action) {
             for(i=0; i < NP_COUNT; ++i) npIdx[i] = i+1;
             return;
         default:
-            ASSERT(0);
+            ocrAssert(0);
             for(i=0; i<NP_COUNT; ++i) npIdx[i] = 0;
 
         }
@@ -2556,7 +2556,7 @@ static void _pdActionToNP(u8 *npIdx, pdAction_t* action) {
     default:
         DPRINTF(DEBUG_LVL_WARN, "Unknown action type in pdActionToNP: 0x%"PRIx64"\n",
                 (u64)(action) & 0x7);
-        ASSERT(0);
+        ocrAssert(0);
         for(i=0; i<NP_COUNT; ++i) npIdx[i] = 0;
     }
 }
@@ -2568,11 +2568,11 @@ static u8 _pdProcessAction(ocrPolicyDomain_t *pd, ocrWorker_t *worker, pdStrand_
             pd, worker, strand, action, properties);
 #define _END_FUNC processActionEnd
 
-    ASSERT(pd && worker);
+    ocrAssert(pd && worker);
     // If we are processing, the event should either be ready or NULL as certain
     // actions do not require an event
-    ASSERT(strand);
-    ASSERT((strand->curEvent == NULL) || (strand->curEvent->properties & PDEVT_READY));
+    ocrAssert(strand);
+    ocrAssert((strand->curEvent == NULL) || (strand->curEvent->properties & PDEVT_READY));
 
     u8 toReturn = 0;
 
@@ -2599,7 +2599,7 @@ static u8 _pdProcessAction(ocrPolicyDomain_t *pd, ocrWorker_t *worker, pdStrand_
                 // We only check the index and not the table ID because I don't have it
                 // For now this is just for asserting so we ignore but if we need
                 // to take this feature further, we'll need to rethink this
-                ASSERT(EVT_DECODE_ST_IDX((u64)curEvent) == strand->index);
+                ocrAssert(EVT_DECODE_ST_IDX((u64)curEvent) == strand->index);
                 curEvent = strand->curEvent; // No change
             }
 
@@ -2642,7 +2642,7 @@ static u8 _pdProcessAction(ocrPolicyDomain_t *pd, ocrWorker_t *worker, pdStrand_
                 // We only check the index and not the table ID because I don't have it
                 // For now this is just for asserting so we ignore but if we need
                 // to take this feature further, we'll need to rethink this
-                ASSERT(EVT_DECODE_ST_IDX((u64)curEvent) == strand->index);
+                ocrAssert(EVT_DECODE_ST_IDX((u64)curEvent) == strand->index);
                 curEvent = strand->curEvent; // No change
             }
 
@@ -2669,7 +2669,7 @@ static u8 _pdProcessAction(ocrPolicyDomain_t *pd, ocrWorker_t *worker, pdStrand_
             pdEvent_t *evt = strand->curEvent;
             DPRINTF(DEBUG_LVL_VERB, "Action is make strand %p ready (evt %p)\n",
                     strand, evt);
-            ASSERT(evt);
+            ocrAssert(evt);
             RESULT_ASSERT(pdMarkReadyEvent(pd, evt), ==, 0);
             break;
         }
@@ -2687,18 +2687,18 @@ static u8 _pdProcessAction(ocrPolicyDomain_t *pd, ocrWorker_t *worker, pdStrand_
                 u64 stIdx;
                 u32 type;
                 PDACTION_DECEXT_2ARG(stIdx, stTableIdx, type, actionPtr);
-                ASSERT(type == PDACTION_ENCEXT_MAKEREADY);
+                ocrAssert(type == PDACTION_ENCEXT_MAKEREADY);
                 DPRINTF(DEBUG_LVL_VVERB, "Action is make event (table %"PRIu32", idx: %"PRIu64") ready\n",
                         stTableIdx, stIdx);
                 pdStrand_t *strand = NULL;
                 RESULT_ASSERT(pdGetStrandForIndex(pd, &strand, pd->strandTables[stTableIdx-1], stIdx), ==, 0);
                 DPRINTF(DEBUG_LVL_VVERB, "Found strand %p and event %p\n", strand, strand->curEvent);
-                ASSERT(strand && strand->curEvent);
+                ocrAssert(strand && strand->curEvent);
                 RESULT_ASSERT(pdMarkReadyEvent(pd, strand->curEvent), ==, 0);
                 break;
             }
             default:
-                ASSERT(0);
+                ocrAssert(0);
                 break;
             }
             break;
@@ -2728,7 +2728,7 @@ static u8 _pdDestroyStrandTableNode(ocrPolicyDomain_t *pd, pdStrandTableNode_t *
     CHECK_RESULT_T(node != NULL, , toReturn |= OCR_EINVAL);
 
     // This should not contain anything
-    ASSERT(node->nodeFree == ~0ULL);
+    ocrAssert(node->nodeFree == ~0ULL);
     bool isLeaf = IS_LEAF_NODE(node->lmIndex);
 
     for (i=0; i<BV_SIZE; ++i) {
@@ -2792,16 +2792,16 @@ static u8 _pdInitializeStrandTableNode(ocrPolicyDomain_t *pd, pdStrandTable_t *t
     u8 toReturn = 0;
     u32 i = 0;
 
-    ASSERT(pd);
+    ocrAssert(pd);
 
     if (parent) {
         CHECK_RESULT_T(hal_islocked(&(parent->lock)), , toReturn = OCR_EINVAL);
     }
 
     // Some sanity checks
-    ASSERT(node);
-    ASSERT((parent == NULL) || parentSlot < BV_SIZE);
-    ASSERT(numChildrenToInit <= BV_SIZE);
+    ocrAssert(node);
+    ocrAssert((parent == NULL) || parentSlot < BV_SIZE);
+    ocrAssert(numChildrenToInit <= BV_SIZE);
     if (!(flags & IS_LEAF)) {
         // If not a leaf node, numChildrenToInit should be 0
         CHECK_RESULT_T(numChildrenToInit == 0, , toReturn = OCR_EINVAL);
@@ -2878,17 +2878,17 @@ static u8 _pdSetStrandNodeAtIdx(ocrPolicyDomain_t *pd, pdStrandTableNode_t *pare
     u8 toReturn = 0;
     u32 i;
 
-    ASSERT(pd);
+    ocrAssert(pd);
 
     // Sanity check
-    ASSERT(idx < BV_SIZE);
+    ocrAssert(idx < BV_SIZE);
 
     // If this fails, it means there is already a child there
     CHECK_RESULT_T(parent->data.slots[idx] == NULL, , toReturn |= OCR_EACCES);
 
     // If this assert fails, this means a runtime error happened and state is
     // no longer consistent
-    ASSERT(parent->nodeFree & (1ULL<<idx));
+    ocrAssert(parent->nodeFree & (1ULL<<idx));
 
     // If this fails, the child is invalid
     if (flags & IS_STRAND) {
@@ -3018,7 +3018,7 @@ static u8 _pdDestroyStrand(ocrPolicyDomain_t* pd, pdStrand_t *strand) {
 
     u8 toReturn = 0;
 
-    ASSERT(pd);
+    ocrAssert(pd);
 
     // The lock must be held on the strand
     CHECK_RESULT_T(hal_islocked(&(strand->lock)), , toReturn = OCR_EINVAL);
@@ -3043,7 +3043,7 @@ static u8 _pdDestroyStrand(ocrPolicyDomain_t* pd, pdStrand_t *strand) {
     // Go up and hold the parent lock so we can propagate the proper information on
     // free slots
     pdStrandTableNode_t *curNode = strand->parent;
-    ASSERT(curNode);
+    ocrAssert(curNode);
     hal_lock(&(curNode->lock));
 
     hal_unlock(&(strand->lock));
@@ -3058,7 +3058,7 @@ static u8 _pdDestroyStrand(ocrPolicyDomain_t* pd, pdStrand_t *strand) {
     {
         u32 i;
         for(i=0; i<NP_COUNT; ++i) {
-            ASSERT((curNode->nodeNeedsProcess[i] & (1ULL<<stIdx)) == 0);
+            ocrAssert((curNode->nodeNeedsProcess[i] & (1ULL<<stIdx)) == 0);
         }
     }
 #endif
@@ -3074,7 +3074,7 @@ static u8 _pdDestroyStrand(ocrPolicyDomain_t* pd, pdStrand_t *strand) {
         propagateReady = curNode->nodeReady == 0ULL;
     }
     pdStrandTableNode_t *parent = curNode->parent;
-    ASSERT(hal_islocked(&(curNode->lock)));
+    ocrAssert(hal_islocked(&(curNode->lock)));
     // We flipped nodeFree from 0 to 1. Propagate until we hit a 1
     // We flipped nodeReady from 1 to 0. Propagate until we find sibblings
     PROPAGATE_UP_TREE(

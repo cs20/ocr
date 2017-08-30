@@ -531,37 +531,41 @@ class JobObject(object):
         if self._errFile is not None:
             self._errFile.seek(0)
         testCases = [None, None]
-        if returnCode == 0:
-            # We check whether we have an output file to use for the result
-            cmdLine = Template(self.jobType.param_cmd + " output " + self.param_args)
-            myEnv = self._getEnvironment()
-            cmdLine = cmdLine.substitute(myEnv)
-            args = shlex.split(cmdLine)
-            self._myLog.debug("%s getting output file with command '%s'" % (str(self), str(args)))
+
+        # We check whether we have an output file to use for the result.
+        # We always try reading the output file regarless of whether the
+        # job executed successfully or not. For instance, a test job may fail
+        # because a sub-test failed and we would want ot include that output
+        cmdLine = Template(self.jobType.param_cmd + " output " + self.param_args)
+        myEnv = self._getEnvironment()
+        cmdLine = cmdLine.substitute(myEnv)
+        args = shlex.split(cmdLine)
+        self._myLog.debug("%s getting output file with command '%s'" % (str(self), str(args)))
+        outputFile = None
+        myEnv['PYTHONIOENCODING'] = 'utf-8'
+        try:
+            outputFile = subprocess.check_output(args, cwd=myEnv['JJOB_START_HOME'], env=myEnv, shell=False)
+        except subprocess.CalledProcessError:
+            self._myLog.warning("Could not get output file for %s... ignoring" % (str(self)))
+
+        outputFile = outputFile.strip()
+        if len(outputFile) == 0:
             outputFile = None
-            myEnv['PYTHONIOENCODING'] = 'utf-8'
-            try:
-                outputFile = subprocess.check_output(args, cwd=myEnv['JJOB_START_HOME'], env=myEnv, shell=False)
-            except subprocess.CalledProcessError:
-                self._myLog.warning("Could not get output file for %s... ignoring" % (str(self)))
 
-            outputFile = outputFile.strip()
-            if len(outputFile) == 0:
-                outputFile = None
+        if outputFile is not None:
+            self._myLog.debug("%s got output file '%s'" % (str(self), outputFile))
+        else:
+            self._myLog.debug("%s has no defined output file" % (str(self)))
 
-            if outputFile is not None:
-                self._myLog.debug("%s got output file '%s'" % (str(self), outputFile))
-            else:
-                self._myLog.debug("%s has no defined output file" % (str(self)))
+        if outputFile is not None and (not os.path.isfile(outputFile) or not os.path.isabs(outputFile)):
+            self._myLog.warning("Output file '%s' for %s is not a valid file or not an absolute path... ignoring result" %
+                                (outputFile, str(self)))
+            outputFile = None
 
-            if outputFile is not None and (not os.path.isfile(outputFile) or not os.path.isabs(outputFile)):
-                self._myLog.warning("Output file '%s' for %s is not a valid file or not an absolute path... ignoring result" %
-                                    (outputFile, str(self)))
-                outputFile = None
+        if outputFile:
+            testCases[1] = TestCasesFile(outputFile)
 
-            if outputFile:
-                testCases[1] = TestCasesFile(outputFile)
-
+        if returnCode == 0:
             testCases[0] = TestCase("_main_" + self.name, self.name,
                                     (self._endTime - self._startTime).total_seconds(),
                                     self._outFile.read(-1).decode('utf-8'), self._errFile.read(-1).decode('utf-8'))

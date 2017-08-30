@@ -351,6 +351,8 @@ typedef struct _paramListPolicyDomainInst_t {
 #define PD_MSG_FIELD_O(field) _PD_MSG_FIELD_FULL_QUAL(PD_MSG, PD_TYPE, inOrOut.out, field)
 #define PD_MSG_INOUT_STRUCT(ptr) _PD_MSG_INOUT_STRUCT(ptr, PD_TYPE)
 
+char * pd_msg_type_to_str(int type);
+
 // Assumes that all union members start at the start of the union.
 // Works for now but may have issues with packing
 #define _PD_MSG_SIZE_ALL_SUB(type)                              \
@@ -430,6 +432,12 @@ typedef struct _ocrPolicyMsg_t {
     u64 sendTime;
     u64 rcvTime;
     u64 unMarshTime;
+#endif
+#ifdef OCR_ENABLE_SIMULATOR
+    u64 msgTime;
+#endif
+#ifdef ENABLE_EXTENSION_PERF
+    u64 nodeStats[NODE_PERF_MAX];       /**< Field maintaining performance statistics of entire node */
 #endif
 
     /* The following rules apply to all fields in the message:
@@ -626,7 +634,7 @@ typedef struct _ocrPolicyMsg_t {
                     u32 paramc;            /**< In: Number of parameters for EDT */
                     u32 depc;              /**< In: Number of dependences for EDT */
                     u32 properties;        /**< In: Properties */
-#ifdef OCR_ENABLE_EDT_NAMING
+#if defined(OCR_ENABLE_EDT_NAMING) || defined(OCR_TRACE_BINARY)
                     const char * funcName; /**< In: Debug help: user identifier */
                     u64 funcNameLen;       /**< In: Number of characters (excluding '\0') in funcName */
 #endif
@@ -938,6 +946,9 @@ typedef struct _ocrPolicyMsg_t {
                     ocrFatGuid_t source; /**< In: Source of the dependence */
                     ocrFatGuid_t dest;   /**< In: Destination of the dependence */
                     ocrFatGuid_t currentEdt;   /**< In: EDT that is adding dep */
+#ifdef ENABLE_EXTENSION_MULTI_OUTPUT_SLOT
+                    u32 sslot;           /**< In: Slot of src to connect the dep to */
+#endif
                     u32 slot;            /**< In: Slot of dest to connect the dep to */
                 } in;
                 struct {
@@ -951,6 +962,9 @@ typedef struct _ocrPolicyMsg_t {
                 struct {
                     ocrFatGuid_t signaler;  /**< In: Signaler to register */
                     ocrFatGuid_t dest;      /**< In: Object to register the signaler on */
+#ifdef ENABLE_EXTENSION_MULTI_OUTPUT_SLOT
+                    u32 sslot;
+#endif
                     u32 slot;               /**< In: Slot on dest to register the signaler on */
                     ocrDbAccessMode_t mode; /**< In: Access mode for the dependence's datablock */
                     u32 properties;         /**< In: Properties */
@@ -966,6 +980,9 @@ typedef struct _ocrPolicyMsg_t {
                 struct {
                     ocrFatGuid_t waiter;   /**< In: Waiter to register */
                     ocrFatGuid_t dest;     /**< In: Object to register the waiter on */
+#ifdef ENABLE_EXTENSION_MULTI_OUTPUT_SLOT
+                    u32 sslot;
+#endif
                     u32 slot;              /**< In: The slot on waiter that will be notified */
 #ifdef REG_ASYNC_SGL
                     ocrDbAccessMode_t mode; /**< In: Caching the mode the destination should use when
@@ -1536,6 +1553,14 @@ typedef struct _ocrPolicyDomain_t {
     struct _pdStrandTable_t* strandTables[2];
 
     Queue_t* taskPerfs;                        /**< Table maintaining performance statistics of each EDT */
+#ifdef ENABLE_EXTENSION_PERF
+    u64 *myNodeStats;                          /**< Performance statistics of this node */
+    u64 *bestNodes;                            /**< 'Best' node for each metric */
+    u64 *bestNodeStats;                        /**< Stat value for best node, for each metric  */
+#endif
+#ifdef LOAD_BALANCING_TEST
+    u32 migrationCount;
+#endif
 
     /**
      * @brief Two dimensional array:
@@ -1579,6 +1604,10 @@ typedef struct _ocrPolicyDomain_t {
     u64 *junk_statsObject;                      /**< Placeholder, to assure consistency of PD structure length */
 #endif
 
+#ifdef OCR_ENABLE_SIMULATOR
+    volatile u64 pdTime;                        // Virtual time of the policy domain
+    volatile u32 slowestWorker;                 // Worker with the earliest virtual time
+#endif
 } ocrPolicyDomain_t;
 
 /****************************************************/

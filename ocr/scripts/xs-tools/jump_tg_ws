@@ -1,0 +1,58 @@
+#!/bin/bash
+
+REPO=$1
+
+if [[ $# -lt 1 ]]; then
+   echo "jump_mpi_ws: usage is ${SCRIPT_NAME} ocrRepoPath [command] [path_to_jump]"
+fi
+
+if [[ $# -ge 2 ]]; then
+    CMD=$2
+fi
+
+if [[ $# -ge 3 ]]; then
+    JUMP_PATH=$3
+fi
+
+if [[ -z ${XST_ROOT} ]]; then
+   export XST_ROOT=${HOME}/xs-tools
+fi
+
+#
+# Disable parallel build by default, causes issues with TG
+# clang-3.9 (deleted): error: unable to execute command: Executable "tg/tg/install/bin/clang-3.9 (deleted)" doesn't exist!
+#
+export MAKE_THREADS=${MAKE_THREADS-1}
+
+# Source default environment
+. ${XST_ROOT}/env.sh
+
+unset OCR_TYPE
+
+BUILD_DIR=$REPO/ocr/ocr/build
+
+cd ${BUILD_DIR}
+
+function buildOCR {
+    make -j${MAKE_THREADS} clean && make -j${MAKE_THREADS} all && make -j${MAKE_THREADS} install
+}
+
+if [ -n "$CMD" -a "${CMD}" = "build" ]; then
+    OCR_TYPE=builder-ce buildOCR && OCR_TYPE=builder-xe buildOCR && OCR_TYPE=tg-ce buildOCR && OCR_TYPE=tg-xe buildOCR
+fi
+
+# Add some default tests
+export TEST_EXT_PARAMS_EVT=yes
+export TEST_EXT_COUNTED_EVT=yes
+export TEST_EXT_CHANNEL_EVT=yes
+
+JUMP_PATH=${JUMP_PATH-../tests}
+# Drops in OCR's test folder by default
+cd ${JUMP_PATH}
+
+export OCR_TYPE=tg
+
+# This is to clean up the environment
+unset REPO
+unset CMD
+unset JUMP_PATH

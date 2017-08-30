@@ -40,12 +40,12 @@ ocrEdt_t x86MainEdtGet() {
 
 u64 x86RuntimeChunkAlloc(u64 size, u64 *extra) {
     void* returnValue = calloc(1, size);
-    ASSERT(returnValue);
+    ocrAssert(returnValue);
     return (u64)returnValue;
 }
 
 void x86RuntimeChunkFree(u64 addr, u64* extra) {
-    ASSERT(addr);
+    ocrAssert(addr);
     free((void*)addr);
 }
 

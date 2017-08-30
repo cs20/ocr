@@ -24,13 +24,14 @@
 /******************************************************/
 
 static void wstSchedulerObjectStart(ocrSchedulerObject_t *self, ocrPolicyDomain_t *PD, u32 numDeques) {
+    DPRINTF(DEBUG_LVL_VERB, "wstSchedulerObjectStart:  %"PRIu32"\n",numDeques);
     u32 i, w;
-    ASSERT(numDeques > 0);
+    ocrAssert(numDeques > 0);
     ocrPolicyDomain_t *pd = NULL;
     getCurrentEnv(&pd, NULL, NULL, NULL);
     ocrScheduler_t *scheduler = PD->schedulers[0];
     ocrSchedulerHeuristic_t *masterSchedulerHeuristic = scheduler->schedulerHeuristics[scheduler->masterHeuristicId];
-    ASSERT(masterSchedulerHeuristic->contextCount == numDeques);
+    ocrAssert(masterSchedulerHeuristic->contextCount == numDeques);
 
     self->loc = pd->myLocation;
     self->mapping = OCR_SCHEDULER_OBJECT_MAPPING_PINNED;
@@ -66,8 +67,12 @@ static void wstSchedulerObjectStart(ocrSchedulerObject_t *self, ocrPolicyDomain_
             }
         }
     }
+#ifdef OCR_ENABLE_SCHEDULER_SPAWN_QUEUE
+    wstSchedObj->spawn_queue = dequeFactory->fcts.create(dequeFactory, (ocrParamList_t*)(&params));
+    //TODO: do we need to set location of the dequeFactor as above?
+#endif
 #else
-    ASSERT(0);
+    ocrAssert(0);
 #endif
 }
 
@@ -94,6 +99,9 @@ static void wstSchedulerObjectInitialize(ocrSchedulerObjectFactory_t *fact, ocrS
     ocrSchedulerObjectWst_t* wstSchedObj = (ocrSchedulerObjectWst_t*)self;
     wstSchedObj->numDeques = 0;
     wstSchedObj->deques = NULL;
+#ifdef OCR_ENABLE_SCHEDULER_SPAWN_QUEUE
+    wstSchedObj->spawn_queue = NULL;
+#endif
     wstSchedObj->config = SCHEDULER_OBJECT_WST_CONFIG_REGULAR;
     paramListSchedulerObjectWst_t *paramsWst = (paramListSchedulerObjectWst_t*)perInstance;
     // There's no specific initialization for now. Default should be regular and
@@ -105,7 +113,7 @@ static void wstSchedulerObjectInitialize(ocrSchedulerObjectFactory_t *fact, ocrS
         case SCHEDULER_OBJECT_WST_CONFIG_STATIC:
             break;
         default:
-            ASSERT(0);
+            ocrAssert(0);
             break;
         }
     }
@@ -114,8 +122,8 @@ static void wstSchedulerObjectInitialize(ocrSchedulerObjectFactory_t *fact, ocrS
 ocrSchedulerObject_t* newSchedulerObjectWst(ocrSchedulerObjectFactory_t *factory, ocrParamList_t *perInstance) {
 #ifdef OCR_ASSERT
     paramListSchedulerObject_t *paramSchedObj = (paramListSchedulerObject_t*)perInstance;
-    ASSERT(paramSchedObj->config);
-    ASSERT(!paramSchedObj->guidRequired);
+    ocrAssert(paramSchedObj->config);
+    ocrAssert(!paramSchedObj->guidRequired);
 #endif
     ocrSchedulerObject_t* schedObj = (ocrSchedulerObject_t*)runtimeChunkAlloc(sizeof(ocrSchedulerObjectWst_t), PERSISTENT_CHUNK);
     wstSchedulerObjectInitialize(factory, schedObj, perInstance);
@@ -124,10 +132,11 @@ ocrSchedulerObject_t* newSchedulerObjectWst(ocrSchedulerObjectFactory_t *factory
 }
 
 ocrSchedulerObject_t* wstSchedulerObjectCreate(ocrSchedulerObjectFactory_t *factory, ocrParamList_t *perInstance) {
+    DPRINTF(DEBUG_LVL_VERB, "wstSchedulerObjectCreate\n");
 #ifdef OCR_ASSERT
     paramListSchedulerObject_t *paramSchedObj = (paramListSchedulerObject_t*)perInstance;
-    ASSERT(!paramSchedObj->config);
-    ASSERT(!paramSchedObj->guidRequired);
+    ocrAssert(!paramSchedObj->config);
+    ocrAssert(!paramSchedObj->guidRequired);
 #endif
     ocrPolicyDomain_t *pd = NULL;
     getCurrentEnv(&pd, NULL, NULL, NULL);
@@ -143,7 +152,7 @@ u8 wstSchedulerObjectDestroy(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObje
     if (IS_SCHEDULER_OBJECT_CONFIG_ALLOCATED(self->kind)) {
         runtimeChunkFree((u64)self, PERSISTENT_CHUNK);
     } else {
-        ASSERT(IS_SCHEDULER_OBJECT_PD_ALLOCATED(self->kind));
+        ocrAssert(IS_SCHEDULER_OBJECT_PD_ALLOCATED(self->kind));
         ocrPolicyDomain_t *pd = NULL;
         getCurrentEnv(&pd, NULL, NULL, NULL);
         wstSchedulerObjectFinish(self, pd);
@@ -153,12 +162,12 @@ u8 wstSchedulerObjectDestroy(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObje
 }
 
 u8 wstSchedulerObjectInsert(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObject_t *self, ocrSchedulerObject_t *element, ocrSchedulerObjectIterator_t *iterator, u32 properties) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 u8 wstSchedulerObjectRemove(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObject_t *self, ocrSchedulerObjectKind kind, u32 count, ocrSchedulerObject_t *dst, ocrSchedulerObjectIterator_t *iterator, u32 properties) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
@@ -172,21 +181,22 @@ u64 wstSchedulerObjectCount(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObjec
         ocrSchedulerObjectFactory_t *dequeFactory = pd->schedulerObjectFactories[deque->fctId];
         count += dequeFactory->fcts.count(dequeFactory, deque, properties);
     }
+    DPRINTF(DEBUG_LVL_VERB, "wstSchedulerObjectCount:  %"PRIu64"\n",count);
     return count;
 }
 
 ocrSchedulerObjectIterator_t* wstSchedulerObjectCreateIterator(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObject_t *self, u32 properties) {
-    ASSERT(0);
+    ocrAssert(0);
     return NULL;
 }
 
 u8 wstSchedulerObjectDestroyIterator(ocrSchedulerObjectFactory_t * fact, ocrSchedulerObjectIterator_t *iterator) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 u8 wstSchedulerObjectIterate(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObjectIterator_t *iterator, u32 properties) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
@@ -207,12 +217,12 @@ u8 wstSetLocationForSchedulerObject(ocrSchedulerObjectFactory_t *fact, ocrSchedu
 }
 
 ocrSchedulerObjectActionSet_t* wstSchedulerObjectNewActionSet(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObject_t *self, u32 count) {
-    ASSERT(0);
+    ocrAssert(0);
     return NULL;
 }
 
 u8 wstSchedulerObjectDestroyActionSet(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObjectActionSet_t *actionSet) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
@@ -222,12 +232,12 @@ u8 wstSchedulerObjectSwitchRunlevel(ocrSchedulerObject_t *self, ocrPolicyDomain_
     u8 toReturn = 0;
 
     // This is an inert module, we do not handle callbacks (caller needs to wait on us)
-    ASSERT(callback == NULL);
+    ocrAssert(callback == NULL);
 
     // Verify properties for this call
-    ASSERT((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
+    ocrAssert((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
            && !(properties & RL_RELEASE));
-    ASSERT(!(properties & RL_FROM_MSG));
+    ocrAssert(!(properties & RL_FROM_MSG));
 
     switch(runlevel) {
     case RL_CONFIG_PARSE:
@@ -290,28 +300,28 @@ u8 wstSchedulerObjectSwitchRunlevel(ocrSchedulerObject_t *self, ocrPolicyDomain_
     case RL_USER_OK:
         break;
     default:
-        ASSERT(0);
+        ocrAssert(0);
     }
     return toReturn;
     /* BUG #583: There was this code on STOP, not sure if we still need it
        ocrSchedulerObject_t *schedObj = (ocrSchedulerObject_t*)self;
        ocrSchedulerObjectFactory_t *fact = self->scheduler->pd->schedulerObjectFactories[schedObj->fctId];
-       ASSERT(wstSchedulerObjectCount(fact, schedObj, 0) == 0);
+       ocrAssert(wstSchedulerObjectCount(fact, schedObj, 0) == 0);
     */
 }
 
 u8 wstSchedulerObjectOcrPolicyMsgGetMsgSize(ocrSchedulerObjectFactory_t *fact, ocrPolicyMsg_t *msg, u64 *marshalledSize, u32 properties) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 u8 wstSchedulerObjectOcrPolicyMsgMarshallMsg(ocrSchedulerObjectFactory_t *fact, ocrPolicyMsg_t *msg, u8 *buffer, u32 properties) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 u8 wstSchedulerObjectOcrPolicyMsgUnMarshallMsg(ocrSchedulerObjectFactory_t *fact, ocrPolicyMsg_t *msg, u8 *localMainPtr, u8 *localAddlPtr, u32 properties) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 

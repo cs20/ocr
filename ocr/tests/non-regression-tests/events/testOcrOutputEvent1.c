@@ -12,7 +12,7 @@
 // This edt is triggered when the output event of the other edt is satisfied by the runtime
 ocrGuid_t chainedEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     int * val = (int *) depv[0].ptr;
-    ASSERT((*val) == 42);
+    ocrAssert((*val) == 42);
     ocrShutdown(); // This is the last EDT to execute, terminate
     return NULL_GUID;
 }

@@ -40,7 +40,7 @@ static inline ocrStatsFilter_t* newStatsFilter(ocrStatsFilterType_t type,
         STATS_FILTER_CASE(TRIVIAL, parent, instanceArg);
         STATS_FILTER_CASE(FILE_DUMP, parent, instanceArg);
     default:
-        ASSERT(0);
+        ocrAssert(0);
         return NULL;
     }
 }

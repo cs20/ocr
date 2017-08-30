@@ -36,7 +36,7 @@ ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
 #else
 
 ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
-    PRINTF("No RT API\n");
+    ocrPrintf("No RT API\n");
     ocrShutdown();
     return NULL_GUID;
 }

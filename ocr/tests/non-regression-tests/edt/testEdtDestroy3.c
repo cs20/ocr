@@ -12,7 +12,7 @@
 
 ocrGuid_t finishEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     // Should never get executed
-    ASSERT(false);
+    ocrAssert(false);
     return NULL_GUID;
 }
 

@@ -71,6 +71,17 @@ extern void doTrace(u64 location, u64 wrkr, ocrGuid_t taskGuid, ...);
 #define OCR_DEBUG_LVL DEBUG_LVL_INFO
 #endif /* OCR_DEBUG_LVL */
 
+/**
+ * @brief Debug mask
+ *
+ * The debug levels above only use 3 bits of a
+ * larger mask.  Mask values start at 0x00000008.
+ */
+extern u64 Debug_Mask;
+extern char * pd_msg_type_to_str(int type);
+#define DEBUG_MSK_MSGSTATS 0x0000000000000008
+#define DEBUG_MSK_EDTSTATS 0x0000000000000010
+
 #ifdef OCR_DEBUG_ALLOCATOR
 #define OCR_DEBUG_ALLOCATOR 1
 #else
@@ -427,18 +438,19 @@ extern void doTrace(u64 location, u64 wrkr, ocrGuid_t taskGuid, ...);
 //Binary trace enabled, overriding debug verbosity to DEBUG_LVL_INFO
 #endif
 
-#define DPRINTF_TYPE(type, level, format, ...)
+#define DPRINTF_TYPE(type, level, mask, format, ...)
 //NO-OP... Suppress DPRINTF console output if tracing is active
 
 #else
 
-#define DPRINTF_TYPE(type, level, format, ...)   do {                   \
-    if(OCR_DEBUG_##type && level <= DEBUG_LVL_##type) {                 \
+#define DPRINTF_TYPE(type, level, mask, format, ...)   do {             \
+    if(OCR_DEBUG_##type &&                                              \
+          (level <= DEBUG_LVL_##type || mask & Debug_Mask)) {           \
         ocrTask_t *__task = NULL; ocrWorker_t *__worker = NULL;         \
         struct _ocrPolicyDomain_t *__pd = NULL;                         \
         getCurrentEnv(&__pd, &__worker, &__task, NULL);                 \
         ocrGuid_t __taskGuid = __task ? __task->guid : NULL_GUID;       \
-        PRINTF(DPRINTF_STR(OCR_DEBUG_##type##_STR "(" OCR_DEBUG_##level##_STR \
+        ocrPrintf(DPRINTF_STR(OCR_DEBUG_##type##_STR "(" OCR_DEBUG_##level##_STR \
                            ") [PD:0x%"PRIx64" W:0x%"PRIx64" EDT:"GUIDF"] " format), \
                __pd?(u64)__pd->myLocation:0,                            \
                __worker?(u64)__worker->id:0,                            \
@@ -447,19 +459,19 @@ extern void doTrace(u64 location, u64 wrkr, ocrGuid_t taskGuid, ...);
 
 #endif /*OCR_TRACE_BINARY*/
 
-#define DPRINTF_TYPE_COND_LVL(type, cond, levelT, levelF, format, ...)  \
+#define DPRINTF_TYPE_COND_LVL(type, cond, levelT, levelF, mask, format, ...)  \
     do {                                                                \
         if(cond) {                                                      \
-            DPRINTF_TYPE(type, levelT, format, ## __VA_ARGS__);         \
+            DPRINTF_TYPE(type, levelT, mask, format, ## __VA_ARGS__);         \
         } else {                                                        \
-            DPRINTF_TYPE(type, levelF, format, ## __VA_ARGS__);         \
+            DPRINTF_TYPE(type, levelF, mask, format, ## __VA_ARGS__);         \
         }                                                               \
     } while(0)
 
 #else
 #define DO_DEBUG_TYPE(level) if(0) {
-#define DPRINTF_TYPE(type, level, format, ...)
-#define DPRINTF_TYPE_COND_LVL(type, cond, levelT, levelF, format, ...)
+#define DPRINTF_TYPE(type, level, mask, format, ...)
+#define DPRINTF_TYPE_COND_LVL(type, cond, levelT, levelF, mask, format, ...)
 #endif /* OCR_DEBUG */
 
 #ifdef OCR_TRACE
@@ -621,7 +633,7 @@ extern void doTrace(u64 location, u64 wrkr, ocrGuid_t taskGuid, ...);
             struct _ocrPolicyDomain_t *__pd = NULL;                     \
             getCurrentEnv(&__pd, &__worker, &__task, NULL);             \
             ocrGuid_t __taskGuid = __task ? __task->guid : NULL_GUID;   \
-            PRINTF(OCR_DEBUG_##type##_STR "(TRACE) "                    \
+            ocrPrintf(OCR_DEBUG_##type##_STR "(TRACE) "                    \
                    "[PD:0x%"PRIx64" W:0x%"PRIx64" EDT:0x"GUIDF"] " format, \
                    __pd?(u64)__pd->myLocation:0,                        \
                    __worker?(u64)__worker->id:0,                        \
@@ -635,11 +647,15 @@ extern void doTrace(u64 location, u64 wrkr, ocrGuid_t taskGuid, ...);
 #define DO_DEBUG_TYPE_INT(type, level) DO_DEBUG_TYPE(type, level)
 #define DO_DEBUG(level) DO_DEBUG_TYPE_INT(DEBUG_TYPE, level)
 
-#define DPRINTF_TYPE_INT(type, level, format, ...) DPRINTF_TYPE(type, level, format, ## __VA_ARGS__)
+#define DPRINTF_TYPE_INT(type, level, mask, format, ...) DPRINTF_TYPE(type, level, mask, format, ## __VA_ARGS__)
 
-#define DPRINTF(level, format, ...) DPRINTF_TYPE_INT(DEBUG_TYPE, level, format, ## __VA_ARGS__)
+#define DPRINTF(level, format, ...) DPRINTF_TYPE_INT(DEBUG_TYPE, level, 0, format, ## __VA_ARGS__)
 #define DPRINTF_COND_LVL(cond, levelT, levelF, format, ...) \
-    DPRINTF_TYPE_COND_LVL(DEBUG_TYPE, cond, levelT, levelF, format, ## __VA_ARGS__)
+    DPRINTF_TYPE_COND_LVL(DEBUG_TYPE, cond, levelT, levelF, 0, format, ## __VA_ARGS__)
+
+#define DPRINTFMSK(level, mask, format, ...) DPRINTF_TYPE_INT(DEBUG_TYPE, level, mask, format, ## __VA_ARGS__)
+#define DPRINTF_COND_LVLMSK(cond, levelT, levelF, mask, format, ...) \
+    DPRINTF_TYPE_COND_LVL(DEBUG_TYPE, cond, levelT, levelF, mask, format, ## __VA_ARGS__)
 
 #define END_DEBUG }
 
@@ -647,13 +663,25 @@ extern void doTrace(u64 location, u64 wrkr, ocrGuid_t taskGuid, ...);
 #define TPRINTF(format, ...) TPRINTF_TYPE_INT(DEBUG_TYPE, format, ## __VA_ARGS__)
 
 #ifdef OCR_ASSERT
-#define ASSERT(a) do { sal_assert((bool)((a) != 0), __FILE__, __LINE__); } while(0);
+
+#define ASSERT(a) do {                                                              \
+    ocrPrintf("ASSERT is deprecated as of OCR v1.2.0... use ocrAssert\n");    \
+    sal_assert((bool)((a) != 0), __FILE__, __LINE__); } while(0);
+
+//FIXME should this be defined as a function that is wrapper for an internal ASSERT macro?
+#define ocrAssert(a) do { sal_assert((bool)((a) != 0), __FILE__, __LINE__); } while(0);
+
 #define RESULT_ASSERT(a, op, b) do { sal_assert((a) op (b), __FILE__, __LINE__); } while(0);
 #define RESULT_TRUE(a) do { sal_assert((a) != 0, __FILE__, __LINE__); } while(0);
 #define ASSERT_BLOCK_BEGIN(cond) if(!(cond)) {
-#define ASSERT_BLOCK_END ASSERT(false && "assert block failure"); }
+#define ASSERT_BLOCK_END ocrAssert(false && "assert block failure"); }
 #else
-#define ASSERT(a)
+
+#define ASSERT(a) do { ocrPrintf("ASSERT is deprecated as of OCR v1.2.0... use ocrAssert\n"); } while(0);
+
+//FIXME should this be defined as a function that is wrapper for an internal ASSERT macro?
+#define ocrAssert(a)
+
 #define RESULT_ASSERT(a, op, b) do { a; } while(0);
 #define RESULT_TRUE(a) do { a; } while(0);
 #define ASSERT_BLOCK_BEGIN(cond) if(0) {
@@ -664,7 +692,7 @@ extern void doTrace(u64 location, u64 wrkr, ocrGuid_t taskGuid, ...);
 #ifdef OCR_ASSERT_CRITICAL
 #define ASSERT_CRITICAL(a) do { sal_assert((bool)((a) != 0), __FILE__, __LINE__); } while(0);
 #else
-#define ASSERT_CRITICAL(a) ASSERT(a)
+#define ASSERT_CRITICAL(a) ocrAssert(a)
 #endif
 
 
@@ -672,16 +700,18 @@ extern void doTrace(u64 location, u64 wrkr, ocrGuid_t taskGuid, ...);
 #define VERIFY(cond, format, ...)                                       \
     do {                                                                \
         if(!(cond)) {                                                   \
-            PRINTF("FAILURE @ '%s:%"PRId32"' " format, __FILE__, __LINE__, ## __VA_ARGS__); \
+            ocrPrintf("FAILURE @ '%s:%"PRId32"' " format, __FILE__, __LINE__, ## __VA_ARGS__); \
         } else {                                                        \
-            PRINTF("PASSED @ '%s:%"PRId32"' " format, __FILE__, __LINE__, ## __VA_ARGS__); \
+            ocrPrintf("PASSED @ '%s:%"PRId32"' " format, __FILE__, __LINE__, ## __VA_ARGS__); \
         }                                                               \
     } while(0);
 #endif
 
 #ifdef OCR_TRACE_BINARY
 //Call Tracing Function
+extern __thread bool inside_trace;
 #define OCR_TOOL_TRACE(...) do {             \
+    if (! inside_trace ) {                   \
     ocrTask_t *_task = NULL; ocrWorker_t *_worker = NULL;               \
     struct _ocrPolicyDomain_t *_pd = NULL;                              \
     getCurrentEnv(&_pd, &_worker, &_task, NULL);                        \
@@ -689,11 +719,17 @@ extern void doTrace(u64 location, u64 wrkr, ocrGuid_t taskGuid, ...);
             _worker?(u64)_worker->id:0,                                 \
             _task?_task->guid:NULL_GUID,                                \
             ## __VA_ARGS__);                                            \
+    }                                                                   \
+    } while(0)
+
+#define OCR_TOOL_TRACE_GETTIME(timestamp) do {             \
+    timestamp = salGetTime();                              \
     } while(0)
 
 #else
 //NO-OP
 #define OCR_TOOL_TRACE(...)
+#define OCR_TOOL_TRACE_GETTIME()
 
 #endif /* OCR_TRACE_BINARY */
 

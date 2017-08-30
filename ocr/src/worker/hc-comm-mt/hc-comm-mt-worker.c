@@ -68,11 +68,11 @@ static void workerLoopHcCommMTInternal(ocrWorker_t * worker, ocrPolicyDomain_t *
         pdEvent_t * evt = NULL;
         ret = pd->fcts.pollMessageMT(pd, &evt, 0);
         if (ret == POLL_MORE_MESSAGE) {
-            ASSERT(evt->properties & PDEVT_TYPE_MSG);
+            ocrAssert(evt->properties & PDEVT_TYPE_MSG);
             pdEventMsg_t *evtMsg = (pdEventMsg_t*)evt;
             ocrPolicyMsg_t * message __attribute__((unused)) = evtMsg->msg;
             //To catch misuses, assert src is not self and dst is self
-            ASSERT((message->srcLocation != pd->myLocation) && (message->destLocation == pd->myLocation));
+            ocrAssert((message->srcLocation != pd->myLocation) && (message->destLocation == pd->myLocation));
             // In this case, we only get unsolicited messages because the other ones are not returned at all
             DPRINTF(DEBUG_LVL_VVERB, "Creating a microtask from event %p with msg %p\n", evt, message);
             createUTask(pd, evt);
@@ -88,14 +88,14 @@ static void workShiftHcCommMT(ocrWorker_t * worker) {
 static void workerLoopHcCommMT(ocrWorker_t * worker) {
     u8 continueLoop = true;
     // At this stage, we are in the USER_OK runlevel
-    ASSERT(worker->curState == GET_STATE(RL_USER_OK, (RL_GET_PHASE_COUNT_DOWN(worker->pd, RL_USER_OK))));
+    ocrAssert(worker->curState == GET_STATE(RL_USER_OK, (RL_GET_PHASE_COUNT_DOWN(worker->pd, RL_USER_OK))));
     ocrPolicyDomain_t *pd = worker->pd;
 
     if (worker->amBlessed) {
         ocrGuid_t affinityMasterPD;
         u64 count = 0;
         // There should be a single master PD
-        ASSERT(!ocrAffinityCount(AFFINITY_PD_MASTER, &count) && (count == 1));
+        ocrAssert(!ocrAffinityCount(AFFINITY_PD_MASTER, &count) && (count == 1));
         ocrAffinityGet(AFFINITY_PD_MASTER, &count, &affinityMasterPD);
 
         // This is all part of the mainEdt setup
@@ -158,13 +158,13 @@ static void workerLoopHcCommMT(ocrWorker_t * worker) {
                      EDT_PROP_NONE, &edtHint, NULL);
     }
 
-    ASSERT(worker->curState == GET_STATE(RL_USER_OK, PHASE_RUN));
+    ocrAssert(worker->curState == GET_STATE(RL_USER_OK, PHASE_RUN));
     ocrWorkerHcCommMT_t * rworker = (ocrWorkerHcCommMT_t *) worker;
     rworker->flushOutgoingComm = false;
     do {
         // 'communication' loop: take, send / poll, dispatch, execute
         // Double check the setup
-        ASSERT(RL_GET_PHASE_COUNT_DOWN(worker->pd, RL_USER_OK) == PHASE_RUN);
+        ocrAssert(RL_GET_PHASE_COUNT_DOWN(worker->pd, RL_USER_OK) == PHASE_RUN);
         u8 phase = GET_STATE_PHASE(worker->desiredState);
         if ((phase == PHASE_RUN) ||
             (phase == PHASE_COMP_QUIESCE)) {
@@ -202,9 +202,9 @@ static void workerLoopHcCommMT(ocrWorker_t * worker) {
                 worker->fcts.workShift(worker);
             }
             // The comm-worker has been transitioned
-            ASSERT(GET_STATE_PHASE(worker->desiredState) == PHASE_DONE);
+            ocrAssert(GET_STATE_PHASE(worker->desiredState) == PHASE_DONE);
         } else {
-            ASSERT(phase == PHASE_DONE);
+            ocrAssert(phase == PHASE_DONE);
             // When the comm-worker quiesce and it already had all its neighbors PD's shutdown msg
             // we need to make sure there's no outgoing messages pending (i.e. a one-way shutdown)
             // for other PDs before wrapping up the user runlevel.
@@ -212,7 +212,7 @@ static void workerLoopHcCommMT(ocrWorker_t * worker) {
             // This call returns when all outgoing messages are sent.
             worker->fcts.workShift(worker);
             // Phase shouldn't have changed since we haven't done callback yet
-            ASSERT(GET_STATE_PHASE(worker->desiredState) == PHASE_DONE);
+            ocrAssert(GET_STATE_PHASE(worker->desiredState) == PHASE_DONE);
             worker->curState = GET_STATE(RL_USER_OK, PHASE_DONE);
             worker->callback(worker->pd, worker->callbackArg);
             // Warning: Code potentially concurrent with switchRunlevel now on
@@ -225,7 +225,7 @@ static void workerLoopHcCommMT(ocrWorker_t * worker) {
             //       messages)
             while((worker->curState) == (worker->desiredState))
                 ;
-            ASSERT(GET_STATE_RL(worker->desiredState) == RL_COMPUTE_OK);
+            ocrAssert(GET_STATE_RL(worker->desiredState) == RL_COMPUTE_OK);
         }
 
         // Here we are shifting to another RL or Phase
@@ -233,8 +233,8 @@ static void workerLoopHcCommMT(ocrWorker_t * worker) {
         case RL_USER_OK: {
             u8 desiredState = worker->desiredState;
             u8 desiredPhase = GET_STATE_PHASE(desiredState);
-            ASSERT(desiredPhase != PHASE_RUN);
-            ASSERT((desiredPhase == PHASE_COMP_QUIESCE) ||
+            ocrAssert(desiredPhase != PHASE_RUN);
+            ocrAssert((desiredPhase == PHASE_COMP_QUIESCE) ||
                     (desiredPhase == PHASE_COMM_QUIESCE) ||
                     (desiredPhase == PHASE_DONE));
             if (desiredPhase == PHASE_COMP_QUIESCE) {
@@ -269,14 +269,14 @@ static void workerLoopHcCommMT(ocrWorker_t * worker) {
                 // There is no need to do anything else except quit
                 continueLoop = false;
             } else {
-                ASSERT(0);
+                ocrAssert(0);
             }
             break;
         }
         // END copy-paste from hc-worker code
         default:
             // Only these two RL should occur
-            ASSERT(0);
+            ocrAssert(0);
         }
     } while(continueLoop);
     DPRINTF(DEBUG_LVL_VERB, "Finished comm worker loop ... waiting to be reapped\n");
@@ -286,9 +286,9 @@ u8 hcCommMTWorkerSwitchRunlevel(ocrWorker_t *self, ocrPolicyDomain_t *PD, ocrRun
                                 phase_t phase, u32 properties, void (*callback)(ocrPolicyDomain_t *, u64), u64 val) {
     u8 toReturn = 0;
     // Verify properties
-    ASSERT((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
+    ocrAssert((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
            && !(properties & RL_RELEASE));
-    ASSERT(!(properties & RL_FROM_MSG));
+    ocrAssert(!(properties & RL_FROM_MSG));
 
     ocrWorkerHcCommMT_t * commWorker = (ocrWorkerHcCommMT_t *) self;
 
@@ -333,9 +333,9 @@ u8 hcCommMTWorkerSwitchRunlevel(ocrWorker_t *self, ocrPolicyDomain_t *PD, ocrRun
                 // another worker has started and executes the shutdown protocol
                 while(self->curState != GET_STATE(RL_USER_OK, (phase + 1)))
                     ;
-                ASSERT(self->curState == GET_STATE(RL_USER_OK, (phase + 1)));
-                ASSERT((self->curState == self->desiredState));
-                ASSERT(callback != NULL);
+                ocrAssert(self->curState == GET_STATE(RL_USER_OK, (phase + 1)));
+                ocrAssert((self->curState == self->desiredState));
+                ocrAssert(callback != NULL);
                 self->callback = callback;
                 self->callbackArg = val;
                 hal_fence();
@@ -345,11 +345,11 @@ u8 hcCommMTWorkerSwitchRunlevel(ocrWorker_t *self, ocrPolicyDomain_t *PD, ocrRun
             if(phase == PHASE_COMM_QUIESCE) {
                 //Warning: At this point it is not 100% sure the worker has
                 //already transitioned to PHASE_COMM_QUIESCE.
-                ASSERT((GET_STATE_PHASE(self->curState) == PHASE_COMP_QUIESCE) ||
+                ocrAssert((GET_STATE_PHASE(self->curState) == PHASE_COMP_QUIESCE) ||
                        (GET_STATE_PHASE(self->curState) == PHASE_RUN));
                 // This is set for sure
-                ASSERT(GET_STATE_PHASE(self->desiredState) == PHASE_COMP_QUIESCE);
-                ASSERT(callback != NULL);
+                ocrAssert(GET_STATE_PHASE(self->desiredState) == PHASE_COMP_QUIESCE);
+                ocrAssert(callback != NULL);
                 self->callback = callback;
                 self->callbackArg = val;
                 hal_fence();
@@ -361,18 +361,18 @@ u8 hcCommMTWorkerSwitchRunlevel(ocrWorker_t *self, ocrPolicyDomain_t *PD, ocrRun
 
             //BUG #583: RL Last phase that transitions to another runlevel
             if(RL_IS_LAST_PHASE_DOWN(PD, RL_USER_OK, phase)) {
-                ASSERT(phase == PHASE_DONE);
+                ocrAssert(phase == PHASE_DONE);
                 // We need to break out of the compute loop
                 // We need to have a callback for all workers here
-                ASSERT(callback != NULL);
+                ocrAssert(callback != NULL);
                 // We make sure that we actually fully booted before shutting down.
                 // Addresses a race where a worker still hasn't started but
                 // another worker has started and executes the shutdown protocol
                 while(self->curState != GET_STATE(RL_USER_OK, (phase+1)))
                     ;
-                ASSERT(self->curState == GET_STATE(RL_USER_OK, (phase+1)));
+                ocrAssert(self->curState == GET_STATE(RL_USER_OK, (phase+1)));
 
-                ASSERT(GET_STATE_RL(self->curState) == RL_USER_OK);
+                ocrAssert(GET_STATE_RL(self->curState) == RL_USER_OK);
                 self->callback = callback;
                 self->callbackArg = val;
                 hal_fence();
@@ -384,7 +384,7 @@ u8 hcCommMTWorkerSwitchRunlevel(ocrWorker_t *self, ocrPolicyDomain_t *PD, ocrRun
     }
     default:
         // Unknown runlevel
-        ASSERT(0);
+        ocrAssert(0);
     }
     return toReturn;
 }
@@ -393,7 +393,7 @@ u8 hcCommMTWorkerSwitchRunlevel(ocrWorker_t *self, ocrPolicyDomain_t *PD, ocrRun
 void* runWorkerHcCommMT(ocrWorker_t * worker) {
     // At this point, we should have a callback to inform the PD
     // that we have successfully achieved the RL_COMPUTE_OK RL
-    ASSERT(worker->callback != NULL);
+    ocrAssert(worker->callback != NULL);
     worker->callback(worker->pd, worker->callbackArg);
 
     // Set the current environment
@@ -405,13 +405,13 @@ void* runWorkerHcCommMT(ocrWorker_t * worker) {
         ;
 
     // At this point, we should be going to RL_USER_OK
-    ASSERT(worker->desiredState == GET_STATE(RL_USER_OK, RL_GET_PHASE_COUNT_DOWN(worker->pd, RL_USER_OK)));
+    ocrAssert(worker->desiredState == GET_STATE(RL_USER_OK, RL_GET_PHASE_COUNT_DOWN(worker->pd, RL_USER_OK)));
 
     // Start the worker loop
     worker->curState = worker->desiredState;
     workerLoopHcCommMT(worker);
     // Worker loop will transition back down to RL_COMPUTE_OK last phase
-    ASSERT((worker->curState == worker->desiredState) &&
+    ocrAssert((worker->curState == worker->desiredState) &&
            (worker->curState == GET_STATE(RL_COMPUTE_OK, RL_GET_PHASE_COUNT_DOWN(worker->pd, RL_COMPUTE_OK) - 1)));
     return NULL;
 }

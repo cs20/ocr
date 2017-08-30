@@ -22,7 +22,11 @@
 #include "ocr-perfmon.h"
 #endif
 
-#ifdef OCR_ENABLE_EDT_NAMING
+#if ENABLE_EDT_METRICS
+#include "statistics/metrics.h"
+#endif
+
+#if defined(OCR_ENABLE_EDT_NAMING) || defined(OCR_TRACE_BINARY)
 #ifndef OCR_EDT_NAME_SIZE
 #define OCR_EDT_NAME_SIZE 32
 #endif
@@ -161,7 +165,7 @@ typedef struct _ocrTaskTemplate_t {
     // moving code around and/or different ISAs. Is this
     // going to be a problem...
     ocrEdt_t executePtr;    /**< Function pointer to execute */
-#ifdef OCR_ENABLE_EDT_NAMING
+#if defined(OCR_ENABLE_EDT_NAMING) || defined(OCR_TRACE_BINARY)
     const char name[OCR_EDT_NAME_SIZE];       /**< Name of the EDT */
 #endif
 #ifdef ENABLE_EXTENSION_PERF
@@ -323,7 +327,11 @@ typedef struct _ocrTaskFcts_t {
      * @param[in] self        The slot of the dependence.
      * @return 0 on success and a non-zero code on failure
      */
+#ifdef TG_STAGING
+    u8 (*dependenceResolved)(struct _ocrTask_t* self, ocrGuid_t dbGuid, void* localPtr, u32 slot, u64 size);
+#else
     u8 (*dependenceResolved)(struct _ocrTask_t* self, ocrGuid_t dbGuid, void* localPtr, u32 slot);
+#endif
 
     /**
      * @brief Set user hints for the EDT
@@ -427,7 +435,7 @@ typedef struct _ocrTask_t {
     ocrGuid_t templateGuid; /**< GUID for the template of this task */
     ocrEdt_t funcPtr;       /**< Function to execute */
     u64* paramv;            /**< Pointer to the paramaters; should be inside task metadata */
-#ifdef OCR_ENABLE_EDT_NAMING
+#if defined(OCR_ENABLE_EDT_NAMING) || defined(OCR_TRACE_BINARY)
     const char name[OCR_EDT_NAME_SIZE];       /**< Name of the EDT (for debugging purposes */
 #endif
     ocrGuid_t outputEvent;  /**< Event to notify when the EDT is done */
@@ -437,10 +445,19 @@ typedef struct _ocrTask_t {
     ocrEdtState_t state;    /**< State of the EDT */
     u32 paramc, depc;       /**< Number of parameters and dependences */
     u32 flags;              /**< Bit flags for the task */
+#ifdef OCR_TRACE_BINARY
+    u64 startTime;
+#endif
     u32 fctId;
 #ifdef ENABLE_EXTENSION_PERF
     ocrPerfCounters_t *taskPerfsEntry;
     u32 swPerfCtrs[PERF_MAX-PERF_HW_MAX];
+#endif
+#ifdef TG_STAGING
+    u32 spadUsage;
+#endif
+#if ENABLE_EDT_METRICS
+    EDT_MetricStore_t metricStore;
 #endif
 } ocrTask_t;
 

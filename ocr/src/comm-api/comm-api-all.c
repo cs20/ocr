@@ -35,7 +35,7 @@ ocrCommApiFactory_t *newCommApiFactory(commApiType_t type, ocrParamList_t *typeA
         return newCommApiFactorySimple(typeArg);
 #endif
     default:
-        ASSERT(0);
+        ocrAssert(0);
         return NULL;
     };
 }

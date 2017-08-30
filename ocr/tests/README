@@ -21,3 +21,10 @@ The current naming convention is for unstable file is:
 
 where 'ARCHITECTURE' is one of the names under ocr/build/ and
 'DBTYPE' is 'regularDB' or 'lockableDB'
+
+
+** Running tests on TG
+
+For TG tests, the following environment variables must be set:
+    TG_ROOT:      pointing to the tg folder
+    TG_INSTALL:   pointing to the install folder of tg

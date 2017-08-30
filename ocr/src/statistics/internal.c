@@ -115,7 +115,7 @@ void intStatsProcessRegisterFilter(ocrStatsProcess_t *self, u64 bitMask,
         u64 bitSet = fls64(bitMask);
         bitMask &= ~(1ULL << bitSet);
 
-        ASSERT(bitSet < STATS_EVT_MAX);
+        ocrAssert(bitSet < STATS_EVT_MAX);
         ++bitSet; // 0 is all filters uniquely
 
         // Check to make sure we have enough room to add this filter
@@ -170,7 +170,7 @@ u8 intProcessOutgoingMessage(ocrStatsProcess_t *src, ocrStatsMessage_t* msg) {
 
 
     u64 type = fls64(msg->type);
-    ASSERT((1ULL<<type) == msg->type);
+    ocrAssert((1ULL<<type) == msg->type);
 
     u32 countFilter = src->outFilterCounts[type] & 0xFFFFFFFF;
     if(countFilter) {
@@ -198,7 +198,7 @@ u8 intProcessMessage(ocrStatsProcess_t *dst) {
         msg->tick = dst->tick = newTick;
 
         u64 type = fls64(msg->type);
-        ASSERT((1ULL<<type) == msg->type);
+        ocrAssert((1ULL<<type) == msg->type);
 
         u32 countFilter = dst->filterCounts[type] & 0xFFFFFFFF;
         if(countFilter) {
@@ -214,7 +214,7 @@ u8 intProcessMessage(ocrStatsProcess_t *dst) {
         if(msg->state == 1) {
             msg->state = 2;
         } else {
-            ASSERT(msg->state == 0);
+            ocrAssert(msg->state == 0);
             msg->fcts.destruct(msg);
         }
         return 1;

@@ -165,7 +165,7 @@ hashtable_t * newHashtableBucketLocked(ocrPolicyDomain_t * pd, u32 nbBuckets, ha
     hashtableBucketLocked_t * rhashtable = (hashtableBucketLocked_t *) hashtable;
     u32 i;
 #ifdef HASHTABLE_LOCK_SPREAD
-    ASSERT(sizeof(lock_t)<(CACHE_LINE_SZB));
+    ocrAssert(sizeof(lock_t)<(CACHE_LINE_SZB));
     u64 bucketLockSz = nbBuckets*CACHE_LINE_SZB;
 #else
     u64 bucketLockSz = nbBuckets*sizeof(lock_t);
@@ -195,7 +195,7 @@ static void dumpStats(hashtable_t * self, char * name, u64 offset) {
     hashtableBucketLocked_t * rself = (hashtableBucketLocked_t *) self;
     u32 nbBuckets = self->nbBuckets;
     if (nbBuckets > 0) {
-        PRINTF("[PD:0x%"PRIu64"] Hashtable@%p statistics\n", (u64) self->pd->myLocation, self);
+        ocrPrintf("[PD:0x%"PRIu64"] Hashtable@%p statistics\n", (u64) self->pd->myLocation, self);
 #ifdef STATS_HASHTABLE_VERB
         u64 curWm = READ_STAT_VALUE(&rself->stats[0], offset);
         u64 lb = 0;
@@ -209,9 +209,9 @@ static void dumpStats(hashtable_t * self, char * name, u64 offset) {
                 continue;
             } else { // Print previous if any
                 if ((i-lb) == 1) {
-                    PRINTF("[PD:0x%"PRIu64"] Bucket[%"PRIu64"]: %s=%"PRIu64"\n", (u64) self->pd->myLocation, lb, name, curWm);
+                    ocrPrintf("[PD:0x%"PRIu64"] Bucket[%"PRIu64"]: %s=%"PRIu64"\n", (u64) self->pd->myLocation, lb, name, curWm);
                 } else {
-                    PRINTF("[PD:0x%"PRIu64"] Bucket[%"PRIu64"-%"PRId32"]: %s=%"PRIu64"\n", (u64) self->pd->myLocation, lb, i-1, name, curWm);
+                    ocrPrintf("[PD:0x%"PRIu64"] Bucket[%"PRIu64"-%"PRId32"]: %s=%"PRIu64"\n", (u64) self->pd->myLocation, lb, i-1, name, curWm);
                 }
                 lb = i;
                 curWm = wm;
@@ -223,12 +223,12 @@ static void dumpStats(hashtable_t * self, char * name, u64 offset) {
         }
 #ifdef STATS_HASHTABLE_VERB
         if ((i-lb) == 1) {
-            PRINTF("[PD:0x%"PRIu64"] Bucket[%"PRIu64"]: %s=%"PRIu64"\n", (u64) self->pd->myLocation, lb, name, curWm);
+            ocrPrintf("[PD:0x%"PRIu64"] Bucket[%"PRIu64"]: %s=%"PRIu64"\n", (u64) self->pd->myLocation, lb, name, curWm);
         } else {
-            PRINTF("[PD:0x%"PRIu64"] Bucket[%"PRIu64"-%"PRId32"]: %s=%"PRIu64"\n", (u64) self->pd->myLocation, lb, i-1, name, curWm);
+            ocrPrintf("[PD:0x%"PRIu64"] Bucket[%"PRIu64"-%"PRId32"]: %s=%"PRIu64"\n", (u64) self->pd->myLocation, lb, i-1, name, curWm);
         }
 #endif
-        PRINTF("[PD:0x%"PRIu64"] High %s=%"PRIu64"\n", (u64) self->pd->myLocation, name, hWm);
+        ocrPrintf("[PD:0x%"PRIu64"] High %s=%"PRIu64"\n", (u64) self->pd->myLocation, name, hWm);
     }
 }
 #endif
@@ -320,8 +320,8 @@ bool hashtableNonConcRemove(hashtable_t * hashtable, void * key, void ** value) 
     ocr_hashtable_entry * prev;
     ocr_hashtable_entry * entry = hashtableFindEntryAndPrev(hashtable, key, &prev);
     if (entry != NULL) {
-        ASSERT(prev != NULL);
-        ASSERT(key == entry->key);
+        ocrAssert(prev != NULL);
+        ocrAssert(key == entry->key);
         if (entry == prev) {
             // entry is bucket's head
             u32 bucket = hashtable->hashing(key, hashtable->nbBuckets);
@@ -348,8 +348,8 @@ static void * hashtableNonConcRemoveInternal(hashtable_t * hashtable, void * key
     ocr_hashtable_entry * prev;
     ocr_hashtable_entry * entry = hashtableFindEntryAndPrev(hashtable, key, &prev);
     if (entry != NULL) {
-        ASSERT(prev != NULL);
-        ASSERT(key == entry->key);
+        ocrAssert(prev != NULL);
+        ocrAssert(key == entry->key);
         if (entry == prev) {
             // entry is bucket's head
             u32 bucket = hashtable->hashing(key, hashtable->nbBuckets);
@@ -409,7 +409,7 @@ void * hashtableConcTryPut(hashtable_t * hashtable, void * key, void * value) {
             // know if it's for that key or another one which hash matches the bucket
         } else {
             if (newHead != NULL) {
-                ASSERT(pd != NULL);
+                ocrAssert(pd != NULL);
                 // insertion failed because the key had been inserted by a concurrent thread
                 pd->fcts.pdFree(pd, newHead);
             }
@@ -449,7 +449,7 @@ bool hashtableConcPut(hashtable_t * hashtable, void * key, void * value) {
  */
 bool hashtableConcRemove(hashtable_t * hashtable, void * key, void ** value) {
     //BUG #589 implement concurrent removal
-    ASSERT(false);
+    ocrAssert(false);
     return false;
 }
 
@@ -495,7 +495,7 @@ bool hashtableConcBucketLockedPut(hashtable_t * hashtable, void * key, void * va
     hashtableBucketLockedStats_t * stats = &rhashtable->stats[bucket];
     stats->current++;
     if (stats->current > stats->watermark) {
-        ASSERT((stats->current-1) == stats->watermark);
+        ocrAssert((stats->current-1) == stats->watermark);
         stats->watermark++;
     }
 #ifdef STATS_HASHTABLE_COLLIDE
@@ -537,7 +537,7 @@ bool hashtableConcBucketLockedRemove(hashtable_t * hashtable, void * key, void *
     hal_lock(&(rhashtable->bucketLock[GET_LOCK_IDX(bucket)]));
 #ifdef STATS_HASHTABLE
     hashtableBucketLockedStats_t * stats = &rhashtable->stats[bucket];
-    ASSERT(stats->current >= 1);
+    ocrAssert(stats->current >= 1);
     stats->current--;
 #ifdef STATS_HASHTABLE_COLLIDE
         if (isBusy) { stats->del++; }

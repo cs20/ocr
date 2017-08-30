@@ -42,7 +42,13 @@ int memcpy(void * dst, void * src, u64 len) {
 
 // Ugly globals, but similar globals exist in pthread as well
 ocrPolicyDomain_t *myPD = NULL;
+#if defined(SAL_FSIM_XE) && defined(OCR_SHARED_XE_POLICY_DOMAIN)
+// This must be local because it should point (BR) to a different worker for each XE.
+#include <xstgintrin.h>
+ocrWorker_t *myWorker xstglocal = NULL;
+#else
 ocrWorker_t *myWorker = NULL;
+#endif
 
 static void * fsimRoutineExecute(ocrWorker_t * worker) {
     // This is actually started directly in the worker on fsim
@@ -60,13 +66,13 @@ u8 fsimCompSwitchRunlevel(ocrCompPlatform_t *self, ocrPolicyDomain_t *PD, ocrRun
 
     // The worker is the capable module and we operate as
     // inert wrt it
-    ASSERT(callback == NULL);
+    ocrAssert(callback == NULL);
 
     // Verify properties for this call
-    ASSERT((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
+    ocrAssert((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
            && !(properties & RL_RELEASE));
-    ASSERT(!(properties & RL_FROM_MSG));
-    // FIXME: This is not true for XEs ASSERT((properties & RL_NODE_MASTER) == RL_NODE_MASTER);
+    ocrAssert(!(properties & RL_FROM_MSG));
+    // FIXME: This is not true for XEs ocrAssert((properties & RL_NODE_MASTER) == RL_NODE_MASTER);
 
     switch(runlevel) {
     case RL_CONFIG_PARSE:
@@ -94,7 +100,7 @@ u8 fsimCompSwitchRunlevel(ocrCompPlatform_t *self, ocrPolicyDomain_t *PD, ocrRun
     case RL_USER_OK:
         break;
     default:
-        ASSERT(0);
+        ocrAssert(0);
     }
     return toReturn;
 }

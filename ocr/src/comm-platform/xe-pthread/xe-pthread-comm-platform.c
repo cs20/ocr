@@ -37,12 +37,12 @@ u8 xePthreadCommSwitchRunlevel(ocrCommPlatform_t *self, ocrPolicyDomain_t *PD, o
     u8 toReturn = 0;
 
     // This is an inert module, we do not handle callbacks (caller needs to wait on us)
-    ASSERT(callback == NULL);
+    ocrAssert(callback == NULL);
 
     // Verify properties for this call
-    ASSERT((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
+    ocrAssert((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
            && !(properties & RL_RELEASE));
-    ASSERT(!(properties & RL_FROM_MSG));
+    ocrAssert(!(properties & RL_FROM_MSG));
 
     switch(runlevel) {
     case RL_CONFIG_PARSE:
@@ -72,8 +72,8 @@ u8 xePthreadCommSwitchRunlevel(ocrCommPlatform_t *self, ocrPolicyDomain_t *PD, o
             ocrCommPlatformXePthread_t * rself = (ocrCommPlatformXePthread_t*) self;
             ocrPolicyDomain_t * cePD = PD->parentPD;
             // We should have a parent
-            ASSERT(cePD);
-            ASSERT(PD->parentLocation == cePD->myLocation);
+            ocrAssert(cePD);
+            ocrAssert(PD->parentLocation == cePD->myLocation);
             ocrCommPlatformCePthread_t * parent =
                 (ocrCommPlatformCePthread_t *) cePD->commApis[0]->commPlatform;
             rself->outQueue.neighborLocation = cePD->myLocation;
@@ -98,7 +98,7 @@ u8 xePthreadCommSwitchRunlevel(ocrCommPlatform_t *self, ocrPolicyDomain_t *PD, o
         break;
     default:
         // Unknown runlevel
-        ASSERT(0);
+        ocrAssert(0);
     }
     return toReturn;
 }
@@ -115,7 +115,7 @@ u8 xePthreadCommSendMessage(ocrCommPlatform_t *self, ocrLocation_t target, ocrPo
     if(target != rself->outQueue.neighborLocation) {
         DPRINTF(DEBUG_LVL_WARN, "Destination for message @ %p to 0x%"PRIx64" not found\n",
                 msg, target);
-        ASSERT(0);
+        ocrAssert(0);
     }
 
     u8 status;
@@ -154,13 +154,13 @@ u8 xePthreadCommSendMessage(ocrCommPlatform_t *self, ocrLocation_t target, ocrPo
 
     // If this is a response, we should already have a slot reserved for us
     if(msg->type & (PD_MSG_RESPONSE | PD_MSG_RESPONSE_OVERRIDE)) {
-        ASSERT(msg->type & (PD_MSG_REQ_RESPONSE | PD_MSG_RESPONSE_OVERRIDE)); // We can't just be sending responses to no questions
+        ocrAssert(msg->type & (PD_MSG_REQ_RESPONSE | PD_MSG_RESPONSE_OVERRIDE)); // We can't just be sending responses to no questions
 
         // Check if the queue matches (ie: we are sending back where we reserved)
         if(((u64)queue << 8) != (msg->msgId & 0xFFFFFFFFFFFFFF00ULL)) {
             DPRINTF(DEBUG_LVL_WARN, "Expected to send response to queue 0x%"PRIx64" but found queue %p\n",
                     msg->msgId >> 8, queue);
-            ASSERT(0);
+            ocrAssert(0);
         }
         outSlot = (u32)(msg->msgId & 0xFFULL);
         status = 0;
@@ -189,7 +189,7 @@ u8 xePthreadCommSendMessage(ocrCommPlatform_t *self, ocrLocation_t target, ocrPo
             u64 baseSize = 0, marshalledSize = 0;
             ocrPolicyMsgGetMsgSize(msg, &baseSize, &marshalledSize, 0);
             // We do not support too large messages
-            ASSERT(queue->slots[outSlot].msgBuffer.bufferSize >= baseSize + marshalledSize);
+            ocrAssert(queue->slots[outSlot].msgBuffer.bufferSize >= baseSize + marshalledSize);
             ocrPolicyMsgMarshallMsg(msg, baseSize, (u8*)(&(queue->slots[outSlot].msgBuffer)),
                                     MARSHALL_FULL_COPY);
             queue->slots[outSlot].msgPtr = NULL; // Indicates that we need to use the msgBuffer
@@ -321,7 +321,7 @@ u8 xePthreadDestructMessage(ocrCommPlatform_t *self, ocrPolicyMsg_t *msg) {
 }
 
 u64 xePthreadGetSeqIdAtNeighbor(ocrCommPlatform_t *self, ocrLocation_t neighborLoc, u64 neighborId) {
-    ASSERT(0);
+    ocrAssert(0);
     return 0;
 }
 

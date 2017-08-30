@@ -17,8 +17,10 @@
  * This function will be called by tgkrnl to start the PD for the XE
  *
  * @param[in] pd    Pointer to the policy domain to start
+ * @param[in] debug_mask  64-bit mask for Debug_Mask to control DPRINTF
+ * @param[in] debug_value 64-bit value for debug usage
  */
-void salPdDriver(void* pd);
+void salPdDriver(void* pd, u64 debug_mask, u64 debug_value);
 
 extern u32 salPause(bool isBlocking);
 
@@ -33,7 +35,7 @@ extern void salResume(u32 flag);
 extern void __xeDoAssert(const char* fn, u32 ln);
 
 #define sal_assert(x, fn, ln) do { if(!(x)) {                   \
-            PRINTF("ASSERT FAILUTRE XE at line %"PRId32" in '%s'\n", (int)(ln), fn); \
+            ocrPrintf("ASSERT FAILUTRE XE at line %"PRId32" in '%s'\n", (int)(ln), fn); \
             __xeDoAssert(fn, ln);                                       \
             __asm__ __volatile__ __attribute__((noreturn)) (    \
                 "lea %0, %0\n\t"                                \

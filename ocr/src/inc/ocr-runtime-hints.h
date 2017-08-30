@@ -74,8 +74,8 @@ typedef struct {
 
 #define OCR_RUNTIME_HINT_MASK_INIT(_mask, _type, _fact)                                                         \
 do {                                                                                                            \
-    ASSERT(((u64)_type) < (0x1UL << OCR_RUNTIME_HINT_TYPE_BITS));                                               \
-    ASSERT(((u64)_fact) < (0x1UL << OCR_RUNTIME_HINT_FACT_BITS));                                               \
+    ocrAssert(((u64)_type) < (0x1UL << OCR_RUNTIME_HINT_TYPE_BITS));                                               \
+    ocrAssert(((u64)_fact) < (0x1UL << OCR_RUNTIME_HINT_FACT_BITS));                                               \
     _mask = (((u64)_type) << OCR_RUNTIME_HINT_TYPE_OFFSET) | (((u64)_fact) << OCR_RUNTIME_HINT_FACT_OFFSET);    \
 } while(0);
 

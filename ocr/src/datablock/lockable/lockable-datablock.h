@@ -24,7 +24,7 @@
 
 #ifdef ENABLE_HINTS
 /**< The number of hint properties supported by this implementation */
-#define OCR_HINT_COUNT_DB_LOCKABLE   2
+#define OCR_HINT_COUNT_DB_LOCKABLE   3
 #else
 #define OCR_HINT_COUNT_DB_LOCKABLE   0
 #endif
@@ -42,11 +42,12 @@ typedef union {
         u64 isFetching : 1;   // Is currently fetching remotely
         u64 isReleasing : 1;  // Is currently releasing remotely
         u64 isEager    : 1;   // Is an eager DB
+        u64 isLazy    : 1;    // Is a lazy DB
         u64 flags      : 16;  // From the object's creation
         u64 numUsers   : 15;  // Number of consumers checked-in
         u64 freeRequested: 1; // dbDestroy has been called
         u64 singleAssign : 1; // Single assignment done
-        u64 _padding   : 22;
+        u64 _padding   : 21;
     };
     u64 data;
 } ocrDataBlockLockableAttr_t;
@@ -143,6 +144,10 @@ typedef struct _ocrDataBlockLockable_t {
     dbLockableStats_t stats; /**< Datablock statistics */
 #endif
     ocrLocation_t nonCoherentLoc; /**< Whether or not coherence must be kept */
+#ifdef ENABLE_LAZY_DB
+    //TODO-LAZY: Limitation: currently track a single location
+    ocrLocation_t lazyLoc; /**< Location that's currently owning the DB in lazy mode */
+#endif
     ocrRuntimeHint_t hint; // Warning must be the last
 } ocrDataBlockLockable_t;
 

@@ -21,7 +21,7 @@ ocrEventFactory_t *newEventFactory(eventType_t type, ocrParamList_t *typeArg) {
         return newEventFactoryHc(typeArg, typeArg->id);
 #endif
     default:
-        ASSERT(0);
+        ocrAssert(0);
         return NULL;
     };
 }

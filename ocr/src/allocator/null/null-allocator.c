@@ -23,12 +23,12 @@ u8 nullSwitchRunlevel(ocrAllocator_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_t
 
     u8 toReturn = 0;
     // This is an inert module, we do not handle callbacks (caller needs to wait on us)
-    ASSERT(callback == NULL);
+    ocrAssert(callback == NULL);
 
     // Verify properties for this call
-    ASSERT((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
+    ocrAssert((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
            && !(properties & RL_RELEASE));
-    ASSERT(!(properties & RL_FROM_MSG));
+    ocrAssert(!(properties & RL_FROM_MSG));
 
     switch(runlevel) {
     case RL_CONFIG_PARSE:
@@ -77,7 +77,7 @@ u8 nullSwitchRunlevel(ocrAllocator_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_t
         break;
     default:
         // Unknown runlevel
-        ASSERT(0);
+        ocrAssert(0);
     }
     return toReturn;
 }
@@ -116,7 +116,7 @@ static void destructAllocatorFactoryNull(ocrAllocatorFactory_t * factory) {
 ocrAllocatorFactory_t * newAllocatorFactoryNull(ocrParamList_t *perType) {
     ocrAllocatorFactory_t* base = (ocrAllocatorFactory_t*)
                                   runtimeChunkAlloc(sizeof(ocrAllocatorFactoryNull_t), NONPERSISTENT_CHUNK);
-    ASSERT(base);
+    ocrAssert(base);
     base->instantiate = &newAllocatorNull;
     base->initialize = &initializeAllocatorNull;
     base->destruct =  &destructAllocatorFactoryNull;

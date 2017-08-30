@@ -30,7 +30,7 @@ ocrDataBlockFactory_t* newDataBlockFactory(dataBlockType_t type, ocrParamList_t 
         break;
 #endif
     default:
-        ASSERT(0);
+        ocrAssert(0);
     }
     return NULL;
 }

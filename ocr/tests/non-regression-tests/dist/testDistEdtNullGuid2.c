@@ -7,13 +7,13 @@
 
 ocrGuid_t terminateEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     u32 * dbPtr = (u32 *) depv[0].ptr;
-    PRINTF("Received depv[0] "GUIDF"\n", GUIDA(depv[0].guid));
+    ocrPrintf("Received depv[0] "GUIDF"\n", GUIDA(depv[0].guid));
     u32 i = 0;
     while (i < 10) {
-        ASSERT(dbPtr[i] == i);
+        ocrAssert(dbPtr[i] == i);
         i++;
     }
-    PRINTF("Everything went OK\n");
+    ocrPrintf("Everything went OK\n");
     ocrShutdown(); // This is the last EDT to execute, terminate
     return NULL_GUID;
 }
@@ -21,7 +21,7 @@ ocrGuid_t terminateEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
 ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     u64 affinityCount;
     ocrAffinityCount(AFFINITY_PD, &affinityCount);
-    ASSERT(affinityCount >= 1);
+    ocrAssert(affinityCount >= 1);
     ocrGuid_t affinities[affinityCount];
     ocrAffinityGet(AFFINITY_PD, &affinityCount, affinities);
     ocrGuid_t edtAffinity = affinities[affinityCount-1]; //TODO this implies we know current PD is '0'
@@ -38,7 +38,7 @@ ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
         i++;
     }
     ocrDbRelease(db1Guid);
-    PRINTF("DB guid is "GUIDF"\n", GUIDA(db1Guid));
+    ocrPrintf("DB guid is "GUIDF"\n", GUIDA(db1Guid));
     ocrGuid_t terminateEdtTemplateGuid;
     ocrEdtTemplateCreate(&terminateEdtTemplateGuid, terminateEdt, 0 /*paramc*/, 2 /*depc*/);
     ocrHint_t edtHint;

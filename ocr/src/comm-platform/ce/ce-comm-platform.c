@@ -25,7 +25,7 @@
 
 #define DEBUG_TYPE COMM_PLATFORM
 
-u32 XeIrqReq[8];
+volatile u32 XeIrqReq[8];
 
 //
 // Hgh-Level Theory of Operation / Design
@@ -88,7 +88,7 @@ static void releaseXE(u32 i) {
     DPRINTF(DEBUG_LVL_VERB, "Ungating XE %"PRIu32"\n", i);
     // Bug #820: This was a MMIO LD call and should be replaced by one when they become available
     // The XE should be clock-gated already because we don't process its message before it is
-    ASSERT(*((volatile u8*)(BR_XE_CONTROL(i))) & XE_CTL_CLK_GATE);
+    ocrAssert(*((volatile u8*)(BR_XE_CONTROL(i))) & XE_CTL_CLK_GATE);
 
     // Bug #820: Further, this was a MMIO operation
     *((volatile u8*)(BR_XE_CONTROL(i))) = 0x00;
@@ -108,7 +108,7 @@ static u8 ceCommSendMessageToCE(ocrCommPlatform_t *self, ocrLocation_t target,
     u64 baseSize = 0, marshalledSize = 0;
     ocrPolicyMsg_t *sendBuf = NULL;
 
-    ASSERT(self->location != target);
+    ocrAssert(self->location != target);
 
     // We look for an empty buffer to use
     ocrPolicyMsg_t *buffers = (ocrPolicyMsg_t*)(AR_L1_BASE + MSG_CE_SEND_BUF_OFFT);
@@ -137,7 +137,7 @@ static u8 ceCommSendMessageToCE(ocrCommPlatform_t *self, ocrLocation_t target,
 
         DPRINTF(DEBUG_LVL_WARN, "Comm platform only handles messages up to size %"PRIu64" (%p)\n",
                 sendBuf->bufferSize, sendBuf);
-        ASSERT(0);
+        ocrAssert(0);
     }
 
     // Figure out where our remote boxes our (where we are sending to)
@@ -177,14 +177,14 @@ static u8 ceCommSendMessageToCE(ocrCommPlatform_t *self, ocrLocation_t target,
     // If this is a response, we should already have a slot reserved for us
     if(message->type & (PD_MSG_RESPONSE | PD_MSG_RESPONSE_OVERRIDE)) {
         // We can't just be sending responses to no questions
-        ASSERT(message->type & (PD_MSG_REQ_RESPONSE | PD_MSG_RESPONSE_OVERRIDE));
+        ocrAssert(message->type & (PD_MSG_REQ_RESPONSE | PD_MSG_RESPONSE_OVERRIDE));
         message->type &= ~PD_MSG_RESPONSE_OVERRIDE;
 
         // Make sure we are sending back to the right CE
         if((message->msgId & ~0xFFULL) != (target << 8)) {
             DPRINTF(DEBUG_LVL_WARN, "Expected to send response to 0x%"PRIx64" but read msgId 0x%"PRIx64" (location: 0x%"PRIx64")\n",
                     target, message->msgId, message->msgId >> 8);
-            ASSERT(0);
+            ocrAssert(0);
         }
 
         DPRINTF(DEBUG_LVL_VERB, "Using pre-reserved slot %"PRIu64" to send to 0x%"PRIx64"\n", message->msgId & 0xFF,
@@ -197,7 +197,7 @@ static u8 ceCommSendMessageToCE(ocrCommPlatform_t *self, ocrLocation_t target,
         if((t = hal_cmpswap64(&(rmbox[message->msgId & 0xFF]), RESERVED_SLOT, msgAbsAddr)) != RESERVED_SLOT) {
             DPRINTF(DEBUG_LVL_WARN, "Attempted to send message %p of type 0x%"PRIx32" (@ %p) to 0x%"PRIx64" using slot %"PRIu64" (msgId: 0x%"PRIx64") failed because rmbox @ %p is at 0x%"PRIx64"; trying to set to 0x%"PRIx64"\n",
                     message, message->type, &(message->type), target, message->msgId & 0xFF, message->msgId, &(rmbox[message->msgId & 0xFF]), t, msgAbsAddr);
-            ASSERT(0);
+            ocrAssert(0);
         }
         //RESULT_ASSERT(hal_cmpswap64(&(rmbox[message->msgId & 0xFF]), RESERVED_SLOT, msgAbsAddr), ==, RESERVED_SLOT);
         usedRmBox = &(rmbox[message->msgId & 0xFF]);
@@ -224,16 +224,16 @@ static u8 ceCommSendMessageToCE(ocrCommPlatform_t *self, ocrLocation_t target,
             usedRmBox = &(rmbox[i]);
         }
     }
-    ASSERT(usedRmBox);
-    DPRINTF(DEBUG_LVL_VERB, "Sent CE->CE message %p ID 0x%"PRIx64" (type 0x%"PRIx32") from 0x%"PRIx64" to 0x%"PRIx64" slot %"PRIu32" using buffer %p at %p\n",
-            message, message->msgId, message->type, self->location, target, i, sendBuf, usedRmBox);
+    ocrAssert(usedRmBox);
+    DPRINTFMSK(DEBUG_LVL_VERB, DEBUG_MSK_MSGSTATS, "Sent CE->CE message: %p ID: 0x%"PRIx64" from: 0x%"PRIx64" to: 0x%"PRIx64" slot: %"PRIu32" buffer: %p at %p type: %s\n",
+            message, message->msgId, self->location, target, i, sendBuf, usedRmBox, pd_msg_type_to_str(message->type & PD_MSG_TYPE_ONLY));
     return 0;
 }
 
 #endif
 static u8 ceCommDestructCEMessage(ocrCommPlatform_t *self, u32 idx) {
 
-    ASSERT(idx < OUTSTANDING_CE_MSGS);
+    ocrAssert(idx < OUTSTANDING_CE_MSGS);
     DPRINTF(DEBUG_LVL_VERB, "Destructing message index %"PRIu32" (0x%"PRIx64")\n", idx, *(u64*)(AR_L1_BASE + MSG_CE_ADDR_OFFT + sizeof(u64)*idx));
 
     ocrPolicyMsg_t *msg = (ocrPolicyMsg_t*)(*(u64*)(AR_L1_BASE + MSG_CE_ADDR_OFFT + sizeof(u64)*idx));
@@ -265,11 +265,11 @@ static u8 ceCommCheckCEMessage(ocrCommPlatform_t *self, ocrPolicyMsg_t **msg) {
             if(baseSize + marshalledSize > recvBuf->bufferSize) {
                 DPRINTF(DEBUG_LVL_WARN, "Comm platform only handles messages up to size %"PRId64"\n",
                                          recvBuf->bufferSize);
-                ASSERT(0);
+                ocrAssert(0);
             }
             ocrPolicyMsgUnMarshallMsg((u8*)addr, NULL, recvBuf, MARSHALL_FULL_COPY);
-            DPRINTF(DEBUG_LVL_VERB, "Copied message from 0x%"PRIx64" of type 0x%"PRIx32" to receive buffer @ %p\n",
-                    recvBuf->srcLocation, recvBuf->type, recvBuf);
+            DPRINTFMSK(DEBUG_LVL_VERB, DEBUG_MSK_MSGSTATS, "Received CE->CE message: %p ID: 0x%"PRIx64" from: 0x%"PRIx64" to: 0x%"PRIx64" slot: %"PRIu32" buffer: %p at %p type: %s\n",
+                    recvBuf, recvBuf->msgId, recvBuf->srcLocation, self->location, j, recvBuf, (u64*)addr, pd_msg_type_to_str(recvBuf->type & PD_MSG_TYPE_ONLY));
             ceCommDestructCEMessage(self, j);
             *msg = recvBuf;
             return 0;
@@ -293,12 +293,12 @@ u8 ceCommSwitchRunlevel(ocrCommPlatform_t *self, ocrPolicyDomain_t *PD, ocrRunle
 #ifndef ENABLE_BUILDER_ONLY
 
     // This is an inert module, we do not handle callbacks (caller needs to wait on us)
-    ASSERT(callback == NULL);
+    ocrAssert(callback == NULL);
 
     // Verify properties for this call
-    ASSERT((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
+    ocrAssert((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
            && !(properties & RL_RELEASE));
-    ASSERT(!(properties & RL_FROM_MSG));
+    ocrAssert(!(properties & RL_FROM_MSG));
 
     switch(runlevel) {
     case RL_CONFIG_PARSE:
@@ -357,7 +357,7 @@ u8 ceCommSwitchRunlevel(ocrCommPlatform_t *self, ocrPolicyDomain_t *PD, ocrRunle
         break;
     default:
         // Unknown runlevel
-        ASSERT(0);
+        ocrAssert(0);
     }
 #endif
 
@@ -367,9 +367,9 @@ u8 ceCommSwitchRunlevel(ocrCommPlatform_t *self, ocrPolicyDomain_t *PD, ocrRunle
 u8 ceCommSendMessage(ocrCommPlatform_t *self, ocrLocation_t target,
                      ocrPolicyMsg_t *message, u64 *id,
                      u32 properties, u32 mask) {
-    ASSERT(self != NULL);
-    ASSERT(message != NULL);
-    ASSERT(target != self->location);
+    ocrAssert(self != NULL);
+    ocrAssert(message != NULL);
+    ocrAssert(target != self->location);
 #ifndef ENABLE_BUILDER_ONLY
     ocrCommPlatformCe_t * cp = (ocrCommPlatformCe_t *)self;
 
@@ -398,7 +398,7 @@ u8 ceCommSendMessage(ocrCommPlatform_t *self, ocrLocation_t target,
                     return OCR_EBUSY;
                 }
             }
-            ASSERT(rq->status == FSIM_COMM_FREE_BUFFER);
+            ocrAssert(rq->status == FSIM_COMM_FREE_BUFFER);
         }
         DPRINTF(DEBUG_LVL_VVERB, "Going to marshall message @ %p to send to XE\n", message);
         // - DMA to remote stage
@@ -417,8 +417,8 @@ u8 ceCommSendMessage(ocrCommPlatform_t *self, ocrLocation_t target,
         // Inform the XE of where the message is
         rq->size = baseSize + marshalledSize;
         rq->addr = tmsg;
-        DPRINTF(DEBUG_LVL_VVERB, "Sending message to XE %"PRIu64": addr: %p, size: %"PRIu64"\n",
-            AGENT_FROM_ID((u64)target) - ID_AGENT_XE0, rq->addr, rq->size);
+        DPRINTFMSK(DEBUG_LVL_VVERB, DEBUG_MSK_MSGSTATS, "Sending message to XE %"PRIu64": addr: %p, size: %"PRIu64" type: %s\n",
+            AGENT_FROM_ID((u64)target) - ID_AGENT_XE0, rq->addr, rq->size, pd_msg_type_to_str(message->type & PD_MSG_TYPE_ONLY));
         // - Atomically test & set remote stage to Full. Error if already non-Empty.
         {
             RESULT_ASSERT(hal_swap64(&(rq->status), FSIM_COMM_FULL_BUFFER), ==, FSIM_COMM_FREE_BUFFER);
@@ -458,8 +458,8 @@ static u8 extractXEMessage(ocrCommPlatformCe_t *cp, ocrPolicyMsg_t **msg, u32 qu
         (*msg)->usefulSize, (*msg)->bufferSize);
     // At this point, we fix-up all the pointers.
     ocrPolicyMsgUnMarshallMsg((u8*)*msg, NULL, *msg, MARSHALL_APPEND);
-    DPRINTF(DEBUG_LVL_VERB, "Found full message from XE 0x%"PRIx32" @ %p of type 0x%"PRIx32"\n",
-        queueIdx, *msg, (*msg)->type);
+    DPRINTFMSK(DEBUG_LVL_VERB, DEBUG_MSK_MSGSTATS, "Received message from XE %"PRIx32": addr: %p size: %"PRIu64" type: %s\n",
+        queueIdx, *msg, cp->lq[queueIdx]->size, pd_msg_type_to_str((*msg)->type & PD_MSG_TYPE_ONLY));
 
     cp->lq[queueIdx]->status = FSIM_COMM_READING_BUFFER; // Signify we are reading it so we don't read it twice if we
                              // go back in to poll before we destroyed this message (if, for
@@ -481,8 +481,8 @@ static u8 extractXEMessage(ocrCommPlatformCe_t *cp, ocrPolicyMsg_t **msg, u32 qu
 u8 ceCommPollMessage(ocrCommPlatform_t *self, ocrPolicyMsg_t **msg,
                      u32 properties, u32 *mask) {
 
-    ASSERT(self != NULL);
-    ASSERT(msg != NULL);
+    ocrAssert(self != NULL);
+    ocrAssert(msg != NULL);
 
     ocrCommPlatformCe_t * cp = (ocrCommPlatformCe_t *)self;
 
@@ -511,9 +511,9 @@ u8 ceCommPollMessage(ocrCommPlatform_t *self, ocrPolicyMsg_t **msg,
     // If we found a message it means that cp->lq[i][0] should be full
     // We now rely on the XeIrqReq vector to tell us if we have a message
     // but we should still look to make sure we actually have a message
-    ASSERT(cp->lq[i]->status == FSIM_COMM_FULL_BUFFER);
+    ocrAssert(cp->lq[i]->status == FSIM_COMM_FULL_BUFFER);
     // We also reset the IRQ vector here (just to say that we saw the alarm)
-    ASSERT(XeIrqReq[i] == 1);
+    ocrAssert(XeIrqReq[i] == 1);
     XeIrqReq[i] = 0;
     // Try to be fair to all XEs (somewhat anyways)
     cp->pollq = (i + 1) % ((ocrPolicyDomainCe_t*)self->pd)->xeCount;
@@ -524,8 +524,8 @@ u8 ceCommPollMessage(ocrCommPlatform_t *self, ocrPolicyMsg_t **msg,
 u8 ceCommWaitMessage(ocrCommPlatform_t *self,  ocrPolicyMsg_t **msg,
                      u32 properties, u32 *mask) {
 
-    ASSERT(self != NULL);
-    ASSERT(msg != NULL);
+    ocrAssert(self != NULL);
+    ocrAssert(msg != NULL);
 
     ocrCommPlatformCe_t * cp = (ocrCommPlatformCe_t *)self;
 
@@ -560,9 +560,9 @@ u8 ceCommWaitMessage(ocrCommPlatform_t *self,  ocrPolicyMsg_t **msg,
     // If we found a message it means that cp->lq[i][0] should be 2
     // We now rely on the XeIrqReq vector to tell us if we have a message
     // but we should still look to make sure we actually have a message
-    ASSERT(cp->lq[i]->status == FSIM_COMM_FULL_BUFFER);
+    ocrAssert(cp->lq[i]->status == FSIM_COMM_FULL_BUFFER);
     // We also reset the IRQ vector here (just to say that we saw the alarm)
-    ASSERT(XeIrqReq[i] == 1);
+    ocrAssert(XeIrqReq[i] == 1);
     XeIrqReq[i] = 0;
     // Try to be fair to all XEs (somewhat anyways)
     cp->pollq = (i + 1) % ((ocrPolicyDomainCe_t*)self->pd)->xeCount;
@@ -589,7 +589,7 @@ u8 ceCommDestructMessage(ocrCommPlatform_t *self, ocrPolicyMsg_t *msg) {
                 // We should have been reading it
                 DPRINTF(DEBUG_LVL_VVERB, "Found message @ queue %"PRIu32" with state 0x%"PRIu64"\n",
                     i, cp->lq[i]->status);
-                ASSERT(cp->lq[i]->status == FSIM_COMM_READING_BUFFER);
+                ocrAssert(cp->lq[i]->status == FSIM_COMM_READING_BUFFER);
                 self->pd->fcts.pdFree(self->pd, msg);
                 cp->lq[i]->status = FSIM_COMM_FREE_BUFFER;
                 cp->lq[i]->laddr = NULL;
@@ -598,7 +598,7 @@ u8 ceCommDestructMessage(ocrCommPlatform_t *self, ocrPolicyMsg_t *msg) {
         }
         // If we get here, this means that we have no idea what this message is
         DPRINTF(DEBUG_LVL_WARN, "Unknown message to destroy: %p\n", msg);
-        ASSERT(0);
+        ocrAssert(0);
         return OCR_EINVAL;
     }
 }
@@ -618,7 +618,7 @@ ocrCommPlatform_t* newCommPlatformCe(ocrCommPlatformFactory_t *factory,
 }
 
 u8 ceCommSetMaxExpectedMessageSize(ocrCommPlatform_t *self, u64 size, u32 mask) {
-    ASSERT(0);
+    ocrAssert(0);
     return 0;
 }
 

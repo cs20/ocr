@@ -52,7 +52,7 @@ static ocrPolicyMsg_t * allocateNewMessage(ocrCommApi_t * self, u32 size) {
 }
 
 u8 simpleCommApiInitHandle(ocrCommApi_t *self, ocrMsgHandle_t *handle) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
@@ -101,7 +101,7 @@ u8 sendMessageSimpleCommApi(ocrCommApi_t *self, ocrLocation_t target, ocrPolicyM
             (*handle)->status = HDL_SEND_ERR;
         }
         // Assert for now since we don't really handle errors in upper-layers
-        ASSERT(ret == 0);
+        ocrAssert(ret == 0);
     }
     RETURN_PROFILE(ret);
 }
@@ -127,7 +127,7 @@ u8 pollMessageSimpleCommApi(ocrCommApi_t *self, ocrMsgHandle_t **handle) {
     //They can be incoming request or response. (but not outgoing req/resp ack)
     u8 ret = self->commPlatform->fcts.pollMessage(self->commPlatform, &msg, SIMPLE_COMM_NO_PROP, SIMPLE_COMM_NO_MASK);
     if (ret == POLL_MORE_MESSAGE) {
-        ASSERT((handle != NULL) && (*handle == NULL));
+        ocrAssert((handle != NULL) && (*handle == NULL));
         if (msg->type & PD_MSG_REQUEST) {
             // This an outstanding request, we need to create a handle for
             // the caller to manipulate the message.
@@ -136,7 +136,7 @@ u8 pollMessageSimpleCommApi(ocrCommApi_t *self, ocrMsgHandle_t **handle) {
             // Response for a request
             //NOTE: If the outgoing communication requires a response, the communication layer
             //      must set the handler->response pointer to the response's communication handler.
-            ASSERT(msg->type & PD_MSG_RESPONSE);
+            ocrAssert(msg->type & PD_MSG_RESPONSE);
             if (msg->msgId == 0) {
                 // Contractual with comm-platform when msgId is zero.
                 // It is an asynchronous response callback, not registered in the hashtable.
@@ -144,7 +144,7 @@ u8 pollMessageSimpleCommApi(ocrCommApi_t *self, ocrMsgHandle_t **handle) {
                 (*handle)->properties = ASYNC_MSG_PROP;
             } else {
                 RESULT_ASSERT(hashtableNonConcRemove(commApiSimple->handleMap, (void *) msg->msgId, (void **)handle), !=, 0);
-                ASSERT(*handle != NULL);
+                ocrAssert(*handle != NULL);
             }
             (*handle)->response = msg;
             (*handle)->status = HDL_RESPONSE_OK;
@@ -177,12 +177,12 @@ u8 simpleCommApiSwitchRunlevel(ocrCommApi_t *self, ocrPolicyDomain_t *PD, ocrRun
     u8 toReturn = 0;
 
     // This is an inert module, we do not handle callbacks (caller needs to wait on us)
-    ASSERT(callback == NULL);
+    ocrAssert(callback == NULL);
 
     // Verify properties for this call
-    ASSERT((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
+    ocrAssert((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
            && !(properties & RL_RELEASE));
-    ASSERT(!(properties & RL_FROM_MSG));
+    ocrAssert(!(properties & RL_FROM_MSG));
 
     if(properties & RL_BRING_UP) {
         toReturn |= self->commPlatform->fcts.switchRunlevel(
@@ -224,7 +224,7 @@ u8 simpleCommApiSwitchRunlevel(ocrCommApi_t *self, ocrPolicyDomain_t *PD, ocrRun
         break;
     default:
         // Unknown runlevel
-        ASSERT(0);
+        ocrAssert(0);
     }
 
     if(properties & RL_TEAR_DOWN) {

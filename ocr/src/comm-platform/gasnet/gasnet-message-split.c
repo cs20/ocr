@@ -170,6 +170,7 @@ void gasnetSplitToMedium( int targetRank, ocrPolicyMsg_t * message,
     const int max_medium_size = gasnet_AMMaxMedium();
     int i, position=0, size, tot_size_so_far=0;
     const unsigned int num_stages = (bufferSize / max_medium_size) + ( bufferSize%max_medium_size== 0? 0: 1);
+    ocrAssert(num_stages > 1);
 
     for ( i=0; i<num_stages; i++) {
         size = (i+1 < num_stages ? max_medium_size : bufferSize - tot_size_so_far);
@@ -200,6 +201,7 @@ void gasnetSplitToLong(int targetRank, ocrPolicyMsg_t * message,
 
     int i, position=0, size, tot_size_so_far=0;
     const unsigned int num_stages = (bufferSize / block->size) + ( bufferSize % block->size == 0? 0: 1);
+    ocrAssert(num_stages > 1);
 
     for (i=0; i<num_stages; i++) {
         partner_reply = MESSAGE_WAIT;

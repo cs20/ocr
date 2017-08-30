@@ -41,12 +41,12 @@ static u8 placerAffinitySchedHeuristicSwitchRunlevel(ocrSchedulerHeuristic_t *se
     u8 toReturn = 0;
 
     // This is an inert module, we do not handle callbacks (caller needs to wait on us)
-    ASSERT(callback == NULL);
+    ocrAssert(callback == NULL);
 
     // Verify properties for this call
-    ASSERT((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
+    ocrAssert((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
            && !(properties & RL_RELEASE));
-    ASSERT(!(properties & RL_FROM_MSG));
+    ocrAssert(!(properties & RL_FROM_MSG));
 
     switch(runlevel) {
     case RL_CONFIG_PARSE:
@@ -57,7 +57,7 @@ static u8 placerAffinitySchedHeuristicSwitchRunlevel(ocrSchedulerHeuristic_t *se
         break;
     case RL_PD_OK:
     {
-        ASSERT(self->scheduler);
+        ocrAssert(self->scheduler);
         break;
     }
     case RL_MEMORY_OK:
@@ -79,7 +79,7 @@ static u8 placerAffinitySchedHeuristicSwitchRunlevel(ocrSchedulerHeuristic_t *se
         if((properties & RL_BRING_UP) && RL_IS_FIRST_PHASE_UP(PD, RL_COMPUTE_OK, phase)) {
             ocrSchedulerHeuristicPlacementAffinity_t * dself  = (ocrSchedulerHeuristicPlacementAffinity_t *) self;
             // Following are cached from the PD
-            ASSERT(PD->platformModel != NULL);
+            ocrAssert(PD->platformModel != NULL);
             dself->platformModel = (ocrPlatformModelAffinity_t *) PD->platformModel;
         }
 
@@ -89,7 +89,7 @@ static u8 placerAffinitySchedHeuristicSwitchRunlevel(ocrSchedulerHeuristic_t *se
         break;
     default:
         // Unknown runlevel
-        ASSERT(0);
+        ocrAssert(0);
     }
     return toReturn;
 }
@@ -103,30 +103,30 @@ static u8 placerAffinitySchedHeuristicUpdate(ocrSchedulerHeuristic_t *self, u32 
 }
 
 static ocrSchedulerHeuristicContext_t* placerAffinitySchedHeuristicGetContext(ocrSchedulerHeuristic_t *self, ocrLocation_t loc) {
-    ASSERT(loc == self->scheduler->pd->myLocation);
+    ocrAssert(loc == self->scheduler->pd->myLocation);
     ocrWorker_t * worker = NULL;
     getCurrentEnv(NULL, &worker, NULL, NULL);
     return self->contexts[worker->id];
 }
 
 static u8 placerAffinitySchedHeuristicGetWorkInvoke(ocrSchedulerHeuristic_t *self, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 static u8 placerAffinitySchedHeuristicGetWorkSimulate(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicContext_t *context, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 static u8 placerAffinitySchedHeuristicNotifyProcessMsgInvoke(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicContext_t *context, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
     ocrSchedulerOpNotifyArgs_t *notifyArgs = (ocrSchedulerOpNotifyArgs_t*)opArgs;
-    ASSERT(notifyArgs->kind == OCR_SCHED_NOTIFY_PRE_PROCESS_MSG);
+    ocrAssert(notifyArgs->kind == OCR_SCHED_NOTIFY_PRE_PROCESS_MSG);
     ocrPolicyMsg_t * msg = notifyArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_PRE_PROCESS_MSG).msg;
     ocrSchedulerHeuristicPlacementAffinity_t * dself = (ocrSchedulerHeuristicPlacementAffinity_t *) self;
     ocrPlatformModelAffinity_t * model = dself->platformModel; // Cached from the PD initialization
     if ((model != NULL) && (msg->srcLocation == msg->destLocation)) {
-        ASSERT(msg->srcLocation == dself->myLocation); // and message was local
+        ocrAssert(msg->srcLocation == dself->myLocation); // and message was local
         // Check if we need to place the DB/EDTs
         u64 msgType = (msg->type & PD_MSG_TYPE_ONLY);
         bool doAutoPlace = false;
@@ -148,7 +148,7 @@ static u8 placerAffinitySchedHeuristicNotifyProcessMsgInvoke(ocrSchedulerHeurist
                             affGuid.upper = 0ULL;
                             affGuid.lower = hintValue;
 #endif
-                            ASSERT(!ocrGuidIsNull(affGuid));
+                            ocrAssert(!ocrGuidIsNull(affGuid));
                             affinityToLocation(&(msg->destLocation), affGuid);
                             doAutoPlace = false;
                         }
@@ -182,7 +182,7 @@ static u8 placerAffinitySchedHeuristicNotifyProcessMsgInvoke(ocrSchedulerHeurist
                         affGuid.upper = 0ULL;
                         affGuid.lower = hintValue;
 #endif
-                        ASSERT(!ocrGuidIsNull(affGuid));
+                        ocrAssert(!ocrGuidIsNull(affGuid));
                         affinityToLocation(&(msg->destLocation), affGuid);
                         return 0;
                     }
@@ -217,9 +217,10 @@ static u8 placerAffinitySchedHeuristicNotifyProcessMsgInvoke(ocrSchedulerHeurist
 #ifdef LOAD_BALANCING_TEST
 
 static void scheduleEdtMovement(ocrPolicyDomain_t * pd, ocrFatGuid_t edtFGuid, ocrLocation_t srcLocation, ocrLocation_t dstLocation) {
-    DPRINTF(DEBUG_LVL_VVERB, "EDT-MV Scheduler posts MD_MOVE call\n");
+    DPRINTF(DEBUG_LVL_VERB, "EDT-MV Scheduler posts MD_MOVE call on %p\n", ((ocrTask_t *)edtFGuid.metaDataPtr)->funcPtr);
     PD_MSG_STACK(msg);
     getCurrentEnv(NULL, NULL, NULL, &msg);
+    pd->migrationCount++;
 #define PD_MSG (&msg)
 #define PD_TYPE PD_MSG_GUID_METADATA_CLONE
     msg.type = PD_MSG_GUID_METADATA_CLONE | PD_MSG_REQUEST;
@@ -234,6 +235,35 @@ static void scheduleEdtMovement(ocrPolicyDomain_t * pd, ocrFatGuid_t edtFGuid, o
 
 //BUG #989: MT opportunity
 extern ocrGuid_t processRequestEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]);
+#ifdef ENABLE_EXTENSION_PERF
+ocrLocation_t findTargetFor(ocrPolicyDomain_t *pd, ocrTask_t *task) {
+    ocrLocation_t retval = (ocrLocation_t)-1;
+
+#if 0 // Round robin
+    static u64 lastNode = -1;
+    if(lastNode == -1) lastNode = (pd->myLocation+1)%(1+pd->neighborCount);
+    retval = (lastNode++)%(1+pd->neighborCount);
+#endif
+
+#if 0  // Random
+    retval = (ocrLocation_t)(rand()%(pd->neighborCount+1));
+#endif
+
+#if 1  // Dynamic adaptation
+    // Is the EDT substantial?
+    if(task->taskPerfsEntry && (task->taskPerfsEntry->stats[PERF_FLOAT_OPS].average > 1000))
+    // Select the best node for the given attribute
+        retval = pd->bestNodes[NODE_PERF_LOAD];
+
+    if(retval == pd->myLocation && task->taskPerfsEntry && (task->taskPerfsEntry->stats[PERF_DB_TOTAL].average > 100))
+    // Select the best node for the given attribute
+        retval = pd->bestNodes[NODE_PERF_ALLOC_PRESSURE];
+#endif
+
+    if(retval == -1) retval = pd->myLocation;
+    return retval;
+}
+#endif
 
 static u8 placerAffinitySchedulerHeuristicNotifyEdtSatisfiedInvoke(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicContext_t *context, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
     ocrSchedulerOpNotifyArgs_t *notifyArgs = (ocrSchedulerOpNotifyArgs_t*)opArgs;
@@ -245,10 +275,11 @@ static u8 placerAffinitySchedulerHeuristicNotifyEdtSatisfiedInvoke(ocrSchedulerH
 #ifdef OCR_ASSERT
     ocrLocation_t edtLoc;
     pd->guidProviders[0]->fcts.getLocation(pd->guidProviders[0], edtObj.guid.guid, &edtLoc);
-    ASSERT(edtLoc == pd->myLocation);
+    ocrAssert(edtLoc == pd->myLocation);
 #endif
-    ASSERT(edtObj.guid.metaDataPtr != NULL);
+    ocrAssert(edtObj.guid.metaDataPtr != NULL);
     ocrTask_t * edt = ((ocrTask_t *)edtObj.guid.metaDataPtr);
+
     // Do not try to move the EDT if there's already a hint placement.
     ocrHint_t edtHints;
     ocrHintInit(&edtHints, OCR_HINT_EDT_T);
@@ -256,20 +287,34 @@ static u8 placerAffinitySchedulerHeuristicNotifyEdtSatisfiedInvoke(ocrSchedulerH
     u64 edtAff;
     u8 noPlcHint = noHint || (!noHint && ocrGetHintValue(&edtHints, OCR_HINT_EDT_AFFINITY, &edtAff));
     //TODO-MT need micro-tasking activated here to avoid redistributing RT work
-    bool doMove = ((edt->funcPtr != &processRequestEdt) && noPlcHint);
+    bool doMove = ((edt->funcPtr != &processRequestEdt) && noPlcHint) && (rand()%20 == 0);
     DPRINTF(DEBUG_LVL_VVERB, "[LB] workEdt=%"PRIu32" doMove=%"PRIx32" noHint=%"PRIx32" noPlcHint=%"PRIx32"\n", (edt->funcPtr != &processRequestEdt), doMove, noHint, noPlcHint);
     if (doMove) {
-        ocrSchedulerHeuristicPlacementAffinity_t * dself = (ocrSchedulerHeuristicPlacementAffinity_t *) self;
-        ocrPlatformModelAffinity_t * model = dself->platformModel; // Cached from the PD initialization
-        hal_lock(&(dself->lock)); // TODO this is concurrent with placement at the WORK creation time
-        u32 placementIndex = dself->edtLastPlacementIndex;
-        dself->edtLastPlacementIndex++;
-        if (dself->edtLastPlacementIndex == model->pdLocAffinitiesSize) {
-            dself->edtLastPlacementIndex = 0;
+        ocrGuid_t pdLocAffinity;
+        ocrLocation_t tgtLocation = pd->myLocation;
+#ifdef ENABLE_EXTENSION_PERF
+        tgtLocation = findTargetFor(pd, edt);
+        pdLocAffinity = ((ocrPlatformModelAffinity_t *)pd->platformModel)->pdLocAffinities[tgtLocation];
+#endif
+        if(tgtLocation != pd->myLocation) {
+            pdLocAffinity = ((ocrPlatformModelAffinity_t *)pd->platformModel)->pdLocAffinities[tgtLocation];
+        } else {
+#if 0
+            ocrSchedulerHeuristicPlacementAffinity_t * dself = (ocrSchedulerHeuristicPlacementAffinity_t *) self;
+            ocrPlatformModelAffinity_t * model = dself->platformModel; // Cached from the PD initialization
+            hal_lock(&(dself->lock)); // TODO this is concurrent with placement at the WORK creation time
+            u32 placementIndex = dself->edtLastPlacementIndex;
+            pdLocAffinity = model->pdLocAffinities[placementIndex];
+            dself->edtLastPlacementIndex++;
+            if (dself->edtLastPlacementIndex == model->pdLocAffinitiesSize) {
+                dself->edtLastPlacementIndex = 0;
+            }
+            hal_unlock(&(dself->lock));
+#else
+            return OCR_ENOP;
+#endif
         }
-        hal_unlock(&(dself->lock));
-        ocrGuid_t pdLocAffinity = model->pdLocAffinities[placementIndex];
-        ASSERT(pd != NULL);
+        ocrAssert(pd != NULL);
         if(noHint) {
             ocrHintInit(&edtHints, OCR_HINT_EDT_T);
         }
@@ -280,10 +325,10 @@ static u8 placerAffinitySchedulerHeuristicNotifyEdtSatisfiedInvoke(ocrSchedulerH
 #ifdef OCR_ASSERT
         RESULT_ASSERT(((ocrTaskFactory_t*)pd->factories[pd->taskFactoryIdx])->fcts.getHint(edt, &edtHints), ==, 0);
         u8 hasHint = !ocrGetHintValue(&edtHints, OCR_HINT_EDT_AFFINITY, &edtAff);
-        ASSERT(hasHint);
+        ocrAssert(hasHint);
 #endif
         if (dstLocation != pd->myLocation) {
-            DPRINTF(DEBUG_LVL_VVERB,"[LB] Moving EDT "GUIDF" from PD[%"PRIu64"] to PD[%"PRIu64"]\n",
+            DPRINTF(DEBUG_LVL_VERB,"[LB] Moving EDT "GUIDF" from PD[%"PRIu64"] to PD[%"PRIu64"]\n",
                     GUIDA(edtObj.guid.guid), (u64) pd->myLocation, (u64) dstLocation);
             scheduleEdtMovement(pd, edtObj.guid, pd->myLocation, dstLocation);
             return 0;
@@ -316,7 +361,7 @@ static u8 placerAffinitySchedHeuristicNotifyInvoke(ocrSchedulerHeuristic_t *self
             PD_MSG_FIELD_I(guid) = notifyArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_EDT_DONE).guid;
             PD_MSG_FIELD_I(currentEdt) = PD_MSG_FIELD_I(guid);
             PD_MSG_FIELD_I(properties) = 0;
-            ASSERT(pd->fcts.processMessage(pd, &msg, false) == 0);
+            ocrAssert(pd->fcts.processMessage(pd, &msg, false) == 0);
 #undef PD_MSG
 #undef PD_TYPE
         }
@@ -329,34 +374,34 @@ static u8 placerAffinitySchedHeuristicNotifyInvoke(ocrSchedulerHeuristic_t *self
         return OCR_ENOP;
     // Unknown ops
     default:
-        ASSERT(0);
+        ocrAssert(0);
         return OCR_ENOTSUP;
     }
     return 0;
 }
 
 static u8 placerAffinitySchedHeuristicNotifySimulate(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicContext_t *context, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 static u8 placerAffinitySchedHeuristicTransactInvoke(ocrSchedulerHeuristic_t *self, ocrSchedulerOpNotifyArgs_t *opArgs, ocrRuntimeHint_t *hints) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 static u8 placerAffinitySchedHeuristicTransactSimulate(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicContext_t *context, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 static u8 placerAffinitySchedHeuristicAnalyzeInvoke(ocrSchedulerHeuristic_t *self, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 static u8 placerAffinitySchedHeuristicAnalyzeSimulate(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicContext_t *context, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 

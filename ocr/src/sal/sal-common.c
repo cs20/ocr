@@ -9,7 +9,7 @@
 
 void _ocrAssert(bool val, const char* str, const char* file, u32 line) {
     if(!val) {
-      PRINTF("ASSERT: %s @ %s:%"PRIu32"\n", str, file, line);
+      ocrPrintf("ASSERT: %s @ %s:%"PRIu32"\n", str, file, line);
     }
     sal_assert(val, file, line);
 }
@@ -531,7 +531,27 @@ u32 SNPRINTF(char * buf, u32 size, const char * fmt, ...) {
 #define PRINTF_MAX 1024
 #endif
 
+u32 ocrPrintf(const char * fmt, ...) {
+    START_PROFILE(ocr_PRINTF);
+    u32 tmp;
+    __builtin_va_list ap;
+
+    char printf_buf[PRINTF_MAX] __attribute__((aligned(sizeof(u64))));
+
+
+    __builtin_va_start(ap, fmt);
+
+    tmp = internal_vsnprintf(printf_buf, PRINTF_MAX, fmt, ap);
+
+    __builtin_va_end(ap);
+
+    sal_print(printf_buf, tmp+1);
+
+    RETURN_PROFILE(tmp);
+}
+
 u32 PRINTF(const char * fmt, ...) {
+    ocrPrintf("PRINTF is deprecated as of OCR v1.2.0... use ocrPrintf\n");
     START_PROFILE(ocr_PRINTF);
     u32 tmp;
     __builtin_va_list ap;

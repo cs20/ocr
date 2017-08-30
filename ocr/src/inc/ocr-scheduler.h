@@ -68,6 +68,7 @@ typedef struct _ocrSchedulerOpArgs_t {
 /* Scheduler worker task related arguments */
 typedef enum {
     OCR_SCHED_WORK_EDT_USER,                        /* User-created EDT */
+    OCR_SCHED_WORK_MULTI_EDTS_USER,                 /* Multiple user-created EDTs */
     OCR_SCHED_WORK_COMM,                            /* Runtime created communication task */
 } ocrSchedWorkKind;
 
@@ -77,7 +78,12 @@ typedef union _ocrSchedWorkData_t {
         bool discardAffinity;                       /* If true, the request is for any work, not just work affinitized for me */
     } OCR_SCHED_ARG_NAME(OCR_SCHED_WORK_EDT_USER);
     struct {
-        ocrFatGuid_t *guids;
+        ocrFatGuid_t *edts;                         /* EDTs returned */
+        u32 guidCount;                              /* number of EDTs returned */
+        bool discardAffinity;                       /* If true, the request is for any work, not just work affinitized for me */
+    } OCR_SCHED_ARG_NAME(OCR_SCHED_WORK_MULTI_EDTS_USER);
+    struct {
+        ocrFatGuid_t* guids;
         u32 guidCount;
     } OCR_SCHED_ARG_NAME(OCR_SCHED_WORK_COMM);
 } ocrSchedWorkData_t;
@@ -101,6 +107,7 @@ typedef enum {
     OCR_SCHED_NOTIFY_EDT_CREATE,                    /* BUG #920 Cleanup - Notify scheduler that an EDT is created */
     OCR_SCHED_NOTIFY_EDT_SATISFIED,                 /* Notify scheduler that an EDT is fully satisfied */
     OCR_SCHED_NOTIFY_EDT_READY,                     /* Notify scheduler that an EDT is ready to execute */
+    OCR_SCHED_NOTIFY_MULTI_EDTS_READY,              /* Notify scheduler that a group of EDTs are ready to execute */
     OCR_SCHED_NOTIFY_EDT_DONE,                      /* BUG #920 Cleanup - Notify scheduler that an EDT is done executing */
     OCR_SCHED_NOTIFY_COMM_READY,                    /* Notify scheduler that a communication task is ready to execute */
 } ocrSchedNotifyKind;
@@ -136,6 +143,10 @@ typedef union _ocrSchedNotifyData_t {
     struct {
         ocrFatGuid_t guid;                          /* Scheduler is notified about this edt guid */
     } OCR_SCHED_ARG_NAME(OCR_SCHED_NOTIFY_EDT_READY);
+    struct {
+        ocrFatGuid_t *guids;/* Scheduler is notified about these edt guids */
+        u32 guidCount;                              /* number of guids */
+    } OCR_SCHED_ARG_NAME(OCR_SCHED_NOTIFY_MULTI_EDTS_READY);
     struct {
         ocrFatGuid_t guid;                          /* Scheduler is notified about this edt guid */
     } OCR_SCHED_ARG_NAME(OCR_SCHED_NOTIFY_EDT_DONE);

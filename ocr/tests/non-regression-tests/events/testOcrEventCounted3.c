@@ -7,7 +7,7 @@
 #include "ocr.h"
 
 /**
- * DESC: Counted-event: one dependence is satisfied and the descendent EDT add remaining deps
+ * DESC: Counted-event: one dependence is satisfied and the descendant EDT add remaining deps
  */
 
 #ifdef ENABLE_EXTENSION_COUNTED_EVT
@@ -89,7 +89,7 @@ ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
 #else
 
 ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
-    PRINTF("Test disabled - ENABLE_EXTENSION_COUNTED_EVT not defined\n");
+    ocrPrintf("Test disabled - ENABLE_EXTENSION_COUNTED_EVT not defined\n");
     ocrShutdown();
     return NULL_GUID;
 }

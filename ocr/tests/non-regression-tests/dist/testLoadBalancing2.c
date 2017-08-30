@@ -34,13 +34,13 @@ ocrGuid_t workTask( u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
         workPRM_t workParamv;
         workParamv.low = low;
         workParamv.high = pivotIndex;
-        PRINTF("Recurse1 on %d %d\n", (int) workParamv.low, (int) workParamv.high);
+        ocrPrintf("Recurse1 on %d %d\n", (int) workParamv.low, (int) workParamv.high);
         workParamv.workTemplate = workTemplate;
         ocrEdtCreate(&lowEdt, workTemplate, EDT_PARAM_DEF, (u64 *)&workParamv,
                  EDT_PARAM_DEF, NULL, EDT_PROP_FINISH, NULL_HINT, NULL);
         workParamv.low = pivotIndex+1;
         workParamv.high = high;
-        PRINTF("Recurse2 on %d %d\n", (int) workParamv.low, (int) workParamv.high);
+        ocrPrintf("Recurse2 on %d %d\n", (int) workParamv.low, (int) workParamv.high);
         ocrEdtCreate(&highEdt, workTemplate, EDT_PARAM_DEF, (u64 *)&workParamv,
                  EDT_PARAM_DEF, NULL, EDT_PROP_FINISH, NULL_HINT, NULL);
     }

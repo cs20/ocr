@@ -15,7 +15,7 @@
 
 typedef struct _regNode_t {
     ocrGuid_t guid;
-    u32 slot;
+    u32 slot; // source or destination slot depending on the context
     ocrDbAccessMode_t mode;
 } regNode_t;
 

@@ -41,6 +41,7 @@
 // Datablock
 #define ENABLE_DATABLOCK_REGULAR
 #define ENABLE_DATABLOCK_LOCKABLE
+#define ENABLE_EXTENSION_DB_INFO
 
 // Event
 #define ENABLE_EVENT_HC
@@ -152,5 +153,14 @@
 #endif
 
 #endif
+
+// OCR Simulator
+//#define OCR_ENABLE_SIMULATOR
+
+#ifdef OCR_ENABLE_SIMULATOR
+#define ENABLE_EXTENSION_PERF
+#endif
+
+
 #endif /* __OCR_CONFIG_H__ */
 

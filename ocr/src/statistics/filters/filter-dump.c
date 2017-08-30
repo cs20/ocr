@@ -44,12 +44,12 @@ FILTER_DESTRUCT {
 }
 
 FILTER_DUMP {
-    ASSERT(0); // Should never be called
+    ocrAssert(0); // Should never be called
     return 0;
 }
 
 FILTER_NOTIFY {
-    ASSERT(0); // Should never be called
+    ocrAssert(0); // Should never be called
 }
 
 FILTER_MERGE {
@@ -80,7 +80,7 @@ FILTER_CREATE {
     FILTER_MALLOC(rself);
     FILTER_SETUP(rself, parent);
 
-    ASSERT(parent == NULL);
+    ocrAssert(parent == NULL);
     rself->base.parent = NULL;
 
     ocrPolicyDomain_t *pd = getCurrentPD();
@@ -94,7 +94,7 @@ FILTER_CREATE {
         rself->outFile = fopen("ocrStats.log", "w");
     DPRINTF(DEBUG_LVL_VERB, "Created a file-dump filter @ 0x%"PRIx64" with file 0x%"PRIx64"\n",
     (u64)rself, (u64)rself->outFile);
-    ASSERT(rself->outFile);
+    ocrAssert(rself->outFile);
 
     return (ocrStatsFilter_t*)rself;
 }

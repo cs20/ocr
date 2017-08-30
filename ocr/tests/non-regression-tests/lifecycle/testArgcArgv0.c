@@ -14,16 +14,16 @@
 
 ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     // Test arguments are : number of args, string size, string
-    u32 argc = getArgc(depv[0].ptr);
-    ASSERT(argc == 4);
+    u32 argc = ocrGetArgc(depv[0].ptr);
+    ocrAssert(argc == 4);
 
-    int remArgs = atoi(getArgv(depv[0].ptr, 1));
-    ASSERT(remArgs == 2);
-    int strSize = atoi(getArgv(depv[0].ptr, 2));
-    ASSERT(strSize == 4);
-    char* str = getArgv(depv[0].ptr, 3);
-    ASSERT(strlen(str) == 4);
-    ASSERT(strcmp("abcd", str) == 0);
+    int remArgs = atoi(ocrGetArgv(depv[0].ptr, 1));
+    ocrAssert(remArgs == 2);
+    int strSize = atoi(ocrGetArgv(depv[0].ptr, 2));
+    ocrAssert(strSize == 4);
+    char* str = ocrGetArgv(depv[0].ptr, 3);
+    ocrAssert(strlen(str) == 4);
+    ocrAssert(strcmp("abcd", str) == 0);
     ocrShutdown();
     return NULL_GUID;
 }

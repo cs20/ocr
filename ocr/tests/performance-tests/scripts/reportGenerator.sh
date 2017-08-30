@@ -166,10 +166,16 @@ let l=0
 IFS=' ' read -r -a arrayNodes <<< "${NODE_SCALING}"
 IFS=$'\n'
 let i=0
+let j=0
+let coreCount=`echo ${CORE_SCALING} | wc -w`
 for lines in `cat "${TMPDIR}/tmp-results"`; do
     echo "#N=${arrayNodes[$i]} Nodes Scaling Results"
     echo "$lines"
-    let i=$i+1
+    let j=$j+1
+    if [[ $j -eq $coreCount ]]; then
+        let j=0;
+        let i=$i+1
+    fi
 done
 
 # delete left-over temporary file

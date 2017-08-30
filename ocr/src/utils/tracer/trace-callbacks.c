@@ -36,12 +36,15 @@ void __attribute__ ((weak)) traceTaskRunnable(u64 location, bool evtType, ocrTra
 
 void __attribute__ ((weak)) traceTaskAddDependence(u64 location, bool evtType, ocrTraceType_t objType,
                                                    ocrTraceAction_t actionType, u64 workerId,
-                                                   u64 timestamp, ocrGuid_t parent, ocrGuid_t src, ocrGuid_t dest){
+                                                   u64 timestamp, ocrGuid_t parent, ocrGuid_t src, ocrGuid_t dest, u32 sslot, u32 dslot, ocrDbAccessMode_t accessMode){
 
     //TRACING CALLBACKS - Task Add Dependence
     INIT_TRACE_OBJECT();
     TRACE_FIELD(TASK, taskDepReady, tr, src) = src;
     TRACE_FIELD(TASK, taskDepReady, tr, dest) = dest;
+    TRACE_FIELD(TASK, taskDepReady, tr, sslot) = sslot;
+    TRACE_FIELD(TASK, taskDepReady, tr, dslot) = dslot;
+    TRACE_FIELD(TASK, taskDepReady, tr, accessMode) = accessMode;
     PUSH_TO_TRACE_DEQUE();
     return;
 }
@@ -62,23 +65,29 @@ void __attribute__ ((weak)) traceTaskSatisfyDependence(u64 location, bool evtTyp
 void __attribute__ ((weak)) traceTaskExecute(u64 location, bool evtType, ocrTraceType_t objType,
                                             ocrTraceAction_t actionType, u64 workerId,
                                             u64 timestamp, ocrGuid_t parent, ocrGuid_t edtGuid,
-                                            ocrEdt_t funcPtr){
+                                            ocrEdt_t funcPtr, char nameIn[OCR_EDT_NAME_SIZE]){
 
     //TRACING CALLBACKS - Task Execute
     INIT_TRACE_OBJECT();
     TRACE_FIELD(TASK, taskExeBegin, tr, taskGuid) = edtGuid;
     TRACE_FIELD(TASK, taskExeBegin, tr, funcPtr) = funcPtr;
+    TRACE_FIELD(TASK, taskExeBegin, tr, strLen) = strlen(nameIn);
+    memcpy(TRACE_FIELD(TASK, taskExeBegin, tr, name), nameIn, (sizeof(char)*OCR_EDT_NAME_SIZE));
     PUSH_TO_TRACE_DEQUE();
     return;
 }
 
 void __attribute__ ((weak)) traceTaskFinish(u64 location, bool evtType, ocrTraceType_t objType,
                                             ocrTraceAction_t actionType, u64 workerId,
-                                            u64 timestamp, ocrGuid_t parent, ocrGuid_t edtGuid){
+                                            u64 timestamp, ocrGuid_t parent, ocrGuid_t edtGuid,
+                                            u64 startTime, char nameIn[OCR_EDT_NAME_SIZE]){
 
     //TRACING CALLBACKS - Task Finish
     INIT_TRACE_OBJECT();
     TRACE_FIELD(TASK, taskExeEnd, tr, taskGuid) = edtGuid;
+    TRACE_FIELD(TASK, taskExeEnd, tr, startTime) = startTime;
+    TRACE_FIELD(TASK, taskExeEnd, tr, strLen) = strlen(nameIn);
+    memcpy(TRACE_FIELD(TASK, taskExeEnd, tr, name), nameIn, (sizeof(char)*OCR_EDT_NAME_SIZE));
     PUSH_TO_TRACE_DEQUE();
     return;
 }
@@ -160,12 +169,15 @@ void __attribute__ ((weak)) traceEventSatisfyDependence(u64 location, bool evtTy
 void __attribute__ ((weak)) traceEventAddDependence(u64 location, bool evtType, ocrTraceType_t objType,
                                                     ocrTraceAction_t actionType, u64 workerId,
                                                     u64 timestamp, ocrGuid_t parent, ocrGuid_t src,
-                                                    ocrGuid_t dest){
+                                                    ocrGuid_t dest, u32 sslot, u32 dslot, ocrDbAccessMode_t accessMode){
 
     //TRACING CALLBACKS - Event Add Dependence
     INIT_TRACE_OBJECT();
     TRACE_FIELD(EVENT, eventDepAdd, tr, src) = src;
     TRACE_FIELD(EVENT, eventDepAdd, tr, dest) = dest;
+    TRACE_FIELD(EVENT, eventDepAdd, tr, sslot) = sslot;
+    TRACE_FIELD(EVENT, eventDepAdd, tr, dslot) = dslot;
+    TRACE_FIELD(EVENT, eventDepAdd, tr, accessMode) = accessMode;
     PUSH_TO_TRACE_DEQUE();
     return;
 }
@@ -189,6 +201,34 @@ void __attribute__ ((weak)) traceDataDestroy(u64 location, bool evtType, ocrTrac
     //TRACING CALLBACKS - Data Destroy
     INIT_TRACE_OBJECT();
     TRACE_FIELD(DATA, dataDestroy, tr, dbGuid) = dbGuid;
+    PUSH_TO_TRACE_DEQUE();
+    return;
+}
+
+void __attribute__ ((weak)) traceAlloc(u64 location, bool evtType, ocrTraceType_t objType,
+                                             ocrTraceAction_t actionType, u64 workerId,
+                                             u64 timestamp, ocrGuid_t parent,
+                                             u64 startTime, u64 callFunc, u64 memSize, u64 memHint, void *memPtr){
+    //TRACING CALLBACKS - Allocate
+    INIT_TRACE_OBJECT();
+    TRACE_FIELD(ALLOCATOR, memAlloc, tr, startTime) = startTime;
+    TRACE_FIELD(ALLOCATOR, memAlloc, tr, callFunc) = callFunc;
+    TRACE_FIELD(ALLOCATOR, memAlloc, tr, memSize) = memSize;
+    TRACE_FIELD(ALLOCATOR, memAlloc, tr, memHint) = memHint;
+    TRACE_FIELD(ALLOCATOR, memAlloc, tr, memPtr) = memPtr;
+    PUSH_TO_TRACE_DEQUE();
+    return;
+}
+
+void __attribute__ ((weak)) traceDealloc(u64 location, bool evtType, ocrTraceType_t objType,
+                                             ocrTraceAction_t actionType, u64 workerId,
+                                             u64 timestamp, ocrGuid_t parent,
+                                             u64 startTime, u64 callFunc, void *memPtr){
+    //TRACING CALLBACKS - Allocate End and Deallocate Begin
+    INIT_TRACE_OBJECT();
+    TRACE_FIELD(ALLOCATOR, memDealloc, tr, startTime) = startTime;
+    TRACE_FIELD(ALLOCATOR, memAlloc, tr, callFunc) = callFunc;
+    TRACE_FIELD(ALLOCATOR, memDealloc, tr, memPtr) = memPtr;
     PUSH_TO_TRACE_DEQUE();
     return;
 }

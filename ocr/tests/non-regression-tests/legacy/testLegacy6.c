@@ -17,7 +17,7 @@
 
 // This is a worker EDT
 ocrGuid_t workerEdt ( u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
-    PRINTF("Worker here, this would do a portion of the parallel workload\n");
+    ocrPrintf("Worker here, this would do a portion of the parallel workload\n");
     return NULL_GUID;
 }
 
@@ -48,20 +48,20 @@ void ocrBlock(ocrConfig_t cfg) {
     ocrLegacySpawnOCR(&handle, template, 0, NULL, 1, &ctrlDep, legacyCtx);
 
     ocrLegacyBlockProgress(handle, &outputGuid, &result, &size, LEGACY_PROP_NONE);
-    ASSERT(ocrGuidIsNull(outputGuid));
-    ASSERT(result == NULL);
-    ASSERT(size == 0);
+    ocrAssert(ocrGuidIsNull(outputGuid));
+    ocrAssert(result == NULL);
+    ocrAssert(size == 0);
     ocrEventDestroy(handle);
 
-    PRINTF("Let's try again...\n");
+    ocrPrintf("Let's try again...\n");
 
     ctrlDep = NULL_GUID;
     ocrLegacySpawnOCR(&handle, template, 0, NULL, 1, &ctrlDep, legacyCtx);
 
     ocrLegacyBlockProgress(handle, &outputGuid, &result, &size, LEGACY_PROP_NONE);
-    ASSERT(ocrGuidIsNull(outputGuid));
-    ASSERT(result == NULL);
-    ASSERT(size == 0);
+    ocrAssert(ocrGuidIsNull(outputGuid));
+    ocrAssert(result == NULL);
+    ocrAssert(size == 0);
     ocrEventDestroy(handle);
 
     ocrEdtTemplateDestroy(template);
@@ -73,11 +73,11 @@ void ocrBlock(ocrConfig_t cfg) {
 int main(int argc, const char *argv[]) {
     ocrConfig_t ocrConfig;
     ocrParseArgs(argc, argv, &ocrConfig);
-    PRINTF("Legacy code...\n");
+    ocrPrintf("Legacy code...\n");
     ocrBlock(ocrConfig);
-    PRINTF("Let's try again with a fresh legacy block\n");
+    ocrPrintf("Let's try again with a fresh legacy block\n");
     ocrBlock(ocrConfig);
-    PRINTF("Back to legacy code, done.\n");
+    ocrPrintf("Back to legacy code, done.\n");
     return 0;
 }
 

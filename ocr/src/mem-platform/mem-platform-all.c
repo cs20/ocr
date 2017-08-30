@@ -35,7 +35,7 @@ ocrMemPlatformFactory_t *newMemPlatformFactory(memPlatformType_t type, ocrParamL
         return newMemPlatformFactoryFsim(typeArg);
 #endif
     default:
-        ASSERT(0);
+        ocrAssert(0);
         return NULL;
     };
 }
@@ -45,4 +45,5 @@ void initializeMemPlatformOcr(ocrMemPlatformFactory_t * factory, ocrMemPlatform_
     self->fcts = factory->platformFcts;
     self->size = ((paramListMemPlatformInst_t *)perInstance)->size;
     self->startAddr = self->endAddr = 0ULL;
+    self->id = 0ULL;
 }

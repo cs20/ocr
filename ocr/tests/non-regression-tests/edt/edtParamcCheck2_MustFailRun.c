@@ -15,7 +15,7 @@
  */
 
 ocrGuid_t terminateEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
-    PRINTF("Everything went OK\n");
+    ocrPrintf("Everything went OK\n");
     ocrShutdown(); // This is the last EDT to execute, terminate
     return NULL_GUID;
 }
@@ -23,7 +23,7 @@ ocrGuid_t terminateEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
 ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     u64 affinityCount;
     ocrAffinityCount(AFFINITY_PD, &affinityCount);
-    ASSERT(affinityCount >= 1);
+    ocrAssert(affinityCount >= 1);
     ocrGuid_t affinities[affinityCount];
     ocrAffinityGet(AFFINITY_PD, &affinityCount, affinities);
     ocrGuid_t edtAffinity = affinities[affinityCount-1];
@@ -36,6 +36,6 @@ ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     ocrSetHintValue( & edtHint, OCR_HINT_EDT_AFFINITY, ocrAffinityToHintValue( edtAffinity) );
     u8 res = ocrEdtCreate(&terminateEdtGuid, terminateEdtTemplateGuid, 1, NULL, 0, NULL,
                  /*properties=*/EDT_PROP_FINISH, &edtHint, /*outEvent=*/ NULL);
-    ASSERT(!res);
+    ocrAssert(!res);
     return NULL_GUID;
 }

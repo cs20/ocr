@@ -11,7 +11,7 @@
  */
 
 ocrGuid_t terminateEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
-    PRINTF("Everything went OK\n");
+    ocrPrintf("Everything went OK\n");
     ocrShutdown(); // This is the last EDT to execute, terminate
     return NULL_GUID;
 }
@@ -22,7 +22,7 @@ ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     ocrEdtTemplateCreate(&terminateEdtTemplateGuid, terminateEdt, EDT_PARAM_UNK /*paramc*/, 0 /*depc*/);
     u8 res = ocrEdtCreate(&terminateEdtGuid, terminateEdtTemplateGuid, 1, NULL, 0, NULL,
                  /*properties=*/EDT_PROP_FINISH, NULL_HINT, /*outEvent=*/ NULL);
-    ASSERT(!res);
+    ocrAssert(!res);
     if(res) {
         ocrAbort(res);
     }

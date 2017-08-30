@@ -37,7 +37,7 @@ static inline ocrStatsMessage_t* newStatsMessage(ocrStatsEvtInt_t implType, ocrS
     switch(implType) {
         STATS_MESSAGE_CASE(TRIVIAL, type, src, dest, instanceArg);
     default:
-        ASSERT(0);
+        ocrAssert(0);
         return NULL;
     }
 }

@@ -11,15 +11,15 @@
  */
 
 ocrGuid_t remoteEdt1(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
-    PRINTF("[remote] RemoteEdt1 will satisfy [0] 0x%"PRIx64" \n", ((u64 *) depv[0].ptr)[0]);
-    PRINTF("[remote] RemoteEdt1 will satisfy [1] 0x%"PRIx64" \n", ((u64 *) depv[0].ptr)[1]);
+    ocrPrintf("[remote] RemoteEdt1 will satisfy [0] 0x%"PRIx64" \n", ((u64 *) depv[0].ptr)[0]);
+    ocrPrintf("[remote] RemoteEdt1 will satisfy [1] 0x%"PRIx64" \n", ((u64 *) depv[0].ptr)[1]);
     ocrEventSatisfy(((ocrGuid_t *) depv[0].ptr)[0], NULL_GUID);
     return NULL_GUID;
 }
 
 ocrGuid_t remoteEdt2(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
-    PRINTF("[remote] RemoteEdt2 will satisfy [0] 0x%"PRIx64" \n", ((u64 *) depv[0].ptr)[0]);
-    PRINTF("[remote] RemoteEdt2 will satisfy [1] 0x%"PRIx64" \n", ((u64 *) depv[0].ptr)[1]);
+    ocrPrintf("[remote] RemoteEdt2 will satisfy [0] 0x%"PRIx64" \n", ((u64 *) depv[0].ptr)[0]);
+    ocrPrintf("[remote] RemoteEdt2 will satisfy [1] 0x%"PRIx64" \n", ((u64 *) depv[0].ptr)[1]);
     ocrEventSatisfy(((ocrGuid_t *) depv[0].ptr)[1], NULL_GUID);
     return NULL_GUID;
 }
@@ -32,7 +32,7 @@ ocrGuid_t shutdownEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
 ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     u64 affinityCount;
     ocrAffinityCount(AFFINITY_PD, &affinityCount);
-    ASSERT(affinityCount >= 1);
+    ocrAssert(affinityCount >= 1);
     ocrGuid_t affinities[affinityCount];
     ocrAffinityGet(AFFINITY_PD, &affinityCount, affinities);
     ocrGuid_t edtAffinity = affinities[affinityCount-1];
@@ -54,7 +54,7 @@ ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     ocrGuid_t shutdownDepv[2] = {event1Guid, event2Guid};
     ocrEdtCreate(&edtShutdownGuid, shutdownEdtTemplateGuid, 0, NULL, 2, shutdownDepv,
         EDT_PROP_NONE, NULL_HINT, NULL);
-    PRINTF("[local] events guids are [0]="GUIDF" [1]="GUIDF"\n",GUIDA(event1Guid), GUIDA(event2Guid));
+    ocrPrintf("[local] events guids are [0]="GUIDF" [1]="GUIDF"\n",GUIDA(event1Guid), GUIDA(event2Guid));
     // Setup the test
     ocrGuid_t remoteEdt1TemplateGuid;
     ocrEdtTemplateCreate(&remoteEdt1TemplateGuid, remoteEdt1, 0, 1);

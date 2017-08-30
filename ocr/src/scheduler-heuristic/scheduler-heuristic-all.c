@@ -79,7 +79,7 @@ ocrSchedulerHeuristicFactory_t * newSchedulerHeuristicFactory(schedulerHeuristic
     default:
         break;
     }
-    ASSERT(0);
+    ocrAssert(0);
     return NULL;
 }
 

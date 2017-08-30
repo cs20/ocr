@@ -1,0 +1,78 @@
+Tool for visualizing frequency of memory allocations among
+all levels of memory configured for OCR apps run targetting
+the TG platform
+
+
+Pre-conditions - OCR application
+==============
+
+    - OCR must be built with the OCR_ENABLE_MEMORY_HEATMAP
+      option defined, located in <OCR_ROOT>/build/common.mk
+
+    - It is recommended that you add "bypass_xe_print_alarm = 1"
+      as a new entry in the apps tg config file under the XEglobal
+      heading, as it could potentially increase simulation speed, as
+      alot of information will be printed when logging allocations
+
+    - It is highly recommended that you run your OCR application on the
+      nordic cluster as there is currently an issue with the MPI layer on
+      FSIM causing a serious simulation slowdown on the foobar cluster
+
+
+Pre-conditions - Heatmap script
+==============
+
+    - TG_ROOT environment variable must be correctly set
+
+    - TG branch must be current enough to include the file
+      "xstg-map-decode.c" under <TG_ROOT>/utils/
+
+    - Must SSH into the machine with the -X option to allow
+      X-forwarding.  This will allow the visualization
+      to load/display
+
+
+Usage Instructions
+==================
+
+    python memoryHeatmap.py <path_to_tg_log_files_parent_directory>
+
+Output
+======
+
+    The script will launch a visualization window modelled as follows:
+
+----------------------------------------------------------------------------------------
+|                                                                                      |
+|                                                                                      |
+|      -----------------------------------                 ------------------------    |
+|      |                                 |                 |                      |    |
+|      |                                 |                 |         NVM          |    |
+|      |                                 |                 |                      |    |
+|      |                                 |                 ------------------------    |
+|      |             DRAM                |                 ------------------------    |
+|      |                                 |                 |                      |    |
+|      |                                 |                 |         IPM          |    |
+|      |                                 |                 |                      |    |
+|      |                                 |                 ------------------------    |
+|      |                                 |                 ------------------------    |
+|      -----------------------------------                 |                      |    |
+|                                                          |    L2 Scratchpad     |    |
+|             [XE L1 Scratchpads]                          |                      |    |
+|                                                          ------------------------    |
+|      -------  -------  -------  -------                                              |
+|      | XE0 |  | XE1 |  | XE2 |  | XE3 |     -------                                  |
+|      |     |  |     |  |     |  |     |     | CE  |                                  |
+|      -------  -------  -------  -------     |     |                                  |
+|      -------  -------  -------  -------     -------                                  |
+|      | XE4 |  | XE5 |  | XE6 |  | XE7 |                                              |
+|      |     |  |     |  |     |  |     |                                              |
+|      -------  -------  -------  -------                                              |
+|                                                                                      |
+|                                                                                      |
+----------------------------------------------------------------------------------------
+
+    - Additionally the script will produce a text file summarizing
+      the pool size, number of allocations, and number of bytes
+      allocated to each memory structure.  More fields may be added
+      in the future as needed/requested by the community

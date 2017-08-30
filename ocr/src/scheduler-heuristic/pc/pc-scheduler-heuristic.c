@@ -56,12 +56,12 @@ u8 pcSchedulerHeuristicSwitchRunlevel(ocrSchedulerHeuristic_t *self, ocrPolicyDo
     u8 toReturn = 0;
 
     // This is an inert module, we do not handle callbacks (caller needs to wait on us)
-    ASSERT(callback == NULL);
+    ocrAssert(callback == NULL);
 
     // Verify properties for this call
-    ASSERT((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
+    ocrAssert((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
            && !(properties & RL_RELEASE));
-    ASSERT(!(properties & RL_FROM_MSG));
+    ocrAssert(!(properties & RL_FROM_MSG));
 
     switch(runlevel) {
     case RL_CONFIG_PARSE:
@@ -80,12 +80,12 @@ u8 pcSchedulerHeuristicSwitchRunlevel(ocrSchedulerHeuristic_t *self, ocrPolicyDo
         if((properties & RL_BRING_UP) && RL_IS_FIRST_PHASE_UP(PD, RL_GUID_OK, phase)) {
             u32 i;
             ocrScheduler_t *scheduler = self->scheduler;
-            ASSERT(scheduler);
-            ASSERT(SCHEDULER_OBJECT_KIND(self->scheduler->rootObj->kind) == OCR_SCHEDULER_OBJECT_DOMAIN);
-            ASSERT(scheduler->pd != NULL);
-            ASSERT(scheduler->contextCount > 0);
+            ocrAssert(scheduler);
+            ocrAssert(SCHEDULER_OBJECT_KIND(self->scheduler->rootObj->kind) == OCR_SCHEDULER_OBJECT_DOMAIN);
+            ocrAssert(scheduler->pd != NULL);
+            ocrAssert(scheduler->contextCount > 0);
             ocrPolicyDomain_t *pd = scheduler->pd;
-            ASSERT(pd == PD);
+            ocrAssert(pd == PD);
 
             self->contextCount = scheduler->contextCount;
             self->contexts = (ocrSchedulerHeuristicContext_t **)pd->fcts.pdMalloc(pd, self->contextCount * sizeof(ocrSchedulerHeuristicContext_t*));
@@ -108,7 +108,7 @@ u8 pcSchedulerHeuristicSwitchRunlevel(ocrSchedulerHeuristic_t *self, ocrPolicyDo
         break;
     default:
         // Unknown runlevel
-        ASSERT(0);
+        ocrAssert(0);
     }
     return toReturn;
 }
@@ -122,7 +122,7 @@ u8 pcSchedulerHeuristicUpdate(ocrSchedulerHeuristic_t *self, ocrSchedulerObject_
 }
 
 ocrSchedulerHeuristicContext_t* pcSchedulerHeuristicGetContext(ocrSchedulerHeuristic_t *self, ocrLocation_t loc) {
-    ASSERT(0);
+    ocrAssert(0);
     return NULL;
 }
 
@@ -133,11 +133,11 @@ u8 pcSchedulerHeuristicRegisterContext(ocrSchedulerHeuristic_t *self, u64 contex
     ocrSchedulerObject_t *rootObj = self->scheduler->rootObj;
     ocrSchedulerObjectFactory_t *rootFact = self->scheduler->pd->schedulerObjectFactories[rootObj->fctId];
     pcContext->mySchedulerObject = rootFact->fcts.getSchedulerObjectForLocation(rootFact, rootObj, contextId, OCR_SCHEDULER_OBJECT_MAPPING_PINNED, SCHEDULER_OBJECT_MAPPING_WST | SCHEDULER_OBJECT_CREATE_IF_ABSENT);
-    ASSERT(pcContext->mySchedulerObject);
+    ocrAssert(pcContext->mySchedulerObject);
     pcContext->stealSchedulerObjectIndex = (contextId + 1) % self->contextCount;
     pcContext->listIterator = NULL;
     ocrSchedulerObjectDomain_t *domainObj = (ocrSchedulerObjectDomain_t*)rootObj;
-    ASSERT(domainObj->dbMap);
+    ocrAssert(domainObj->dbMap);
     ocrSchedulerObjectFactory_t *tablFact = self->scheduler->pd->schedulerObjectFactories[domainObj->dbMap->fctId];
     paramListSchedulerObject_t params;
     params.kind = OCR_SCHEDULER_OBJECT_ITERATOR;
@@ -158,7 +158,7 @@ static u8 pcSchedulerHeuristicWorkEdtUserInvoke(ocrSchedulerHeuristic_t *self, o
     //First try to pop from own deque
     ocrSchedulerHeuristicContextPc_t *pcContext = (ocrSchedulerHeuristicContextPc_t*)context;
     ocrSchedulerObject_t *schedObj = pcContext->mySchedulerObject;
-    ASSERT(schedObj);
+    ocrAssert(schedObj);
     ocrSchedulerObjectFactory_t *fact = self->scheduler->pd->schedulerObjectFactories[schedObj->fctId];
     u8 retVal = fact->fcts.remove(fact, schedObj, OCR_SCHEDULER_OBJECT_EDT, 1, &edtObj, NULL, SCHEDULER_OBJECT_REMOVE_DEQ_POP);
 
@@ -192,7 +192,7 @@ static u8 pcSchedulerHeuristicWorkEdtUserInvoke(ocrSchedulerHeuristic_t *self, o
 #endif
         if (edtObj.guid.metaDataPtr == NULL)
             fact->pd->guidProviders[0]->fcts.getVal(fact->pd->guidProviders[0], edtObj.guid.guid, (u64*)(&(edtObj.guid.metaDataPtr)), NULL);
-        ASSERT(edtObj.guid.metaDataPtr);
+        ocrAssert(edtObj.guid.metaDataPtr);
         ocrTask_t *currentEdt = (ocrTask_t*)edtObj.guid.metaDataPtr;
         ocrHint_t edtHint;
         ocrHintInit(&edtHint, OCR_HINT_EDT_T);
@@ -211,14 +211,14 @@ u8 pcSchedulerHeuristicGetWorkInvoke(ocrSchedulerHeuristic_t *self, ocrScheduler
         return pcSchedulerHeuristicWorkEdtUserInvoke(self, context, opArgs, hints);
     // Unknown ops
     default:
-        ASSERT(0);
+        ocrAssert(0);
         return OCR_ENOTSUP;
     }
     return 0;
 }
 
 u8 pcSchedulerHeuristicGetWorkSimulate(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicContext_t *context, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
@@ -226,7 +226,7 @@ static u8 pcSchedulerHeuristicNotifyEdtReadyInvoke(ocrSchedulerHeuristic_t *self
     ocrSchedulerOpNotifyArgs_t *notifyArgs = (ocrSchedulerOpNotifyArgs_t*)opArgs;
     ocrSchedulerHeuristicContextPc_t *pcContext = (ocrSchedulerHeuristicContextPc_t*)context;
     ocrSchedulerObject_t *schedObj = pcContext->mySchedulerObject;
-    ASSERT(schedObj);
+    ocrAssert(schedObj);
     ocrSchedulerObject_t edtObj;
     edtObj.guid = notifyArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_EDT_READY).guid;
     edtObj.kind = OCR_SCHEDULER_OBJECT_EDT;
@@ -242,7 +242,7 @@ static u8 pcSchedulerHeuristicNotifyEdtSatisfiedInvoke(ocrSchedulerHeuristic_t *
     ocrSchedulerHeuristicPc_t *derived = (ocrSchedulerHeuristicPc_t*)self;
     ocrSchedulerOpNotifyArgs_t *notifyArgs = (ocrSchedulerOpNotifyArgs_t*)opArgs;
     ocrTask_t *task = notifyArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_EDT_READY).guid.metaDataPtr;
-    ASSERT(task);
+    ocrAssert(task);
     ocrTaskHc_t *hcTask = (ocrTaskHc_t*)task; //TODO:This is temporary until we get proper introspection support
 
     //Analyze phase, location and affinity
@@ -296,7 +296,7 @@ static u8 pcSchedulerHeuristicNotifyEdtDoneInvoke(ocrSchedulerHeuristic_t *self,
 static u8 pcSchedulerHeuristicNotifyDbCreateInvoke(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicContext_t *context, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
     ocrSchedulerOpNotifyArgs_t *notifyArgs = (ocrSchedulerOpNotifyArgs_t*)opArgs;
     ocrDataBlock_t *db = notifyArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_DB_CREATE).guid.metaDataPtr;
-    ASSERT(db);
+    ocrAssert(db);
 
     //Inherit current phase from currently executing EDT
     u64 currentPhase = 0;
@@ -321,7 +321,7 @@ static u8 pcSchedulerHeuristicNotifyDbCreateInvoke(ocrSchedulerHeuristic_t *self
     dbParams.dataPtr = db->ptr;
     ocrSchedulerObjectFactory_t *dbFact = self->scheduler->pd->schedulerObjectFactories[schedulerObjectDbNode_id];
     ocrSchedulerObject_t *dbNode = dbFact->fcts.create(dbFact, (ocrParamList_t*)&dbParams);
-    ASSERT(dbNode);
+    ocrAssert(dbNode);
 
     ocrSchedulerHeuristicContextPc_t *pcContext = (ocrSchedulerHeuristicContextPc_t*)context;
     ocrSchedulerObjectIterator_t *it = pcContext->mapIterator;
@@ -349,24 +349,24 @@ u8 pcSchedulerHeuristicNotifyInvoke(ocrSchedulerHeuristic_t *self, ocrSchedulerH
         break;
     // Unknown ops
     default:
-        ASSERT(0);
+        ocrAssert(0);
         return OCR_ENOTSUP;
     }
     return 0;
 }
 
 u8 pcSchedulerHeuristicNotifySimulate(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicContext_t *context, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 u8 pcSchedulerHeuristicTransactInvoke(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicContext_t *context, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 u8 pcSchedulerHeuristicTransactSimulate(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicContext_t *context, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
@@ -413,12 +413,12 @@ static u8 pcSchedulerHeuristicAnalyzePhaseRequestInvoke(ocrSchedulerHeuristic_t 
     ocrSchedulerObjectDomain_t *domainObj = (ocrSchedulerObjectDomain_t*)self->scheduler->rootObj;
     ocrSchedulerObjectFactory_t *tablFact = self->scheduler->pd->schedulerObjectFactories[domainObj->dbMap->fctId];
     for (i = 0; i < depc; i++) {
-        ASSERT(depv[i].ptr == NULL);
+        ocrAssert(depv[i].ptr == NULL);
         if (!ocrGuidIsNull(depv[i].guid)) {
             it->ITERATOR_ARG_FIELD(OCR_SCHEDULER_OBJECT_MAP).key = (void*)depv[i].guid;
             it->ITERATOR_ARG_FIELD(OCR_SCHEDULER_OBJECT_MAP).value = NULL;
             RESULT_ASSERT(tablFact->fcts.iterate(tablFact, domainObj->dbMap, it, SCHEDULER_OBJECT_ITERATE_MAP_GET_NON_CONC), ==, 0);
-            ASSERT(it->ITERATOR_ARG_FIELD(OCR_SCHEDULER_OBJECT_MAP).value);
+            ocrAssert(it->ITERATOR_ARG_FIELD(OCR_SCHEDULER_OBJECT_MAP).value);
             depv[i].ptr = it->ITERATOR_ARG_FIELD(OCR_SCHEDULER_OBJECT_MAP).value; //Repurpose the data ptr to hold the DB node pointer
         }
     }
@@ -455,7 +455,7 @@ static u8 pcSchedulerHeuristicAnalyzePhaseRequestInvoke(ocrSchedulerHeuristic_t 
         //Success. Current phase is common across all deps
         return sendPhaseResponse(self, context, analyzeArgs, phase, runningLoc, affinityGuid);
     }
-    ASSERT(0); //Currently we only support shared-mem; So, the first check should suffice.
+    ocrAssert(0); //Currently we only support shared-mem; So, the first check should suffice.
     return 0;
 }
 
@@ -464,11 +464,11 @@ static u8 pcSchedulerHeuristicAnalyzePhaseResponseInvoke(ocrSchedulerHeuristic_t
     ocrSchedulerOpAnalyzeArgs_t *analyzeArgs = (ocrSchedulerOpAnalyzeArgs_t*)opArgs;
     u64 scheduledPhase = analyzeArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_ANALYZE_PHASE).resp.scheduledPhase;
     ocrLocation_t scheduledLocation = analyzeArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_ANALYZE_PHASE).resp.scheduledLocation;
-    ASSERT(scheduledPhase == 0 && scheduledLocation == self->scheduler->pd->myLocation); //TODO: Currently only shared mem support
+    ocrAssert(scheduledPhase == 0 && scheduledLocation == self->scheduler->pd->myLocation); //TODO: Currently only shared mem support
 
     //Below, all code only deals with shared-mem support for RW mode only. Other modes and distributed support is TODO.
     ocrTask_t *task = analyzeArgs->dstObj->guid.metaDataPtr;
-    ASSERT(task);
+    ocrAssert(task);
     ocrTaskHc_t *taskHc = (ocrTaskHc_t*)task; //TODO: Temporary until we get introspection support
     ocrEdtDep_t *depv = taskHc->resolvedDeps;
     u32 depc = task->depc;
@@ -479,12 +479,12 @@ static u8 pcSchedulerHeuristicAnalyzePhaseResponseInvoke(ocrSchedulerHeuristic_t
     ocrSchedulerObjectDomain_t *domainObj = (ocrSchedulerObjectDomain_t*)self->scheduler->rootObj;
     ocrSchedulerObjectFactory_t *tablFact = self->scheduler->pd->schedulerObjectFactories[domainObj->dbMap->fctId];
     for (i = 0; i < depc; i++) {
-        ASSERT(depv[i].ptr == NULL);
+        ocrAssert(depv[i].ptr == NULL);
         if (!ocrGuidIsNull(depv[i].guid)) {
             it->ITERATOR_ARG_FIELD(OCR_SCHEDULER_OBJECT_MAP).key = (void*)depv[i].guid;
             it->ITERATOR_ARG_FIELD(OCR_SCHEDULER_OBJECT_MAP).value = NULL;
             RESULT_ASSERT(tablFact->fcts.iterate(tablFact, domainObj->dbMap, it, SCHEDULER_OBJECT_ITERATE_MAP_GET_NON_CONC), ==, 0);
-            ASSERT(it->ITERATOR_ARG_FIELD(OCR_SCHEDULER_OBJECT_MAP).value);
+            ocrAssert(it->ITERATOR_ARG_FIELD(OCR_SCHEDULER_OBJECT_MAP).value);
             ocrSchedulerObjectDbNode_t *dbNode = (ocrSchedulerObjectDbNode_t*)it->ITERATOR_ARG_FIELD(OCR_SCHEDULER_OBJECT_MAP).value; //Repurpose the data ptr to hold the DB node pointer
             depv[i].ptr = dbNode->dataPtr;
         }
@@ -503,7 +503,7 @@ static u8 pcSchedulerHeuristicAnalyzePhaseResponseInvoke(ocrSchedulerHeuristic_t
     PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_EDT_READY).guid.guid = task->guid;
     PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_EDT_READY).guid.metaDataPtr = task;
     RESULT_PROPAGATE(pd->fcts.processMessage(pd, &msg, false));
-    ASSERT(PD_MSG_FIELD_O(returnDetail) == 0);
+    ocrAssert(PD_MSG_FIELD_O(returnDetail) == 0);
 #undef PD_MSG
 #undef PD_TYPE
     return 0;
@@ -517,7 +517,7 @@ static u8 pcSchedulerHeuristicAnalyzePhaseInvoke(ocrSchedulerHeuristic_t *self, 
     case OCR_SCHED_ANALYZE_RESPONSE:
         return pcSchedulerHeuristicAnalyzePhaseResponseInvoke(self, context, opArgs, hints);
     default:
-        ASSERT(0);
+        ocrAssert(0);
         return OCR_ENOTSUP;
     }
     return 0;
@@ -530,14 +530,14 @@ u8 pcSchedulerHeuristicAnalyzeInvoke(ocrSchedulerHeuristic_t *self, ocrScheduler
         return pcSchedulerHeuristicAnalyzePhaseInvoke(self, context, opArgs, hints);
     // Unknown ops
     default:
-        ASSERT(0);
+        ocrAssert(0);
         return OCR_ENOTSUP;
     }
     return 0;
 }
 
 u8 pcSchedulerHeuristicAnalyzeSimulate(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicContext_t *context, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 

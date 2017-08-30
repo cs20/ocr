@@ -1,0 +1,7 @@
+This directory contains scripts that post-process a run on Xeon-Phi to determine
+EDTs whose datablocks can benefit from moving to MCDRAM. To use it,
+1. Enable perfmon counters on Xeon-Phi by uncommenting ENABLE_EXTENSION_PERF
+   build/x86-phi/ocr-config.h
+2. Run the workload and pipe the output to a file
+3. Pass the output file as argument to the highbw.sh script with the name of the application binary as optional second argument
+4. The resultant order of EDTs determine the datablocks that could benefit from moving to MCDRAM

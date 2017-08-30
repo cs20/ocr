@@ -25,7 +25,7 @@ ocrGuid_t prodEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     u32 it = dbPtr[0];
     u32 i = 0;
     while (i < NB_ELEMS) {
-        ASSERT(dbPtr[i] == (i+it));
+        ocrAssert(dbPtr[i] == (i+it));
         dbPtr[i]++;
         i++;
     }
@@ -62,7 +62,7 @@ ocrGuid_t consEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     u32 it = dbPtr[0];
     u32 i = 0;
     while (i < NB_ELEMS) {
-        ASSERT(dbPtr[i] == (i+it));
+        ocrAssert(dbPtr[i] == (i+it));
         i++;
     }
     ocrDbRelease(dbGuid);
@@ -70,7 +70,7 @@ ocrGuid_t consEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     if (it == MAX_ITER) {
         ocrShutdown();
     } else {
-        PRINTF("it=%"PRIu32"\n", it);
+        ocrPrintf("it=%"PRIu32"\n", it);
         // Spawn next production EDT
         ocrGuid_t curAff;
         ocrAffinityGetCurrent(&curAff);
@@ -131,7 +131,7 @@ ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
 
     u64 affinityCount;
     ocrAffinityCount(AFFINITY_PD, &affinityCount);
-    ASSERT(affinityCount >= 1);
+    ocrAssert(affinityCount >= 1);
     ocrGuid_t affinities[affinityCount];
     ocrAffinityGet(AFFINITY_PD, &affinityCount, affinities);
     ocrGuid_t edtAffinity = affinities[affinityCount-1];
@@ -154,7 +154,7 @@ ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
 #else
 
 ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
-    PRINTF("Test disabled - ENABLE_EXTENSION_CHANNEL_EVT not defined\n");
+    ocrPrintf("Test disabled - ENABLE_EXTENSION_CHANNEL_EVT not defined\n");
     ocrShutdown();
     return NULL_GUID;
 }

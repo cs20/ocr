@@ -11,8 +11,8 @@
 
 ocrGuid_t taskForEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     int* res = (int*)depv[0].ptr;
-    PRINTF("In the taskForEdt with value %"PRId32"\n", (*res));
-    ASSERT(*res == 42);
+    ocrPrintf("In the taskForEdt with value %"PRId32"\n", (*res));
+    ocrAssert(*res == 42);
     // This is the last EDT to execute, terminate
     ocrShutdown();
     return NULL_GUID;

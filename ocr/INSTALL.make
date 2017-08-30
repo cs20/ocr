@@ -24,7 +24,7 @@ Build requirements:
 
 3) Run printf
 
-    cd ocr-apps/printf
+    cd apps/apps/examples/printf
     make -f Makefile.<OCR_TYPE> run
 
 

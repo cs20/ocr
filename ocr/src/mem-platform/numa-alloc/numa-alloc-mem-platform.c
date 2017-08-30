@@ -47,12 +47,12 @@ u8 numaAllocSwitchRunlevel(ocrMemPlatform_t *self, ocrPolicyDomain_t *PD, ocrRun
     u8 toReturn = 0;
 
     // This is an inert module, we do not handle callbacks (caller needs to wait on us)
-    ASSERT(callback == NULL);
+    ocrAssert(callback == NULL);
 
     // Verify properties for this call
-    ASSERT((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
+    ocrAssert((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
            && !(properties & RL_RELEASE));
-    ASSERT(!(properties & RL_FROM_MSG));
+    ocrAssert(!(properties & RL_FROM_MSG));
 
     switch(runlevel) {
     case RL_CONFIG_PARSE:
@@ -69,19 +69,22 @@ u8 numaAllocSwitchRunlevel(ocrMemPlatform_t *self, ocrPolicyDomain_t *PD, ocrRun
             // using the sysboot functions
             ocrMemPlatformNumaAlloc_t *rself = (ocrMemPlatformNumaAlloc_t*)self;
             // 1. Check if NUMA is available
-            ASSERT(numa_available() != -1);
+            ocrAssert(numa_available() != -1);
+            // FIXME 1.5 Adjust the node number
+            // For now, it treats the config's node number as numa offset value
+            rself->numa_node += numa_node_of_cpu(sched_getcpu());
             // 2. Check if the node number is reasonable
-            ASSERT(rself->numa_node <= numa_max_node());
+            ocrAssert(rself->numa_node <= numa_max_node());
             // 3. Use strict policy. Strict means the allocation will fail if the memory cannot be allocated on the target node.
             numa_set_strict(1);
             self->startAddr = (u64)numa_alloc_onnode(self->size, rself->numa_node);
             // Check that the mem-platform size in config file is reasonable
-            ASSERT(self->startAddr);
+            ocrAssert(self->startAddr);
             self->endAddr = self->startAddr + self->size;
 
             // rangeTracker will be located at self->startAddr, and it should be zero'ed
             // since initializeRange() assumes zero-ed 'lock' and 'inited' variables
-            ASSERT(self->size >= MEM_PLATFORM_ZEROED_AREA_SIZE);    // make sure no buffer overrun
+            ocrAssert(self->size >= MEM_PLATFORM_ZEROED_AREA_SIZE);    // make sure no buffer overrun
             // zero beginning part to cover rangeTracker and pad, and allocator metadata part i.e. pool header (pool_t)
             memset((void *)self->startAddr , 0, MEM_PLATFORM_ZEROED_AREA_SIZE);
 
@@ -118,7 +121,7 @@ u8 numaAllocSwitchRunlevel(ocrMemPlatform_t *self, ocrPolicyDomain_t *PD, ocrRun
         break;
     default:
         // Unknown runlevel
-        ASSERT(0);
+        ocrAssert(0);
     }
     return toReturn;
 }

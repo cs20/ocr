@@ -75,10 +75,16 @@ u8 ocrEdtLocalStorageGet(void **ptr, u64 *elsSize);
 /**
  * @brief Get the GUID of the calling EDT
  *
- * @return the GUID of the calling EDT or NULL_GUID if this code
- * is running outside an EDT (runtime code)
+ * @return 0, upon success and OCR_EINVAL if the pointer is invalid
  **/
-void currentEdtUserGet(ocrGuid_t * guid);
+u8 ocrCurrentEdtGet(ocrGuid_t * curEdt);
+
+/**
+ * @brief Get the GUID of the output event of executing EDT
+ *
+ * @return 0, upon success and OCR_EINVAL if the pointer is invalid
+ **/
+u8 ocrCurrentEdtOutputGet(ocrGuid_t * outputEvent);
 
 /**
  * @brief Get the number of workers the runtime currently uses

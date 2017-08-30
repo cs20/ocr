@@ -84,7 +84,7 @@ ocrSchedulerObjectFactory_t * newSchedulerObjectFactory(schedulerObjectType_t ty
         return newOcrSchedulerObjectFactoryBinHeap(perType, perType->id);
 #endif
     default:
-        ASSERT(0);
+        ocrAssert(0);
     }
     return NULL;
 }

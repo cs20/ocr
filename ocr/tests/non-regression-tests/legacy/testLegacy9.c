@@ -24,7 +24,7 @@
 ocrGuid_t keyEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     u64 affinityCount;
     ocrAffinityCount(AFFINITY_PD, &affinityCount);
-    ASSERT(affinityCount >= 1);
+    ocrAssert(affinityCount >= 1);
     ocrGuid_t affinities[affinityCount];
     ocrAffinityGet(AFFINITY_PD, &affinityCount, affinities);
     ocrHint_t dbHint;
@@ -47,7 +47,7 @@ ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     ocrEventCreate(&stickyEvtGuid, OCR_EVENT_STICKY_T, EVT_PROP_TAKES_ARG);
     u64 affinityCount;
     ocrAffinityCount(AFFINITY_PD, &affinityCount);
-    ASSERT(affinityCount >= 1);
+    ocrAssert(affinityCount >= 1);
     ocrGuid_t affinities[affinityCount];
     ocrAffinityGet(AFFINITY_PD, &affinityCount, affinities);
 
@@ -67,10 +67,10 @@ ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     void * result;
     u64 size;
     ocrLegacyBlockProgress(stickyEvtGuid, &dbGuid, &result, &size, LEGACY_PROP_NONE);
-    ASSERT(!(ocrGuidIsNull(dbGuid)));
-    ASSERT(result != NULL);
-    ASSERT(((u64 *) result)[0] == MARK);
-    ASSERT(size == sizeof(u64));
+    ocrAssert(!(ocrGuidIsNull(dbGuid)));
+    ocrAssert(result != NULL);
+    ocrAssert(((u64 *) result)[0] == MARK);
+    ocrAssert(size == sizeof(u64));
 
     ocrShutdown();
     return NULL_GUID;

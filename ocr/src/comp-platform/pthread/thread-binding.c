@@ -50,7 +50,7 @@ static void bindThreadWithMask(u32 * mask, u32 lg) {
 #else
 static void bindThreadWithMask(u32 * mask, u32 lg) {
     DPRINTF(DEBUG_LVL_WARN, "bindThread: No thread binding support for this platform\n");
-    ASSERT(0);
+    ocrAssert(0);
 }
 #endif /* __linux */
 

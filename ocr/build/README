@@ -4,6 +4,6 @@ The following "flavors" of OCR are available:
       the communication layer among nodes
     - x86-gasnet: Multi node implementation using Gasnet as
       the communication layer among nodes
-    - tg-x86: WIP (will not work at this point). See BUG #574
+    - tg-x86: OCR implementation on emulated TG running on top of X86
     - builder-ce, builder-xe, tg-xe, tg-ce: OCR implementation on
       the TG platform.

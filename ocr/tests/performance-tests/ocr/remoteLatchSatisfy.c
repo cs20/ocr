@@ -176,7 +176,7 @@ void domainKernelCombine(domainSetup_t * setupDbPtr, domainKernel_t * kernelPtr,
 
 // // - Completion event to be satisfied when execution is done (paramv[0])
 // ocrGuid_t nullEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
-//     // PRINTF("nullEdt\n");
+//     // ocrPrintf("nullEdt\n");
 //     // Stop the timer right away since we measure the spawn to execution time.
 //     timestamp_t stopTimer;
 //     get_time(&stopTimer);
@@ -266,7 +266,7 @@ void domainKernelCombine(domainSetup_t * setupDbPtr, domainKernel_t * kernelPtr,
 
 // // - Completion event to be satisfied when execution is done (paramv[0])
 // ocrGuid_t nullEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
-//     // PRINTF("nullEdt\n");
+//     // ocrPrintf("nullEdt\n");
 //     // Stop the timer right away since we measure the spawn to execution time.
 //     timestamp_t stopTimer;
 //     get_time(&stopTimer);

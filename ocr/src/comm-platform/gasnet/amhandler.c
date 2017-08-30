@@ -58,7 +58,7 @@ new_amhandler_list_entry(amhandler_fn_t handler,
     amhandler_list_entry_t *le = (amhandler_list_entry_t *) runtimeChunkAlloc(sizeof(amhandler_list_entry_t), PERSISTENT_CHUNK);
     gasnet_handler_t this_handler_index;
 
-    ASSERT(le);
+    ocrAssert(le);
 
     this_handler_index = amhandler_index++;
     _amhandler_count++;
@@ -128,7 +128,7 @@ int amhandler_count() {
  * return a unique index that will be used to identify the handler
  */
 gasnet_handler_t amhandler_register(amhandler_fn_t handler) {
-    ASSERT(_amhandler_table == 0);
+    ocrAssert(_amhandler_table == 0);
     amhandler_registry_list = new_amhandler_list_entry(handler, amhandler_registry_list);
     return amhandler_registry_list->entry.index;
 }

@@ -46,12 +46,12 @@ u8 prioritySchedulerHeuristicSwitchRunlevel(ocrSchedulerHeuristic_t *self, ocrPo
     u8 toReturn = 0;
 
     // This is an inert module, we do not handle callbacks (caller needs to wait on us)
-    ASSERT(callback == NULL);
+    ocrAssert(callback == NULL);
 
     // Verify properties for this call
-    ASSERT((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
+    ocrAssert((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
            && !(properties & RL_RELEASE));
-    ASSERT(!(properties & RL_FROM_MSG));
+    ocrAssert(!(properties & RL_FROM_MSG));
 
     switch(runlevel) {
     case RL_CONFIG_PARSE:
@@ -62,9 +62,9 @@ u8 prioritySchedulerHeuristicSwitchRunlevel(ocrSchedulerHeuristic_t *self, ocrPo
         break;
     case RL_PD_OK:
     {
-        ASSERT(self->scheduler);
+        ocrAssert(self->scheduler);
         self->contextCount = PD->workerCount; //Shared mem heuristic
-        ASSERT(self->contextCount > 0);
+        ocrAssert(self->contextCount > 0);
         break;
     }
     case RL_MEMORY_OK:
@@ -103,7 +103,7 @@ u8 prioritySchedulerHeuristicSwitchRunlevel(ocrSchedulerHeuristic_t *self, ocrPo
             for (i = 0; i < self->contextCount; i++) {
                 ocrSchedulerHeuristicContextPriority_t *priorityContext = (ocrSchedulerHeuristicContextPriority_t*)self->contexts[i];
                 priorityContext->mySchedulerObject = rootFact->fcts.getSchedulerObjectForLocation(rootFact, rootObj, OCR_SCHEDULER_OBJECT_UNDEFINED, i, OCR_SCHEDULER_OBJECT_MAPPING_WORKER, 0);
-                ASSERT(priorityContext->mySchedulerObject);
+                ocrAssert(priorityContext->mySchedulerObject);
             }
         }
         break;
@@ -112,7 +112,7 @@ u8 prioritySchedulerHeuristicSwitchRunlevel(ocrSchedulerHeuristic_t *self, ocrPo
         break;
     default:
         // Unknown runlevel
-        ASSERT(0);
+        ocrAssert(0);
     }
     return toReturn;
 }
@@ -142,7 +142,7 @@ static u8 prioritySchedulerHeuristicWorkEdtUserInvoke(ocrSchedulerHeuristic_t *s
 
     ocrSchedulerHeuristicContextPriority_t *priorityContext = (ocrSchedulerHeuristicContextPriority_t*)context;
     ocrSchedulerObject_t *schedObj = priorityContext->mySchedulerObject;
-    ASSERT(schedObj);
+    ocrAssert(schedObj);
     ocrSchedulerObjectFactory_t *fact = self->scheduler->pd->schedulerObjectFactories[schedObj->fctId];
     u8 retVal = fact->fcts.remove(fact, schedObj, OCR_SCHEDULER_OBJECT_EDT, 1, &edtObj, NULL, SCHEDULER_OBJECT_REMOVE_TAIL);
 
@@ -166,14 +166,14 @@ u8 prioritySchedulerHeuristicGetWorkInvoke(ocrSchedulerHeuristic_t *self, ocrSch
         return prioritySchedulerHeuristicWorkEdtUserInvoke(self, context, opArgs, hints);
     // Unknown ops
     default:
-        ASSERT(0);
+        ocrAssert(0);
         return OCR_ENOTSUP;
     }
     return 0;
 }
 
 u8 prioritySchedulerHeuristicGetWorkSimulate(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicContext_t *context, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
@@ -181,7 +181,7 @@ static u8 prioritySchedulerHeuristicNotifyEdtReadyInvoke(ocrSchedulerHeuristic_t
     ocrSchedulerOpNotifyArgs_t *notifyArgs = (ocrSchedulerOpNotifyArgs_t*)opArgs;
     ocrSchedulerHeuristicContextPriority_t *priorityContext = (ocrSchedulerHeuristicContextPriority_t*)context;
     ocrSchedulerObject_t *schedObj = priorityContext->mySchedulerObject;
-    ASSERT(schedObj);
+    ocrAssert(schedObj);
     ocrSchedulerObject_t edtObj;
     edtObj.guid = notifyArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_EDT_READY).guid;
     edtObj.kind = OCR_SCHEDULER_OBJECT_EDT;
@@ -230,43 +230,43 @@ u8 prioritySchedulerHeuristicNotifyInvoke(ocrSchedulerHeuristic_t *self, ocrSche
 
 #if 0 //Example simulate op
 u8 prioritySchedulerHeuristicGiveSimulate(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicContext_t *context, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
-    ASSERT(opArgs->schedulerObject->kind == OCR_SCHEDULER_OBJECT_EDT);
+    ocrAssert(opArgs->schedulerObject->kind == OCR_SCHEDULER_OBJECT_EDT);
     ocrSchedulerHeuristicContext_t *context = (ocrSchedulerHeuristicContext_t*)self->contexts[opArgs->contextId];
     ocrSchedulerHeuristicContextPriority_t *priorityContext = (ocrSchedulerHeuristicContextPriority_t*)context;
-    ASSERT(context->actionSet == NULL);
+    ocrAssert(context->actionSet == NULL);
 
     ocrSchedulerObjectActionSet_t *actionSet = &(priorityContext->singleActionSet);
     actionSet->actions = &(priorityContext->insertAction);
-    ASSERT(actionSet->actions->schedulerObject == priorityContext->mySchedulerObject);
+    ocrAssert(actionSet->actions->schedulerObject == priorityContext->mySchedulerObject);
     actionSet->actions->args.insert.el = opArgs->schedulerObject;
     context->actionSet = actionSet;
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 #endif
 
 u8 prioritySchedulerHeuristicNotifySimulate(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicContext_t *context, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 u8 prioritySchedulerHeuristicTransactInvoke(ocrSchedulerHeuristic_t *self, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 u8 prioritySchedulerHeuristicTransactSimulate(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicContext_t *context, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 u8 prioritySchedulerHeuristicAnalyzeInvoke(ocrSchedulerHeuristic_t *self, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 u8 prioritySchedulerHeuristicAnalyzeSimulate(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicContext_t *context, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 

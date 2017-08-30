@@ -18,6 +18,10 @@
 #include "ocr-statistics.h"
 #endif
 
+#if ENABLE_WORKER_METRICS
+#include "statistics/metrics.h"
+#endif
+
 struct _ocrPolicyDomain_t;
 struct _ocrPolicyMsg_t;
 struct _ocrMsgHandle_t;
@@ -140,8 +144,24 @@ typedef struct _ocrWorker_t {
     volatile ocrEdtDep_t *activeDepv;
     lock_t notifyLock;
 #endif
+#ifdef OCR_ENABLE_SIMULATOR
+    u64 workerTime;
+#endif
+#if ENABLE_WORKER_METRICS
+    WORKER_MetricStore_t metricStore;
+#if ENABLE_EDT_METRICS
+    // EDT metric store used to aggregate all metrics produced by EDT
+    EDT_WORKER_AGG_MetricStore_t * edtMetricStores;
+    u16 edtMetricStoresCount;
+    u16 edtMetricStoresCountMax;
+#endif
+#endif
 } ocrWorker_t;
 
+#ifdef OCR_ENABLE_SIMULATOR
+#define OCR_SIM_ALLOW_PROGRESS (((u64)1)<<63)     // Bit set in virtual time to control whether
+                                                  // simulated execution should proceed
+#endif
 
 /****************************************************/
 /* OCR WORKER FACTORY                               */

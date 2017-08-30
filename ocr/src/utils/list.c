@@ -41,7 +41,7 @@ void linkedListPushFront(linkedlist_t * list, void * elt) {
 void linkedListPushTail(linkedlist_t * list, void * elt) {
     ocrPolicyDomain_t * pd = list->pd;
     listnode_t * node = pd->fcts.pdMalloc(pd, sizeof(listnode_t));
-    ASSERT((list->tail == NULL) || (list->tail->next == NULL));
+    ocrAssert((list->tail == NULL) || (list->tail->next == NULL));
     node->elt = elt;
     node->next = NULL;
     if (list->tail == NULL) {
@@ -106,7 +106,7 @@ bool linkedListIteratorHasNext(iterator_t * iterator) {
 
 void * linkedListIteratorNext(iterator_t * iterator) {
     linkedlist_iterator_t * it = (linkedlist_iterator_t *) iterator;
-    ASSERT(linkedListIteratorHasNext(iterator));
+    ocrAssert(linkedListIteratorHasNext(iterator));
     it->ante = it->prev;
     it->prev = it->curr;
     it->curr = it->curr->next;

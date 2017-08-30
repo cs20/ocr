@@ -59,7 +59,10 @@ CFLAGS += -DCACHE_LINE_SZB=64
 # CFLAGS += -DREG_ASYNC
 
 # Single-steps asynchronous registration
-# CFLAGS += -DREG_ASYNC_SGL
+ifeq ($(OCR_TYPE), x86-mpi)
+# trades off larger memory footprint in favor of more parallelism
+CFLAGS += -DREG_ASYNC_SGL
+endif
 
 # **** Events Parameters ****
 
@@ -134,6 +137,8 @@ CFLAGS += -DGUID_PROVIDER_LOCID_SIZE=10
 # else it is systematically ignored.
 #
 CFLAGS += -DALLOW_EAGER_DB
+
+CFLAGS += -DENABLE_LAZY_DB
 
 # **** Debugging parameters ****
 
@@ -298,10 +303,10 @@ endif
 # Enable trace events for monitoring scheduling overhead activity
 # Requires OCR_TRACE_BINARY
 # CFLAGS += -DOCR_MONITOR_SCHEDULER -DOCR_TRACE_BINARY
+# CFLAGS += -DOCR_MONITOR_ALLOCATOR -DOCR_TRACE_BINARY
 
-# Enable custom tracing for collecting trace data for OCR simulator
-# Requires OCR_TRACE_BINARY
-# CFLAGS += -DOCR_ENABLE_SIMULATOR -DOCR_TRACE_BINARY
+# Enable log collection for FSIM memory heatmap visualization
+# CFLAGS += -DOCR_ENABLE_MEMORY_HEATMAP
 
 ####################################################
 # Experimental flags
@@ -316,6 +321,34 @@ endif
 
 # Flag to test 128-bit guids.
 # CFLAGS += -DOCR_ENABLE_128_BIT_GUID
+
+# Flag to set to use shared 8 XE Policy Domain
+# CFLAGS += -DOCR_SHARED_XE_POLICY_DOMAIN
+# CFLAGS += -DOCR_DISABLE_USER_L1_ALLOC
+# CFLAGS += -DOCR_DISABLE_RUNTIME_L1_ALLOC
+# CFLAGS += -DOCR_ENABLE_XE_L2_ALLOC
+# CFLAGS += -DOCR_ENABLE_XE_GET_MULTI_WORK
+# CFLAGS += -DOCR_ENABLE_CE_GET_MULTI_WORK
+# If staging below is enabled, OCR_DISABLE_USER_L1_ALLOC should also be enabled
+# CFLAGS += -DTG_STAGING
+
+# Enable EDT spawning hint & handling
+# CFLAGS += -DOCR_ENABLE_SCHEDULER_SPAWN_QUEUE
+
+# Flag to enable Cache Line Offset Allocation handling
+# CFLAGS += -DOCR_CACHE_LINE_OFFSET_ALLOCATIONS
+
+ifneq (,$(findstring OCR_ENABLE_XE_L2_ALLOC, $(CFLAGS)))
+  ifeq (,$(findstring OCR_SHARED_XE_POLICY_DOMAIN, $(CFLAGS)))
+    $(error if OCR_ENABLE_XE_L2_ALLOC, then OCR_SHARED_XE_POLICY_DOMAIN must be defined)
+  endif
+endif
+
+ifneq (,$(findstring OCR_ENABLE_XE_GET_MULTI_WORK, $(CFLAGS)))
+  ifeq (,$(findstring OCR_SHARED_XE_POLICY_DOMAIN, $(CFLAGS)))
+    $(error if OCR_ENABLE_XE_GET_MULTI_WORK, then OCR_SHARED_XE_POLICY_DOMAIN must be defined)
+  endif
+endif
 
 ####################################################
 # Debug flags
@@ -651,8 +684,17 @@ ${OBJDIR}/static:
 
 .PHONY: info-static
 info-static:
+ifneq (${NO_COLOR}, yes)
+	$(eval MDAT:=$(shell date))
+	@printf "$(MDAT)\n"
 	@printf "\033[32m>>>> Compile command for .c files is\033[1;30m '$(CC) $(CFLAGS_STATIC) -MMD -c <src> -o <obj>'\033[0m\n"
 	@printf "\033[32m>>>> Building a static library with\033[1;30m '$(AR) $(ARFLAGS)'\033[0m\n"
+else
+	$(eval MDAT:=$(shell date))
+	@printf "$(MDAT)\n"
+	@printf ">>>> Compile command for .c files is '$(CC) $(CFLAGS_STATIC) -MMD -c <src> -o <obj>'\n"
+	@printf ">>>> Building a static library with '$(AR) $(ARFLAGS)'\n"
+endif
 
 $(OCRSTATIC): $(OBJS_STATIC)
 	@echo "Linking static library ${OCRSTATIC}"
@@ -672,8 +714,17 @@ ${OBJDIR}/shared:
 
 .PHONY: info-shared
 info-shared:
+ifneq (${NO_COLOR}, yes)
+	$(eval MDAT:=$(shell date))
+	@printf "$(MDAT)\n"
 	@printf "\033[32m>>>> Compile command for .c files is\033[1;30m '$(CC) $(CFLAGS_SHARED) -MMD -c <src> -o <obj>'\033[0m\n"
 	@printf "\033[32m>>>> Building a shared library with\033[1;30m '$(CC) $(LDFLAGS)'\033[0m\n"
+else
+	$(eval MDAT:=$(shell date))
+	@printf "$(MDAT)\n"
+	@printf ">>>> Compile command for .c files is '$(CC) $(CFLAGS_SHARED) -MMD -c <src> -o <obj>'\n"
+	@printf ">>>> Building a shared library with '$(CC) $(LDFLAGS)'\n"
+endif
 
 $(OCRSHARED): $(OBJS_SHARED)
 	@echo "Linking shared library ${OCRSHARED}"
@@ -693,7 +744,11 @@ ${OBJDIR}/exec:
 
 .PHONY: info-exec
 info-exec:
+ifneq (${NO_COLOR}, yes)
 	@printf "\033[32m>>>> Compile command for .c files is\033[1;30m '$(CC) $(CFLAGS_EXEC) -MMD -c <src> -o <obj>'\033[0m\n"
+else
+	@printf ">>>> Compile command for .c files is '$(CC) $(CFLAGS_EXEC) -MMD -c <src> -o <obj>'\n"
+endif
 
 $(OCREXEC): $(OBJS_EXEC)
 	@echo "Linking executable binary ${OCREXEC}"
@@ -792,9 +847,12 @@ $(OBJDIR)/shared/%.o: %.S Makefile ../common.mk $(OBJDIR)/shared/%.d | $(OBJDIR)
 # We always attempt to re-generate this file
 # We don't change it all the time as this messes up dependence
 # checking for applications.
+# Note we sort and the cflags in-case ordering is different across builds.
+# As it is implemented there's a risk modifications to whitespace separated options will not detected.
+# This should be ok as it's mostly about include paths
 OPTIONS_FILE_UPTODATE := no
 ifneq ("$(wildcard $(OCR_INSTALL)/include/ocr-options_$(OCR_TYPE).h)", "")
-  ifeq ($(shell cat $(OCR_INSTALL)/include/ocr-options_$(OCR_TYPE).h | sed '4s/.*RT CFLAGS:\(.*\)\*\//\1/; 4!d' | xargs ), $(shell echo "$(CFLAGS)" | xargs))
+  ifeq ($(shell cat $(OCR_INSTALL)/include/ocr-options_$(OCR_TYPE).h | sed '4s/.*RT CFLAGS:\(.*\)\*\//\1/; 4!d' | tr ' ' '\n' | sort | uniq | xargs ), $(shell echo "$(CFLAGS)" | tr ' ' '\n' | sort | uniq | xargs))
     OPTIONS_FILE_UPTODATE := yes
   endif
 endif
@@ -803,7 +861,7 @@ endif
 # so that we can build without installing and not have to rebuild when we install
 OPTIONS_UPTODATE := no
 ifneq ("$(wildcard $(OCR_BUILD)/cflags)", "")
-  ifeq ($(shell cat $(OCR_BUILD)/cflags | xargs), $(shell echo "$(CFLAGS)" | xargs))
+  ifeq ($(shell cat $(OCR_BUILD)/cflags | tr ' ' '\n' | sort | uniq | xargs), $(shell echo "$(CFLAGS)" | tr ' ' '\n' | sort | uniq | xargs))
     OPTIONS_UPTODATE := yes
   endif
 endif
@@ -839,6 +897,15 @@ ifneq (,$(findstring -DOCR_ASSERT, $(CFLAGS)))
 	$(AT)$(shell echo "#define OCR_ASSERT" >> $@)
 	$(AT)$(shell echo "#endif" >> $@)
 endif
+ifneq (,$(findstring -DOCR_TRACE_BINARY, $(CFLAGS)))
+	$(AT)$(shell echo "#ifndef OCR_TRACE_BINARY" >> $@)
+	$(AT)$(shell echo "#define OCR_TRACE_BINARY" >> $@)
+	$(AT)$(shell echo "#endif" >> $@)
+	$(AT)$(shell echo "#ifndef OCR_ENABLE_EDT_NAMING" >> $@)
+	$(AT)$(shell echo "#define OCR_ENABLE_EDT_NAMING" >> $@)
+	$(AT)$(shell echo "#endif" >> $@)
+endif
+
 	$(AT)$(shell echo "#endif /* __OCR_OPTIONS_"$(subst -,_,$(OCR_TYPE))"_H__ */" >> $@)
 else
 $(OCR_INSTALL)/include/ocr-options_$(OCR_TYPE).h: | $(OCR_INSTALL)/include
@@ -900,6 +967,22 @@ endif
 ifeq (x86-phi,$(findstring $(OCR_TYPE),x86-phi))
   SCRIPT_FILES      += Configs/combine-configs.py
   DEFAULT_CONFIG    := knl_mcdram.cfg
+endif
+
+ifneq (,$(findstring OCR_SHARED_XE_POLICY_DOMAIN,$(CFLAGS)))
+  ifneq (,$(findstring OCR_ENABLE_XE_L2_ALLOC,$(CFLAGS)))
+    ifeq (tg-xe,$(findstring $(OCR_TYPE),tg-xe))
+      DEFAULT_CONFIG    := xe-8-wL2-default.cfg
+    else
+      ifeq (tg-ce,$(findstring $(OCR_TYPE),tg-ce))
+        DEFAULT_CONFIG    := ce-nL2-default.cfg
+      endif
+    endif
+  else
+    ifeq (tg-xe,$(findstring $(OCR_TYPE),tg-xe))
+      DEFAULT_CONFIG    := xe-8-default.cfg
+    endif
+  endif
 endif
 
 INSTALLED_LIBS    := $(addprefix $(OCR_INSTALL)/lib/, $(notdir $(INSTALL_LIBS)))
@@ -991,18 +1074,30 @@ grablock: /tmp/$(subst /,_,$(OCR_INSTALL))_lock
 # List the lock file as intermediate so it is removed if things crash
 .INTERMEDIATE: /tmp/$(subst /,_,$(OCR_INSTALL))_lock
 /tmp/$(subst /,_,$(OCR_INSTALL))_lock:
-	@printf "\033[32m Grabbing install lock\033[0m\n"
+ifneq (${NO_COLOR}, yes)
+	@printf "\033[32m Grabbing install lock: /tmp/$(subst /,_,$(OCR_INSTALL))_lock\033[0m\n"
+else
+	@printf " Grabbing install lock: /tmp/$(subst /,_,$(OCR_INSTALL))_lock\n"
+endif
 	$(AT)lockfile "/tmp/$(subst /,_,$(OCR_INSTALL))_lock";
 
 .PHONY: install
 install: ${INSTALL_TARGETS} ${INSTALLED_LIBS} ${INSTALLED_EXES} ${INSTALLED_INCS} \
 	${INSTALLED_CONFIGS} ${INSTALLED_SCRIPTS}
+ifneq (${NO_COLOR}, yes)
 	@printf "\033[32m Installed OCR for $(OCR_TYPE) into '$(OCR_INSTALL)'\033[0m\n"
+else
+	@printf " Installed OCR for $(OCR_TYPE) into '$(OCR_INSTALL)'\n"
+endif
 	$(AT)if [ -d $(OCR_ROOT)/machine-configs/$(OCR_TYPE) ]; then \
 		$(RM) -f $(OCR_INSTALL)/share/ocr/config/$(OCR_TYPE)/default.cfg; \
 		$(LN) -sf ./$(DEFAULT_CONFIG) $(OCR_INSTALL)/share/ocr/config/$(OCR_TYPE)/default.cfg; \
 	fi
+ifneq (${NO_COLOR}, yes)
 	@printf "\033[32m Released lock\033[0m\n"
+else
+	@printf " Released lock\n"
+endif
 	$(AT)rm -f "/tmp/$(subst /,_,$(OCR_INSTALL))_lock";
 
 .PHONY: uninstall

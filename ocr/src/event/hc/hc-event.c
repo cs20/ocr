@@ -38,7 +38,7 @@
 // Custom DEBUG_LVL for debugging
 #define DBG_HCEVT_LOG   DEBUG_LVL_VERB
 #define DBG_HCEVT_ERR   DEBUG_LVL_WARN
-
+#define DBG_COL_EVT     DEBUG_LVL_VVERB
 
 /******************************************************/
 /* OCR-HC Debug                                       */
@@ -56,6 +56,10 @@ static char * eventTypeToString(ocrEvent_t * base) {
 #ifdef ENABLE_EXTENSION_CHANNEL_EVT
     } else if (type == OCR_EVENT_CHANNEL_T) {
         return "channel";
+#endif
+#ifdef ENABLE_EXTENSION_COLLECTIVE_EVT
+    } else if (type == OCR_EVENT_COLLECTIVE_T) {
+        return "collective";
 #endif
     } else if (type == OCR_EVENT_IDEM_T) {
         return "idem";
@@ -123,13 +127,240 @@ typedef struct {
 #define SET_PAYLOAD_DATA(buffer, mode, type, name, val)  ((((mode##_payload *) buffer)->name) = (type) val)
 #define WR_PAYLOAD_DATA(buffer, type, val)               (((type*)buffer)[0] = (type) val)
 
-
 static void mdPushHcDist(ocrGuid_t evtGuid, ocrLocation_t loc, ocrGuid_t dbGuid, u32 mode, u32 factoryId);
 
+/******************************************************/
+/* OCR-HC Collective Events Additional types           */
+/******************************************************/
+
+#ifdef ENABLE_EXTENSION_COLLECTIVE_EVT
+
+// 'IN' size of PD_MSG_METADATA_COMM
+#define MSG_MDCOMM_SZ       (_PD_MSG_SIZE_IN(PD_MSG_METADATA_COMM))
+
+// Collide with M_REG and M_SAT but ok
+#define M_UP   1
+#define M_DOWN 2
+
+// Mask of a field at the LSB
+#define MASK_ZB(name)       ((((u64)1)<<(REDOP_##name##_SIZE))-1)
+// Mask for a field at its rightful position in the REDOP
+#define REDOP_MASK(name)     (MASK_ZB(name)<<(REDOP_EIDX(name)))
+// Shift a value representing a field toward MSB at its rightful position in the REDOP
+#define LSHIFT(name, val)   (((u64)(val)) << REDOP_EIDX(name))
+// Shift a value representing a field from its position in the REDOP toward LSB and masks the result
+#define RSHIFT(name, val)   (((val) >> REDOP_EIDX(name)) & (MASK_ZB(name)))
+#define MAX_VAL(name)       (((u64)1) << REDOP_SIZE(name))
+
+// Checks whether or not a value identified by name is set in a variable
+#define REDOP_IS(NAME, VALUE, VAR) (((VAR) & REDOP_MASK(NAME)) == REDOP_##VALUE)
+#define REDOP_GET(NAME, VAR)       (RSHIFT(NAME, (VAR)))
+#define REDOP_EQ(CHECK, VAR) (CHECK == VAR)
+
+// Apply a reduction operator
+#define REDUCE_FCT_OP(DST, SRC, NB_DATUM, TYPE, OP) { \
+    u32 i; \
+    TYPE * tdst = (TYPE *) DST; \
+    TYPE * tsrc = (TYPE *) SRC; \
+    for(i=0;i<NB_DATUM;i++) { \
+        *tdst++ OP##= *tsrc++;\
+    } \
+}
+
+// Apply a min/max operator
+#define REDUCE_FCT_MINMAX(DST, SRC, NB_DATUM, TYPE, OP) { \
+    u32 i; \
+    TYPE * tdst = (TYPE *) DST; \
+    TYPE * tsrc = (TYPE *) SRC; \
+    for(i=0;i<NB_DATUM;i++) { \
+        if(*tdst++ OP *tsrc++) *(tdst-1) = *(tsrc-1); \
+    } \
+}
+
+// Reduction functions
+static void reduceDoubleAdd(void * dst, void * src, u32 nbDatum) {
+    REDUCE_FCT_OP(dst, src, nbDatum, double, +)
+}
+
+static void reduceDoubleMult(void * dst, void * src, u32 nbDatum) {
+    REDUCE_FCT_OP(dst, src, nbDatum, double, *)
+}
+
+static void reduceDoubleMin(void * dst, void * src, u32 nbDatum) {
+    REDUCE_FCT_MINMAX(dst, src, nbDatum, double, <)
+}
+
+static void reduceDoubleMax(void * dst, void * src, u32 nbDatum) {
+    REDUCE_FCT_MINMAX(dst, src, nbDatum, double, >)
+}
+
+static void reduceU64Add(void * dst, void * src, u32 nbDatum) {
+    REDUCE_FCT_OP(dst, src, nbDatum, u64, +)
+}
+
+static void reduceU64Mult(void * dst, void * src, u32 nbDatum) {
+    REDUCE_FCT_OP(dst, src, nbDatum, u64, *)
+}
+
+static void reduceU64Min(void * dst, void * src, u32 nbDatum) {
+    REDUCE_FCT_MINMAX(dst, src, nbDatum, u64, <)
+}
+
+static void reduceU64Max(void * dst, void * src, u32 nbDatum) {
+    REDUCE_FCT_MINMAX(dst, src, nbDatum, u64, >)
+}
+
+static void reduceU64BitAnd(void * dst, void * src, u32 nbDatum) {
+    REDUCE_FCT_OP(dst, src, nbDatum, u64, &)
+}
+
+static void reduceU64BitOr(void * dst, void * src, u32 nbDatum) {
+    REDUCE_FCT_OP(dst, src, nbDatum, u64, |)
+}
+
+static void reduceU64BitXor(void * dst, void * src, u32 nbDatum) {
+    REDUCE_FCT_OP(dst, src, nbDatum, u64, ^)
+}
+
+static void reduceS64Min(void * dst, void * src, u32 nbDatum) {
+    REDUCE_FCT_MINMAX(dst, src, nbDatum, s64, <)
+}
+
+static void reduceS64Max(void * dst, void * src, u32 nbDatum) {
+    REDUCE_FCT_MINMAX(dst, src, nbDatum, s64, >)
+}
+
+static void reduceFloatAdd(void * dst, void * src, u32 nbDatum) {
+    REDUCE_FCT_OP(dst, src, nbDatum, float, +)
+}
+
+static void reduceFloatMult(void * dst, void * src, u32 nbDatum) {
+    REDUCE_FCT_OP(dst, src, nbDatum, float, *)
+}
+
+static void reduceFloatMin(void * dst, void * src, u32 nbDatum) {
+    REDUCE_FCT_MINMAX(dst, src, nbDatum, float, <)
+}
+
+static void reduceFloatMax(void * dst, void * src, u32 nbDatum) {
+    REDUCE_FCT_MINMAX(dst, src, nbDatum, float, >)
+}
+
+static void reduceU32Add(void * dst, void * src, u32 nbDatum) {
+    REDUCE_FCT_OP(dst, src, nbDatum, u32, +)
+}
+
+static void reduceU32Mult(void * dst, void * src, u32 nbDatum) {
+    REDUCE_FCT_OP(dst, src, nbDatum, u32, *)
+}
+
+static void reduceU32Min(void * dst, void * src, u32 nbDatum) {
+    REDUCE_FCT_MINMAX(dst, src, nbDatum, u32, <)
+}
+
+static void reduceU32Max(void * dst, void * src, u32 nbDatum) {
+    REDUCE_FCT_MINMAX(dst, src, nbDatum, u32, >)
+}
+
+static void reduceS32Min(void * dst, void * src, u32 nbDatum) {
+    REDUCE_FCT_MINMAX(dst, src, nbDatum, s32, <)
+}
+
+static void reduceS32Max(void * dst, void * src, u32 nbDatum) {
+    REDUCE_FCT_MINMAX(dst, src, nbDatum, s32, >)
+}
+
+static void reduceU32BitAnd(void * dst, void * src, u32 nbDatum) {
+    REDUCE_FCT_OP(dst, src, nbDatum, u32, &)
+}
+
+static void reduceU32BitOr(void * dst, void * src, u32 nbDatum) {
+    REDUCE_FCT_OP(dst, src, nbDatum, u32, |)
+}
+
+static void reduceU32BitXor(void * dst, void * src, u32 nbDatum) {
+    REDUCE_FCT_OP(dst, src, nbDatum, u32, ^)
+}
+
+void setReductionFctPtr(ocrEventHcCollective_t * dself, redOp_t redOp) {
+    // Mask associativity and commutativity flags
+    redOp &= ~((REDOP_ASSOCIATIVE)|(REDOP_COMMUTATIVE));
+    if (REDOP_EQ((REDOP_BS8 | REDOP_SIGNED | REDOP_REAL | REDOP_ADD), redOp)) {
+        dself->reduce = reduceDoubleAdd; return;
+    } else if (REDOP_EQ((REDOP_BS8 | REDOP_SIGNED | REDOP_REAL | REDOP_MULT), redOp)) {
+        dself->reduce = reduceDoubleMult; return;
+    } else if (REDOP_EQ((REDOP_BS8 | REDOP_SIGNED | REDOP_REAL | REDOP_MIN), redOp)) {
+        dself->reduce = reduceDoubleMin; return;
+    } else if (REDOP_EQ((REDOP_BS8 | REDOP_SIGNED | REDOP_REAL | REDOP_MAX), redOp)) {
+        dself->reduce = reduceDoubleMax; return;
+    } else if (REDOP_EQ((REDOP_BS8 | REDOP_UNSIGNED | REDOP_INTEGER | REDOP_ADD), redOp)) {
+        dself->reduce = reduceU64Add; return;
+    } else if (REDOP_EQ((REDOP_BS8 | REDOP_UNSIGNED | REDOP_INTEGER | REDOP_MULT), redOp)) {
+        dself->reduce = reduceU64Mult; return;
+    } else if (REDOP_EQ((REDOP_BS8 | REDOP_UNSIGNED | REDOP_INTEGER | REDOP_MIN), redOp)) {
+        dself->reduce = reduceU64Min; return;
+    } else if (REDOP_EQ((REDOP_BS8 | REDOP_UNSIGNED | REDOP_INTEGER | REDOP_MAX), redOp)) {
+        dself->reduce = reduceU64Max; return;
+    } else if (REDOP_EQ((REDOP_BS8 | REDOP_UNSIGNED | REDOP_INTEGER | REDOP_BITAND), redOp)) {
+        dself->reduce = reduceU64BitAnd; return;
+    } else if (REDOP_EQ((REDOP_BS8 | REDOP_UNSIGNED | REDOP_INTEGER | REDOP_BITOR), redOp)) {
+        dself->reduce = reduceU64BitOr; return;
+    } else if (REDOP_EQ((REDOP_BS8 | REDOP_UNSIGNED | REDOP_INTEGER | REDOP_BITXOR), redOp)) {
+        dself->reduce = reduceU64BitXor; return;
+    } else if (REDOP_EQ((REDOP_BS8 | REDOP_SIGNED | REDOP_INTEGER | REDOP_MIN), redOp)) {
+        dself->reduce = reduceS64Min; return;
+    } else if (REDOP_EQ((REDOP_BS8 | REDOP_SIGNED | REDOP_INTEGER | REDOP_MAX), redOp)) {
+        dself->reduce = reduceS64Max; return;
+    } else if (REDOP_EQ((REDOP_BS4 | REDOP_SIGNED | REDOP_REAL | REDOP_ADD), redOp)) {
+        dself->reduce = reduceFloatAdd; return;
+    } else if (REDOP_EQ((REDOP_BS4 | REDOP_SIGNED | REDOP_REAL | REDOP_MULT), redOp)) {
+        dself->reduce = reduceFloatMult; return;
+    } else if (REDOP_EQ((REDOP_BS4 | REDOP_SIGNED | REDOP_REAL | REDOP_MIN), redOp)) {
+        dself->reduce = reduceFloatMin; return;
+    } else if (REDOP_EQ((REDOP_BS4 | REDOP_SIGNED | REDOP_REAL | REDOP_MAX), redOp)) {
+        dself->reduce = reduceFloatMax; return;
+    } else if (REDOP_EQ((REDOP_BS4 | REDOP_UNSIGNED | REDOP_INTEGER | REDOP_ADD), redOp)) {
+        dself->reduce = reduceU32Add; return;
+    } else if (REDOP_EQ((REDOP_BS4 | REDOP_UNSIGNED | REDOP_INTEGER | REDOP_MULT), redOp)) {
+        dself->reduce = reduceU32Mult; return;
+    } else if (REDOP_EQ((REDOP_BS4 | REDOP_UNSIGNED | REDOP_INTEGER | REDOP_MIN), redOp)) {
+        dself->reduce = reduceU32Min; return;
+    } else if (REDOP_EQ((REDOP_BS4 | REDOP_UNSIGNED | REDOP_INTEGER | REDOP_MAX), redOp)) {
+        dself->reduce = reduceU32Max; return;
+    } else if (REDOP_EQ((REDOP_BS4 | REDOP_SIGNED | REDOP_INTEGER | REDOP_MIN), redOp)) {
+        dself->reduce = reduceS32Min; return;
+    } else if (REDOP_EQ((REDOP_BS4 | REDOP_SIGNED | REDOP_INTEGER | REDOP_MAX), redOp)) {
+        dself->reduce = reduceS32Max; return;
+    } else if (REDOP_EQ((REDOP_BS4 | REDOP_UNSIGNED | REDOP_INTEGER | REDOP_BITAND), redOp)) {
+        dself->reduce = reduceU32BitAnd; return;
+    } else if (REDOP_EQ((REDOP_BS4 | REDOP_UNSIGNED | REDOP_INTEGER | REDOP_BITOR), redOp)) {
+        dself->reduce = reduceU32BitOr; return;
+    } else if (REDOP_EQ((REDOP_BS4 | REDOP_UNSIGNED | REDOP_INTEGER | REDOP_BITXOR), redOp)) {
+        dself->reduce = reduceU32BitXor; return;
+    }
+    ocrAssert(false && "Unresolved reduction function pointer");
+}
+
+typedef u16 rph_t;
+
+typedef struct _contributor_t {
+    rph_t iph;
+    rph_t oph;
+    regNode_t * deps; // linearized over maxGen
+    void * contribs; // linearized over nbDatum * maxGen
+} contributor_t;
+
+#endif /*ENABLE_EXTENSION_COLLECTIVE_EVT*/
 
 /******************************************************/
 /* OCR-HC Events Implementation                       */
 /******************************************************/
+#ifdef ENABLE_EXTENSION_MULTI_OUTPUT_SLOT
+#define ARG_SSLOT u32 sslot,
+#else
+#define ARG_SSLOT
+#endif
+#define FSIG_UNREGISTERSIGNALER struct _ocrEvent_t *self, ARG_SSLOT ocrFatGuid_t signaler, u32 slot, bool isDepRem
 
 static u8 createDbRegNode(ocrFatGuid_t * dbFatGuid, u32 nbElems, bool doRelease, regNode_t ** node) {
     ocrPolicyDomain_t *pd = NULL;
@@ -140,7 +371,6 @@ static u8 createDbRegNode(ocrFatGuid_t * dbFatGuid, u32 nbElems, bool doRelease,
     ocrFatGuid_t curEdt = {.guid = curTask!=NULL?curTask->guid:NULL_GUID, .metaDataPtr = curTask};
 #define PD_MSG (&msg)
 #define PD_TYPE PD_MSG_DB_CREATE
-    getCurrentEnv(NULL, NULL, NULL, &msg);
     msg.type = PD_MSG_DB_CREATE | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
     PD_MSG_FIELD_IO(guid) = (*dbFatGuid);
     PD_MSG_FIELD_IO(size) = sizeof(regNode_t)*nbElems;
@@ -248,7 +478,7 @@ u8 destructEventHcPersist(ocrEvent_t *base) {
     //
     // By contract the satisfy code should directly call destructEventHc
     // if it wins the right to invoke the destruction code
-    ASSERT(wc != STATE_DESTROY_SEEN);
+    ocrAssert(wc != STATE_DESTROY_SEEN);
     if (wc == STATE_CHECKED_IN) {
         // Competing with the satisfy waiters code
         u32 oldV = hal_cmpswap32(&(event->waitersCount), wc, STATE_DESTROY_SEEN);
@@ -261,7 +491,7 @@ u8 destructEventHcPersist(ocrEvent_t *base) {
         } else { // CAS failed
             // Was competing with the CAS in satisfy which only
             // does one thing: STATE_CHECKED_IN => STATE_CHECKED_OUT
-            ASSERT(event->waitersCount == STATE_CHECKED_OUT);
+            ocrAssert(event->waitersCount == STATE_CHECKED_OUT);
             // fall-through and destroy the event
         }
     }
@@ -285,7 +515,10 @@ ocrFatGuid_t getEventHc(ocrEvent_t *base) {
     switch(base->kind) {
     case OCR_EVENT_ONCE_T:
     case OCR_EVENT_LATCH_T:
+#ifdef ENABLE_EXTENSION_COLLECTIVE_EVT
+    case OCR_EVENT_COLLECTIVE_T:
         break;
+#endif
     case OCR_EVENT_STICKY_T:
 #ifdef ENABLE_EXTENSION_COUNTED_EVT
     case OCR_EVENT_COUNTED_T:
@@ -313,7 +546,7 @@ ocrFatGuid_t getEventHc(ocrEvent_t *base) {
     }
 #endif
     default:
-        ASSERT(0);
+        ocrAssert(0);
     }
     return res;
 }
@@ -327,7 +560,8 @@ static u8 commonSatisfyRegNode(ocrPolicyDomain_t * pd, ocrPolicyMsg_t * msg,
     statsDEP_SATISFYFromEvt(pd, evtGuid, NULL, node->guid,
                             db.guid, node->slot);
 #endif
-    DPRINTF(DEBUG_LVL_INFO, "SatisfyFromEvent: src: "GUIDF" dst: "GUIDF" \n", GUIDA(evtGuid), GUIDA(node->guid));
+    ocrAssert(!ocrGuidIsUninitialized(node->guid));
+    DPRINTF(DEBUG_LVL_INFO, "SatisfyFromEvent: src: "GUIDF" dst: "GUIDF" slot:%"PRIu32" \n", GUIDA(evtGuid), GUIDA(node->guid), node->slot);
 #define PD_MSG (msg)
 #define PD_TYPE PD_MSG_DEP_SATISFY
     getCurrentEnv(NULL, NULL, NULL, msg);
@@ -376,7 +610,7 @@ static u8 commonSatisfyRegNodeEager(ocrPolicyDomain_t * pd, ocrPolicyMsg_t * msg
                     ocrPolicyMsg_t * msgClone;
                     PD_MSG_STACK(msgStack);
                     u64 msgSize = (_PD_MSG_SIZE_IN(PD_MSG_GUID_METADATA_CLONE)) + sizeof(u32) + sizeof(regNode_t) - sizeof(char*);
-                    ASSERT(dstLocation != pd->myLocation); // Per the getVal above
+                    ocrAssert(dstLocation != pd->myLocation); // Per the getVal above
                     if (msgSize > sizeof(ocrPolicyMsg_t)) {
                         //TODO-MD-SLAB
                         msgClone = (ocrPolicyMsg_t *) pd->fcts.pdMalloc(pd, msgSize);
@@ -427,7 +661,7 @@ static u8 commonSatisfyWaiters(ocrPolicyDomain_t *pd, ocrEvent_t *base, ocrFatGu
 #endif
 
     if(waitersCount > 0) {
-        ASSERT(!(ocrGuidIsUninitialized(dbWaiters.guid)));
+        ocrAssert(!(ocrGuidIsUninitialized(dbWaiters.guid)));
         // First acquire the DB that contains the waiters
 #define PD_MSG (msg)
 #define PD_TYPE PD_MSG_DB_ACQUIRE
@@ -445,11 +679,11 @@ static u8 commonSatisfyWaiters(ocrPolicyDomain_t *pd, ocrEvent_t *base, ocrFatGu
             PD_MSG_FIELD_IO(properties) = DB_MODE_CONST | DB_PROP_RT_ACQUIRE;
         }
         u8 res __attribute__((unused)) = pd->fcts.processMessage(pd, msg, true);
-        ASSERT(!res);
+        ocrAssert(!res);
         regNode_t * waiters = (regNode_t*)PD_MSG_FIELD_O(ptr);
-        //BUG #273: related to 273: we should not get an updated deguidification...
-        dbWaiters = PD_MSG_FIELD_IO(guid); //Get updated deguidifcation if needed
-        ASSERT(waiters);
+        //BUG #273: we should not get an updated deguidification...
+        dbWaiters = PD_MSG_FIELD_IO(guid); //Get updated deguidification if needed
+        ocrAssert(waiters);
 #undef PD_TYPE
 
         // Second, call satisfy on all the waiters
@@ -479,7 +713,7 @@ static u8 commonSatisfyWaiters(ocrPolicyDomain_t *pd, ocrEvent_t *base, ocrFatGu
 // concurrent registerWaiter calls (this would be a programmer error)
 u8 satisfyEventHcOnce(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
     ocrEventHc_t *event = (ocrEventHc_t*)base;
-    ASSERT(slot == 0); // For non-latch events, only one slot
+    ocrAssert(slot == 0); // For non-latch events, only one slot
 
     DPRINTF(DEBUG_LVL_INFO, "Satisfy: "GUIDF" with "GUIDF"\n", GUIDA(base->guid), GUIDA(db.guid));
 
@@ -506,16 +740,13 @@ u8 satisfyEventHcOnce(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
         DPRINTF(DEBUG_LVL_WARN, "Once event "GUIDF" satisfied with no dependences\n", GUIDA(base->guid));
     }
 #endif
-
-
-
     // Since this a ONCE event, we need to destroy it as well
     // This is safe to do so at this point as all the messages have been sent
     return destructEventHc(base);
 }
 
 static u8 commonSatisfyEventHcPersist(ocrEvent_t *base, ocrFatGuid_t db, u32 slot, u32 waitersCount) {
-    ASSERT(slot == 0); // Persistent-events are single slot
+    ocrAssert(slot == 0); // Persistent-events are single slot
     DPRINTF(DEBUG_LVL_INFO, "Satisfy %s: "GUIDF" with "GUIDF"\n", eventTypeToString(base),
             GUIDA(base->guid), GUIDA(db.guid));
 
@@ -592,7 +823,7 @@ u8 satisfyEventHcCounted(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
     if ((event->waitersCount == STATE_CHECKED_IN) ||
         (event->waitersCount == STATE_CHECKED_OUT)) {
         DPRINTF(DBG_HCEVT_ERR, "User-level error detected: try to satisfy a counted event that's already satisfied: "GUIDF"\n", GUIDA(base->guid));
-        ASSERT(false);
+        ocrAssert(false);
         hal_unlock(&(event->waitersLock));
         return 1; //BUG #603 error codes: Put some error code here.
     }
@@ -603,13 +834,23 @@ u8 satisfyEventHcCounted(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
     ASSERT_BLOCK_BEGIN(waitersCount <= devt->nbDeps)
     DPRINTF(DBG_HCEVT_ERR, "User-level error detected: too many registrations on counted-event "GUIDF"\n", GUIDA(base->guid));
     ASSERT_BLOCK_END
-
-    devt->nbDeps -= waitersCount;
-    destroy = ((devt->nbDeps) == 0);
+    // Do not substract to nbDeps else concurrent registerWaiter
+    // could reach zero and destruct the event while this code
+    // unlocks and try to satisfy already registered waiters
     hal_unlock(&(event->waitersLock));
-    u8 ret = commonSatisfyEventHcPersist(base, db, slot, waitersCount);
-    if (destroy) {
-        ret = destructEventHc(base);
+    // Nobody can be added to the event now...
+    u8 ret = 0;
+    if (waitersCount != 0) {
+        ret = commonSatisfyEventHcPersist(base, db, slot, waitersCount);
+        // ... and we're competing with registerWaiter for the
+        //     event destruction through the lock.
+        hal_lock(&(event->waitersLock));
+        devt->nbDeps -= waitersCount;
+        destroy = (devt->nbDeps == 0);
+        hal_unlock(&(event->waitersLock));
+        if (destroy) {
+            ret = destructEventHc(base);
+        }
     }
     return ret;
 }
@@ -625,7 +866,7 @@ static u32 setSatisfiedEventHcPersist(ocrEvent_t *base, ocrFatGuid_t db, locNode
             // Sticky needs to check for error, idem just ignores by definition.
             //BUG #809 Nanny-mode
             DPRINTF(DBG_HCEVT_ERR, "User-level error detected: try to satisfy a sticky event that's already satisfied: "GUIDF"\n", GUIDA(base->guid));
-            ASSERT(false);
+            ocrAssert(false);
         }
         hal_unlock(&(devt->waitersLock));
         return STATE_CHECKED_IN;
@@ -654,14 +895,7 @@ u8 satisfyEventHcPersistIdem(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
         // Notify peers
         satisfyEventHcPeers(base, db.guid, slot, curHead);
         // Notify waiters
-        u8 res = commonSatisfyEventHcPersist(base, db, slot, waitersCount);
-        ASSERT(!res);
-        // Set destruction flag
-        hal_fence();// make sure all operations are done
-        // This is to signal a concurrent destruct currently
-        // waiting on the satisfaction being done it can now
-        // proceed.
-        ((ocrEventHc_t*)base)->waitersCount = STATE_CHECKED_OUT;
+        commonSatisfyEventHcPersist(base, db, slot, waitersCount);
     }
     return 0;
 }
@@ -671,27 +905,20 @@ u8 satisfyEventHcPersistSticky(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
     // Register the satisfy
     locNode_t * curHead;
     u32 waitersCount = setSatisfiedEventHcPersist(base, db, &curHead, /*checkError*/ true);
-    ASSERT(waitersCount != STATE_CHECKED_IN); // i.e. no two satisfy on stickies
+    ocrAssert(waitersCount != STATE_CHECKED_IN); // i.e. no two satisfy on stickies
     //BUG #989: MT opportunity with two following calls micro-tasks and
     //          have a 'join' event to set the destruction flag.
     // Notify peers
     satisfyEventHcPeers(base, db.guid, slot, curHead);
     // Notify waiters
-    u8 res = commonSatisfyEventHcPersist(base, db, slot, waitersCount);
-    ASSERT(!res);
-    // Set destruction flag
-    hal_fence();// make sure all operations are done
-    // This is to signal a concurrent destruct currently
-    // waiting on the satisfaction being done it can now
-    // proceed.
-    ((ocrEventHc_t*)base)->waitersCount = STATE_CHECKED_OUT;
+    commonSatisfyEventHcPersist(base, db, slot, waitersCount);
     return 0;
 }
 
 // This is for latch events
 u8 satisfyEventHcLatch(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
     ocrEventHcLatch_t *event = (ocrEventHcLatch_t*)base;
-    ASSERT(slot == OCR_EVENT_LATCH_DECR_SLOT ||
+    ocrAssert(slot == OCR_EVENT_LATCH_DECR_SLOT ||
            slot == OCR_EVENT_LATCH_INCR_SLOT);
 
     s32 incr = (slot == OCR_EVENT_LATCH_DECR_SLOT)?-1:1;
@@ -732,13 +959,16 @@ u8 satisfyEventHcLatch(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
     return destructEventHc(base);
 }
 
-u8 registerSignalerHc(ocrEvent_t *self, ocrFatGuid_t signaler, u32 slot,
-                      ocrDbAccessMode_t mode, bool isDepAdd) {
+#ifdef ENABLE_EXTENSION_MULTI_OUTPUT_SLOT
+u8 registerSignalerHc(ocrEvent_t *self, u32 sslot, ocrFatGuid_t signaler, u32 slot, ocrDbAccessMode_t mode, bool isDepAdd) {
+#else
+u8 registerSignalerHc(ocrEvent_t *self, ocrFatGuid_t signaler, u32 slot, ocrDbAccessMode_t mode, bool isDepAdd) {
+#endif
     return 0; // We do not do anything for signalers
 }
 
-u8 unregisterSignalerHc(ocrEvent_t *self, ocrFatGuid_t signaler, u32 slot,
-                        bool isDepRem) {
+
+u8 unregisterSignalerHc(FSIG_UNREGISTERSIGNALER) {
     return 0; // We do not do anything for signalers
 }
 
@@ -775,7 +1005,7 @@ static u8 commonEnqueueWaiter(ocrPolicyDomain_t *pd, ocrEvent_t *base, ocrFatGui
             // Initial setup
             u8 toReturn = createDbRegNode(&(event->waitersDb), HCEVT_WAITER_DYNAMIC_COUNT, false, &waiters);
             if (toReturn) {
-                ASSERT(false && "Failed allocating db waiter");
+                ocrAssert(false && "Failed allocating db waiter");
                 hal_unlock(&(event->waitersLock));
                 return toReturn;
             }
@@ -796,15 +1026,15 @@ static u8 commonEnqueueWaiter(ocrPolicyDomain_t *pd, ocrEvent_t *base, ocrFatGui
             //Should be a local DB
             if((toReturn = pd->fcts.processMessage(pd, msg, true))) {
                 // should be the only writer active on the waiter DB since we have the lock
-                ASSERT(false); // debug
-                ASSERT(toReturn != OCR_EBUSY);
+                ocrAssert(false); // debug
+                ocrAssert(toReturn != OCR_EBUSY);
                 hal_unlock(&(event->waitersLock));
                 return toReturn; //BUG #603 error codes
             }
             waiters = (regNode_t*)PD_MSG_FIELD_O(ptr);
             //BUG #273
             event->waitersDb = PD_MSG_FIELD_IO(guid);
-            ASSERT(waiters);
+            ocrAssert(waiters);
 #undef PD_TYPE
             if(waitersCount + 1 == event->waitersMax) {
                 // We need to create a new DB and copy things over
@@ -819,7 +1049,7 @@ static u8 commonEnqueueWaiter(ocrPolicyDomain_t *pd, ocrEvent_t *base, ocrFatGui
                 PD_MSG_FIELD_I(dbType) = RUNTIME_DBTYPE;
                 PD_MSG_FIELD_I(allocator) = NO_ALLOC;
                 if((toReturn = pd->fcts.processMessage(pd, msg, true))) {
-                    ASSERT(false); // debug
+                    ocrAssert(false); // debug
                     hal_unlock(&(event->waitersLock));
                     return toReturn; //BUG #603 error codes
                 }
@@ -887,7 +1117,7 @@ static u8 commonEnqueueWaiter(ocrPolicyDomain_t *pd, ocrEvent_t *base, ocrFatGui
             PD_MSG_FIELD_I(srcLoc) = pd->myLocation;
             PD_MSG_FIELD_I(properties) = DB_PROP_RT_ACQUIRE;
             if((toReturn = pd->fcts.processMessage(pd, msg, false))) {
-                ASSERT(false); // debug
+                ocrAssert(false); // debug
                 return toReturn; //BUG #603 error codes
             }
 #undef PD_MSG
@@ -907,13 +1137,16 @@ static u8 commonEnqueueWaiter(ocrPolicyDomain_t *pd, ocrEvent_t *base, ocrFatGui
  * By construction, users must ensure a ONCE event is registered before satisfy is called.
  */
 #ifdef REG_ASYNC_SGL
+#ifdef ENABLE_EXTENSION_MULTI_OUTPUT_SLOT
+u8 registerWaiterEventHc(ocrEvent_t *base, u32 sslot, ocrFatGuid_t waiter, u32 slot, bool isDepAdd, ocrDbAccessMode_t mode) {
+#else
 u8 registerWaiterEventHc(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot, bool isDepAdd, ocrDbAccessMode_t mode) {
+#endif
 #else
 u8 registerWaiterEventHc(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot, bool isDepAdd) {
 #endif
     // Here we always add the waiter to our list so we ignore isDepAdd
     ocrEventHc_t *event = (ocrEventHc_t*)base;
-
     DPRINTF(DEBUG_LVL_INFO, "Register waiter %s: "GUIDF" with waiter "GUIDF" on slot %"PRId32"\n",
             eventTypeToString(base), GUIDA(base->guid), GUIDA(waiter.guid), slot);
 
@@ -925,7 +1158,7 @@ u8 registerWaiterEventHc(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot, bool i
     if (event->waitersCount == STATE_CHECKED_IN) {
          // This is best effort race check
          DPRINTF(DBG_HCEVT_ERR, "User-level error detected: adding dependence to a non-persistent event that's already satisfied: "GUIDF"\n", GUIDA(base->guid));
-         ASSERT(false);
+         ocrAssert(false);
          return 1; //BUG #603 error codes: Put some error code here.
     }
     ocrFatGuid_t currentEdt = {.guid = curTask!=NULL?curTask->guid:NULL_GUID, .metaDataPtr = curTask};
@@ -950,7 +1183,11 @@ u8 registerWaiterEventHc(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot, bool i
  * Returns non-zero if the registerWaiter requires registerSignaler to be called there-after
  */
 #ifdef REG_ASYNC_SGL
+#ifdef ENABLE_EXTENSION_MULTI_OUTPUT_SLOT
+u8 registerWaiterEventHcPersist(ocrEvent_t *base, u32 sslot, ocrFatGuid_t waiter, u32 slot, bool isDepAdd, ocrDbAccessMode_t mode) {
+#else
 u8 registerWaiterEventHcPersist(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot, bool isDepAdd, ocrDbAccessMode_t mode) {
+#endif
 #else
 u8 registerWaiterEventHcPersist(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot, bool isDepAdd) {
 #endif
@@ -973,7 +1210,7 @@ u8 registerWaiterEventHcPersist(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot,
 #ifndef REG_ASYNC
 #ifndef REG_ASYNC_SGL
     if(isDepAdd && waiterKind == OCR_GUID_EDT) {
-        ASSERT(false && "Should never happen anymore");
+        ocrAssert(false && "Should never happen anymore");
         // If we're adding a dependence and the waiter is an EDT we
         // skip this part. The event is registered on the EDT and
         // the EDT will register on the event only when its dependence
@@ -982,7 +1219,7 @@ u8 registerWaiterEventHcPersist(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot,
     }
 #endif
 #endif
-    ASSERT(waiterKind == OCR_GUID_EDT || (waiterKind & OCR_GUID_EVENT));
+    ocrAssert(waiterKind == OCR_GUID_EDT || (waiterKind & OCR_GUID_EVENT));
 
     DPRINTF(DEBUG_LVL_INFO, "Register waiter %s: "GUIDF" with waiter "GUIDF" on slot %"PRId32"\n",
             eventTypeToString(base), GUIDA(base->guid), GUIDA(waiter.guid), slot);
@@ -1018,7 +1255,11 @@ u8 registerWaiterEventHcPersist(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot,
  */
 #ifdef ENABLE_EXTENSION_COUNTED_EVT
 #ifdef REG_ASYNC_SGL
+#ifdef ENABLE_EXTENSION_MULTI_OUTPUT_SLOT
+u8 registerWaiterEventHcCounted(ocrEvent_t *base, u32 sslot, ocrFatGuid_t waiter, u32 slot, bool isDepAdd, ocrDbAccessMode_t mode) {
+#else
 u8 registerWaiterEventHcCounted(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot, bool isDepAdd, ocrDbAccessMode_t mode) {
+#endif
 #else
 u8 registerWaiterEventHcCounted(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot, bool isDepAdd) {
 #endif
@@ -1041,7 +1282,7 @@ u8 registerWaiterEventHcCounted(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot,
 #ifndef REG_ASYNC
 #ifndef REG_ASYNC_SGL
     if(isDepAdd && waiterKind == OCR_GUID_EDT) {
-        ASSERT(false && "Should never happen anymore");
+        ocrAssert(false && "Should never happen anymore");
         // If we're adding a dependence and the waiter is an EDT we
         // skip this part. The event is registered on the EDT and
         // the EDT will register on the event only when its dependence
@@ -1050,7 +1291,7 @@ u8 registerWaiterEventHcCounted(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot,
     }
 #endif
 #endif
-    ASSERT(waiterKind == OCR_GUID_EDT || (waiterKind & OCR_GUID_EVENT));
+    ocrAssert(waiterKind == OCR_GUID_EDT || (waiterKind & OCR_GUID_EVENT));
 
     DPRINTF(DEBUG_LVL_INFO, "Register waiter %s: "GUIDF" with waiter "GUIDF" on slot %"PRId32"\n",
             eventTypeToString(base), GUIDA(base->guid), GUIDA(waiter.guid), slot);
@@ -1074,7 +1315,7 @@ u8 registerWaiterEventHcCounted(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot,
         // Account for this registration. When it reaches zero the event
         // can be deallocated since it is already satisfied and this call
         // was the last ocrAddDependence.
-        ASSERT(devt->nbDeps > 0);
+        ocrAssert(devt->nbDeps > 0);
         devt->nbDeps--;
         u64 nbDeps = devt->nbDeps;
         hal_unlock(&(event->base.waitersLock));
@@ -1097,7 +1338,11 @@ u8 registerWaiterEventHcCounted(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot,
 
 
 // In this call, we do not contend with satisfy
+#ifdef ENABLE_EXTENSION_MULTI_OUTPUT_SLOT
+u8 unregisterWaiterEventHc(ocrEvent_t *base, u32 sslot, ocrFatGuid_t waiter, u32 slot, bool isDepRem) {
+#else
 u8 unregisterWaiterEventHc(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot, bool isDepRem) {
+#endif
     // Always search for the waiter because we don't know if it registered or not so
     // ignore isDepRem
     ocrEventHc_t *event = (ocrEventHc_t*)base;
@@ -1126,12 +1371,12 @@ u8 unregisterWaiterEventHc(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot, bool
     PD_MSG_FIELD_IO(properties) = DB_MODE_RW | DB_PROP_RT_ACQUIRE;
     //Should be a local DB
     u8 res __attribute__((unused)) = pd->fcts.processMessage(pd, &msg, true);
-    ASSERT(!res); // Possible corruption of waitersDb
+    ocrAssert(!res); // Possible corruption of waitersDb
 
     waiters = (regNode_t*)PD_MSG_FIELD_O(ptr);
     //BUG #273
     event->waitersDb = PD_MSG_FIELD_IO(guid);
-    ASSERT(waiters);
+    ocrAssert(waiters);
 #undef PD_TYPE
     // We search for the waiter that we need and remove it
     for(i = 0; i < event->waitersCount; ++i) {
@@ -1162,7 +1407,11 @@ u8 unregisterWaiterEventHc(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot, bool
 
 
 // In this call, we can have concurrent satisfy
+#ifdef ENABLE_EXTENSION_MULTI_OUTPUT_SLOT
+u8 unregisterWaiterEventHcPersist(ocrEvent_t *base, u32 sslot, ocrFatGuid_t waiter, u32 slot) {
+#else
 u8 unregisterWaiterEventHcPersist(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot) {
+#endif
     ocrEventHcPersist_t *event = (ocrEventHcPersist_t*)base;
 
 
@@ -1197,14 +1446,14 @@ u8 unregisterWaiterEventHcPersist(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slo
     PD_MSG_FIELD_IO(properties) = DB_MODE_RW | DB_PROP_RT_ACQUIRE;
     //Should be a local DB
     if((toReturn = pd->fcts.processMessage(pd, &msg, true))) {
-        ASSERT(!toReturn); // Possible corruption of waitersDb
+        ocrAssert(!toReturn); // Possible corruption of waitersDb
         hal_unlock(&(event->base.waitersLock));
         return toReturn;
     }
     //BUG #273: Guid reading
     waiters = (regNode_t*)PD_MSG_FIELD_O(ptr);
     event->base.waitersDb = PD_MSG_FIELD_IO(guid);
-    ASSERT(waiters);
+    ocrAssert(waiters);
 #undef PD_TYPE
     // We search for the waiter that we need and remove it
     for(i = 0; i < event->base.waitersCount; ++i) {
@@ -1272,6 +1521,10 @@ ocrGuidKind eventTypeToGuidKind(ocrEventTypes_t eventType) {
         case OCR_EVENT_CHANNEL_T:
             return OCR_GUID_EVENT_CHANNEL;
 #endif
+#ifdef ENABLE_EXTENSION_COLLECTIVE_EVT
+        case OCR_EVENT_COLLECTIVE_T:
+            return OCR_GUID_EVENT_COLLECTIVE;
+#endif
         case OCR_EVENT_IDEM_T:
             return OCR_GUID_EVENT_IDEM;
         case OCR_EVENT_STICKY_T:
@@ -1279,7 +1532,7 @@ ocrGuidKind eventTypeToGuidKind(ocrEventTypes_t eventType) {
         case OCR_EVENT_LATCH_T:
             return OCR_GUID_EVENT_LATCH;
         default:
-            ASSERT(false && "Unknown type of event");
+            ocrAssert(false && "Unknown type of event");
         return OCR_GUID_NONE;
     }
 }
@@ -1296,6 +1549,10 @@ static ocrEventTypes_t guidKindToEventType(ocrGuidKind kind) {
         case OCR_GUID_EVENT_CHANNEL:
             return OCR_EVENT_CHANNEL_T;
 #endif
+#ifdef ENABLE_EXTENSION_COLLECTIVE_EVT
+        case OCR_GUID_EVENT_COLLECTIVE:
+            return OCR_EVENT_COLLECTIVE_T;
+#endif
         case OCR_GUID_EVENT_IDEM:
             return OCR_EVENT_IDEM_T;
         case OCR_GUID_EVENT_STICKY:
@@ -1303,7 +1560,7 @@ static ocrEventTypes_t guidKindToEventType(ocrGuidKind kind) {
         case OCR_GUID_EVENT_LATCH:
             return OCR_EVENT_LATCH_T;
         default:
-            ASSERT(false && "Unknown kind of event");
+            ocrAssert(false && "Unknown kind of event");
         return OCR_EVENT_T_MAX;
     }
 }
@@ -1336,22 +1593,24 @@ static void mdPushHcDist(ocrGuid_t evtGuid, ocrLocation_t loc, ocrGuid_t dbGuid,
     PD_MSG_FIELD_I(mdPtr) = NULL;
     DPRINTF (DBG_HCEVT_LOG, "event-md: push "GUIDF" in mode=%d\n", GUIDA(evtGuid), mode);
     PD_MSG_FIELD_I(sizePayload) = 0; // This MUST be set to zero otherwise base size returns random crap
-    ASSERT((ocrPolicyMsgGetMsgBaseSize(&msg, true) + sizeof(ocrLocation_t) + sizeof(ocrGuid_t)) < sizeof(ocrPolicyMsg_t));
+    ocrAssert((ocrPolicyMsgGetMsgBaseSize(&msg, true) + sizeof(ocrLocation_t) + sizeof(ocrGuid_t)) < sizeof(ocrPolicyMsg_t));
     // Always specify where the push comes from
     // TODO: This is redundant with the message header but the header doesn't make it all
     // the way to the recipient OCR object. Would that change if we collapse object's
     // functions into a big processMessage ?
+    // LIMITATION: This is not generic at all. It assumes we always have a location first and maybe a guid afterward.
+    //             Addl, we do not have access to the object's ptr hence cannot retrieve data from there
     // Location is enough for M_REG
     PD_MSG_FIELD_I(sizePayload) = sizeof(ocrLocation_t);
     // Serialization
-    ASSERT((mode == M_REG) || (mode == M_SAT) || (mode == M_DEL));
+    ocrAssert((mode == M_REG) || (mode == M_SAT) || (mode == M_DEL));
     char * ptr = &(PD_MSG_FIELD_I(payload));
     WR_PAYLOAD_DATA(ptr, ocrLocation_t, pd->myLocation);
     // For M_SAT, add the guid the event is satisfied with
     if (mode == M_SAT) {
         SET_PAYLOAD_DATA(ptr, M_SAT, ocrGuid_t, guid, dbGuid);
         // Check alignment issues
-        ASSERT(GET_PAYLOAD_DATA(ptr, M_SAT, ocrLocation_t, location) == pd->myLocation);
+        ocrAssert(GET_PAYLOAD_DATA(ptr, M_SAT, ocrLocation_t, location) == pd->myLocation);
         PD_MSG_FIELD_I(sizePayload) += sizeof(ocrGuid_t);
     }
     pd->fcts.processMessage(pd, &msg, true);
@@ -1362,7 +1621,7 @@ static void mdPushHcDist(ocrGuid_t evtGuid, ocrLocation_t loc, ocrGuid_t dbGuid,
 // Only used in no-forge mode
 static void mdPullHcDist(ocrGuid_t guid, u32 mode, u32 factoryId) {
     // This implementation only pulls in clone mode
-    ASSERT(mode == M_CLONE);
+    ocrAssert(mode == M_CLONE);
     ocrPolicyDomain_t *pd = NULL;
     PD_MSG_STACK(msg);
     getCurrentEnv(&pd, NULL, NULL, &msg);
@@ -1370,7 +1629,7 @@ static void mdPullHcDist(ocrGuid_t guid, u32 mode, u32 factoryId) {
     // always the location that owns the GUID.
     ocrLocation_t destLocation;
     u8 returnValue = pd->guidProviders[0]->fcts.getLocation(pd->guidProviders[0], guid, &destLocation);
-    ASSERT(!returnValue);
+    ocrAssert(!returnValue);
     msg.destLocation = destLocation;
 #define PD_MSG (&msg)
 #define PD_TYPE PD_MSG_METADATA_COMM
@@ -1384,7 +1643,7 @@ static void mdPullHcDist(ocrGuid_t guid, u32 mode, u32 factoryId) {
     PD_MSG_FIELD_I(mdPtr) = NULL;
     DPRINTF (DBG_HCEVT_LOG, "event-md: pull "GUIDF" in mode=%d\n", GUIDA(guid), mode);
     PD_MSG_FIELD_I(sizePayload) = 0; // This MUST be set to zero otherwise base size returns random crap
-    ASSERT((ocrPolicyMsgGetMsgBaseSize(&msg, true) + sizeof(ocrLocation_t)) < sizeof(ocrPolicyMsg_t));
+    ocrAssert((ocrPolicyMsgGetMsgBaseSize(&msg, true) + sizeof(ocrLocation_t)) < sizeof(ocrPolicyMsg_t));
     // Always specify where the push comes from
     // TODO: This is redundant with the message header but the header doesn't make it all
     // the way to the recipient OCR object. Would that change if we collapse object's
@@ -1398,9 +1657,153 @@ static void mdPullHcDist(ocrGuid_t guid, u32 mode, u32 factoryId) {
 }
 
 /******************************************************/
+/* OCR-HC Collective Events                            */
+/******************************************************/
+
+#ifdef ENABLE_EXTENSION_COLLECTIVE_EVT
+
+//Fwd declaration needed for event initialization
+static contributor_t * getContributor(ocrEventHcCollective_t * dself, u32 lslot);
+
+#ifdef COLEVT_TREE_CONTRIB
+typedef struct _remoteContrib_t {
+    ocrPolicyMsg_t * msg;
+} remoteContrib_t;
+#endif
+
+typedef struct _collectiveDbRecord_t {
+    ocrFatGuid_t fguid;
+    void * dbBackend;
+} collectiveDbRecord_t;
+
+void markInOrderParentAt(u16 * rktree, u16 * ktree, u16 k, u16 nbNodes, u16 me, u16 * counter) {
+    // visit left children
+    u16 r = (me*k)+1;
+    if (r < nbNodes) {
+        markInOrderParentAt(rktree, ktree, k, nbNodes, r, counter);
+    }
+    // Set my parent
+    rktree[ktree[me]] = (me == 0) ? ((u16)-1) : ktree[(me-1)/k];
+    // visit right children
+    r=1;
+    while(r<k) {
+        u16 l = (me*k)+1+r;
+        if (l >= nbNodes) {
+            break;
+        }
+        markInOrderParentAt(rktree, ktree, k, nbNodes, l, counter);
+        r++;
+    }
+}
+
+static void markInOrderAt(u16 * ktree, u16 k, u16 nbNodes, u16 me, u16 * counter, u16 myLoc, u16 * myPos) {
+    // visit left children
+    u16 r = (me*k)+1;
+    if (r < nbNodes) {
+        markInOrderAt(ktree, k, nbNodes, r, counter, myLoc, myPos);
+    }
+    // visit me
+    if (*counter == myLoc) {
+        // Remember 'myLoc' maps to 'me'
+        *myPos = me;
+    }
+    ktree[me] = (*counter)++;
+    // visit right children
+    r=1;
+    while(r<k) {
+        u16 l = (me*k)+1+r;
+        if (l >= nbNodes) {
+            break;
+        }
+        markInOrderAt(ktree, k, nbNodes, l, counter, myLoc, myPos);
+        r++;
+    }
+}
+
+static void markInOrder(u16 * ktree, u16 k, u16 nbNodes, u16 myLoc, u16 * myPos) {
+    u16 counter = 0;
+    markInOrderAt(ktree, k, nbNodes, 0, &counter, myLoc, myPos);
+}
+
+static void printKtree(u16 * ktree, u16 nbNodes) {
+    u16 i=0;
+    DPRINTF(DBG_COL_EVT, "[");
+    while(i < (nbNodes-1)) {
+        DPRINTF(DBG_COL_EVT, "%d, ", ktree[i]);
+        i++;
+    }
+    DPRINTF(DBG_COL_EVT, "%d]\n", ktree[i]);
+}
+
+static u16 fctRedNbOfDescendants(u16 arity, ocrLocation_t myLoc, u32 nbPDs) {
+    // Hardcode a k-ary tree based on participation of all PDs, ordered according to PD locations.
+    u16 k = arity;
+    u16 ktree[nbPDs];
+    u16 myPos = -1;
+    // Mark the k-tree in-order starting from the root and returning the position in the tree for myLoc
+    markInOrder(ktree, k, nbPDs, (u16) myLoc, &myPos);
+    // Determine 'i' child of myPos
+    u16 i=0;
+    while(i<k) {
+        u16 cPos = (k*myPos)+(i+1);
+        DPRINTF(DBG_COL_EVT, "fctRedNbOfDescendants arity=%"PRIu16" myLoc=%"PRIu64" nbPDs=%"PRIu32" i=%"PRIu16" myPos=%"PRIu16" cPos=%"PRIu16"\n", arity, myLoc, nbPDs, i, myPos, cPos);
+        if (cPos >= nbPDs) {
+            break;
+        }
+        i++;
+    }
+    DPRINTF(DBG_COL_EVT, "exit fctRedNbOfDescendants arity=%"PRIu16" myLoc=%"PRIu64" nbPDs=%"PRIu32" i=%"PRIu16" myPos=%"PRIu16"\n", arity, myLoc, nbPDs, i, myPos);
+    return i;
+}
+
+static u16 fctRedPeerTopology(ocrEventHcCollective_t * dself, ocrLocation_t myLoc, u32 nbPDs) {
+    if (nbPDs == 1) {
+        dself->ancestorLoc = INVALID_LOCATION;
+        return 0;
+    }
+    // Hardcode a k-ary tree based on participation of all PDs, ordered according to PD locations.
+    u16 k = dself->params.arity;
+    u16 ktree[nbPDs];
+    u16 myPos = -1;
+    // Mark the k-tree in-order starting from the root and returning the position in the tree for myLoc
+    markInOrder(ktree, k, nbPDs, (u16) myLoc, &myPos);
+    if (((u64) myLoc) == 0) printKtree(ktree, nbPDs); // debug
+    ocrAssert(myPos != ((u64)-1));
+    // Determine ancestor
+    if (myPos == 0) { // root
+        dself->ancestorLoc = INVALID_LOCATION;
+    } else {
+        // dself->ancestorLoc = ((ocrLocation_t) ktree[(k+myPos-2)/k]);
+        dself->ancestorLoc = ((ocrLocation_t) ktree[(myPos-1)/k]);
+    }
+    // Determine 'i' child of myPos
+    u16 i=0;
+    while(i<k) {
+        // u16 cPos = (k*myPos)-(k-2)+i;
+        u16 cPos = (k*myPos)+(i+1);
+        if (cPos >= nbPDs) {
+            break;
+        }
+        dself->descendantsLoc[i] = ((ocrLocation_t) ktree[cPos]);
+        DPRINTF(DBG_COL_EVT, "set myLoc=%"PRIu64" descendantsLoc[%"PRIu16"]=%"PRIu16"\n", (u64) myLoc, i, ktree[cPos]);
+        i++;
+    }
+    return i;
+}
+#endif /*ENABLE_EXTENSION_COLLECTIVE_EVT*/
+
+
+/******************************************************/
 /* OCR-HC Events Master/Slave                         */
 /******************************************************/
 
+#ifdef ENABLE_EXTENSION_COLLECTIVE_EVT
+static u16 getDatumSize(ocrEventHcCollective_t * dself);
+static u32 getContribSize(ocrEventHcCollective_t * dself);
+static u32 getMaxContribLocal(ocrEventHcCollective_t * dself);
+static remoteContrib_t * getRemoteContrib(ocrEventHcCollective_t * dself, rph_t rph, u16 cslot);
+static void fctRedBuildInOrderIdxToArrayIdx(ocrEventHcCollective_t * dself, u16 nbOfDescendants, u16 * inOrderIdxToArrayIdx);
+#endif /*ENABLE_EXTENSION_COLLECTIVE_EVT*/
 
 static u8 initNewEventHc(ocrEventHc_t * event, ocrEventTypes_t eventType, ocrGuid_t data, ocrEventFactory_t * factory, u32 sizeOfGuid, ocrParamList_t *perInstance) {
     ocrEvent_t * base = (ocrEvent_t*) event;
@@ -1455,9 +1858,9 @@ static u8 initNewEventHc(ocrEventHc_t * event, ocrEventTypes_t eventType, ocrGui
         ocrEventHcChannel_t * devt = ((ocrEventHcChannel_t*)event);
         // Expecting ocrEventParams_t as the paramlist
         ocrEventParams_t * params = (ocrEventParams_t *) perInstance;
-        ASSERT((params->EVENT_CHANNEL.nbSat == 1) && "Channel-event limitation nbSat must be set to 1");
-        ASSERT((params->EVENT_CHANNEL.nbDeps == 1) && "Channel-event limitation nbDeps must be set to 1");
-        ASSERT((params->EVENT_CHANNEL.maxGen != 0) && "Channel-event maxGen=0 invalid value");
+        ocrAssert((params->EVENT_CHANNEL.nbSat == 1) && "Channel-event limitation nbSat must be set to 1");
+        ocrAssert((params->EVENT_CHANNEL.nbDeps == 1) && "Channel-event limitation nbDeps must be set to 1");
+        ocrAssert((params->EVENT_CHANNEL.maxGen != 0) && "Channel-event maxGen=0 invalid value");
         u32 maxGen = (params->EVENT_CHANNEL.maxGen == EVENT_CHANNEL_UNBOUNDED) ? 1 : params->EVENT_CHANNEL.maxGen;
         devt->maxGen = params->EVENT_CHANNEL.maxGen;
         devt->nbSat = params->EVENT_CHANNEL.nbSat;
@@ -1497,7 +1900,128 @@ static u8 initNewEventHc(ocrEventHc_t * event, ocrEventTypes_t eventType, ocrGui
 #endif
     }
 #endif
+#ifdef ENABLE_EXTENSION_COLLECTIVE_EVT
+    if (eventType == OCR_EVENT_COLLECTIVE_T) {
+        ocrPolicyDomain_t *pd = NULL;
+        ocrTask_t *curTask = NULL;
+        getCurrentEnv(&pd, NULL, &curTask, NULL);
+        ocrFatGuid_t curEdt = {.guid = curTask!=NULL?curTask->guid:NULL_GUID, .metaDataPtr = curTask};
+        ocrEventHcCollective_t * devt = ((ocrEventHcCollective_t*)event);
+        ocrEventParams_t * params = (ocrEventParams_t *) perInstance;
+        devt->params = params->EVENT_COLLECTIVE;
+        ocrAssert(params->EVENT_COLLECTIVE.maxGen > 0);
+        ocrAssert(params->EVENT_COLLECTIVE.nbDatum > 0);
+        ocrAssert(params->EVENT_COLLECTIVE.nbContribs > 0);
+        ocrAssert(params->EVENT_COLLECTIVE.nbContribsPd > 0);
+        ocrAssert(params->EVENT_COLLECTIVE.nbContribsPd <= params->EVENT_COLLECTIVE.nbContribs);
+        // After the reduction event struct, data is organized as is:
+        // u32*maxGen | phaseDbResult*maxGen | ((contributor_t | regNodes*maxGen | datum*nbDatum*maxGen) * nbContribsPd)
+        setReductionFctPtr(devt, params->EVENT_COLLECTIVE.op);
+        devt->myLoc = pd->myLocation;
+        char * curPtr = ((char *) devt) + sizeof(ocrEventHcCollective_t);
+        // Setup peer information
+#ifdef OCR_ASSERT
+        devt->ancestorLoc = INVALID_LOCATION;
+#endif
+        // Warning this assignment must happen before 'fctRedPeerTopology' is called as it uses that member.
+        devt->descendantsLoc = (ocrLocation_t *) curPtr;
+        // Based on the PD location and given the PD arity, infer ancestor and descendants locations.
+        devt->nbOfDescendants = fctRedPeerTopology(devt, pd->myLocation, pd->neighborCount+1);
+        DPRINTF(DBG_COL_EVT, "init nbOfDescendants=%"PRIu16"\n", devt->nbOfDescendants);
+        curPtr += (sizeof(ocrLocation_t) * devt->nbOfDescendants);
+        devt->phaseLocalContribCounters = (u32*) curPtr;
+        curPtr += (sizeof(u32) * params->EVENT_COLLECTIVE.maxGen);
+        devt->phaseDbResult = (collectiveDbRecord_t*) curPtr;
+        curPtr += (sizeof(collectiveDbRecord_t) * params->EVENT_COLLECTIVE.maxGen);
+#ifdef COLEVT_TREE_CONTRIB
+        // Compute number of tree nodes. We need the array to be that large to accomodate the local 2-ary reduction tree
+        u16 remoteContribCount = ((devt->nbOfDescendants) ? ((devt->nbOfDescendants % 2) ? devt->nbOfDescendants : devt->nbOfDescendants+1) : 0);
+        devt->inOrderIdxToArrayIdx = (u16 *) curPtr;
+        // for that array, we only need the number of leaves
+        curPtr += (sizeof(u16) * ((devt->nbOfDescendants) ? ((remoteContribCount/2)+1) : 0));
+        devt->remoteContribs = (remoteContrib_t *) curPtr;
+        curPtr += (sizeof(remoteContrib_t) * remoteContribCount * params->EVENT_COLLECTIVE.maxGen);
+#endif
+        devt->contributors = (contributor_t *) curPtr;
+        u32 maxGen = params->EVENT_COLLECTIVE.maxGen;
+        ocrAssert(devt->reduce != NULL);
+        u32 c, ub;
+        c=0; ub = params->EVENT_COLLECTIVE.maxGen;
+        while(c < ub) {
+            devt->phaseLocalContribCounters[c++] = 0;
+        }
+        c=0; ub = params->EVENT_COLLECTIVE.maxGen;
+        collectiveDbRecord_t dbRecord = {.fguid.guid = NULL_GUID, .fguid.metaDataPtr = NULL, .dbBackend = NULL};
+        while(c < ub) {
+            devt->phaseDbResult[c++] = dbRecord;
+        }
+#ifdef COLEVT_TREE_CONTRIB
+        // Binary reduction tree for aggregating the local and all our descendants remote contributions
+        fctRedBuildInOrderIdxToArrayIdx(devt, devt->nbOfDescendants, devt->inOrderIdxToArrayIdx);
+        remoteContrib_t rcInit = {.msg = NULL};
+        c=0; ub = remoteContribCount * params->EVENT_COLLECTIVE.maxGen;
+        while(c < ub) {
+            devt->remoteContribs[c++] = rcInit;
+        }
+        ocrAssert(((ub == 0) || (getRemoteContrib(devt, 0, 0)->msg == NULL)) && "getRemoteContrib not properly init");
+#endif
 
+        c=0; ub = params->EVENT_COLLECTIVE.maxGen;
+        ocrFatGuid_t dbFatGuid = {.guid = NULL_GUID, .metaDataPtr = NULL};
+        while(c < ub) {
+            PD_MSG_STACK(msg);
+            getCurrentEnv(NULL, NULL, NULL, &msg);
+#define PD_MSG (&msg)
+#define PD_TYPE PD_MSG_DB_CREATE
+            msg.type = PD_MSG_DB_CREATE | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
+            PD_MSG_FIELD_IO(guid) = dbFatGuid;
+            PD_MSG_FIELD_IO(size) = getContribSize(devt);
+            PD_MSG_FIELD_IO(properties) = DB_PROP_RT_ACQUIRE;
+            PD_MSG_FIELD_I(edt) = curEdt;
+            PD_MSG_FIELD_I(hint) = NULL_HINT;
+            PD_MSG_FIELD_I(dbType) = RUNTIME_DBTYPE;
+            PD_MSG_FIELD_I(allocator) = NO_ALLOC;
+            RESULT_PROPAGATE(pd->fcts.processMessage(pd, &msg, true));
+            devt->phaseDbResult[c].fguid = PD_MSG_FIELD_IO(guid);
+            devt->phaseDbResult[c].dbBackend = PD_MSG_FIELD_O(ptr);
+            ocrAssert(!ocrGuidIsNull(devt->phaseDbResult[c].fguid.guid) &&
+                    (devt->phaseDbResult[c].fguid.metaDataPtr != NULL));
+            c++;
+#undef PD_TYPE
+#undef PD_MSG
+        }
+
+        c=0, ub = params->EVENT_COLLECTIVE.nbContribsPd;
+        while(c < ub) {
+            contributor_t * contrib = getContributor(devt, c);
+            contrib->iph = 0;
+            contrib->oph = 0;
+            contrib->deps = (regNode_t *) (((char *) contrib) + sizeof(contributor_t));
+            contrib->contribs = (((char *) contrib->deps) + (sizeof(regNode_t) * maxGen));
+#ifdef OCR_ASSERT
+            regNode_t regnode;
+            regnode.guid = UNINITIALIZED_GUID;
+            regnode.slot = -1;
+            regnode.mode = -1;
+            rph_t ph;
+            for(ph=0; ph < maxGen; ph++) {
+                contrib->deps[ph] = regnode;
+            }
+#endif
+            c++;
+        }
+        DPRINTF(DBG_COL_EVT, "getDatumSize=%"PRIu16"\n", getDatumSize(devt));
+        DPRINTF(DBG_COL_EVT, "getContribSize=%"PRIu32"\n", getContribSize(devt));
+        DPRINTF(DBG_COL_EVT, "getMaxContribLocal=%"PRIu32"\n", getMaxContribLocal(devt));
+        DPRINTF(DBG_COL_EVT, "topology pd=%"PRIu64" ancestorPd=%"PRIu64" arity=%"PRIu16" nbOfDescendants=%"PRIu16"", (u64) devt->myLoc, devt->ancestorLoc, (u16) devt->params.arity, (u16) devt->nbOfDescendants);
+        c=0;
+        while (c < devt->nbOfDescendants) {
+            DPRINTF(DBG_COL_EVT, " d[%"PRIu16"]=%"PRIu64"", (u16) c, (u64) devt->descendantsLoc[c]);
+            c++;
+        }
+        DPRINTF(DBG_COL_EVT, "\n");
+    }
+#endif
     u32 hintc = OCR_HINT_COUNT_EVT_HC;
     if (hintc == 0) {
         event->hint.hintMask = 0;
@@ -1520,7 +2044,7 @@ static u8 initNewEventHc(ocrEventHc_t * event, ocrEventTypes_t eventType, ocrGui
         } else {
             DPRINTF(DBG_HCEVT_ERR, "error: Illegal nbDeps value (zero) for OCR_EVENT_COUNTED_T 0x"GUIDF"\n", GUIDA(base->guid));
             factory->fcts[OCR_EVENT_COUNTED_T].destruct(base);
-            ASSERT(false);
+            ocrAssert(false);
             return OCR_EINVAL; // what ?
         }
     }
@@ -1548,9 +2072,9 @@ static u8 allocateNewEventHc(ocrGuidKind guidKind, ocrFatGuid_t * resultGuid, u3
 #ifdef ENABLE_EXTENSION_CHANNEL_EVT
     if(guidKind == OCR_GUID_EVENT_CHANNEL) {
 #ifndef ENABLE_EXTENSION_PARAMS_EVT
-        ASSERT(false && "ENABLE_EXTENSION_PARAMS_EVT must be defined to use Channel-events");
+        ocrAssert(false && "ENABLE_EXTENSION_PARAMS_EVT must be defined to use Channel-events");
 #endif
-        ASSERT((perInstance != NULL) && "error: No parameters specified at Channel-event creation");
+        ocrAssert((perInstance != NULL) && "error: No parameters specified at Channel-event creation");
         // Expecting ocrEventParams_t as the paramlist
         ocrEventParams_t * params = (ocrEventParams_t *) perInstance;
         // Allocate extra space to store backing data-structures that are parameter-dependent
@@ -1564,6 +2088,42 @@ static u8 allocateNewEventHc(ocrGuidKind guidKind, ocrFatGuid_t * resultGuid, u3
         *sizeofMd = sizeof(ocrEventHcChannel_t) + xtraSpace;
     }
 #endif
+#ifdef ENABLE_EXTENSION_COLLECTIVE_EVT
+    if(guidKind == OCR_GUID_EVENT_COLLECTIVE) {
+#ifndef ENABLE_EXTENSION_PARAMS_EVT
+        ocrAssert(false && "ENABLE_EXTENSION_PARAMS_EVT must be defined to use Collective-events");
+#endif
+        ocrAssert((perInstance != NULL) && "error: No parameters specified at Collective-event creation");
+        // Expecting ocrEventParams_t as the paramlist
+        ocrEventParams_t * params = (ocrEventParams_t *) perInstance;
+        // Allocate extra space to store backing data-structures that are parameter-dependent
+        u32 xtraSpace = 0;
+        u32 nbPds = pd->neighborCount+1;
+        u16 nbOfDescendants = fctRedNbOfDescendants(params->EVENT_COLLECTIVE.arity, pd->myLocation, nbPds);
+        DPRINTF(DBG_COL_EVT, "alloc nbOfDescendants=%"PRIu16"\n", nbOfDescendants);
+        // For backing storage of 'descendantsLoc'
+        xtraSpace += sizeof(ocrLocation_t) * nbOfDescendants;
+        // For backing storage of 'phaseLocalContribCounters'
+        xtraSpace += sizeof(u32) * params->EVENT_COLLECTIVE.maxGen;
+        // For backing storage of 'phaseDbResult'
+        xtraSpace += sizeof(collectiveDbRecord_t) * params->EVENT_COLLECTIVE.maxGen;
+#ifdef COLEVT_TREE_CONTRIB
+        //If has any descendant, then + 1 to also account for the local contribution
+        u16 remoteContribCount = ((nbOfDescendants) ? ((nbOfDescendants % 2) ? nbOfDescendants : nbOfDescendants+1) : 0);
+        // For backing storage of 'inOrderIdxToArrayIdx'
+        xtraSpace += sizeof(u16) * ((nbOfDescendants) ? ((remoteContribCount/2)+1) : 0);
+        // Linearized arrays as backing storage for the remote contribution reduction binary tree.
+        xtraSpace += sizeof(remoteContrib_t) * remoteContribCount * params->EVENT_COLLECTIVE.maxGen;
+#endif
+        // For backing storage of 'contributors'
+        u32 datumSize = REDOP_GET(DATUM_SIZE, params->EVENT_COLLECTIVE.op)+1; // 0 is 1 hence +1
+        u32 sizeContribs = (datumSize * params->EVENT_COLLECTIVE.nbDatum * params->EVENT_COLLECTIVE.maxGen);
+        u32 sizeDeps = (sizeof(regNode_t) * params->EVENT_COLLECTIVE.maxGen);
+        xtraSpace += (sizeof(contributor_t) + sizeContribs + sizeDeps) * params->EVENT_COLLECTIVE.nbContribsPd;
+        *sizeofMd = sizeof(ocrEventHcCollective_t) + xtraSpace;
+        DPRINTF(DBG_COL_EVT, "ocrEventHcCollective_t size=%"PRIu32" bytes\n", *sizeofMd);
+    }
+#endif
     u32 hintc = OCR_HINT_COUNT_EVT_HC;
 #define PD_MSG (&msg)
 #define PD_TYPE PD_MSG_GUID_CREATE
@@ -1573,14 +2133,13 @@ static u8 allocateNewEventHc(ocrGuidKind guidKind, ocrFatGuid_t * resultGuid, u3
     PD_MSG_FIELD_I(size) = (*sizeofMd) + hintc*sizeof(u64);
     PD_MSG_FIELD_I(kind) = guidKind;
     PD_MSG_FIELD_I(targetLoc) = pd->myLocation;
-    PD_MSG_FIELD_I(properties) = properties | GUID_PROP_TORECORD;
+    PD_MSG_FIELD_I(properties) = properties;
     RESULT_PROPAGATE(pd->fcts.processMessage(pd, &msg, true));
     u8 returnValue = PD_MSG_FIELD_O(returnDetail);
     if (returnValue && (returnValue != OCR_EGUIDEXISTS)) {
-        ASSERT(false);
+        ocrAssert(false);
         return returnValue;
     }
-    // Set-up base structures
     resultGuid->guid = PD_MSG_FIELD_IO(guid.guid);
     resultGuid->metaDataPtr = PD_MSG_FIELD_IO(guid.metaDataPtr);
 #ifdef ENABLE_RESILIENCY
@@ -1594,29 +2153,35 @@ static u8 allocateNewEventHc(ocrGuidKind guidKind, ocrFatGuid_t * resultGuid, u3
 }
 
 // Creates a distributed event that has additional metadata
-// REQ: fguid must be a valid GUID so that the event has either already been allocated
-//      (hence we have a guid) or it's a labeled guid and the guid is well-formed.
+// REQ: fguid must be a valid GUID so that the event has either already been allocated in some
+//       other PD (hence we have a guid) or it's a labeled guid and the guid is well-formed.
 // NOTE: This was originally intended to be used for forging event but it also works
 //       to allocate an event from the M_CLONE path.
+// newEventHcDist systematically calls allocateNewEventHc, which systematically has a ISVALID guid and RECORD the GUID
+// - The PD filters references to events in addDependence and calls resolveRemoteMetaData(blocking, fetch) if events are detected.
+//   Callers compete on the GP getVal call in fetch mode. Only one succeeds issuing the call and they all spin on the MD coming
+//   back. (since call is configured to be blocking).
+// - When the clone msg comes back it is deserialized and newEventHcDist is invoked. Calling into allocateNewEventHc which inserts
+//   a new MD proxy. hHnce, this is a BUG
 static u8 newEventHcDist(ocrFatGuid_t * fguid, ocrGuid_t data, ocrEventFactory_t * factory) {
-    ASSERT(!ocrGuidIsNull(fguid->guid));
+    ocrAssert(!ocrGuidIsNull(fguid->guid));
     ocrPolicyDomain_t *pd = NULL;
     getCurrentEnv(&pd, NULL, NULL, NULL);
     ocrGuidKind guidKind;
     u8 returnValue = pd->guidProviders[0]->fcts.getKind(pd->guidProviders[0], fguid->guid, &guidKind);
     ocrEventTypes_t eventType = guidKindToEventType(guidKind);
-    ASSERT(!returnValue);
+    ocrAssert(!returnValue);
     ocrLocation_t guidLoc;
     returnValue = pd->guidProviders[0]->fcts.getLocation(pd->guidProviders[0], fguid->guid, &guidLoc);
-    ASSERT(!returnValue);
+    ocrAssert(!returnValue);
     u32 sizeOfMd;
-    returnValue = allocateNewEventHc(guidKind, fguid, &sizeOfMd, /*prop*/GUID_PROP_ISVALID, NULL);
+    returnValue = allocateNewEventHc(guidKind, fguid, &sizeOfMd, /*prop*/GUID_PROP_ISVALID | GUID_PROP_TORECORD, NULL);
     ocrEventHc_t *event = (ocrEventHc_t*) fguid->metaDataPtr;
     u8 ret = initNewEventHc(event, eventType, data, factory, sizeOfMd, NULL);
     if (ret) { return ret; }
-    if (pd->myLocation != guidLoc) {
+    if (pd->myLocation != guidLoc) { //A slave has no peers
         event->mdClass.peers = NULL;
-    } else { // automatically register the master location as a peer
+    } else { // master registers the slave location as a peer
         locNode_t * locNode = (locNode_t *) pd->fcts.pdMalloc(pd, sizeof(locNode_t));
         locNode->loc = guidLoc;
         locNode->next = NULL;
@@ -1630,7 +2195,7 @@ static u8 newEventHcDist(ocrFatGuid_t * fguid, ocrGuid_t data, ocrEventFactory_t
 #ifdef OCR_ENABLE_STATISTICS
     statsEVT_CREATE(getCurrentPD(), getCurrentEDT(), NULL, fguid->guid, ((ocrEvent_t*) event));
 #endif
-    ASSERT(!returnValue);
+    ocrAssert(!returnValue);
     return returnValue;
 }
 
@@ -1662,11 +2227,11 @@ static u8 newEventHcDist(ocrFatGuid_t * fguid, ocrGuid_t data, ocrEventFactory_t
 }
 
 u8 serializeEventFactoryHc(ocrObjectFactory_t * factory, ocrGuid_t guid, ocrObject_t * src, u64 * mode, ocrLocation_t destLocation, void ** destBuffer, u64 * destSize) {
-    ASSERT(destBuffer != NULL);
-    ASSERT(!ocrGuidIsNull(guid));
-    ASSERT(*destSize != 0);
+    ocrAssert(destBuffer != NULL);
+    ocrAssert(!ocrGuidIsNull(guid));
+    ocrAssert(*destSize != 0);
 #if ENABLE_EVENT_MDC_FORGE
-    ASSERT(false); // Never do a pull when we forge events
+    ocrAssert(false); // Never do a pull when we forge events
 #else
     // More of a proof of concept since we can easily forge events in this implementation
     ocrEvent_t * evt = (ocrEvent_t *) src;
@@ -1686,7 +2251,7 @@ u8 serializeEventFactoryHc(ocrObjectFactory_t * factory, ocrGuid_t guid, ocrObje
             //   all them on destruction
             ocrPolicyDomain_t *pd = NULL;
             getCurrentEnv(&pd, NULL, NULL, NULL);
-            ASSERT(*destSize >= sizeof(ocrGuid_t));
+            ocrAssert(*destSize >= sizeof(ocrGuid_t));
             // Note: this is concurrent with the event being satisfied so it's best effort.
             locNode_t * locNode = (locNode_t *) pd->fcts.pdMalloc(pd, sizeof(locNode_t));
             hal_lock(&(devt->waitersLock));
@@ -1702,11 +2267,12 @@ u8 serializeEventFactoryHc(ocrObjectFactory_t * factory, ocrGuid_t guid, ocrObje
             SET_PAYLOAD_DATA((*destBuffer), M_CLONE, ocrGuid_t, guid, data);
         break;
         }
+        //COL-EVTX: Lazy discovery of collective events would need serialize impl
     default:
-        ASSERT(false && "Metadata-cloning not supported for this event type");
+        ocrAssert(false && "Metadata-cloning not supported for this event type");
     }
-    return 0;
 #endif
+    return 0;
 }
 
 u8 newEventHc(ocrEventFactory_t * factory, ocrFatGuid_t *fguid,
@@ -1714,96 +2280,140 @@ u8 newEventHc(ocrEventFactory_t * factory, ocrFatGuid_t *fguid,
               ocrParamList_t *perInstance) {
     u32 sizeOfMd;
     ocrGuidKind guidKind = eventTypeToGuidKind(eventType);
+#ifdef ENABLE_EXTENSION_COLLECTIVE_EVT
+    bool isColEvent = (guidKind == OCR_GUID_EVENT_COLLECTIVE);
+    if (isColEvent) {
+        ocrAssert(properties & GUID_PROP_IS_LABELED);
+        // For reduction events, we delay recording the GUID until after alloc & init, when calling registerGuid.
+        properties |= GUID_PROP_ISVALID; // Instruct the allocation code to reuse the labeled GUID
+        properties &= ~GUID_PROP_TORECORD;
+        ocrPolicyDomain_t * pd;
+        getCurrentEnv(&pd, NULL, NULL, NULL);
+        MdProxy_t * mdProxy = NULL;
+        u64 val;
+        u8 res;
+        // Try to resolve an instance. Either we compete and win the right to create
+        // the MD proxy or we keep trying to read the MD proxy's pointer to become not NULL.
+        do {
+            //getVal - resolve
+            res = pd->guidProviders[0]->fcts.getVal(pd->guidProviders[0], fguid->guid, &val, NULL, MD_ALLOC, &mdProxy);
+            ocrAssert(mdProxy != NULL);
+        } while (res == OCR_EPEND);
+        if (val != 0) { // Either we're spinning or we got lucky and resolved right away
+            fguid->metaDataPtr = (void *) mdProxy->ptr;
+            return OCR_EGUIDEXISTS;
+        } // else: need to do the actual allocation and initialization
+    } else {
+         properties |= GUID_PROP_TORECORD;
+    }
+#else
+    properties |= GUID_PROP_TORECORD;
+#endif
+
     u8 returnValue = allocateNewEventHc(guidKind, fguid, &sizeOfMd, properties, perInstance);
-    if (returnValue) { ASSERT(returnValue == OCR_EGUIDEXISTS); return returnValue; }
+    if (returnValue) { ocrAssert(returnValue == OCR_EGUIDEXISTS); return returnValue; }
 
     ocrEventHc_t *event = (ocrEventHc_t*) fguid->metaDataPtr;
     returnValue = initNewEventHc(event, eventType, UNINITIALIZED_GUID, factory, sizeOfMd, perInstance);
     if (returnValue) { return returnValue; }
 
-    // Do this at the very end; it indicates that the object
-    // of the GUID is actually valid
+    // Do this at the very end; it indicates that the object of the GUID is actually valid
     hal_fence(); // Make sure sure this really happens last
     ((ocrEvent_t*) event)->guid = fguid->guid;
-
     DPRINTF(DEBUG_LVL_INFO, "Create %s: "GUIDF"\n", eventTypeToString(((ocrEvent_t*) event)), GUIDA(fguid->guid));
+#ifdef ENABLE_EXTENSION_COLLECTIVE_EVT
+    if (isColEvent) { // Register the event
+        DPRINTF(DBG_COL_EVT, "REDL: Calling register for "GUIDF"\n", GUIDA(fguid->guid));
+        ocrPolicyDomain_t * pd;
+        getCurrentEnv(&pd, NULL, NULL, NULL);
+        // Call GP registration. When the MD proxy ptr is set to the allocated OCR object instance,
+        // it unlocks concurrent creations spinning on it and compete on CAS-ing the waiter list.
+        // Once CAS is done, it will also wake up process msg calls that had been enqueued.
+        returnValue = pd->guidProviders[0]->fcts.registerGuid(pd->guidProviders[0], fguid->guid, (u64) event);
+    }
+#endif
 #ifdef OCR_ENABLE_STATISTICS
     statsEVT_CREATE(getCurrentPD(), getCurrentEDT(), NULL, fguid->guid, ((ocrEvent_t*) event));
 #endif
-    ASSERT(!returnValue);
+    ocrAssert(!returnValue);
     return returnValue;
 }
 
+// Since this is factory wide, we'd need to specialize based on the event kind. Similarly to what serializeEventFactoryHc does
 u8 deserializeEventFactoryHc(ocrObjectFactory_t * pfactory, ocrGuid_t evtGuid, ocrObject_t ** dest, u64 mode, void * srcBuffer, u64 srcSize) {
     ocrPolicyDomain_t *pd = NULL;
     getCurrentEnv(&pd, NULL, NULL, NULL);
     ocrGuidKind guidKind;
     u8 ret = pd->guidProviders[0]->fcts.getKind(pd->guidProviders[0], evtGuid, &guidKind);
-    ASSERT(!ret);
-    // TODO this code needs to be generalized for other types of events
-    ASSERT((guidKindToEventType(guidKind) == OCR_EVENT_STICKY_T) || (guidKindToEventType(guidKind) == OCR_EVENT_IDEM_T))
+    ocrAssert(!ret);
     ocrEventFactory_t * factory = (ocrEventFactory_t *) pfactory;
-    switch(mode) {
-        case M_CLONE: {
-            // The payload should carry the GUID for the data the event is satisfied with if any.
-            // We create the event anyhow: would only make sense for persistent events that
-            // may still have ocrAddDependence coming in and would benefit from having the MD local.
-            DPRINTF(DBG_HCEVT_LOG, "event-md: deserialize M_CLONE "GUIDF"\n", GUIDA(evtGuid));
-            ocrGuid_t dataGuid = GET_PAYLOAD_DATA(srcBuffer, M_CLONE, ocrGuid_t, guid);
-            ocrFatGuid_t fguid;
-            fguid.guid = evtGuid;
-            fguid.metaDataPtr = NULL;
-            newEventHcDist(&fguid, dataGuid, factory);
-            ASSERT(fguid.metaDataPtr != NULL);
-            *dest = fguid.metaDataPtr;
-        break;
-        }
-        // Register another peer to our peerlist (different from an ocrAddDependence)
-        // TODO: We can probably have few slot pre-allocated and extend that dynamically
-        // passed the fixed size like we do for events waiters => Actually might be a nice
-        // typedef struct to add.
-        case M_REG: {
-            DPRINTF(DBG_HCEVT_LOG, "event-md: deserialize M_REG "GUIDF"\n", GUIDA(evtGuid));
-            ocrEventHc_t * devt = (ocrEventHc_t *) (*dest);
-            locNode_t * locNode = (locNode_t *) pd->fcts.pdMalloc(pd, sizeof(locNode_t));
-            ocrLocation_t loc = GET_PAYLOAD_DATA(srcBuffer, M_REG, ocrLocation_t, location);
-            locNode->loc = loc;
-            hal_lock(&(devt->waitersLock));
-            //RACE-1: Check inside the lock to avoid race with satisfier. Allows
-            //to determine this context is responsible for sending the M_SAT.
-            bool doSatisfy = (devt->waitersCount == STATE_CHECKED_IN);
-            // Registering while the event is being destroyed: Something is wrong in user code or runtime code
-            ASSERT(devt->waitersCount  != STATE_CHECKED_OUT);
-            // Whether the event is already satisfied or not, we need
-            // to register so that the peer is notified on 'destruct'
-            locNode->next = devt->mdClass.peers;
-            devt->mdClass.peers = locNode;
-            hal_unlock(&(devt->waitersLock));
-            if (doSatisfy) {
-                // The event is already satisfied, need to notify that back.
-                mdPushHcDist(evtGuid, loc, ((ocrEventHcPersist_t *)devt)->data, M_SAT, ((ocrEvent_t*)devt)->fctId);
+    if ((guidKindToEventType(guidKind) == OCR_EVENT_STICKY_T) || (guidKindToEventType(guidKind) == OCR_EVENT_IDEM_T)) {
+        switch(mode) {
+            case M_CLONE: {
+                // The payload should carry the GUID for the data the event is satisfied with if any.
+                // We create the event anyhow: would only make sense for persistent events that
+                // may still have ocrAddDependence coming in and would benefit from having the MD local.
+                DPRINTF(DBG_HCEVT_LOG, "event-md: deserialize M_CLONE "GUIDF"\n", GUIDA(evtGuid));
+                ocrGuid_t dataGuid = GET_PAYLOAD_DATA(srcBuffer, M_CLONE, ocrGuid_t, guid);
+                ocrFatGuid_t fguid;
+                fguid.guid = evtGuid;
+                fguid.metaDataPtr = NULL;
+                newEventHcDist(&fguid, dataGuid, factory);
+                ocrAssert(fguid.metaDataPtr != NULL);
+                *dest = fguid.metaDataPtr;
+            break;
             }
-        break;
+            // Register another peer to our peerlist (different from an ocrAddDependence)
+            // TODO: We can probably have few slot pre-allocated and extend that dynamically
+            // passed the fixed size like we do for events waiters => Actually might be a nice
+            // typedef struct to add.
+            case M_REG: {
+                DPRINTF(DBG_HCEVT_LOG, "event-md: deserialize M_REG "GUIDF"\n", GUIDA(evtGuid));
+                ocrEventHc_t * devt = (ocrEventHc_t *) (*dest);
+                locNode_t * locNode = (locNode_t *) pd->fcts.pdMalloc(pd, sizeof(locNode_t));
+                ocrLocation_t loc = GET_PAYLOAD_DATA(srcBuffer, M_REG, ocrLocation_t, location);
+                locNode->loc = loc;
+                hal_lock(&(devt->waitersLock));
+                //RACE-1: Check inside the lock to avoid race with satisfier. Allows
+                //to determine this context is responsible for sending the M_SAT.
+                bool doSatisfy = (devt->waitersCount == STATE_CHECKED_IN);
+                // Registering while the event is being destroyed: Something is wrong in user code or runtime code
+                ocrAssert(devt->waitersCount  != STATE_CHECKED_OUT);
+                // Whether the event is already satisfied or not, we need
+                // to register so that the peer is notified on 'destruct'
+                locNode->next = devt->mdClass.peers;
+                devt->mdClass.peers = locNode;
+                hal_unlock(&(devt->waitersLock));
+                if (doSatisfy) {
+                    // The event is already satisfied, need to notify that back.
+                    mdPushHcDist(evtGuid, loc, ((ocrEventHcPersist_t *)devt)->data, M_SAT, ((ocrEvent_t*)devt)->fctId);
+                }
+            break;
+            }
+            // Processing a satisfy notification from a peer
+            case M_SAT: {
+                DPRINTF(DBG_HCEVT_LOG, "event-md: deserialize M_SAT "GUIDF"\n", GUIDA(evtGuid));
+                ocrEvent_t * base = (ocrEvent_t *) (*dest);
+                ((ocrEventHc_t *) base)->mdClass.satFromLoc = GET_PAYLOAD_DATA(srcBuffer, M_SAT, ocrLocation_t, location);
+                ocrFatGuid_t fdata;
+                fdata.guid = GET_PAYLOAD_DATA(srcBuffer, M_SAT, ocrGuid_t, guid);
+                fdata.metaDataPtr = NULL;
+                //TODO need the slot for latch events too
+                u32 slot = 0;
+                factory->fcts[guidKindToEventType(guidKind)].satisfy(base, fdata, slot);
+            break;
+            }
+            case M_DEL: {
+                DPRINTF(DBG_HCEVT_LOG, "event-md: deserialize M_DEL "GUIDF"\n", GUIDA(evtGuid));
+                ocrEvent_t * base = (ocrEvent_t *) (*dest);
+                ((ocrEventHc_t *) base)->mdClass.delFromLoc = GET_PAYLOAD_DATA(srcBuffer, M_DEL, ocrLocation_t, location);
+                factory->fcts[guidKindToEventType(guidKind)].destruct(base);
+            break;
+            }
         }
-        // Processing a satisfy notification from a peer
-        case M_SAT: {
-            DPRINTF(DBG_HCEVT_LOG, "event-md: deserialize M_SAT "GUIDF"\n", GUIDA(evtGuid));
-            ocrEvent_t * base = (ocrEvent_t *) (*dest);
-            ((ocrEventHc_t *) base)->mdClass.satFromLoc = GET_PAYLOAD_DATA(srcBuffer, M_SAT, ocrLocation_t, location);
-            ocrFatGuid_t fdata;
-            fdata.guid = GET_PAYLOAD_DATA(srcBuffer, M_SAT, ocrGuid_t, guid);
-            //TODO need the slot for latch events too
-            u32 slot = 0;
-            factory->fcts[guidKindToEventType(guidKind)].satisfy(base, fdata, slot);
-        break;
-        }
-        case M_DEL: {
-            DPRINTF(DBG_HCEVT_LOG, "event-md: deserialize M_DEL "GUIDF"\n", GUIDA(evtGuid));
-            ocrEvent_t * base = (ocrEvent_t *) (*dest);
-            ((ocrEventHc_t *) base)->mdClass.delFromLoc = GET_PAYLOAD_DATA(srcBuffer, M_DEL, ocrLocation_t, location);
-            factory->fcts[guidKindToEventType(guidKind)].destruct(base);
-        break;
-        }
+    } else {
+        // Other event implementations are not distributed and should not end up calling here
+        ocrAssert(false && "event-md: deserialize not supported for this type of event");
     }
     return 0;
 }
@@ -1821,7 +2431,7 @@ u8 deserializeEventFactoryHc(ocrObjectFactory_t * pfactory, ocrGuid_t evtGuid, o
 static void pushDependence(ocrEventHcChannel_t * devt, regNode_t * node) {
     //TODO rollover u32/u64
     // tail - head cannot go be more that the bound
-    ASSERT(devt->tailWaiter < (devt->headWaiter + devt->waitBufSz));
+    ocrAssert(devt->tailWaiter < (devt->headWaiter + devt->waitBufSz));
     u32 idx = devt->tailWaiter % devt->waitBufSz;
     devt->tailWaiter++;
     devt->waiters[idx] = *node;
@@ -1839,7 +2449,7 @@ static u8 popDependence(ocrEventHcChannel_t * devt, regNode_t * node) {
 }
 
 static void pushSatisfy(ocrEventHcChannel_t * devt, ocrGuid_t data) {
-    ASSERT(devt->tailSat < (devt->headSat + devt->satBufSz));
+    ocrAssert(devt->tailSat < (devt->headSat + devt->satBufSz));
     u32 idx = devt->tailSat % devt->satBufSz;
     devt->tailSat++;
     devt->satBuffer[idx] = data;
@@ -1852,7 +2462,7 @@ static ocrGuid_t popSatisfy(ocrEventHcChannel_t * devt) {
         u32 idx = devt->headSat % devt->satBufSz;
         devt->headSat++;
         ocrGuid_t res = devt->satBuffer[idx];
-        ASSERT(!ocrGuidIsUninitialized(res));
+        ocrAssert(!ocrGuidIsUninitialized(res));
         return res;
     }
 }
@@ -1897,7 +2507,11 @@ static void channelSatisfyResize(ocrEventHcChannel_t * devt) {
 }
 
 #ifdef REG_ASYNC_SGL
+#ifdef ENABLE_EXTENSION_MULTI_OUTPUT_SLOT
+u8 registerWaiterEventHcChannel(ocrEvent_t *base, u32 sslot, ocrFatGuid_t waiter, u32 slot, bool isDepAdd, ocrDbAccessMode_t mode) {
+#else
 u8 registerWaiterEventHcChannel(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot, bool isDepAdd, ocrDbAccessMode_t mode) {
+#endif
 #else
 u8 registerWaiterEventHcChannel(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot, bool isDepAdd) {
 #endif
@@ -1984,12 +2598,605 @@ u8 satisfyEventHcChannel(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
     RETURN_PROFILE(0);
 }
 
+#ifdef ENABLE_EXTENSION_MULTI_OUTPUT_SLOT
+u8 unregisterWaiterEventHcChannel(ocrEvent_t *base, u32 sslot, ocrFatGuid_t waiter, u32 slot, bool isDepRem) {
+#else
 u8 unregisterWaiterEventHcChannel(ocrEvent_t *base, ocrFatGuid_t waiter, u32 slot, bool isDepRem) {
-    ASSERT(false && "Not supported");
+#endif
+    ocrAssert(false && "Not supported");
+    return 0;
+}
+#endif /*Channel implementation*/
+
+
+/******************************************************/
+/* OCR-HC Collective Events                            */
+/******************************************************/
+
+#ifdef ENABLE_EXTENSION_COLLECTIVE_EVT
+
+typedef struct _red_payload_t {
+    u64 serSize; // serialized size
+    u32 mode;
+    ocrLocation_t srcLoc;
+} red_payload_t;
+
+typedef struct _up_payload_t {
+    red_payload_t header;
+    rph_t globalPhase;
+    u64 contribSize;
+    void * contribPtr;
+} up_payload_t;
+
+typedef up_payload_t down_payload_t;
+
+// Accessors on collective's parameter data-structure
+
+static u32 getLocalSlotId(ocrEventHcCollective_t * dself, u32 slot) {
+    return slot % dself->params.nbContribsPd;
+}
+
+static u32 getMaxContribLocal(ocrEventHcCollective_t * dself) {
+    return dself->params.nbContribsPd;
+}
+
+static u16 getDatumSize(ocrEventHcCollective_t * dself) {
+    // 0 is 1 hence +1
+    return REDOP_GET(DATUM_SIZE, dself->params.op)+1;
+}
+
+static u16 getMaxGen(ocrEventHcCollective_t * dself) {
+    return dself->params.maxGen;
+}
+
+static u16 getNbDatum(ocrEventHcCollective_t * dself) {
+    return dself->params.nbDatum;
+}
+
+static u32 getContribSize(ocrEventHcCollective_t * dself) {
+    return (getDatumSize(dself) * getNbDatum(dself));
+}
+
+static bool isLeaf(ocrEventHcCollective_t * dself) {
+    return dself->nbOfDescendants == 0;
+}
+
+static bool isRoot(ocrEventHcCollective_t * dself) {
+    return dself->ancestorLoc == INVALID_LOCATION;
+}
+
+// Accessors on data-structure that depends on layout and internal organization
+
+//  contribution counter for a given phase
+static void resetPhaseContribs(ocrEventHcCollective_t * dself, rph_t ph) {
+    dself->phaseLocalContribCounters[ph] = 0;
+}
+
+static bool incrAndCheckPhaseContribs(ocrEventHcCollective_t * dself, rph_t ph) {
+    u32 res = hal_xadd32((&dself->phaseLocalContribCounters[ph]), 1);
+    DPRINTF(DBG_COL_EVT, "phaseLocalContribCounters[%"PRIu16"]=%"PRIu32" nbContribsPd=%"PRIu32"\n", ph, res, dself->params.nbContribsPd);
+    return ((res+1) == getMaxContribLocal(dself));
+}
+
+static contributor_t * getContributor(ocrEventHcCollective_t * dself, u32 lslot) {
+    u16 nbDatum = getNbDatum(dself);
+    u16 maxGen = getMaxGen(dself);
+    u16 datumSize = getDatumSize(dself);
+    u64 strideSize = (sizeof(contributor_t) + (sizeof(regNode_t) * maxGen) + (datumSize * nbDatum * maxGen));
+    char * rawDst = ((char *) dself->contributors) + (strideSize * lslot);
+    DPRINTF(DBG_COL_EVT, "getContributor lslot=%"PRIu32" nbDatum=%"PRIu16" maxGen=%"PRIu16" datumSize=%"PRIu16" strideSize=%"PRIu64" rawDst=%p\n", lslot, nbDatum, maxGen, datumSize, strideSize, rawDst);
+    return (contributor_t *) rawDst;
+}
+
+static void * getContribPhase(ocrEventHcCollective_t * dself, u32 lslot, rph_t ph) {
+    contributor_t * contributor = getContributor(dself, lslot);
+    char * rawPtr = ((char *)contributor->contribs);
+    u16 nbDatum = getNbDatum(dself);
+    u16 datumSize = getDatumSize(dself);
+    rawPtr += (datumSize * nbDatum * ph);
+    return (void *) (rawPtr);
+}
+
+static regNode_t * getRegNodePhase(ocrEventHcCollective_t * dself, u32 lslot, rph_t ph) {
+    contributor_t * contributor = getContributor(dself, lslot);
+    return &contributor->deps[ph];
+}
+
+static rph_t getLocalPhase(ocrEventHcCollective_t * dself, rph_t gph) {
+    return gph % getMaxGen(dself);
+}
+
+static rph_t getIPhase(ocrEventHcCollective_t * dself, u32 lslot) {
+    contributor_t * contributor = getContributor(dself, lslot);
+    return contributor->iph;
+}
+
+static rph_t getOPhase(ocrEventHcCollective_t * dself, u32 lslot) {
+    contributor_t * contributor = getContributor(dself, lslot);
+    return contributor->oph;
+}
+
+static rph_t incrIPhase(ocrEventHcCollective_t * dself, u32 lslot) {
+    contributor_t * contributor = getContributor(dself, lslot);
+    return contributor->iph++;
+}
+
+static rph_t incrOPhase(ocrEventHcCollective_t * dself, u32 lslot) {
+    contributor_t * contributor = getContributor(dself, lslot);
+    return contributor->oph++;
+}
+
+// Remote contribs data-structure has
+static remoteContrib_t * getRemoteContrib(ocrEventHcCollective_t * dself, rph_t rph, u16 cslot) {
+    char * rawDst = (((char *) dself->remoteContribs) + ((sizeof(remoteContrib_t) * getMaxGen(dself) * cslot) + rph));
+    return (remoteContrib_t *) rawDst;
+}
+
+static void * fctRedResolvePayload(ocrPolicyMsg_t * msg) {
+#define PD_MSG (msg)
+#define PD_TYPE PD_MSG_METADATA_COMM
+    return ((void *) &PD_MSG_FIELD_I(payload));
+#undef PD_TYPE
+#undef PD_MSG
+}
+
+static ocrGuid_t fctRedResolveGuid(ocrEventHcCollective_t * dself) {
+    return ((ocrEvent_t *) dself)->guid;
+}
+
+static void fctRedInitMdCommMsg(ocrEventHcCollective_t * dself, ocrPolicyMsg_t * msg, u32 mode, u32 serSize) {
+#define PD_MSG (msg)
+#define PD_TYPE PD_MSG_METADATA_COMM
+    msg->type = PD_MSG_METADATA_COMM | PD_MSG_REQUEST;
+    PD_MSG_FIELD_I(guid) = fctRedResolveGuid(dself);
+    PD_MSG_FIELD_I(direction) = MD_DIR_PUSH;
+    PD_MSG_FIELD_I(op) = 0; /*ocrObjectOperation_t*/ //TODO-MD-OP not clearly defined yet
+    PD_MSG_FIELD_I(mode) = mode;
+    PD_MSG_FIELD_I(factoryId) = ((ocrEvent_t *) dself)->fctId;
+    PD_MSG_FIELD_I(response) = NULL;
+    PD_MSG_FIELD_I(mdPtr) = NULL;
+    PD_MSG_FIELD_I(sizePayload) = serSize;
+#undef PD_TYPE
+#undef PD_MSG
+}
+
+static u8 sendMdMsg(ocrEventHcCollective_t * dself, ocrPolicyMsg_t * msg, ocrLocation_t * destinations, u16 nbDestinations) {
+    u16 i = 0;
+    ocrLocation_t srcLoc = dself->myLoc;
+    msg->srcLocation = srcLoc;
+    red_payload_t * payload = ((red_payload_t *) fctRedResolvePayload(msg));
+    payload->srcLoc = srcLoc; // Make sure we correctly report this PD is the contributor
+    ocrPolicyDomain_t * pd;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+    while (i < nbDestinations) {
+        // Make sure these are up to date in case we're just forwarding the message
+        ocrLocation_t dstLoc = destinations[i];
+        msg->destLocation = dstLoc;
+        // If last message use that pointer (PERSIST_MSG_PROP) else make a copy (0)
+        u32 msgProp = (i == (nbDestinations-1)) ? PERSIST_MSG_PROP : 0;
+        pd->fcts.sendMessage(pd, dstLoc, msg, NULL, msgProp);
+        i++;
+    }
+    return (nbDestinations > 0) ? OCR_EPEND : 0;
+}
+
+static ocrFatGuid_t fctRedRecordDbPhase(ocrEventHcCollective_t * dself, rph_t lph, void * contribPtr, u64 contribSize) {
+    // Copy payload to DB. Phase DBs stay acquired.
+    collectiveDbRecord_t dbRecord = dself->phaseDbResult[lph];
+    ocrFatGuid_t db = dbRecord.fguid;
+    ocrAssert((db.metaDataPtr != NULL) && "Collective event datablock not found");
+    DPRINTF(DBG_COL_EVT, "Write result to DB="GUIDF" PTR=%p size=%"PRIu64"\n", GUIDA(db.guid), dbRecord.dbBackend, contribSize);
+    hal_memCopy(dbRecord.dbBackend, contribPtr, contribSize, false);
+    return db;
+}
+
+static void fctRedSetDBSatisfyLocal(ocrEventHcCollective_t * dself, rph_t lph, ocrFatGuid_t db) {
+    ocrTask_t *curTask = NULL;
+    ocrPolicyDomain_t * pd;
+    PD_MSG_STACK(satMsg);
+    getCurrentEnv(&pd, NULL, &curTask, NULL);
+    // Satisfy each output slot
+    ocrFatGuid_t currentEdt ;
+    currentEdt.guid = (curTask == NULL) ? NULL_GUID : curTask->guid;
+    currentEdt.metaDataPtr = curTask;
+    u16 i = 0;
+    u32 nbContribsPd = getMaxContribLocal(dself);
+    while (i < nbContribsPd) {
+        regNode_t * rn = getRegNodePhase(dself, i, lph);
+        DPRINTF(DBG_COL_EVT, "fctRedSetDBSatisfyLocal targeting waiterGuid="GUIDF" on slot=%"PRIu32" at lph=%"PRIu16" ptr=%p dself=%p\n",
+                GUIDA(rn->guid), rn->slot, lph, rn, dself);
+        commonSatisfyRegNode(pd, &satMsg, fctRedResolveGuid(dself), db, currentEdt, rn);
+        i++;
+    }
+}
+
+// Returns the remote contribution slot for the current PD on
+// the remote binary reduction tree, which is always zero.
+static u16 myRemoteContribSlot(ocrEventHcCollective_t * dself) {
+    // if not a leaf, should compete on node 0
+    ocrAssert(!isLeaf(dself))
+    return dself->inOrderIdxToArrayIdx[0];
+}
+
+// Given a PD location returns a remote contribution slot
+// Warning, this maps two contributions to a single slot where
+// they will compete to perform the reduction
+static u16 getRemoteContribSlot(ocrEventHcCollective_t * dself, ocrLocation_t * descendants, u16 count,  ocrLocation_t remoteContributor) {
+    // scan the descendants list to resolve the index
+    u16 i = 0;
+    while (i < count) {
+        if (descendants[i] == remoteContributor) {
+            // Identified contributor's position
+            // From that position, infer the in-order index it resolves to.
+            u16 inOrderIdx = (i%2) ? i+1 : i;
+            // Now that we have the inOrderIdx, divide by 2 since we only store
+            // leaves in inOrderIdxToArrayIdx that maps back to a concrete array slot.
+            return dself->inOrderIdxToArrayIdx[inOrderIdx/2];
+        }
+        i++;
+    }
+    return (u16) -1;
+}
+
+static u8 fctRedProcessDownMsg(ocrEventHcCollective_t * dself, ocrPolicyMsg_t * msg, down_payload_t * payload) {
+    rph_t lph = payload->globalPhase % getMaxGen(dself);
+    ocrFatGuid_t db = fctRedRecordDbPhase(dself, lph, payload->contribPtr, payload->contribSize);
+    fctRedSetDBSatisfyLocal(dself, lph, db);
+    // Forward to children if any
+    if (dself->nbOfDescendants) {
+        return sendMdMsg(dself, msg, dself->descendantsLoc, dself->nbOfDescendants);
+    }
     return 0;
 }
 
-#endif /*Channel implementation*/
+static void fctRedBuildInOrderIdxToArrayIdx(ocrEventHcCollective_t * dself, u16 nbOfDescendants, u16 * inOrderIdxToArrayIdx) {
+    if (nbOfDescendants == 0) {
+        return;
+    }
+    // We want one tree leaf per couple of reduction contributions.
+    // Remember we reduce nbOfDescendants + self. So if nbOfDescendants is even we must add 1.
+    u16 nbTreeNodes = (nbOfDescendants % 2) ? nbOfDescendants : nbOfDescendants+1;
+    // Build a binary tree of that number of tree nodes
+    u16 k = 2;
+    u16 ktree[nbTreeNodes];
+    u16 myPos = -1;
+    // Mark the k-tree in-order
+    markInOrder(ktree, k, nbTreeNodes, (u16) 0, &myPos);
+    // Traverse the tree and find where are located each leaf
+    // Leaves are all compacted at the end of the tree so we can start looking at size/2.
+    k = nbTreeNodes/2;
+    while (k < nbTreeNodes) {
+        u16 leafInOrderIdx = ktree[k];
+        u16 leafCount=leafInOrderIdx/2;
+        inOrderIdxToArrayIdx[leafCount] = k;
+        DPRINTF(DBG_COL_EVT, "inOrderIdxToArrayIdx=%p leafInOrderIdx=%"PRIu16" inOrderIdxToArrayIdx[%"PRIu16"]=%"PRIu16"\n", inOrderIdxToArrayIdx, leafInOrderIdx, leafCount, inOrderIdxToArrayIdx[leafCount]);
+        k++;
+    }
+}
+
+// Process incoming UP messages. Potentially compete with both local and descendant contributions.
+// To keep things simple the current impl systematically returns EPEND and handle all
+// deletions internally or implicitly through 'sendMdMsg'
+u8 fctRedProcessUpMsg(ocrEventHcCollective_t * dself, ocrPolicyMsg_t * msg, up_payload_t * payload) {
+    //  - if reducible now
+    //      - invoke reduce f  unction(childContrib + what we have locally)
+    //      - if reduced local + child i.e. all work done here
+    //          - if root: generate a M_DOWN msg (can we repurpose the message here ?)
+    //          - else sendUp again (can we reuse the message here ?)
+    //  - else store somewhere. Are we missing storage for children contributions right now ?
+    // N contributions
+    ocrPolicyMsg_t * dstMsg;
+#ifdef COLEVT_TREE_CONTRIB
+    rph_t lph = (payload->globalPhase % getMaxGen(dself));
+
+    // Resolve remote contribution index. This is the index in the remoteContrib array where we compete
+    u16 contribSlot = (payload->header.srcLoc == dself->myLoc) ? myRemoteContribSlot(dself) :
+                        getRemoteContribSlot(dself, dself->descendantsLoc, dself->nbOfDescendants, payload->header.srcLoc);
+    ocrPolicyMsg_t * myMsg = msg;
+    // u8 retCode = 0; // default is to systematically delete 'msg'
+    // Walk the binary reduction tree
+    u16 nbOfDescendants = dself->nbOfDescendants;
+    ocrPolicyDomain_t * pd;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+    ocrPolicyMsg_t * deleteMsg =  NULL;
+    //COL-EVTX: Did not implement phases: would need to get the response
+    //of a phase if it comes back before a previous one.
+    do {
+        remoteContrib_t * rcontrib = getRemoteContrib(dself, lph, contribSlot);
+        up_payload_t * myPayload = fctRedResolvePayload(myMsg);
+        up_payload_t * dstPayload;
+        // DPRINTF(DBG_COL_EVT, "enter fctRedProcessUpMsg at contribSlot=%"PRIu16" msg=%p phase=%"PRIu16"\n", contribSlot, msg, lph);
+        bool isRightMostOdd = (oddContribs && (contribSlot == nbOfDescendants));
+        if (isRightMostOdd) {// just record
+            ocrAssert(rcontrib->msg == NULL);
+            ocrAssert(deleteMsg == NULL);
+            dstPayload = fctRedResolvePayload(myMsg);
+            DPRINTF(DBG_COL_EVT, "fctRedProcessUpMsg detected rightMostOdd at contribSlot=%"PRIu16" msg=%p phase=%"PRIu16"\n", contribSlot, msg, lph);
+        } else {
+            if (rcontrib->msg == NULL) {
+                ocrAssert(myMsg != NULL);
+                void * oldV;
+                oldV = (void *) hal_cmpswap64(((u64*) &(rcontrib->msg)), ((u64)NULL), myMsg);
+                if (oldV == NULL) { // single contribution yet, next contributor will pick up the reduction from here
+                    DPRINTF(DBG_COL_EVT, "fctRedProcessUpMsg SUCCESS CAS at contribSlot=%"PRIu16" msg=%p phase=%"PRIu16"\n", contribSlot, msg, lph);
+                    return OCR_EPEND;
+                } // else, failed to cas, someone went ahead, now we need to reduce
+                DPRINTF(DBG_COL_EVT, "fctRedProcessUpMsg failed CAS at contribSlot=%"PRIu16" msg=%p phase=%"PRIu16"\n", contribSlot, msg, lph);
+            }
+            DPRINTF(DBG_COL_EVT, "fctRedProcessUpMsg do reduction at contribSlot=%"PRIu16" msg=%p phase=%"PRIu16"\n", contribSlot, msg, lph);
+            ocrAssert(rcontrib->msg != NULL);
+            up_payload_t * storedPayload = fctRedResolvePayload(rcontrib->msg);
+            // Correct ordering
+            up_payload_t * srcPayload;
+            if (storedPayload->header.srcLoc < myPayload->header.srcLoc) {
+                // Will reduce into the msg that's already present
+                srcPayload = myPayload;
+                dstPayload = storedPayload;
+                // Two cases when myMsg must be freed:
+                // 1: myMsg equals the 'msg' passed as parameter (i.e. must be dealing with a leaf contribution). Not returning EPEND let the caller do the free.
+                //    Note: We can reduce the latency of the operation if we let the caller do the free
+                // 2: dealing with nodes, must delete the src
+                deleteMsg = myMsg;
+                myMsg = rcontrib->msg; // for recursion
+            } else {
+                srcPayload = storedPayload;
+                dstPayload = myPayload;
+                // Here myPayload will stay so I need to return EPEND and destroy the storePayload
+                // at leaf level, I would have to return EPEND since I'm storing the result inside
+                // and I can destroy the other one
+                deleteMsg = rcontrib->msg;
+            }
+            // Do the reduction
+            dself->reduce(dstPayload->contribPtr, srcPayload->contribPtr, getNbDatum(dself));
+            rcontrib->msg = NULL;
+            //Now that we've reduced, clean-up the remote contribution entry
+            if (deleteMsg != NULL) {
+                // if (deleteMsg == msg) {
+                //     retCode = OCR_EPEND; // avoids a double destroy
+                // }
+                pd->fcts.pdFree(pd, deleteMsg); //ASAN-DEL
+            }
+        }
+        myPayload = dstPayload;
+        // Set up to compete on parent slot
+        DPRINTF(DBG_COL_EVT, "fctRedProcessUpMsg looping contribSlot=%"PRIu16" on parent csParent=%"PRIu16" at  msg=%p phase=%"PRIu16"\n", contribSlot,  (contribSlot-1)/2, msg, lph);
+        if (contribSlot == 0) {
+            DPRINTF(DBG_COL_EVT, "fctRedProcessUpMsg BREAK loop contribSlot=%"PRIu16" on parent csParent=%"PRIu16" at  msg=%p phase=%"PRIu16"\n", contribSlot,  (contribSlot-1)/2, msg, lph);
+            break; // Just reduced at the root, we're done
+        }
+        contribSlot = (contribSlot-1)/2;
+    } while (true);
+    // When exiting the while loop, whatever the internal branch taken, myMsg contains the reduced answer.
+    bool done = true;
+    dstMsg = myMsg;
+#endif
+    if (done) {
+        if (isRoot(dself)) {
+            // Single node reduction should not have called into this function
+            // but rather directly called fctRedProcessDownMsg.
+            ocrAssert(dself->nbOfDescendants);
+            up_payload_t * myPayload = fctRedResolvePayload(dstMsg);
+            // At this point myPayload/dstMsg contain the reduced answer
+            // If there's enough space, repurpose the message to go down
+            u32 mdSize = sizeof(down_payload_t) + myPayload->contribSize;
+            u64 msgSize = MSG_MDCOMM_SZ + mdSize;
+            down_payload_t * downPayload;
+            if (msgSize <= dstMsg->bufferSize) {
+                // These are alias for now but if we change them we'd need to do more work here
+                ocrAssert(sizeof(down_payload_t) == sizeof(up_payload_t));
+                DPRINTF(DBG_COL_EVT, "M_DOWN: Repurpose up msg as a down msg\n");
+#define PD_MSG (dstMsg)
+#define PD_TYPE PD_MSG_METADATA_COMM
+                PD_MSG_FIELD_I(mode) = M_DOWN;
+#undef PD_TYPE
+#undef PD_MSG
+                downPayload = (down_payload_t *) fctRedResolvePayload(dstMsg);
+                downPayload->header.mode = M_DOWN;
+                // The msg we repurpose will be deleted by fctRedProcessDownMsg
+            } else {
+                DPRINTF(DBG_COL_EVT, "M_DOWN: Allocate new down msg\n");
+                ocrPolicyMsg_t * newMsg = (ocrPolicyMsg_t *) allocPolicyMsg(pd, &msgSize);
+                initializePolicyMessage(newMsg, msgSize);
+                getCurrentEnv(NULL, NULL, NULL, newMsg);
+                fctRedInitMdCommMsg(dself, newMsg, M_DOWN, mdSize);
+                // copy from up to down
+                downPayload = (down_payload_t *) fctRedResolvePayload(newMsg);
+                downPayload->header.serSize = mdSize;
+                downPayload->header.mode = M_DOWN;
+                downPayload->header.srcLoc = dself->myLoc; // also set by sendMdMsg
+                downPayload->globalPhase = myPayload->globalPhase;
+                downPayload->contribSize = myPayload->contribSize;
+                downPayload->contribPtr = (void *) (((char*)downPayload) + myPayload->contribSize);
+                hal_memCopy(downPayload->contribPtr, myPayload->contribPtr, myPayload->contribSize, false);
+                // dstMsg message may be 'msg' or another contributed msg. To keep things simple EPEND it here and destroy.
+                pd->fcts.pdFree(pd, dstMsg);
+                dstMsg = newMsg;
+            }
+            // Safe to ignore return code since we know the context dstMsg is used in
+            fctRedProcessDownMsg(dself, dstMsg, downPayload);
+        } else {
+            DPRINTF(DBG_COL_EVT, "Not root, send M_UP\n");
+            sendMdMsg(dself, dstMsg, &dself->ancestorLoc, 1);
+        }
+    }
+    // if go all the way up with same msg, need to return EPEND, so that sendMsgUp does the destroy
+    // return retCode;
+    return OCR_EPEND;
+}
+
+// 'IN' size of PD_MSG_METADATA_COMM
+#define MSG_MDCOMM_SZ       (_PD_MSG_SIZE_IN(PD_MSG_METADATA_COMM))
+
+u8 satisfyEventHcCollective(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
+    DPRINTF(DBG_COL_EVT, "satisfyEventHcCollective invoked in slot=%"PRIu32"\n", slot);
+    ocrEventHcCollective_t * dself = (ocrEventHcCollective_t *) base;
+    // If associative but not commutative:
+    //    - can reduce with slot's neighbors, however will need to keep track of where is the reduced value.
+    //      Or use a reduction tree internally here
+    // if both assoc and commu:
+    //    - Can aggregate into a single buffer. Or may still want to do the same to avoid contention
+    //      with everybody contributing to the same result cell. Is this similar to lazy VS eager in Jun's finish accumulator ?
+    // If not associative nor commutative:
+    //    - we need to store each contribution and send them all upward so that it is properly sequentially reduced at the root node
+    // Note: when receiving direct contributions, not through a DB, GUID is UNINITIALIZED but ptr is valid
+    u32 lslot = getLocalSlotId(dself, slot);
+    void * contribPtr = db.metaDataPtr;
+    //COL-EVTX: does not support DB contributions yes. For regular DBs,
+    //there's currently no code that would do the acquire on this callpath.
+    if (!ocrGuidIsUninitialized(db.guid)) {
+        DPRINTF(DEBUG_LVL_WARN, "RedEvt: get UNINITIALIZED_GUID contribution\n");
+        ocrAssert(false && "Collective Event error: does not support DB contributions\n")
+    }
+    ocrAssert(contribPtr != NULL);
+    if (COLEVT_LAZY_REDUCE) {
+        rph_t gph = incrIPhase(dself, lslot);
+        rph_t lph = getLocalPhase(dself, gph);
+        //NOTE: we allow to post multiple add before satisfy, hence i/o phase count may be different
+        contributor_t * dbgContrib = getContributor(dself, lslot);
+        DPRINTF(DBG_COL_EVT, "contributor=%p lslot=%"PRIu32" oph=%"PRIu16" iph=%"PRIu16" phaseLocalContribCounters[%"PRIu16"]=%"PRIu32" ((u64)contribPtr[0])=%"PRIu64" ((double)contribPtr[0])=%24.14E\n",
+            dbgContrib, lslot, getOPhase(dself, lslot),
+            getIPhase(dself, lslot), gph, dself->phaseLocalContribCounters[lph],
+            (u64) ((u64*)contribPtr)[0], (double) ((double*)contribPtr)[0]);
+        hal_memCopy(getContribPhase(dself, lslot, lph), contribPtr, getContribSize(dself), false);
+        //Atomic incr for that phase, if last to contribute (reaches max contributions), perform the reduction
+        if (incrAndCheckPhaseContribs(dself, lph)) {
+            u32 i = 1, ub = getMaxContribLocal(dself);
+            u16 nbDatum = getNbDatum(dself);
+            void * dst = getContribPhase(dself, 0, lph);
+            for(; i<ub; i++) {
+                void * src = getContribPhase(dself, i, lph);
+                // reduce fct ptr is already typed, just pass in the number of arguments
+                dself->reduce(dst, src, nbDatum);
+            }
+            //NOTE: Unless when we are both root and leaf, it may make sense to always
+            //create a msg and do the accumulation there and avoid copies from dst to that msg
+#ifdef COLEVT_DIST_REDUCE
+            if (isLeaf(dself) && isRoot(dself)) {
+                DPRINTF(DBG_COL_EVT, "Fire event - single PD - gph=%"PRIu16" lph=%"PRIu16" ((u64)result[0])=%"PRIu64" ((double)result[0])=%24.14E\n", gph, lph, (u64) ((u64*)dst)[0], (double) ((double*)dst)[0]);
+                ocrFatGuid_t db = fctRedRecordDbPhase(dself, lph, dst, getContribSize(dself));
+                resetPhaseContribs(dself, lph);
+                fctRedSetDBSatisfyLocal(dself, lph, db);
+            } else { // if leaf send up, else compete with descendants for local reduction
+                DPRINTF(DBG_COL_EVT, "Fire event - compete with remote PD - gph=%"PRIu16" lph=%"PRIu16"  ((u64)result[0])=%"PRIu64" ((double)result[0])=%24.14E\n", gph, lph, (u64) ((u64*)dst)[0], (double) ((double*)dst)[0]);
+                // Prepare send up message
+                u32 contribSize = getContribSize(dself);
+                ocrPolicyMsg_t * msg = NULL;
+                up_payload_t * payload;
+                u32 mdSize = sizeof(up_payload_t) + contribSize;
+                ocrPolicyDomain_t * pd;
+                getCurrentEnv(&pd, NULL, NULL, NULL);
+                u64 msgSize = MSG_MDCOMM_SZ + mdSize;
+                //NOTE: we could save this allocation if we workout having
+                // a null message as input to fctRedProcessUpMsg.
+                msg = (ocrPolicyMsg_t *) allocPolicyMsg(pd, &msgSize);
+                initializePolicyMessage(msg, msgSize);
+                getCurrentEnv(NULL, NULL, NULL, msg);
+                msg->type = PD_MSG_METADATA_COMM | PD_MSG_REQUEST;
+                fctRedInitMdCommMsg(dself, msg, M_UP, mdSize);
+                payload = ((up_payload_t *) fctRedResolvePayload(msg));
+                payload->contribPtr = (void *) (((char*)payload) + sizeof(up_payload_t));
+                hal_memCopy(payload->contribPtr, dst, contribSize, false);
+                // Reset phase contrib counter before invoking the distributed reduction
+                resetPhaseContribs(dself, lph);
+                payload->header.serSize = mdSize;
+                payload->header.mode = M_UP;
+                payload->header.srcLoc = dself->myLoc;
+                payload->globalPhase = gph;
+                payload->contribSize = contribSize;
+                if (isLeaf(dself)) { // just send up
+                    sendMdMsg(dself, msg, &dself->ancestorLoc, 1);
+                } else {
+                    // Contribute an 'up' message to the current PD reduction, competing with descendants.
+                    u8 retCode = fctRedProcessUpMsg(dself, msg, payload);
+                    if ((retCode != OCR_EPEND) && (msg != NULL)) { // NULL check because of code currently commented
+                        // Free the message as callee did not store the pointer
+                        pd->fcts.pdFree(pd, msg); //ASAN-INV-READ
+                    }
+                }
+            }
+#else
+            DPRINTF(DBG_COL_EVT, "Fire event at phase %"PRIu16" with result=%"PRIu64"\n", lph, (u64) ((u64*)dst)[0]);
+#endif /*COLEVT_DIST_REDUCE*/
+        }
+    } else { //eagerly reduce
+        ocrAssert(false && "COL-EVTX: implement eager collective");
+    }
+    return 0;
+}
+
+static u8 processEventHcCollective(ocrObjectFactory_t * factory, ocrGuid_t guid, ocrObject_t * mdPtr, ocrPolicyMsg_t * msg) {
+    ocrAssert((msg->type & PD_MSG_TYPE_ONLY) == PD_MSG_METADATA_COMM);
+    u8 retCode = 0;
+#define PD_MSG (msg)
+#define PD_TYPE PD_MSG_METADATA_COMM
+    msg->type = PD_MSG_METADATA_COMM | PD_MSG_REQUEST;
+    u8 direction = PD_MSG_FIELD_I(direction);
+    void * payload = &PD_MSG_FIELD_I(payload);
+    u64 mdMode = PD_MSG_FIELD_I(mode);
+    ocrEventHcCollective_t * dself = (ocrEventHcCollective_t *) mdPtr;
+    if (direction == MD_DIR_PUSH) {
+        switch(mdMode) {
+            case M_UP:
+                //Fix up payload pointer
+                ((up_payload_t*)payload)->contribPtr = ((char *) payload)+sizeof(up_payload_t);
+                return fctRedProcessUpMsg(dself, msg, (up_payload_t *) payload);
+            break;
+            case M_DOWN:
+                //Fix up payload pointer
+                ((down_payload_t*)payload)->contribPtr = ((char *) payload)+sizeof(down_payload_t);
+                return fctRedProcessDownMsg(dself, msg, (down_payload_t *) payload);
+            break;
+            case M_CLONE:
+                ocrAssert(false && "COL-EVTX: implement support for cloning\n");
+            break;
+        }
+    } else {
+        ocrAssert(direction == MD_DIR_PULL);
+        ocrAssert(false && "COL-EVTX: implement support for cloning\n");
+    }
+    return retCode;
+}
+#endif /*ENABLE_EXTENSION_COLLECTIVE_EVT*/
+
+// unused attribute to workaround TG compiler complaints
+static u8 processEventHc(ocrObjectFactory_t * factory, ocrGuid_t guid, ocrObject_t * mdPtr, ocrPolicyMsg_t * msg) __attribute__((unused));
+static u8 processEventHc(ocrObjectFactory_t * factory, ocrGuid_t guid, ocrObject_t * mdPtr, ocrPolicyMsg_t * msg) {
+#ifdef ENABLE_EXTENSION_COLLECTIVE_EVT
+#ifdef OCR_ASSERT
+    ocrPolicyDomain_t *pd = NULL;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+    ocrGuidKind guidKind;
+    pd->guidProviders[0]->fcts.getKind(pd->guidProviders[0], guid, &guidKind);
+    ocrAssert(guidKind == OCR_GUID_EVENT_COLLECTIVE);
+#endif
+    return processEventHcCollective(factory, guid, mdPtr, msg);
+#else
+    return 0;
+#endif
+}
+
+#ifdef ENABLE_EXTENSION_COLLECTIVE_EVT
+
+u8 registerWaiterEventHcCollective(ocrEvent_t *base, u32 sslot, ocrFatGuid_t waiter, u32 slot, bool isDepAdd, ocrDbAccessMode_t mode) {
+    ocrEventHcCollective_t * dself = (ocrEventHcCollective_t *) base;
+    u32 lslot = getLocalSlotId(dself, sslot);
+    rph_t gph = incrOPhase(dself, lslot);
+    rph_t lph = getLocalPhase(dself, gph);
+    regNode_t * rn = getRegNodePhase(dself, lslot, lph);
+    rn->guid = waiter.guid;
+    rn->slot = slot;
+    rn->mode = mode;
+    DPRINTF(DBG_COL_EVT, "registerWaiterEventHcCollective invoked in dself=%p sslot=%"PRIu32" lslot=%"PRIu32" targeting waiterGuid="GUIDF" on slot=%"PRIu32" at gph=%"PRIu16" lph=%"PRIu16" ptr=%p\n",
+            dself, sslot, lslot, GUIDA(waiter.guid), slot, gph, lph, rn);
+    return 0;
+}
+
+u8 unregisterWaiterEventHcCollective(ocrEvent_t *base, u32 sslot, ocrFatGuid_t waiter, u32 slot, bool isDepRem) {
+    ocrAssert(false && "Not supported");
+    return 0;
+}
+
+#endif /*ENABLE_EXTENSION_COLLECTIVE_EVT*/
 
 u8 mdSizeEventFactoryHc(ocrObject_t *dest, u64 mode, u64 * size) {
 #if ENABLE_EVENT_MDC_FORGE
@@ -2046,8 +3253,9 @@ u8 getSerializationSizeEventHc(ocrEvent_t* self, u64* size) {
         break;
         }
 #endif
+    //COL-EVTX: resiliency serialization support
     default:
-        ASSERT(0);
+        ocrAssert(0);
         break;
     }
     self->base.size = evtSize;
@@ -2056,7 +3264,7 @@ u8 getSerializationSizeEventHc(ocrEvent_t* self, u64* size) {
 }
 
 u8 serializeEventHc(ocrEvent_t* self, u8* buffer) {
-    ASSERT(buffer);
+    ocrAssert(buffer);
     u8* bufferHead = buffer;
     ocrEventHc_t *evtHc = (ocrEventHc_t*)self;
     ocrEventHc_t *evtHcBuf = (ocrEventHc_t*)buffer;
@@ -2084,11 +3292,12 @@ u8 serializeEventHc(ocrEvent_t* self, u8* buffer) {
         len = sizeof(ocrEventHcChannel_t);
         break;
 #endif
+    //COL-EVTX: resiliency serialization support
     default:
-        ASSERT(0);
+        ocrAssert(0);
         break;
     }
-    ASSERT(len > 0);
+    ocrAssert(len > 0);
     hal_memCopy(buffer, self, len, false);
     buffer += len;
 
@@ -2143,19 +3352,20 @@ u8 serializeEventHc(ocrEvent_t* self, u8* buffer) {
             }
         }
         break;
+    //COL-EVTX: resiliency serialization support
 #endif
     default:
-        ASSERT(0);
+        ocrAssert(0);
         break;
     }
-    ASSERT((buffer - bufferHead) == self->base.size);
+    ocrAssert((buffer - bufferHead) == self->base.size);
     return 0;
 }
 
 //TODO: Need to handle waitersDb ptr
 u8 deserializeEventHc(u8* buffer, ocrEvent_t** self) {
-    ASSERT(self);
-    ASSERT(buffer);
+    ocrAssert(self);
+    ocrAssert(buffer);
     u8* bufferHead = buffer;
     ocrPolicyDomain_t *pd = NULL;
     getCurrentEnv(&pd, NULL, NULL, NULL);
@@ -2184,11 +3394,12 @@ u8 deserializeEventHc(u8* buffer, ocrEvent_t** self) {
         len = sizeof(ocrEventHcChannel_t);
         break;
 #endif
+    //COL-EVTX: resiliency serialization support
     default:
-        ASSERT(0);
+        ocrAssert(0);
         break;
     }
-    ASSERT(len > 0);
+    ocrAssert(len > 0);
     u64 extra = (evtHcBuf->hint.hintVal ? OCR_HINT_COUNT_EVT_HC * sizeof(u64) : 0);
     ocrEvent_t *evt = (ocrEvent_t*)pd->fcts.pdMalloc(pd, (len + extra));
 
@@ -2254,13 +3465,14 @@ u8 deserializeEventHc(u8* buffer, ocrEvent_t** self) {
         }
         break;
 #endif
+    //COL-EVTX: resiliency serialization support
     default:
-        ASSERT(0);
+        ocrAssert(0);
         break;
     }
 
     *self = evt;
-    ASSERT((buffer - bufferHead) == (*self)->base.size);
+    ocrAssert((buffer - bufferHead) == (*self)->base.size);
     return 0;
 }
 
@@ -2270,13 +3482,13 @@ u8 fixupEventHc(ocrEvent_t *base) {
         ocrPolicyDomain_t *pd = NULL;
         getCurrentEnv(&pd, NULL, NULL, NULL);
         //Fixup the DB pointer
-        ASSERT(!ocrGuidIsNull(hcEvent->waitersDb.guid));
+        ocrAssert(!ocrGuidIsNull(hcEvent->waitersDb.guid));
         ocrGuid_t dbGuid = hcEvent->waitersDb.guid;
         ocrObject_t * ocrObj = NULL;
         pd->guidProviders[0]->fcts.getVal(pd->guidProviders[0], dbGuid, (u64*)&ocrObj, NULL, MD_LOCAL, NULL);
-        ASSERT(ocrObj != NULL && ocrObj->kind == OCR_GUID_DB);
+        ocrAssert(ocrObj != NULL && ocrObj->kind == OCR_GUID_DB);
         ocrDataBlock_t *db = (ocrDataBlock_t*)ocrObj;
-        ASSERT(ocrGuidIsEq(dbGuid, db->guid));
+        ocrAssert(ocrGuidIsEq(dbGuid, db->guid));
         hcEvent->waitersDb.metaDataPtr = db;
     }
     return 0;
@@ -2294,11 +3506,12 @@ ocrEventFactory_t * newEventFactoryHc(ocrParamList_t *perType, u32 factoryId) {
     ocrObjectFactory_t * bbase = (ocrObjectFactory_t *)
                                   runtimeChunkAlloc(sizeof(ocrEventFactoryHc_t), PERSISTENT_CHUNK);
     bbase->clone = FUNC_ADDR(u8 (*)(ocrObjectFactory_t * factory, ocrGuid_t guid, ocrObject_t**, ocrLocation_t, u32), cloneEventFactoryHc);
-    bbase->mdSize = FUNC_ADDR(u8 (*)(ocrObject_t * dest, u64, u64*), mdSizeEventFactoryHc);
     bbase->serialize = FUNC_ADDR(u8 (*)(ocrObjectFactory_t * factory, ocrGuid_t guid, ocrObject_t*, u64*, ocrLocation_t, void**, u64*),
         serializeEventFactoryHc);
     bbase->deserialize = FUNC_ADDR(u8 (*)(ocrObjectFactory_t * factory, ocrGuid_t guid, ocrObject_t**, u64, void*, u64),
         deserializeEventFactoryHc);
+    bbase->mdSize = FUNC_ADDR(u8 (*)(ocrObject_t * dest, u64, u64*), mdSizeEventFactoryHc);
+    bbase->process = FUNC_ADDR(u8 (*)(ocrObjectFactory_t * factory, ocrGuid_t guid, ocrObject_t*, /*MD-COMM*/ocrPolicyMsg_t * msg), processEventHc);
 
     ocrEventFactory_t *base = (ocrEventFactory_t*) bbase;
     base->instantiate = FUNC_ADDR(u8 (*)(ocrEventFactory_t*, ocrFatGuid_t*,
@@ -2328,9 +3541,15 @@ ocrEventFactory_t * newEventFactoryHc(ocrParamList_t *perType, u32 factoryId) {
     for(i = 0; i < (u32)OCR_EVENT_T_MAX; ++i) {
         base->fcts[i].destruct = FUNC_ADDR(u8 (*)(ocrEvent_t*), destructEventHc);
         base->fcts[i].get = FUNC_ADDR(ocrFatGuid_t (*)(ocrEvent_t*), getEventHc);
-        base->fcts[i].registerSignaler = FUNC_ADDR(u8 (*)(ocrEvent_t*, ocrFatGuid_t, u32, ocrDbAccessMode_t, bool),
-            registerSignalerHc);
-        base->fcts[i].unregisterSignaler = FUNC_ADDR(u8 (*)(ocrEvent_t*, ocrFatGuid_t, u32, bool), unregisterSignalerHc);
+#ifdef ENABLE_EXTENSION_MULTI_OUTPUT_SLOT
+#define REGISTERSIGNALER_SIG u8 (*)(ocrEvent_t*, u32, ocrFatGuid_t, u32, ocrDbAccessMode_t, bool)
+#define UNREGISTERSIGNALER_SIG u8 (*)(ocrEvent_t*, u32, ocrFatGuid_t, u32, bool)
+#else
+#define REGISTERSIGNALER_SIG u8 (*)(ocrEvent_t*, ocrFatGuid_t, u32, ocrDbAccessMode_t, bool)
+#define UNREGISTERSIGNALER_SIG u8 (*)(ocrEvent_t*, ocrFatGuid_t, u32, bool)
+#endif
+        base->fcts[i].registerSignaler = FUNC_ADDR(REGISTERSIGNALER_SIG, registerSignalerHc);
+        base->fcts[i].unregisterSignaler = FUNC_ADDR(UNREGISTERSIGNALER_SIG, unregisterSignalerHc);
     }
     base->fcts[OCR_EVENT_STICKY_T].destruct =
     base->fcts[OCR_EVENT_IDEM_T].destruct = FUNC_ADDR(u8 (*)(ocrEvent_t*), destructEventHcPersist);
@@ -2346,6 +3565,10 @@ ocrEventFactory_t * newEventFactoryHc(ocrParamList_t *perType, u32 factoryId) {
     base->fcts[OCR_EVENT_CHANNEL_T].satisfy =
         FUNC_ADDR(u8 (*)(ocrEvent_t*, ocrFatGuid_t, u32), satisfyEventHcChannel);
 #endif
+#ifdef ENABLE_EXTENSION_COLLECTIVE_EVT
+    base->fcts[OCR_EVENT_COLLECTIVE_T].satisfy =
+        FUNC_ADDR(u8 (*)(ocrEvent_t*, ocrFatGuid_t, u32), satisfyEventHcCollective);
+#endif
     base->fcts[OCR_EVENT_LATCH_T].satisfy =
         FUNC_ADDR(u8 (*)(ocrEvent_t*, ocrFatGuid_t, u32), satisfyEventHcLatch);
     base->fcts[OCR_EVENT_IDEM_T].satisfy =
@@ -2353,22 +3576,34 @@ ocrEventFactory_t * newEventFactoryHc(ocrParamList_t *perType, u32 factoryId) {
     base->fcts[OCR_EVENT_STICKY_T].satisfy =
         FUNC_ADDR(u8 (*)(ocrEvent_t*, ocrFatGuid_t, u32), satisfyEventHcPersistSticky);
 #ifdef REG_ASYNC_SGL
+#ifdef ENABLE_EXTENSION_MULTI_OUTPUT_SLOT
+#define REGISTER_WAITER_SIG() u8 (*)(ocrEvent_t*, u32, ocrFatGuid_t, u32, bool, ocrDbAccessMode_t)
+#else
+#define REGISTER_WAITER_SIG() u8 (*)(ocrEvent_t*, ocrFatGuid_t, u32, bool, ocrDbAccessMode_t)
+#endif
     // Setup registration function pointers
     base->fcts[OCR_EVENT_ONCE_T].registerWaiter =
     base->fcts[OCR_EVENT_LATCH_T].registerWaiter =
-         FUNC_ADDR(u8 (*)(ocrEvent_t*, ocrFatGuid_t, u32, bool, ocrDbAccessMode_t), registerWaiterEventHc);
+         FUNC_ADDR(REGISTER_WAITER_SIG(), registerWaiterEventHc);
     base->fcts[OCR_EVENT_IDEM_T].registerWaiter =
     base->fcts[OCR_EVENT_STICKY_T].registerWaiter =
-        FUNC_ADDR(u8 (*)(ocrEvent_t*, ocrFatGuid_t, u32, bool, ocrDbAccessMode_t), registerWaiterEventHcPersist);
+        FUNC_ADDR(REGISTER_WAITER_SIG(), registerWaiterEventHcPersist);
 #ifdef ENABLE_EXTENSION_COUNTED_EVT
     base->fcts[OCR_EVENT_COUNTED_T].registerWaiter =
-        FUNC_ADDR(u8 (*)(ocrEvent_t*, ocrFatGuid_t, u32, bool, ocrDbAccessMode_t), registerWaiterEventHcCounted);
+        FUNC_ADDR(REGISTER_WAITER_SIG(), registerWaiterEventHcCounted);
 #endif
 #ifdef ENABLE_EXTENSION_CHANNEL_EVT
     base->fcts[OCR_EVENT_CHANNEL_T].registerWaiter =
-        FUNC_ADDR(u8 (*)(ocrEvent_t*, ocrFatGuid_t, u32, bool, ocrDbAccessMode_t), registerWaiterEventHcChannel);
+        FUNC_ADDR(REGISTER_WAITER_SIG(), registerWaiterEventHcChannel);
 #endif
-#else
+#ifdef ENABLE_EXTENSION_COLLECTIVE_EVT
+    base->fcts[OCR_EVENT_COLLECTIVE_T].registerWaiter =
+        FUNC_ADDR(REGISTER_WAITER_SIG(), registerWaiterEventHcCollective);
+#endif
+#else /*not REG_ASYNC_SGL**/
+#ifdef ENABLE_EXTENSION_COLLECTIVE_EVT
+    #error REG_ASYNC_SGL must be enabled when ENABLE_EXTENSION_COLLECTIVE_EVT is
+#endif
     base->fcts[OCR_EVENT_ONCE_T].registerWaiter =
     base->fcts[OCR_EVENT_LATCH_T].registerWaiter =
          FUNC_ADDR(u8 (*)(ocrEvent_t*, ocrFatGuid_t, u32, bool), registerWaiterEventHc);
@@ -2384,18 +3619,27 @@ ocrEventFactory_t * newEventFactoryHc(ocrParamList_t *perType, u32 factoryId) {
         FUNC_ADDR(u8 (*)(ocrEvent_t*, ocrFatGuid_t, u32, bool), registerWaiterEventHcChannel);
 #endif
 #endif
+#ifdef ENABLE_EXTENSION_MULTI_OUTPUT_SLOT
+#define UNREGISTERWAITER_SIG u8 (*)(ocrEvent_t*, u32, ocrFatGuid_t, u32, bool)
+#else
+#define UNREGISTERWAITER_SIG u8 (*)(ocrEvent_t*, ocrFatGuid_t, u32, bool)
+#endif
     base->fcts[OCR_EVENT_ONCE_T].unregisterWaiter =
     base->fcts[OCR_EVENT_LATCH_T].unregisterWaiter =
-        FUNC_ADDR(u8 (*)(ocrEvent_t*, ocrFatGuid_t, u32, bool), unregisterWaiterEventHc);
+        FUNC_ADDR(UNREGISTERWAITER_SIG, unregisterWaiterEventHc);
     base->fcts[OCR_EVENT_IDEM_T].unregisterWaiter =
 #ifdef ENABLE_EXTENSION_COUNTED_EVT
     base->fcts[OCR_EVENT_COUNTED_T].unregisterWaiter =
 #endif
     base->fcts[OCR_EVENT_STICKY_T].unregisterWaiter =
-        FUNC_ADDR(u8 (*)(ocrEvent_t*, ocrFatGuid_t, u32, bool), unregisterWaiterEventHcPersist);
+        FUNC_ADDR(UNREGISTERWAITER_SIG, unregisterWaiterEventHcPersist);
 #ifdef ENABLE_EXTENSION_CHANNEL_EVT
     base->fcts[OCR_EVENT_CHANNEL_T].unregisterWaiter =
-        FUNC_ADDR(u8 (*)(ocrEvent_t*, ocrFatGuid_t, u32, bool), unregisterWaiterEventHcChannel);
+        FUNC_ADDR(UNREGISTERWAITER_SIG, unregisterWaiterEventHcChannel);
+#endif
+#ifdef ENABLE_EXTENSION_COLLECTIVE_EVT
+    base->fcts[OCR_EVENT_COLLECTIVE_T].unregisterWaiter =
+        FUNC_ADDR(UNREGISTERWAITER_SIG, unregisterWaiterEventHcCollective);
 #endif
     base->factoryId = factoryId;
 

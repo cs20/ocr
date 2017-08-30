@@ -64,7 +64,7 @@ u8 ocrUSalRead( ocrGuid_t legacyContext, ocrGuid_t handle,
     ocr_assert( isGuidType( legacyContext, GUID_CONTEXT ) );
     ocr_assert( isGuidType( handle, GUID_FD ) );
 
-    PRINTF("Read %d bytes\n", len);
+    ocrPrintf("Read %d bytes\n", len);
 
 #if 0
     int nread = read( getGuidValue(handle), (void *) ptr, (size_t) len );
@@ -85,7 +85,7 @@ u8 ocrUSalWrite( ocrGuid_t legacyContext, ocrGuid_t handle,
     ocr_assert( isGuidType( legacyContext, GUID_CONTEXT ) );
     ocr_assert( isGuidType( handle, GUID_FD ) );
 
-    PRINTF("Write %p %d bytes\n", ptr, len);
+    ocrPrintf("Write %p %d bytes\n", ptr, len);
 
 #if 0
     int nwritten = write( getGuidValue(handle), (const void *) ptr, (size_t) len );

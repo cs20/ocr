@@ -91,14 +91,14 @@ static ocrStatsFilter_t* defaultGetFilter(ocrStats_t *self, ocrStats_t *requeste
 
     // Unsupported at this point. This is to support linking filters across policy
     // domains. For now we have one policy domain
-    ASSERT(0);
+    ocrAssert(0);
     return NULL;
 }
 
 static void defaultDumpFilter(ocrStats_t *self, ocrStatsFilter_t *filter, u64 tick, ocrStatsEvt_t type,
                               ocrGuid_t src, ocrGuid_t dest) {
 
-    ASSERT(0); // Don't know what this does
+    ocrAssert(0); // Don't know what this does
 }
 
 // Method to create the default statistics colloector

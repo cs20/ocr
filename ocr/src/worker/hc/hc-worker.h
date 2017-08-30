@@ -36,7 +36,7 @@ typedef struct {
     // map workers, schedulers and workpiles together
     u64 id;
     ocrGuid_t edtGuid;
-#ifdef OCR_ENABLE_EDT_NAMING
+#if defined(OCR_ENABLE_EDT_NAMING) || defined(OCR_TRACE_BINARY)
     const char * name;
 #endif
     hcWorkerType_t hcType;

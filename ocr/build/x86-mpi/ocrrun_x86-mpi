@@ -1,6 +1,11 @@
 
 #!/bin/bash
 
+function checkSingleNuma() {
+    if [[ ! ((${OCRRUN_OPT_ENVKIND} == "SLURM") || (${OCRRUN_OPT_ENVKIND} == "impi")) ]]; then
+        echo "error: OCR_NUMA_FACTOR has not been tested with OCRRUN_OPT_ENVKIND= ${OCRRUN_OPT_ENVKIND} "
+    fi
+}
 
 # User-provided or generated
 PROGRAM_BIN=
@@ -10,8 +15,7 @@ if [[ ${OCRRUN_OPT_ENVKIND} == "mvapich" ]]; then
     OCRRUN_OPT_CMD=${OCRRUN_OPT_CMD-"mpirun"}
     OCRRUN_OPT_NUM_NODES=${OCRRUN_OPT_NUM_NODES-"-np"}
     OCRRUN_OPT_NODEFILE=${OCRRUN_OPT_NODEFILE-"-f"}
-elif [[ ${OCRRUN_OPT_ENVKIND} == "CLE" ]]; then
-    # Cray Linux Environment (CLE)
+elif [[ ${OCRRUN_OPT_ENVKIND} == "CLE" ]]; then # Cray Linux Environment (CLE)
     OCRRUN_OPT_CMD=${OCRRUN_OPT_CMD-"aprun"}
     # Default forces one mpi process per node
     OCRRUN_OPT_NUM_NODES=${OCRRUN_OPT_NUM_NODES-"-N 1 -n"}
@@ -100,18 +104,36 @@ if [[ "$RES" != "" ]]; then
         OCR_NUM_NODES=2
     fi
 
+    # Number of OCR PD / MPI ranks to collocate per cluster node
+    OCR_NUMA_FACTOR=`grep "numa[[:space:]]*=" ${OCR_CONFIG} | cut -d':' -f2-2`
+    if [ -z "${OCR_NUMA_FACTOR}" ]; then
+        OCR_NUMA_FACTOR=1
+    fi
+    checkSingleNuma
+    # Only support multiples of numa-factor or less than numa-factor
+    VALID_NODE_CONFIG=$(( ((${OCR_NUM_NODES}%${OCR_NUMA_FACTOR})==0) || (${OCR_NUM_NODES}<${OCR_NUMA_FACTOR}) ))
+    if [[ ${VALID_NODE_CONFIG} == 0 ]]; then
+        echo "error: only support OCR_NUM_NODES (${OCR_NUM_NODES}) that are multiples of OCR_NUMA_FACTOR (${OCR_NUMA_FACTOR})"
+        exit 3
+    fi
+
     if [ "${OCRRUN_OPT_ENVKIND}" == "CLE" ] && [ "${OCR_NODEFILE}" == "" ]; then
         # For CLE need to tweak the args when it's a local run
-        OCR_MPI_OPTS+="-N ${OCR_NUM_NODES} -n ${OCR_NUM_NODES}"
+        OCR_MPI_OPTS+=" -N ${OCR_NUM_NODES} -n ${OCR_NUM_NODES}"
+    elif [ "${OCRRUN_OPT_ENVKIND}" == "SLURM" ]; then
+        # Get one process per numa domain per node
+        ACTUAL_NUM_PHYS_NODES=${OCR_NUM_NODES}
+        ACTUAL_NUM_PHYS_PROCESSES=$(( ${OCR_NUM_NODES} * ${OCR_NUMA_FACTOR} ))
+        OCR_MPI_OPTS+=" -N ${ACTUAL_NUM_PHYS_NODES} -n ${ACTUAL_NUM_PHYS_PROCESSES}"
     else
         OCR_MPI_OPTS+=" ${OCRRUN_OPT_NUM_NODES} ${OCR_NUM_NODES}"
     fi
 
     if [[ "${OCRRUN_GDB}" == "yes" ]]; then
         OCR_MPI_OPTS+=" ${OCRRUN_OPT_GDB}"
-	if [[ "${OCR_ASAN}" == "yes" ]]; then
-	    export ASAN_OPTIONS=abort_on_error=1
-	fi
+        if [[ "${OCR_ASAN}" == "yes" ]]; then
+            export ASAN_OPTIONS=abort_on_error=1
+        fi
     fi
 
     if [[ "${OCRRUN_VALGRIND_OPTS}" != "" ]]; then
@@ -130,30 +152,37 @@ if [[ "$RES" != "" ]]; then
         OCR_MPI_OPTS+=" ${OCRRUN_OPT_ITAC}"
     fi
 
+    OCRRUN_HPCTOOLKIT_MEAS=${OCRRUN_HPCTOOLKIT_MEAS-${PROGPATH}/${PROGNAME}_meas}
+    OCRRUN_HPCTOOLKIT_DB=${OCRRUN_HPCTOOLKIT_DB-${PROGPATH}/${PROGNAME}.db}
     if [[ "${OCRRUN_HPCTOOLKIT}" == "yes" ]]; then
         if [[ -z "${OCR_INSTALL}" ]]; then
             echo "error: ocrrun support for hpctoolkit needs OCR_INSTALL to be defined"
             exit 1
         fi
-        rm -Rf ${PROGPATH}/${PROGNAME}.db
-        rm -Rf ${PROGPATH}/${PROGNAME}_meas
+        rm -Rf ${OCRRUN_HPCTOOLKIT_DB}
+        rm -Rf ${OCRRUN_HPCTOOLKIT_MEAS}
         rm -Rf ${PROGPATH}/*.hpcstruct
         hpcstruct ${OCR_INSTALL}/lib/libocr_x86-mpi.so
         hpcstruct "${PROGPATH}/${PROGNAME}"
         # The db file should be generated in the folder that contains the executable
-        PROGRAM_BIN="hpcrun -t -o ${PROGPATH}/${PROGNAME}_meas ${OCRRUN_HPCTOOLKIT_OPTS} ${PROGRAM_BIN}"
+        PROGRAM_BIN="hpcrun -t -o ${OCRRUN_HPCTOOLKIT_MEAS} ${OCRRUN_HPCTOOLKIT_OPTS} ${PROGRAM_BIN}"
     fi
 
+    if [[ "${OCRRUN_VTUNE}" == "yes" ]]; then
+        OCRRUN_VTUNE_COLLECT=${OCRRUN_VTUNE_COLLECT-"advanced-hotspots"}
+        OCRRUN_VTUNE_RESULTDIR=${OCRRUN_VTUNE_RESULTDIR-"${PROGPATH}/vtune-trace"} #"
+        PROGRAM_BIN="amplxe-cl -collect ${OCRRUN_VTUNE_COLLECT} -trace-mpi -result-dir ${OCRRUN_VTUNE_RESULTDIR} ${PROGRAM_BIN}"
+    fi
+    echo "${OCRRUN_OPT_CMD} ${OCR_MPI_OPTS} ${PROGRAM_BIN} -ocr:cfg ${OCR_CONFIG}"
     ${OCRRUN_OPT_CMD} ${OCR_MPI_OPTS} ${PROGRAM_BIN} -ocr:cfg ${OCR_CONFIG}
     RET_CODE=$?
 
     if [[ ${RET_CODE} -eq 0 ]]; then
         if [[ "${OCRRUN_HPCTOOLKIT}" == "yes" ]]; then
             HPCSTRUCT="-S ${PROGPATH}/libocr_x86-mpi.so.hpcstruct -S ${PROGPATH}/${PROGNAME}.hpcstruct"
-            hpcprof-mpi -I . ${HPCSTRUCT} -o ${PROGPATH}/${PROGNAME}.db ${PROGPATH}/${PROGNAME}_meas
+            hpcprof-mpi -I . ${HPCSTRUCT} -o ${OCRRUN_HPCTOOLKIT_DB} ${OCRRUN_HPCTOOLKIT_MEAS}
         fi
     fi
-
 
     exit ${RET_CODE}
 fi
@@ -162,5 +191,3 @@ fi
 ${PROGRAM_BIN} -ocr:cfg ${OCR_CONFIG}
 RET_CODE=$?
 exit ${RET_CODE}
-
-

@@ -64,7 +64,7 @@ ocrWorkerFactory_t * newWorkerFactory(workerType_t type, ocrParamList_t *perType
         return newOcrWorkerFactorySystem(perType);
 #endif
     default:
-        ASSERT(0);
+        ocrAssert(0);
     }
     return NULL;
 }

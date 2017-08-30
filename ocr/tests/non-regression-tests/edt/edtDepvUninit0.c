@@ -13,8 +13,8 @@
 ocrGuid_t otherEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     u64 * u1 = depv[0].ptr;
     u64 * u2 = depv[1].ptr;
-    ASSERT(u1[0] == 1);
-    ASSERT(u2[0] == 2);
+    ocrAssert(u1[0] == 1);
+    ocrAssert(u2[0] == 2);
     ocrShutdown();
     return NULL_GUID;
 }

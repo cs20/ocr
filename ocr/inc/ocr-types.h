@@ -197,8 +197,12 @@ typedef struct {
     void* ptr;              /**< Pointer allowing access to the data block or NULL */
     ocrDbAccessMode_t mode; /**< Runtime reserved (may go away in future) --
                                  The access mode with which the data block has been acquired */
+#ifdef TG_STAGING
+    void* orig;
+    u64 size;
+#endif
 } ocrEdtDep_t;
-
+#define SPAD_COPY ((u64) 1<<63)
 
 #define EDT_PROP_NONE    ((u16) 0x0) /**< Property bits indicating a regular EDT */
 #define EDT_PROP_FINISH  ((u16) 0x1) /**< Property bits indicating a FINISH EDT */
@@ -295,7 +299,13 @@ typedef enum {
                           */
 #endif
 #ifdef ENABLE_EXTENSION_CHANNEL_EVT
-    OCR_EVENT_CHANNEL_T = 6, /**< TODO
+    OCR_EVENT_CHANNEL_T = 6, /**< A CHANNEL event triggers when a number of satisfy calls match
+                                  with a number of add dependence call.
+                          */
+#endif
+#ifdef ENABLE_EXTENSION_COLLECTIVE_EVT
+    OCR_EVENT_COLLECTIVE_T = 7, /**< A COLLECTIVE event carries out collective operations on
+                                     their input/output slots.
                           */
 #endif
     OCR_EVENT_T_MAX      /**< This is *NOT* an event and is only used to count
@@ -350,6 +360,7 @@ typedef enum {
     OCR_HINT_EDT_PRIORITY,                  /* [u64] : Global priority number of EDT. Higher value is greater priority. */
     OCR_HINT_EDT_SLOT_MAX_ACCESS,           /* [u64] : EDT slot number that contains the DB which is accessed most by the EDT. */
     OCR_HINT_EDT_AFFINITY,                  /* [u64] : Affinitizes an EDT to a guid */
+    OCR_HINT_EDT_SPAD_USAGE,                /* [u64] : Which DBs benefit from being copied to scratchpad */
     OCR_HINT_EDT_DISPERSE,                  /* [xxx] : Tells scheduler to schedule EDT away from current location */
     OCR_HINT_EDT_SPACE,                     /* [u64] : Used internally by the runtime for spatial locality of EDTs */
     OCR_HINT_EDT_TIME,                      /* [u64] : Used internally by the runtime for temporal locality of EDTs */
@@ -357,6 +368,7 @@ typedef enum {
     OCR_HINT_EDT_STATS_L1_HITS,             /* [u64] : Inform the simulator runtime of the EDT's perf stats */
     OCR_HINT_EDT_STATS_L1_MISSES,           /* [u64] : Inform the simulator runtime of the EDT's perf stats */
     OCR_HINT_EDT_STATS_FLOAT_OPS,           /* [u64] : Inform the simulator runtime of the EDT's perf stats */
+    OCR_HINT_EDT_SPAWNING,                  /* [xxx] : tells scheduler that EDT spawns more EDTs */
     OCR_HINT_EDT_PROP_END,                  /* This is NOT a hint. Its use is reserved for the runtime */
 
     //DB Hint Properties                    (OCR_HINT_DB_T)
@@ -367,6 +379,7 @@ typedef enum {
     OCR_HINT_DB_FAR,                        /* [u64] : Prefer far memory if possible */
     OCR_HINT_DB_HIGHBW,                     /* [u64] : Prefer high bandwidth memory if possible */
     OCR_HINT_DB_EAGER,                      /* [u64] : Whether this DB can be eagerly pushed on satisfy */
+    OCR_HINT_DB_LAZY,                       /* [u64] : Whether this DB can be managed lazily */
     OCR_HINT_DB_PROP_END,                   /* This is NOT a hint. Its use is reserved for the runtime */
 
     //EVT Hint Properties                   (OCR_HINT_EVT_T)
@@ -441,6 +454,7 @@ typedef enum {
     OCR_TRACE_TYPE_SCHEDULER = 1008,
     OCR_TRACE_TYPE_API_AFFINITY = 1009,
     OCR_TRACE_TYPE_API_HINT = 1010,
+    OCR_TRACE_TYPE_ALLOCATOR = 1011,
     OCR_TRACE_TYPE_MAX = 1012
 } ocrTraceType_t;
 
@@ -463,6 +477,8 @@ typedef enum {
     OCR_ACTION_FINISH,
     OCR_ACTION_DATA_ACQUIRE,
     OCR_ACTION_DATA_RELEASE,
+    OCR_ACTION_ALLOCATE,
+    OCR_ACTION_DEALLOCATE,
     OCR_ACTION_END_TO_END,
     OCR_ACTION_WORK_REQUEST,
     OCR_ACTION_WORK_TAKEN,
@@ -520,6 +536,8 @@ typedef enum {
 #define LEGACY_PROP_CHECK           ((u16)(0x4))  /**< For ocrLegacyBlockProgress, check if the event has been
                                                   * created. If yes check if it has been satisfied. Returns
                                                   * immediately with OCR_EINVAL in either case */
+#define GET_MULTI_WORK_MAX_SIZE 8        //max # of tasks that can be sent to XE PD in one msg
+#define CE_GET_MULTI_WORK_MAX_SIZE 4     //max # of tasks that can be sent between CEs in one msg
 /**
  * @}
  */

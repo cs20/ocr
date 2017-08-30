@@ -49,7 +49,7 @@ u8 comQueueReserveSlot(comQueue_t *queue, u32 *slot) {
         return OCR_EAGAIN;
     }
     // This case is for size > 1
-    ASSERT(queue->size > 1);
+    ocrAssert(queue->size > 1);
 
     do {
         oldIdxValue = queue->writeIdx;
@@ -77,22 +77,22 @@ u8 comQueueReserveSlot(comQueue_t *queue, u32 *slot) {
             return OCR_EAGAIN;
         }
     } while(true);
-    ASSERT(0); // Should neve reach here
+    ocrAssert(0); // Should neve reach here
     return OCR_EAGAIN;
 }
 
 u8 comQueueUnreserveSlot(comQueue_t *queue, u32 slot) {
     // This is like validate but marks the slot empty
-    ASSERT(slot < queue->size);
-    ASSERT(queue->slots[slot].status == COMQUEUE_RESERVED);
+    ocrAssert(slot < queue->size);
+    ocrAssert(queue->slots[slot].status == COMQUEUE_RESERVED);
     queue->slots[slot].status = queue->size==1?COMQUEUE_WRITEABLE:COMQUEUE_EMPTY;
     // No fence (it will propagate to reader lazily)
     return 0;
 }
 
 u8 comQueueValidateSlot(comQueue_t *queue, u32 slot) {
-    ASSERT(slot < queue->size);
-    ASSERT(queue->slots[slot].status == COMQUEUE_RESERVED);
+    ocrAssert(slot < queue->size);
+    ocrAssert(queue->slots[slot].status == COMQUEUE_RESERVED);
     hal_fence(); // Make sure everything is actually written
     queue->slots[slot].status = COMQUEUE_FULL;
     // No fence (it will propage to the reader lazily)
@@ -112,7 +112,7 @@ u8 comQueueReadSlot(comQueue_t *queue, u32 *slot) {
         return OCR_EAGAIN;
     }
     // Below works for queues with 2 slots or more
-    ASSERT(queue->size > 1);
+    ocrAssert(queue->size > 1);
     // We start at readIdx and look for something that is COMQUEUE_FULL
     // We look up to writeIdx (including writeIdx)
     u32 lastIdx = queue->writeIdx; // We read now; it does not matter if we miss
@@ -131,7 +131,7 @@ u8 comQueueReadSlot(comQueue_t *queue, u32 *slot) {
                 // No fence needed here because writers don't care about this state
 
                 // Only one reader, make sure no-one modified our readIdx
-                ASSERT(queue->readIdx == firstIdx);
+                ocrAssert(queue->readIdx == firstIdx);
                 if(firstWriteable != (u32)-1) {
                     // We had updates to readIdx so we fence to make sure all
                     // the status updates are visible and then we update readIdx
@@ -162,7 +162,7 @@ u8 comQueueReadSlot(comQueue_t *queue, u32 *slot) {
     while(curIdx <= lastIdx) {
         if(queue->slots[curIdx].status == COMQUEUE_FULL) {
             queue->slots[curIdx].status = COMQUEUE_READING;
-            ASSERT(queue->readIdx == firstIdx);
+            ocrAssert(queue->readIdx == firstIdx);
             if(firstWriteable != (u32)-1) {
                 // We had updates to readIdx so we fence to make sure all
                 // the status updates are visible and then we update readIdx
@@ -185,7 +185,7 @@ u8 comQueueReadSlot(comQueue_t *queue, u32 *slot) {
         }
         ++curIdx;
     }
-    ASSERT(queue->readIdx == firstIdx);
+    ocrAssert(queue->readIdx == firstIdx);
     if(firstWriteable != (u32)-1) {
         // We had updates to readIdx so we fence to make sure all
         // the status updates are visible and then we update readIdx
@@ -205,8 +205,8 @@ u8 comQueueEmptySlot(comQueue_t *queue, u32 slot) {
     // and COMQUEUE_WRITEABLE because otherwise, the reserve could swap
     // writeIdx (incrementing it), this could read the updated value and
     // make readIdx "jump" over writeIdx
-    ASSERT(slot < queue->size);
-    ASSERT(queue->slots[slot].status == COMQUEUE_READING);
+    ocrAssert(slot < queue->size);
+    ocrAssert(queue->slots[slot].status == COMQUEUE_READING);
 
     u32 nextReadIdx;
 

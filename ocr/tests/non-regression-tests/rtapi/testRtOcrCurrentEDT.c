@@ -7,7 +7,7 @@
 #include "ocr.h"
 
 /**
- * DESC: RT-API: Test 'currentEdtUserGet'
+ * DESC: RT-API: Test 'ocrCurrentEdtGet'
  */
 
 // Only tested when OCR runtime API is available
@@ -18,15 +18,15 @@
 ocrGuid_t taskForEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     ocrGuid_t edtGuid = *((ocrGuid_t*)depv[0].ptr);
     ocrGuid_t currentEdt;
-    currentEdtUserGet(&currentEdt);
+    ocrCurrentEdtGet(&currentEdt);
     // Compare edtGuid passed down and what's returned by the runtime
-    ASSERT(ocrGuidIsEq(currentEdt, edtGuid));
+    ocrAssert(ocrGuidIsEq(currentEdt, edtGuid));
     ocrShutdown();
     return NULL_GUID;
 }
 
 ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
-    PRINTF("RT API Test\n");
+    ocrPrintf("RT API Test\n");
     ocrGuid_t eventGuid;
     ocrEventCreate(&eventGuid, OCR_EVENT_STICKY_T, true);
 
@@ -54,7 +54,7 @@ ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
 #else
 
 ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
-    PRINTF("No RT API\n");
+    ocrPrintf("No RT API\n");
     ocrShutdown();
     return NULL_GUID;
 }

@@ -8,6 +8,7 @@
 #include "ocr-errors.h"
 #ifdef ENABLE_EXTENSION_RTITF
 
+#include "ocr-errors.h"
 #include "debug.h"
 #include "ocr-runtime.h"
 #include "ocr-sal.h"
@@ -59,12 +60,22 @@ u8 ocrEdtLocalStorageGet(void **ptr, u64 *elsSize) {
     return 0;
 }
 
-void currentEdtUserGet(ocrGuid_t * edtGuid) {
-    START_PROFILE(api_currentEdtUserGet);
+u8 ocrCurrentEdtGet(ocrGuid_t *curEdt) {
     ocrTask_t *task = NULL;
+    if(curEdt == NULL)
+        return OCR_EINVAL;
     getCurrentEnv(NULL, NULL, &task, NULL);
-    *edtGuid = (task) ? task->guid : NULL_GUID;
-    RETURN_PROFILE();
+    *curEdt = (task) ? task->guid : NULL_GUID;
+    return 0;
+}
+
+u8 ocrCurrentEdtOutputGet(ocrGuid_t *outputEvent) {
+    ocrTask_t *task = NULL;
+    if(outputEvent == NULL)
+        return OCR_EINVAL;
+    getCurrentEnv(NULL, NULL, &task, NULL);
+    *outputEvent = (task) ? task->outputEvent : NULL_GUID;
+    return 0;
 }
 
 // exposed to runtime implementers as convenience

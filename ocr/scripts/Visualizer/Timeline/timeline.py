@@ -16,13 +16,16 @@ import math
 from operator import itemgetter
 import itertools
 
+USE_TRACE_FORMAT = False
 
 #Line split indices for each line from logs
 START_TIME_INDEX = 9
 END_TIME_INDEX = 11
 FCT_NAME_INDEX = 7
 WORKER_ID_INDEX = 2
+WORKER_OFFSET = 2
 PD_ID_INDEX = 1
+PD_OFFSET = 4
 GUID_INDEX = 5
 
 #Constant flags for differentiating single/multi node runs
@@ -48,10 +51,48 @@ user_flag_sys     = False
 user_flag_combine = False
 user_flag_force_single = False
 
+def shiftParseIndicesTG():
+    global START_TIME_INDEX
+    global END_TIME_INDEX
+    global FCT_NAME_INDEX
+    global WORKER_ID_INDEX
+    global PD_ID_INDEX
+    global PD_OFFSET
+    global GUID_INDEX
+
+    START_TIME_INDEX+=3
+    END_TIME_INDEX+=3
+    FCT_NAME_INDEX+=3
+    GUID_INDEX+=3
+    WORKER_ID_INDEX=1
+    PD_ID_INDEX=0
+    PD_OFFSET=3
+
+
+def shiftParseIndicesTracing():
+    global START_TIME_INDEX
+    global END_TIME_INDEX
+    global FCT_NAME_INDEX
+    global WORKER_ID_INDEX
+    global PD_ID_INDEX
+    global PD_OFFSET
+    global WORKER_OFFSET
+    global GUID_INDEX
+
+    START_TIME_INDEX = 23
+    END_TIME_INDEX = 14
+    FCT_NAME_INDEX = 26
+    GUID_INDEX = 11
+    WORKER_ID_INDEX = 8
+    PD_ID_INDEX = 5
+    WORKER_OFFSET = 0
+    PD_OFFSET=0
+
+
 #========= Write EDT EXECTUION events to html file ==========
 def postProcessData(inString, outFile, offSet, lastLineFlag, counter, color):
     words = inString.split()
-    workerID = words[WORKER_ID_INDEX][WORKER_ID_INDEX:]
+    workerID = words[WORKER_ID_INDEX][WORKER_OFFSET:]
     fctName = words[FCT_NAME_INDEX]
     startTime = (int(words[START_TIME_INDEX]) - offSet)
     endTime = (int(words[END_TIME_INDEX]) - offSet)
@@ -77,13 +118,16 @@ def postProcessData(inString, outFile, offSet, lastLineFlag, counter, color):
 #========== Strip Un-needed events from OCR debug log ========
 def runShellStripDist(dbgLog):
     os.system("egrep -w \'EDT\\(INFO\\)|EVT\\(INFO\\)\' " + str(dbgLog) + " | egrep -w \'FctName\' > " + STRIPPED_RECORDS)
-    return 0
 
 #========== Strip Un-needed events from OCR debug log ========
 def runShellStrip(dbgLog):
     os.system("egrep -w \'EDT\\(INFO\\)|EVT\\(INFO\\)\' " + str(dbgLog) + " | egrep -w \'FctName\' | grep -v '&processRequestEdt' > " + STRIPPED_RECORDS)
-    return 0
 
+def runTraceStrip(dbgLog):
+    os.system("egrep -w FINISH " + str(dbgLog) + " | grep -v processRequestEdt > " + STRIPPED_RECORDS)
+
+def runTraceStripDist(dbgLog):
+    os.system("egrep -w FINISH " + str(dbgLog) + " > " + STRIPPED_RECORDS)
 
 #========= Strip PD specific records for distributed timelines ======
 def createFilePerPD(pds, dbgLog):
@@ -259,7 +303,7 @@ def getNodes(logFile):
 
     pds = []
     for line in lines:
-        pds.append(line.split()[PD_ID_INDEX][4:])
+        pds.append(line.split()[PD_ID_INDEX][PD_OFFSET:])
 
     uniqPds = (set(pds))
     return uniqPds
@@ -293,7 +337,7 @@ def getUniqueWorkers(logFile):
         splitLog.append(line.split())
 
     for element in splitLog:
-        workers.append(element[WORKER_ID_INDEX][WORKER_ID_INDEX:])
+        workers.append(element[WORKER_ID_INDEX][WORKER_OFFSET:])
 
     uniqWorkers = (set(workers))
     return uniqWorkers
@@ -324,7 +368,7 @@ def sortByWorker(sortedLog, uniqWorkers):
     for worker in uniqWorkers:
         for line in sortedLog:
             lineSplit = line.split()
-            if str(lineSplit[WORKER_ID_INDEX][WORKER_ID_INDEX:]) == str(worker):
+            if str(lineSplit[WORKER_ID_INDEX][WORKER_OFFSET:]) == str(worker):
                 sortedWrkrs.append(line)
 
     return sortedWrkrs
@@ -377,7 +421,7 @@ def getMinStart(data):
     minStart = HUGE_CONSTANT
     idx = 0
     for i in range(len(data)):
-        curStart = int(data[i][0].split()[9])
+        curStart = int(data[i][0].split()[START_TIME_INDEX])
         if curStart < minStart:
             minStart = curStart
             idx = i
@@ -388,7 +432,7 @@ def getMaxEnd(data):
     maxEnd = 0
     idx = 0
     for i in range(len(data)):
-        curEnd = int(data[i][0].split()[11])
+        curEnd = int(data[i][0].split()[END_TIME_INDEX])
         if curEnd > maxEnd:
             maxEnd = curEnd
             idx = i
@@ -398,7 +442,7 @@ def getMaxEnd(data):
 def getNumSysEDTs(data):
     count = 0
     for i in range(len(data)):
-        curName = str(data[i][0].split()[7])
+        curName = str(data[i][0].split()[FCT_NAME_INDEX])
         if curName == '&processRequestEdt':
             count += 1
 
@@ -408,7 +452,7 @@ def getNumSysEDTs(data):
 def getNumUsrEDTs(data):
     count = 0
     for i in range(len(data)):
-        curName = str(data[i][0].split()[7])
+        curName = str(data[i][0].split()[FCT_NAME_INDEX])
         if curName != '&processRequestEdt':
             count += 1
 
@@ -740,16 +784,23 @@ def main():
     global user_flag_combine
     global max_edts_per_page
     global user_flag_force_single
+    global USE_TRACE_FORMAT
 
     if len(sys.argv) < 2 or len(sys.argv) > 5: usage()
 
     dbgLog = sys.argv[1]
     argList = []
 
+    #TODO This needs to be refactored to use an arg parser
     if len(sys.argv) > 2:
+        if "-fsim" in sys.argv:
+            shiftParseIndicesTG()
+        if "-trace" in sys.argv:
+            USE_TRACE_FORMAT = True
+            shiftParseIndicesTracing()
         for i in xrange(2, len(sys.argv)):
             a = sys.argv[i]
-            if(a != '-s' and a != '-c' and a != '-f'): usage()
+            if(a != '-s' and a != '-c' and a != '-f' and a != '-fsim' and a != '-trace'): usage()
         if '-s' in sys.argv: user_flag_sys = True
         if '-c' in sys.argv: user_flag_combine = True
         if '-f' in sys.argv: user_flag_force_single = True
@@ -758,13 +809,16 @@ def main():
     if user_flag_force_single == True:
         max_edts_per_page = HUGE_CONSTANT
 
-    if user_flag_sys == True:
+
+
+    if user_flag_sys:
         runShellStripDist(dbgLog)
+    elif USE_TRACE_FORMAT:
+        runTraceStrip(dbgLog)
     else:
         runShellStrip(dbgLog)
     #Get Number of Policy Domains present in logfile
     nodes = getNodes(STRIPPED_RECORDS)
-
     if(len(nodes) > 1): # Multi-node trace
         if user_flag_force_single == False:
             max_edts_per_page = (max_edts_per_page/(len(nodes)))

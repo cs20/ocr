@@ -32,14 +32,14 @@ ocrGuid_t createEvtEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     ocrGuidFromLabel(&evtGuid, mapGuid, &val);
     ocrEventParams_t latchParams;
     latchParams.EVENT_LATCH.counter = NB_EDT;
-    PRINTF("About to try creating the event\n");
+    ocrPrintf("About to try creating the event\n");
     u8 retCode = ocrEventCreateParams(&evtGuid, OCR_EVENT_LATCH_T, GUID_PROP_IS_LABELED | GUID_PROP_CHECK, &latchParams);
     if (retCode != OCR_EGUIDEXISTS) {
-        PRINTF("Succeeded\n");
+        ocrPrintf("Succeeded\n");
         // First to create the event
         ocrAddDependence(evtGuid, shutGuid, 0, DB_MODE_RO);
     }
-    PRINTF("Satisfy\n");
+    ocrPrintf("Satisfy\n");
     ocrEventSatisfySlot(evtGuid, NULL_GUID, OCR_EVENT_LATCH_DECR_SLOT);
     return NULL_GUID;
 }
@@ -70,7 +70,7 @@ ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
 #else
 
 ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
-    PRINTF("Test disabled - ENABLE_EXTENSION_LABELING & ENABLE_EXTENSION_PARAMS_EVT not defined\n");
+    ocrPrintf("Test disabled - ENABLE_EXTENSION_LABELING & ENABLE_EXTENSION_PARAMS_EVT not defined\n");
     ocrShutdown();
     return NULL_GUID;
 }

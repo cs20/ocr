@@ -97,7 +97,7 @@ static inline void setChecksum (blkHdr_t * blkAddr) {
 static inline void checkChecksum (blkHdr_t * blkAddr, u32 linenum) {
     if (calcChecksum(blkAddr) != blkAddr->checksum) {
         DPRINTF (DEBUG_LVL_WARN, "Checksum failure detected at %s line %"PRId32"\n", __FILE__, linenum);
-        ASSERT(0);
+        ocrAssert(0);
     }
 }
 #else
@@ -295,12 +295,12 @@ u8 mallocProxySwitchRunlevel(ocrAllocator_t *self, ocrPolicyDomain_t *PD, ocrRun
     // prior to switching ourself
 
     // This is an inert module, we do not handle callbacks (caller needs to wait on us)
-    ASSERT(callback == NULL);
+    ocrAssert(callback == NULL);
 
     // Verify properties for this call
-    ASSERT((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
+    ocrAssert((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
            && !(properties & RL_RELEASE));
-    ASSERT(!(properties & RL_FROM_MSG));
+    ocrAssert(!(properties & RL_FROM_MSG));
 
     switch(runlevel) {
     case RL_CONFIG_PARSE:
@@ -348,7 +348,7 @@ u8 mallocProxySwitchRunlevel(ocrAllocator_t *self, ocrPolicyDomain_t *PD, ocrRun
         break;
     default:
         // Unknown runlevel
-        ASSERT(0);
+        ocrAssert(0);
     }
     return toReturn;
 }
@@ -377,7 +377,7 @@ static void destructAllocatorFactoryMallocProxy(ocrAllocatorFactory_t * factory)
 ocrAllocatorFactory_t * newAllocatorFactoryMallocProxy(ocrParamList_t *perType) {
     ocrAllocatorFactory_t* base = (ocrAllocatorFactory_t*)
         runtimeChunkAlloc(sizeof(ocrAllocatorFactoryMallocProxy_t), NONPERSISTENT_CHUNK);
-    ASSERT(base);
+    ocrAssert(base);
     base->instantiate = &newAllocatorMallocProxy;
     base->initialize = &initializeAllocatorMallocProxy;
     base->destruct = &destructAllocatorFactoryMallocProxy;

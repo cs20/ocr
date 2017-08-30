@@ -97,18 +97,29 @@ void labeledGuidDestruct(ocrGuidProvider_t* self) {
     runtimeChunkFree((u64)self, PERSISTENT_CHUNK);
 }
 
+// Check if the GUID should be considered local to the PD.
+// For reduction events, it is never true because we rely on the MD proxy mecanism to handle
+// races occuring between processing incoming remote messages and creating a local instance.
+static bool isGpLocalGuidCheck(ocrGuidProvider_t* self, ocrGuid_t guid) {
+    bool res = isLocalGuidCheck(self, guid);
+#if defined(ENABLE_EXTENSION_DISTRIBUTED_LABELED) && defined(ENABLE_EXTENSION_COLLECTIVE_EVT)
+    res &= (getKindFromGuid(guid) != OCR_GUID_EVENT_COLLECTIVE);
+#endif
+    return res;
+}
+
 u8 labeledGuidSwitchRunlevel(ocrGuidProvider_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_t runlevel,
                              phase_t phase, u32 properties, void (*callback)(ocrPolicyDomain_t*, u64), u64 val) {
 
     u8 toReturn = 0;
 
     // This is an inert module, we do not handle callbacks (caller needs to wait on us)
-    ASSERT(callback == NULL);
+    ocrAssert(callback == NULL);
 
     // Verify properties for this call
-    ASSERT((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
+    ocrAssert((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
            && !(properties & RL_RELEASE));
-    ASSERT(!(properties & RL_FROM_MSG));
+    ocrAssert(!(properties & RL_FROM_MSG));
 
     switch(runlevel) {
     case RL_CONFIG_PARSE:
@@ -135,7 +146,7 @@ u8 labeledGuidSwitchRunlevel(ocrGuidProvider_t *self, ocrPolicyDomain_t *PD, ocr
 #ifdef GUID_PROVIDER_WID_INGUID
             ocrGuidProviderLabeled_t *rself = (ocrGuidProviderLabeled_t*)self;
             u32 i = 0, ub = PD->workerCount;
-            ASSERT(ub <= MAX_VAL(LOCWID));
+            ocrAssert(ub <= MAX_VAL(LOCWID));
             u64 max = MAX_VAL(COUNTER);
             u64 incr = (max/ub);
             while (i < ub) {
@@ -173,14 +184,14 @@ u8 labeledGuidSwitchRunlevel(ocrGuidProvider_t *self, ocrPolicyDomain_t *PD, ocr
 #endif
             GP_HASHTABLE_DESTRUCT(((ocrGuidProviderLabeled_t *) self)->guidImplTable, NULL, entryDeallocator, deallocParam);
 #ifdef GUID_PROVIDER_DESTRUCT_CHECK
-            PRINTF("=========================\n");
-            PRINTF("Remnant GUIDs summary:\n");
+            ocrPrintf("=========================\n");
+            ocrPrintf("Remnant GUIDs summary:\n");
             for(i=0; i < OCR_GUID_MAX; i++) {
                 if (guidTypeCounters[i] != 0) {
-                    PRINTF("%s => %"PRIu32" instances\n", ocrGuidKindToChar(i), guidTypeCounters[i]);
+                    ocrPrintf("%s => %"PRIu32" instances\n", ocrGuidKindToChar(i), guidTypeCounters[i]);
                 }
             }
-            PRINTF("=========================\n");
+            ocrPrintf("=========================\n");
 #endif
         }
         break;
@@ -190,7 +201,7 @@ u8 labeledGuidSwitchRunlevel(ocrGuidProvider_t *self, ocrPolicyDomain_t *PD, ocr
             ocrGuidProviderLabeled_t * derived = (ocrGuidProviderLabeled_t *) self;
             derived->guidImplTable = GP_HASHTABLE_CREATE_MODULO(PD, GUID_PROVIDER_NB_BUCKETS, hashGuidCounterModulo);
 #ifdef GUID_PROVIDER_WID_INGUID
-            ASSERT(((PD->workerCount-1) < MAX_VAL(LOCWID)) && "GUID worker count overflows");
+            ocrAssert(((PD->workerCount-1) < MAX_VAL(LOCWID)) && "GUID worker count overflows");
 #endif
         }
         break;
@@ -201,7 +212,7 @@ u8 labeledGuidSwitchRunlevel(ocrGuidProvider_t *self, ocrPolicyDomain_t *PD, ocr
         break;
     default:
         // Unknown runlevel
-        ASSERT(0);
+        ocrAssert(0);
     }
     return toReturn;
 }
@@ -286,11 +297,11 @@ u8 labeledGuidGetGuid(ocrGuidProvider_t* self, ocrGuid_t* guid, u64 val, ocrGuid
         DPRINTF(DEBUG_LVL_VVERB,"LabeledGUID: Recording %"PRIx64" @ %"PRIx64"\n", newGuid, val);
         // Inject proxy for foreign guids. Stems from pushing OCR objects to other PDs
         void * toPut = (void *) val;
-        if (!isLocalGuidCheck(self, tempGuid)) {
+        if (!isGpLocalGuidCheck(self, tempGuid)) {
             ocrPolicyDomain_t * pd = self->pd;
             MdProxy_t * mdProxy = (MdProxy_t *) pd->fcts.pdMalloc(pd, sizeof(MdProxy_t));
             mdProxy->ptr = val;
-            DPRINTF(DEBUG_LVL_VVERB,"LabeledGUID: record "GUIDF"\n", GUIDA(*guid));
+            DPRINTF(DEBUG_LVL_VVERB,"LabeledGUID: record "GUIDF"\n", GUIDA(tempGuid));
             mdProxy->queueHead=REG_CLOSED;
             toPut = (void *) mdProxy;
         }
@@ -315,27 +326,31 @@ u8 labeledGuidGetGuid(ocrGuidProvider_t* self, ocrGuid_t* guid, u64 val, ocrGuid
 u8 labeledGuidCreateGuid(ocrGuidProvider_t* self, ocrFatGuid_t *fguid, u64 size, ocrGuidKind kind, ocrLocation_t targetLoc, u32 properties) {
     START_PROFILE(gp_lbl_createGuid);
     ocrGuidProviderLabeled_t *rself = (ocrGuidProviderLabeled_t*)self;
-    //TODO-MERGE double check if we need this for labeled GUIDs
     if(properties & GUID_PROP_IS_LABELED) {
         // We need to use the GUID provided; make sure it is non null and reserved
-        ASSERT((!(ocrGuidIsNull(fguid->guid))) && (IS_RESERVED_GUID(fguid->guid)));
+        ocrAssert((!(ocrGuidIsNull(fguid->guid))) && (IS_RESERVED_GUID(fguid->guid)));
 
+#if defined(ENABLE_EXTENSION_DISTRIBUTED_LABELED) && defined(ENABLE_EXTENSION_COLLECTIVE_EVT)
+        ASSERT(extractLocIdFromGuid(fguid->guid) == locationToLocId(self->pd->myLocation) || (kind == OCR_GUID_EVENT_COLLECTIVE));
+#else
         // We need to fix this: ie: return a code saying we can't do the reservation
         // Ideally, we would either forward to the responsible party or return something
         // so the PD knows what to do. This is going to take a lot more infrastructure
         // change so we'll punt for now
         // Related to BUG #535 and to BUG #536
-        ASSERT(extractLocIdFromGuid(fguid->guid) == locationToLocId(self->pd->myLocation));
-
+        ocrAssert(extractLocIdFromGuid(fguid->guid) == locationToLocId(self->pd->myLocation));
+#endif
         // Other sanity check
-        ASSERT(getKindFromGuid(fguid->guid) == kind); // Kind properly encoded
-        // See BUG #928 on GUID issues
+        ocrAssert(getKindFromGuid(fguid->guid) == kind); // Kind properly encoded
+#ifdef OCR_ASSERT
+// Following assert doesn't work for ENABLE_EXTENSION_DISTRIBUTED_LABELED since we can get
+// a valid labeleld guid and just allocate backing storage for the OCR object instance here
+#ifndef ENABLE_EXTENSION_DISTRIBUTED_LABELED
 #if GUID_BIT_COUNT == 64
         u64 count = (RSHIFT(COUNTER, fguid->guid.guid));
 #elif GUID_BIT_COUNT == 128
         u64 count = (RSHIFT(COUNTER, fguid->guid.lower));
 #endif
-#ifdef OCR_ASSERT
 #ifdef GUID_PROVIDER_WID_INGUID
         // GUIDs are generated before the current worker is setup.
 #if GUID_BIT_COUNT == 64
@@ -343,11 +358,12 @@ u8 labeledGuidCreateGuid(ocrGuidProvider_t* self, ocrFatGuid_t *fguid, u64 size,
 #elif GUID_BIT_COUNT == 128
         u64 wid = (RSHIFT(LOCWID, fguid->guid.lower));
 #endif
-        ASSERT(count < rself->guidReservedCounters[wid*GUID_WID_CACHE_SIZE]); // Range actually reserved
+        ocrAssert(count < rself->guidReservedCounters[wid*GUID_WID_CACHE_SIZE]); // Range actually reserved
 #else
-        ASSERT(count < rself->guidReservedCounter); // Range actually reserved
+        ocrAssert(count < rself->guidReservedCounter); // Range actually reserved
 #endif
-#endif
+#endif // not when dist label
+#endif // assert on
     }
     PD_MSG_STACK(msg);
     ocrPolicyDomain_t *policy = NULL;
@@ -364,12 +380,16 @@ u8 labeledGuidCreateGuid(ocrGuidProvider_t* self, ocrFatGuid_t *fguid, u64 size,
 
     // Update the fat GUID's metaDataPtr
     fguid->metaDataPtr = ptr;
-    ASSERT(ptr);
+    ocrAssert(ptr);
 #undef PD_TYPE
     (*(ocrGuid_t*)ptr) = NULL_GUID; // The first field is always the GUID, either directly as ocrGuid_t or a ocrFatGuid_t
                                     // This is used to determine if a GUID metadata is "ready". See bug #627
     hal_fence(); // Make sure the ptr update is visible before we update the hash table
-    if(properties & GUID_PROP_IS_LABELED) {
+    bool considerLabeled = ((properties & GUID_PROP_IS_LABELED) == GUID_PROP_IS_LABELED);
+#if defined(ENABLE_EXTENSION_DISTRIBUTED_LABELED) && defined(ENABLE_EXTENSION_COLLECTIVE_EVT)
+    considerLabeled &= (kind != OCR_GUID_EVENT_COLLECTIVE);
+#endif
+    if(considerLabeled) {
         // Bug #865: Warning if ordering is important, first GUID_PROP_CHECK then GUID_PROP_BLOCK
         // because we want the first branch to intercept (GUID_PROP_CHECK | GUID_PROP_BLOCK)
         if((properties & GUID_PROP_CHECK) == GUID_PROP_CHECK) {
@@ -454,9 +474,13 @@ u8 labeledGuidCreateGuid(ocrGuidProvider_t* self, ocrFatGuid_t *fguid, u64 size,
 #else
 #error Unknown type of GUID
 #endif
+#if defined(ENABLE_EXTENSION_DISTRIBUTED_LABELED) && defined(ENABLE_EXTENSION_COLLECTIVE_EVT)
+                // Collective event are never recorded on creation but rather registered when fully allocated and initialized
+                ASSERT((kind != OCR_GUID_EVENT_COLLECTIVE)  && "internal error: illegal recording of reduction event GUID");
+#endif
                 void * toPut = ptr;
                 // Inject proxy for foreign guids. Stems from pushing OCR objects to other PDs
-                if (!isLocalGuidCheck(self, fguid->guid)) {
+                if (!isGpLocalGuidCheck(self, fguid->guid)) {
                     // Impl assumes there's a single creation per GUID so there's no code to
                     // handle races here. We just setup the proxy and insert it in the map
                     ocrPolicyDomain_t * pd = self->pd;
@@ -471,7 +495,7 @@ u8 labeledGuidCreateGuid(ocrGuidProvider_t* self, ocrFatGuid_t *fguid, u64 size,
             // Generate and record the GUID
             labeledGuidGetGuid(self, &(fguid->guid), (u64) (fguid->metaDataPtr), kind, targetLoc, (properties & GUID_PROP_TORECORD));
         }
-        ASSERT(!ocrGuidIsNull(fguid->guid) && !ocrGuidIsUninitialized(fguid->guid));
+        ocrAssert(!ocrGuidIsNull(fguid->guid) && !ocrGuidIsUninitialized(fguid->guid));
     }
 #undef PD_MSG
     DPRINTF(DEBUG_LVL_VERB, "LabeledGUID: create GUID: "GUIDF" -> 0x%p\n", GUIDA(fguid->guid), fguid->metaDataPtr);
@@ -496,14 +520,14 @@ u8 labeledGuidRegisterGuid(ocrGuidProvider_t* self, ocrGuid_t guid, u64 val) {
 #error Unknown type of GUID
 #endif
     int oth = (int) locIdtoLocation(extractLocIdFromGuid(guid));
-    if (isLocalGuidCheck(self, guid)) {
+    if (isGpLocalGuidCheck(self, guid)) {
         // See BUG #928 on GUID issues
         GP_HASHTABLE_PUT(dself->guidImplTable, (void *) rguid, (void *) val);
-        ASSERT(oth == self->pd->myLocation);
+        ocrAssert(oth == self->pd->myLocation);
     } else {
         MdProxy_t * mdProxy = (MdProxy_t *) GP_HASHTABLE_GET(dself->guidImplTable, (void *) rguid);
         // Must have setup a mdProxy before being able to register.
-        ASSERT(mdProxy != NULL);
+        ocrAssert(mdProxy != NULL);
         mdProxy->ptr = val;
         hal_fence(); // This may be redundant with the CAS
         u64 newValue = (u64) REG_CLOSED;
@@ -511,7 +535,7 @@ u8 labeledGuidRegisterGuid(ocrGuidProvider_t* self, ocrGuid_t guid, u64 val) {
         u64 oldValue = 0;
         do {
             MdProxyNode_t * head = mdProxy->queueHead;
-            ASSERT(head != REG_CLOSED);
+            ocrAssert(head != REG_CLOSED);
             curValue = (u64) head;
             oldValue = hal_cmpswap64((u64*) &(mdProxy->queueHead), curValue, newValue);
         } while(oldValue != curValue);
@@ -530,7 +554,7 @@ u8 labeledGuidRegisterGuid(ocrGuidProvider_t* self, ocrGuid_t guid, u64 val) {
                     //TODO-MD-DBRTACQ
                     // This is to let the PD know the message is re-processed and
                     // there's no calling context that will read the response.
-                    ASSERT(msg->type & PD_MSG_REQ_RESPONSE);
+                    ocrAssert(msg->type & PD_MSG_REQ_RESPONSE);
                     msg->type &= ~PD_MSG_REQ_RESPONSE;
                 }
                 u64 paramv = (u64) queueHead->msg;
@@ -551,7 +575,7 @@ u8 labeledGuidRegisterGuid(ocrGuidProvider_t* self, ocrGuid_t guid, u64 val) {
  */
 u8 labeledGuidGetVal(ocrGuidProvider_t* self, ocrGuid_t guid, u64* val, ocrGuidKind* kind, u32 mode, MdProxy_t ** proxy) {
     START_PROFILE(gp_lbl_getVal);
-    ASSERT(!ocrGuidIsNull(guid) && !ocrGuidIsError(guid) && !ocrGuidIsUninitialized(guid));
+    ocrAssert(!ocrGuidIsNull(guid) && !ocrGuidIsError(guid) && !ocrGuidIsUninitialized(guid));
     ocrGuidProviderLabeled_t * dself = (ocrGuidProviderLabeled_t *) self;
     if (IS_RESERVED_GUID(guid)) {
         // Current limitations for labeled GUID
@@ -571,21 +595,14 @@ u8 labeledGuidGetVal(ocrGuidProvider_t* self, ocrGuid_t guid, u64* val, ocrGuidK
     #else
     #error Unknown type of GUID
     #endif
-
-    if (isLocalGuidCheck(self, guid)) {
+    if (isGpLocalGuidCheck(self, guid)) {
         *val = (u64) GP_HASHTABLE_GET(dself->guidImplTable, rguid);
         DPRINTF(DEBUG_LVL_VERB, "LabeledGUID: got val for GUID "GUIDF": 0x%"PRIx64"\n", GUIDA(guid), *val);
         if ((*val != 0) && IS_RESERVED_GUID(guid)) {
             // Bug #627: We do not return until the GUID is valid. We test this
             // by looking at the first field of ptr and waiting for it to be the GUID value (meaning the
             // object has been initialized
-            volatile u64 * spinVal;
-            if (isLocalGuidCheck(self, guid)) {
-                spinVal = val;
-            } else {
-                MdProxy_t * sproxy = (MdProxy_t *) val;
-                spinVal = (volatile u64*) &sproxy->ptr;
-            }
+            volatile u64 * spinVal = val;
             void * adjustedPtr = (((ocrObject_t *)(*spinVal))+1);
             // See BUG #928 on GUID issues
 #if GUID_BIT_COUNT == 64
@@ -603,11 +620,18 @@ u8 labeledGuidGetVal(ocrGuidProvider_t* self, ocrGuid_t guid, u64* val, ocrGuidK
         if (mdProxy == NULL) {
             if (mode == MD_LOCAL) {
                 RETURN_PROFILE(0);
-            } // else the mode is fetch
-            // This is a concurrent operation. Multiple concurrent call may try to do the fetch
-            ASSERT(((mode == MD_FETCH) || (mode == MD_PROXY)) && (proxy != NULL));
+            }
+            // This is a concurrent operation. Multiple concurrent call may try to do enqueue the proxy
+#if defined(ENABLE_EXTENSION_DISTRIBUTED_LABELED) && defined(ENABLE_EXTENSION_COLLECTIVE_EVT)
+            ocrAssert(((mode == MD_FETCH) || (mode == MD_PROXY) || (mode == MD_ALLOC)) && (proxy != NULL));
+            // For labeled reduction events, we use the MD proxy mecanism, whether it's a local
+            // or remote GUID, else we should have delegated to the owner of the reserved GUID
+            ocrAssert(((IS_RESERVED_GUID(guid) ? (getKindFromGuid(guid) == OCR_GUID_EVENT_COLLECTIVE) : true)) && "Labeled Limitation");
+#else
+            ocrAssert(((mode == MD_FETCH) || (mode == MD_PROXY)) && (proxy != NULL));
             //For labeled, currently delegating directly to the remote location that owns the reserved GUID
-            ASSERT(!IS_RESERVED_GUID(guid) && "Labeled Limitation");
+            ocrAssert(!IS_RESERVED_GUID(guid) && "Labeled Limitation");
+#endif
             // Optimistically try to enqueue.
             ocrPolicyDomain_t * pd = self->pd;
             mdProxy = (MdProxy_t *) pd->fcts.pdMalloc(pd, sizeof(MdProxy_t));
@@ -617,24 +641,22 @@ u8 labeledGuidGetVal(ocrGuidProvider_t* self, ocrGuid_t guid, u64* val, ocrGuidK
             hal_fence(); // I think the lock in try put should make the writes visible
             MdProxy_t * oldMdProxy = (MdProxy_t *) GP_HASHTABLE_TRYPUT(dself->guidImplTable, rguid, mdProxy);
             if (oldMdProxy == mdProxy) { // won
-                if (mode == MD_PROXY) { //TODO-STUFF: double check what this is again ??????
+                // if win return 0 else return EPEND
+                if (mode == MD_PROXY) {
+                    // Caller wanted to compete on the MD proxy creation but did not want to trigger a fetch
                     *proxy = oldMdProxy;
                     RETURN_PROFILE(0);
                 }
-                // TODO two options:
-                // 1- Issue the MD cloning here and link the operation's completion to the mdProxy
-                // Sketch implementation:
-                // - Get low-level info
-                //   - no-op for now because we extract kind from GUID and factory is always 0
-                //   * TODO gp->resolveLowLevelInfo(gp); // no-op
-                // - Once we have that:
-                //   - Read the kind and factory id
-                //      * TODO: Create base type ocrObjectFactory_t for all factories to extend
-                //      * TODO: ocrObjectFactory_t * pd->resolveFactory(pd, ocrGuid_t);
-                //          * Q: Does PD is the right place to have the factories ?
-                //   - Invoke "clone/fetch" code. This is a non-blocking call that will return OCR_EPEND
-                //      * TODO: ocrObjectFactory_t interface to call deserialize with convention that srcBuffer==NULL
-                //
+                // Issue the clone operation to fetch the metadata
+#if defined(ENABLE_EXTENSION_DISTRIBUTED_LABELED) && defined(ENABLE_EXTENSION_COLLECTIVE_EVT)
+                if (mode == MD_ALLOC) {
+                    u32 oldV = hal_cmpswap64(&(mdProxy->ptr), 0, ((u64)-1));
+                    if (0 == oldV) { // won
+                        *proxy = oldMdProxy;
+                        RETURN_PROFILE(0);
+                    }
+                }
+#endif
                 PD_MSG_STACK(msgClone);
                 getCurrentEnv(NULL, NULL, NULL, &msgClone);
 #define PD_MSG (&msgClone)
@@ -647,23 +669,30 @@ u8 labeledGuidGetVal(ocrGuidProvider_t* self, ocrGuid_t guid, u64* val, ocrGuidK
                 // The message processing is asynchronous
                 u8 returnCode = pd->fcts.processMessage(pd, &msgClone, false);
                 if (returnCode == 0) { // Clone succeeded
+                    // Clone should have been installed
                     // This code is potentially concurrent with other clones
-                    labeledGuidRegisterGuid(self, guid, (u64) PD_MSG_FIELD_IO(guid.metaDataPtr));
+                    // labeledGuidRegisterGuid(self, guid, (u64) PD_MSG_FIELD_IO(guid.metaDataPtr));
                     *val = (u64) PD_MSG_FIELD_IO(guid.metaDataPtr);
+#ifdef OCR_ASSERT
+                    u64 getVal = 0;
+                    ASSERT(labeledGuidGetVal(self, guid, &getVal, NULL, MD_LOCAL, NULL) == 0);
+                    ASSERT(getVal != 0);
+                    ASSERT(getVal == *val);
+#endif
                     *proxy = NULL;
                 } else {
                     // Warning: after this call we're potentially concurrent with the MD being registered on the GP
-                    ASSERT(returnCode == OCR_EPEND);
+                    ocrAssert(returnCode == OCR_EPEND);
                 }
 #undef PD_MSG
 #undef PD_TYPE
-                // 2- Return an error code along with the oldMdProxy event
-                //    The caller will be responsible for calling MD cloning
-                //    and setup the link. Note there's a race here when the
-                //    md is resolve concurrently. It sounds it would be better
-                //    to go through functions.
             } else {
-                ASSERT(mode != MD_PROXY); // By contract, no competition on MD_PROXY
+#if defined(ENABLE_EXTENSION_DISTRIBUTED_LABELED) && defined(ENABLE_EXTENSION_COLLECTIVE_EVT)
+                // Concurrent reduction event creations compete through the MD proxy creation
+                ocrAssert((mode == MD_PROXY) ? (getKindFromGuid(guid) == OCR_GUID_EVENT_COLLECTIVE) : true);
+#else
+                ocrAssert(mode != MD_PROXY); // By contract, no competition on MD_PROXY
+#endif
                 // lost competition, 2 cases:
                 // 1) The MD is available (it's concurrent to this thread of execution)
                 // 2) The MD is still being fetch
@@ -677,6 +706,7 @@ u8 labeledGuidGetVal(ocrGuidProvider_t* self, ocrGuid_t guid, u64* val, ocrGuidK
                 // destroyed (hence there should be no concurrent read at that time).
                 // This is a racy check but it's ok, the caller would have to enqueue itself
                 // on the proxy and the race is addressed there.
+                // if win
                 *val = (u64) oldMdProxy->ptr;
                 // if *val is zero then MD is still being fetch, multiple options:
                 // - Opt 1: Continuation
@@ -689,19 +719,45 @@ u8 labeledGuidGetVal(ocrGuidProvider_t* self, ocrGuid_t guid, u64* val, ocrGuidK
         } else { // mdProxy not NULL
             //For labeled, currently delegating directly to the remote location that owns the reserved GUID
             //For reserved DBs, the unmarshalling code actually calls a getVal.
-            ASSERT((!IS_RESERVED_GUID(guid) || (getKindFromGuid(guid) == OCR_GUID_DB)) && "Labeled Limitation");
+#if defined(ENABLE_EXTENSION_DISTRIBUTED_LABELED) && defined(ENABLE_EXTENSION_COLLECTIVE_EVT)
+            // Concurrent reduction event creations lost competition on MD proxy creation
+            ocrAssert(((IS_RESERVED_GUID(guid) && (getKindFromGuid(guid) == OCR_GUID_EVENT_COLLECTIVE)) || !IS_RESERVED_GUID(guid) || (getKindFromGuid(guid) == OCR_GUID_DB)) && "Labeled Limitation");
+#else
+            ocrAssert((!IS_RESERVED_GUID(guid) || (getKindFromGuid(guid) == OCR_GUID_DB)) && "Labeled Limitation");
+#endif
             *val = (u64) mdProxy->ptr;
         }
-        //TODO-STUFF here we need to cache the mdProxy for subsequent lookups
-        if (mode == MD_FETCH) {
-            ASSERT(proxy != NULL);
-            *proxy = mdProxy;
-            //TODO Cache store
+#if defined(ENABLE_EXTENSION_DISTRIBUTED_LABELED) && defined(ENABLE_EXTENSION_COLLECTIVE_EVT)
+        if ((mode == MD_ALLOC) && (*val == 0)) { // still a chance to compete
+            u32 oldV = hal_cmpswap64(&(mdProxy->ptr), 0, ((u64)-1));
+            if (0 == oldV) { // won
+                *proxy = mdProxy;
+                RETURN_PROFILE(0);
+            }
+        }
+#endif
+        if (mode == MD_LOCAL) {
+            // Don't understand why this would have to be null as getVal can
+            // be called in MD_LOCAL mode and just resolve the proxy along with its current value
+            // ASSERT(proxy == NULL);
+            if (proxy) {
+                *proxy = mdProxy;
+            }
         } else {
-            ASSERT(proxy == NULL);
+#if defined(ENABLE_EXTENSION_DISTRIBUTED_LABELED) && defined(ENABLE_EXTENSION_COLLECTIVE_EVT)
+            ocrAssert((mode == MD_FETCH) || (mode == MD_PROXY) || (mode == MD_ALLOC));
+#else
+            ocrAssert((mode == MD_FETCH) || (mode == MD_PROXY));
+#endif
+            ocrAssert(proxy != NULL);
+            *proxy = mdProxy;
         }
     } // end GUID is not local
+#if defined(ENABLE_EXTENSION_DISTRIBUTED_LABELED) && defined(ENABLE_EXTENSION_COLLECTIVE_EVT)
+    RETURN_PROFILE(((*val == 0) || (*val == ((u64)-1))) ? OCR_EPEND : 0);
+#else
     RETURN_PROFILE((*val) ? 0 : OCR_EPEND);
+#endif
 }
 
 /**
@@ -748,16 +804,14 @@ u8 labeledGuidReleaseGuid(ocrGuidProvider_t *self, ocrFatGuid_t fatGuid, bool re
     // If there's metaData associated with guid we need to deallocate memory
     if(releaseVal && (value != NULL)) {
         void * metaDataPtr = fatGuid.metaDataPtr;
-        if (!isLocalGuidCheck(self, guid)) { // We have a proxy in between
-            ASSERT(value != metaDataPtr);
+        if (!isGpLocalGuidCheck(self, guid)) { // We have a proxy in between
+            ocrAssert(value != metaDataPtr);
             MdProxy_t * proxy = (MdProxy_t *) value;
-            ASSERT ((proxy->queueHead == NULL) ||
+            ocrAssert((proxy->queueHead == NULL) ||
                     (((u64)proxy->queueHead) == REG_OPEN) ||
                     (((u64)proxy->queueHead) == REG_CLOSED));
-            // if (proxy->ptr) { //TODO why that ?
-            ASSERT(proxy->ptr);
+            ocrAssert(proxy->ptr);
             self->pd->fcts.pdFree(self->pd, proxy);
-            // }
         }
         if (metaDataPtr != NULL) {
             PD_MSG_STACK(msg);
@@ -836,7 +890,7 @@ ocrGuidProviderFactory_t *newGuidProviderFactoryLabeled(ocrParamList_t *typeArg,
     base->providerFcts.releaseGuid = FUNC_ADDR(u8 (*)(ocrGuidProvider_t*, ocrFatGuid_t, bool), labeledGuidReleaseGuid);
 #ifdef ENABLE_RESILIENCY
     DPRINTF(DEBUG_LVL_WARN, "Resiliency not supported with the LABELED guid provider!\n");
-    ASSERT(0);
+    ocrAssert(0);
     base->providerFcts.getSerializationSize = NULL;
     base->providerFcts.serialize = NULL;
     base->providerFcts.deserialize = NULL;

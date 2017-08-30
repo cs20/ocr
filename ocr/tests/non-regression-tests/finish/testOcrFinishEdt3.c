@@ -17,13 +17,13 @@
 
 // This edt is triggered when the output event of the other edt is satisfied by the runtime
 ocrGuid_t terminateEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
-    PRINTF("terminateEdt invoked\n");
+    ocrPrintf("terminateEdt invoked\n");
     // TODO shouldn't be doing that... but need more support from output events to get a 'return' value from an edt
-    ASSERT(!(ocrGuidIsNull(depv[0].guid)));
+    ocrAssert(!(ocrGuidIsNull(depv[0].guid)));
     u64 * array = (u64*)depv[0].ptr;
     u64 i = 0;
     while (i < N) {
-        ASSERT(array[i] == i);
+        ocrAssert(array[i] == i);
         i++;
     }
     ocrShutdown(); // This is the last EDT to execute, terminate
@@ -31,11 +31,11 @@ ocrGuid_t terminateEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
 }
 
 ocrGuid_t updaterEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
-    PRINTF("updaterEdt invoked\n");
+    ocrPrintf("updaterEdt invoked\n");
     // Retrieve id
-    ASSERT(paramc == 1);
+    ocrAssert(paramc == 1);
     u64 id = paramv[0];
-    ASSERT ((id>=0) && (id < N));
+    ocrAssert((id>=0) && (id < N));
     u64 * dbPtr = (u64 *) depv[0].ptr;
     dbPtr[id] = id;
     ocrDbRelease(depv[0].guid);
@@ -43,7 +43,7 @@ ocrGuid_t updaterEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
 }
 
 ocrGuid_t computeEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
-    PRINTF("computeEdt invoked\n");
+    ocrPrintf("computeEdt invoked\n");
     ocrGuid_t updaterEdtTemplateGuid;
     ocrEdtTemplateCreate(&updaterEdtTemplateGuid, updaterEdt, 1 /*paramc*/, 1/*depc*/);
     u64 i = 0;

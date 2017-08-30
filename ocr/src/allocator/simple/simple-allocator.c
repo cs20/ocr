@@ -186,9 +186,9 @@ static void simpleInit(pool_t *pool, u64 size)
     u8 *p = (u8 *)pool;
     u64 *q;
     q = (u64 *)(p + sizeof(pool_t));
-    ASSERT(((u64)q & ALIGNMENT_MASK) == 0);
-    ASSERT((sizeof(pool_t) & ALIGNMENT_MASK) == 0);
-    ASSERT((size & ALIGNMENT_MASK) == 0);
+    ocrAssert(((u64)q & ALIGNMENT_MASK) == 0);
+    ocrAssert((sizeof(pool_t) & ALIGNMENT_MASK) == 0);
+    ocrAssert((size & ALIGNMENT_MASK) == 0);
     size = size - sizeof(pool_t);
 
     // pool->lock and pool->inited is already 0 at startup (on x86, it's done at mallocBegin())
@@ -250,7 +250,7 @@ static void simplePrint(pool_t *pool)
     do {
         count++;
         size += GET_SIZE(HEAD(p));
-        ASSERT(GET_BIT0(HEAD(p)) == 0);
+        ocrAssert(GET_BIT0(HEAD(p)) == 0);
         //printf("%p [%"PRId32"]: size %"PRId32" next %"PRId32" prev %"PRId32" \n", p, p-(pool->pool_start) , HEAD(p), NEXT(p), PREV(p) );
         next = NEXT(p) + pool->pool_start;
         if (next == pool->freelist)
@@ -273,7 +273,7 @@ static void simpleWalk(pool_t *pool)
             break;
         }
         size = GET_SIZE(HEAD(p));
-        ASSERT((size & ALIGNMENT_MASK) == 0);
+        ocrAssert((size & ALIGNMENT_MASK) == 0);
         if (TAIL(p, size) != size) {
             DPRINTF(DEBUG_LVL_WARN, "[walk] two sizes doesn't match. p=%p  size=%"PRId64" , tail=%"PRId64"\n", p, size, TAIL(p,size));
             break;
@@ -295,7 +295,7 @@ static void simpleWalk(pool_t *pool)
 static void simpleInsertFree(pool_t *pool,u64 *p, u64 size)
 {
     VALGRIND_CHUNK_OPEN_INIT(p, size);
-    ASSERT((size & ALIGNMENT_MASK) == 0);
+    ocrAssert((size & ALIGNMENT_MASK) == 0);
     HEAD(p) = MARK | size;
     TAIL(p, size) = size;
 
@@ -325,8 +325,8 @@ static void simpleSplitFree(pool_t *pool,u64 *p, u64 size)
 {
     VALGRIND_CHUNK_OPEN_INIT(p, size);
     u64 remain = GET_SIZE(HEAD(p)) - size;
-    ASSERT( remain < GET_SIZE(HEAD(p)) );
-    ASSERT((size & ALIGNMENT_MASK) == 0);
+    ocrAssert( remain < GET_SIZE(HEAD(p)) );
+    ocrAssert((size & ALIGNMENT_MASK) == 0);
     // make sure the remaining block is bigger than minimum size
     if (remain >= MINIMUM_SIZE) {
         HEAD(p) = MARK | size | 0x1;    // in-use mark
@@ -345,7 +345,7 @@ static void simpleDeleteFree(pool_t *pool,u64 *p)
     VALGRIND_CHUNK_OPEN(p);
     u64 *next = NEXT(p) + pool->pool_start;
     u64 *prev = PREV(p) + pool->pool_start;
-    ASSERT(GET_BIT0(HEAD(p)) == 0);
+    ocrAssert(GET_BIT0(HEAD(p)) == 0);
 
     if (next == p) {
         pool->freelist = NULL;
@@ -399,7 +399,7 @@ static void *simpleMalloc(pool_t *pool,u64 size, struct _ocrPolicyDomain_t *pd)
             INFO1(p) = (u64)addrGlobalizeOnTG((void *)pool, pd);   // old : INFO1(p) = (u64)pool;
             INFO2(p) = (u64)addrGlobalizeOnTG((void *)ret, pd);    // old : INFO2(p) = (u64)ret;
 
-            ASSERT((*(u8 *)(&INFO2(p)) & POOL_HEADER_TYPE_MASK) == 0);
+            ocrAssert((*(u8 *)(&INFO2(p)) & POOL_HEADER_TYPE_MASK) == 0);
             *(u8 *)(&INFO2(p)) |= allocatorSimple_id;
 
             ASSERT_BLOCK_BEGIN((*(u8 *)(&INFO2(p)) & POOL_HEADER_TYPE_MASK) == allocatorSimple_id)
@@ -449,7 +449,7 @@ void simpleFree(void *p)
     hal_lock(&(pool->lock));
     VALGRIND_POOL_CLOSE(pool);
 
-    ASSERT((*(u8 *)(&INFO2(q)) & POOL_HEADER_TYPE_MASK) == allocatorSimple_id);
+    ocrAssert((*(u8 *)(&INFO2(q)) & POOL_HEADER_TYPE_MASK) == allocatorSimple_id);
     *(u8 *)(&INFO2(q)) &= ~POOL_HEADER_TYPE_MASK;
 
     q = USER_TO_HEAD(INFO2(q)); // For TG. no effects on x86
@@ -534,7 +534,7 @@ void simpleFree(void *p)
 
 void simpleDestruct(ocrAllocator_t *self) {
     DPRINTF(DEBUG_LVL_VERB, "Entered simpleDesctruct (This is x86 only?) on allocator 0x%"PRIx64"\n", (u64) self);
-    ASSERT(self->memoryCount == 1);
+    ocrAssert(self->memoryCount == 1);
     self->memories[0]->fcts.destruct(self->memories[0]);
     runtimeChunkFree((u64)self->memories, PERSISTENT_CHUNK);
     runtimeChunkFree((u64)self, PERSISTENT_CHUNK);
@@ -546,14 +546,14 @@ u8 simpleSwitchRunlevel(ocrAllocator_t *self, ocrPolicyDomain_t *PD, ocrRunlevel
 
     u8 toReturn = 0;
     // This is an inert module, we do not handle callbacks (caller needs to wait on us)
-    ASSERT(callback == NULL);
+    ocrAssert(callback == NULL);
 
     // Verify properties for this call
-    ASSERT((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
+    ocrAssert((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
            && !(properties & RL_RELEASE));
-    ASSERT(!(properties & RL_FROM_MSG));
+    ocrAssert(!(properties & RL_FROM_MSG));
 
-    ASSERT(self->memoryCount == 1);
+    ocrAssert(self->memoryCount == 1);
     // Call the runlevel change on the underlying memory
     // On tear-down, we do it *AFTER* we do stuff because otherwise our mem-platform goes away
     if(properties & RL_BRING_UP)
@@ -605,7 +605,7 @@ u8 simpleSwitchRunlevel(ocrAllocator_t *self, ocrPolicyDomain_t *PD, ocrRunlevel
                     rself, rself->poolAddr, (u64) (rself->poolSize),
                     (u64)(rself->poolSize), (u64) (rself->poolStorageOffset));
 
-            ASSERT(self->memories[0]->memories[0]->startAddr /* startAddr of the memory that memplatform allocated. (for x86, at mallocBegin()) */
+            ocrAssert(self->memories[0]->memories[0]->startAddr /* startAddr of the memory that memplatform allocated. (for x86, at mallocBegin()) */
                    + MEM_PLATFORM_ZEROED_AREA_SIZE >= /* Add the size of zero-ed area (for x86, at mallocBegin()), then this should be greater than */
                    rself->poolAddr + sizeof(pool_t) /* the end of pool_t, so this ensures zero'ed rangeTracker,pad,pool_t */ );
             simpleInit( (pool_t *)addrGlobalizeOnTG((void *)rself->poolAddr, PD), rself->poolSize);
@@ -647,7 +647,7 @@ u8 simpleSwitchRunlevel(ocrAllocator_t *self, ocrPolicyDomain_t *PD, ocrRunlevel
         break;
     default:
         // Unknown runlevel
-        ASSERT(0);
+        ocrAssert(0);
     }
     if(properties & RL_TEAR_DOWN)
         toReturn |= self->memories[0]->fcts.switchRunlevel(self->memories[0], PD, runlevel, phase, properties,
@@ -674,7 +674,7 @@ void* simpleReallocate(
     void * pCurrBlkPayload, // Address of existing block.  (NOT necessarily allocated to this Allocator instance, nor even in an allocator of this type.)
     u64 size,               // Size of desired block, in bytes
     u64 hints) {            // Allocator-dependent hints; SIMPLE supports reduced contention
-    ASSERT(0);
+    ocrAssert(0);
     return 0;
 }
 
@@ -711,7 +711,7 @@ static void destructAllocatorFactorySimple(ocrAllocatorFactory_t * factory) {
 ocrAllocatorFactory_t * newAllocatorFactorySimple(ocrParamList_t *perType) {
     ocrAllocatorFactory_t* base = (ocrAllocatorFactory_t*)
         runtimeChunkAlloc(sizeof(ocrAllocatorFactorySimple_t), NONPERSISTENT_CHUNK);
-    ASSERT(base);
+    ocrAssert(base);
     DPRINTF(DEBUG_LVL_VERB,
         "newAllocatorFactorySimple called, (This is x86 only?) alloc %p (Q: who free this?)\n", base);
     base->instantiate = &newAllocatorSimple;

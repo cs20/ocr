@@ -32,7 +32,7 @@ void dequeDestroy(ocrPolicyDomain_t *pd, deque_t* self) {
  */
 u32 nonSyncDequeSize(deque_t* self) {
     s32 size = (self->tail - self->head);
-    ASSERT(size >= 0);
+    ocrAssert(size >= 0);
     return ((u32) size);
 }
 
@@ -44,7 +44,7 @@ u32 nonSyncCircularDequeSize(deque_t* self) {
     if (size < 0) {
         size = INIT_DEQUE_CAPACITY + size;
     }
-    ASSERT(size >= 0 && size <= INIT_DEQUE_CAPACITY);
+    ocrAssert(size >= 0 && size <= INIT_DEQUE_CAPACITY);
     return ((u32) size);
 }
 
@@ -71,7 +71,7 @@ static void baseDequeInit(deque_t* self, ocrPolicyDomain_t *pd, void * initValue
     self->head = 0;
     self->tail = 0;
     self->data = (volatile void **)pd->fcts.pdMalloc(pd, sizeof(void*)*INIT_DEQUE_CAPACITY);
-    ASSERT(self->data != NULL);
+    ocrAssert(self->data != NULL);
 
     // This may not be necessary depending on the intented use
     u32 i=0;
@@ -118,7 +118,7 @@ static deque_t * newBaseDeque(ocrPolicyDomain_t *pd, void * initValue, ocrDequeT
             // Warning: function pointers must be specialized in caller
             break;
     default:
-        ASSERT(0);
+        ocrAssert(0);
     }
     self->type = type;
     return self;
@@ -160,7 +160,7 @@ void nonConcDequePushTail(deque_t* self, void* entry, u8 doTry) {
  * pop the task out of the deque from the tail
  */
 void * nonConcDequePopTail(deque_t * self, u8 doTry) {
-    ASSERT(self->tail >= self->head);
+    ocrAssert(self->tail >= self->head);
     if (self->tail == self->head)
         return NULL;
     --(self->tail);
@@ -172,7 +172,7 @@ void * nonConcDequePopTail(deque_t * self, u8 doTry) {
  *  pop the task out of the deque from the head
  */
 void * nonConcDequePopHead(deque_t * self, u8 doTry) {
-    ASSERT(self->tail >= self->head);
+    ocrAssert(self->tail >= self->head);
     if (self->tail == self->head)
         return NULL;
     void * rt = (void*) self->data[(self->head) % INIT_DEQUE_CAPACITY];
@@ -292,7 +292,7 @@ void lockedDequePushTail(deque_t* self, void* entry, u8 doTry) {
 void * lockedDequePopTail(deque_t * self, u8 doTry) {
     dequeSingleLocked_t* dself = (dequeSingleLocked_t*)self;
     hal_lock(&dself->lock);
-    ASSERT(self->tail >= self->head);
+    ocrAssert(self->tail >= self->head);
     if (self->tail == self->head) {
         hal_unlock(&dself->lock);
         return NULL;
@@ -339,7 +339,7 @@ void lockedDequePushHead(deque_t* self, void* entry, u8 doTry) {
 void * lockedDequePopHead(deque_t * self, u8 doTry) {
     dequeSingleLocked_t* dself = (dequeSingleLocked_t*)self;
     hal_lock(&dself->lock);
-    ASSERT(self->tail >= self->head);
+    ocrAssert(self->tail >= self->head);
     if (self->tail == self->head) {
         hal_unlock(&dself->lock);
         return NULL;
@@ -357,7 +357,7 @@ void * lockedDequePopHead(deque_t * self, u8 doTry) {
  */
 void lockedDequePushTailSemiConc(deque_t* self, void* entry, u8 doTry) {
     dequeSingleLocked_t* dself = (dequeSingleLocked_t*)self;
-    ASSERT(entry != NULL);
+    ocrAssert(entry != NULL);
     hal_lock(&dself->lock);
     u32 head = self->head;
     u32 tail = ((u32)self->tail);
@@ -381,7 +381,7 @@ void * nonConcDequePopHeadSemiConc(deque_t * self, u8 doTry) {
         return NULL;
     }
     void * rt = (void*) self->data[head];
-    ASSERT(rt != NULL);
+    ocrAssert(rt != NULL);
 #ifdef OCR_ASSERT
     self->data[head] = NULL; // DEBUG
     hal_fence();
@@ -447,7 +447,7 @@ deque_t * newDeque(ocrPolicyDomain_t *pd, void * initValue, ocrDequeType_t type)
         self = newArrayQueue(pd, initValue);
         break;
     default:
-        ASSERT(0);
+        ocrAssert(0);
     }
     self->type = type;
     return self;

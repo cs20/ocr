@@ -35,8 +35,8 @@ void ocrStatsAsyncMessage(ocrStatsProcess_t *src, ocrStatsProcess_t *dst,
             (u64)msg, GUIDA(src->me), GUIDA(dst->me), tickVal, (int)msg->type);
     msg->tick = tickVal;
     msg->state = 0;
-    ASSERT(msg->src == src->me);
-    ASSERT(msg->dest == dst->me);
+    ocrAssert(msg->src == src->me);
+    ocrAssert(msg->dest == dst->me);
 
     // Notify the sender that a message is being sent
     intProcessOutgoingMessage(src, msg);
@@ -72,8 +72,8 @@ void ocrStatsSyncMessage(ocrStatsProcess_t *src, ocrStatsProcess_t *dst,
             (u64)msg, GUIDA(src->me), GUIDA(dst->me), tickVal, (int)msg->type);
     msg->tick = tickVal;
     msg->state = 1;
-    ASSERT(msg->src == src->me);
-    ASSERT(msg->dest == dst->me);
+    ocrAssert(msg->src == src->me);
+    ocrAssert(msg->dest == dst->me);
 
     // Push the message into the messages queues
     dst->messages->fctPtrs->pushTail(dst->messages, (u64)msg);
@@ -108,7 +108,7 @@ void ocrStatsSyncMessage(ocrStatsProcess_t *src, ocrStatsProcess_t *dst,
     }
 
     // At this point, we can sync our own tick
-    ASSERT(msg->state == 2);
+    ocrAssert(msg->state == 2);
     // We may have had another message being processed at the same
     // time
     src->tick = msg->tick>src->tick?msg->tick:src->tick;

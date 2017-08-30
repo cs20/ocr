@@ -37,12 +37,34 @@ pthread_key_t _profilerThreadData;
 
 static pthread_once_t selfKeyInitialized = PTHREAD_ONCE_INIT;
 
+// Compute numa-aware cpu binding affinity
+static s32 computeCpuId(bindingInfo_t bindingInfo, u64 pdLocation, u64 nbPdLocations) {
+    s32 offset = bindingInfo.offset;
+    u8 pdAllocPolicy = bindingInfo.pdAllocPolicy;
+    u8 nbPackages = bindingInfo.nbPackages;
+    u16 idsPerPackage = bindingInfo.idsPerPackage;
+    s32 newBinding = offset;
+    if (newBinding == -1) {
+        // Return and don't look at policies
+        return newBinding;
+    } else if (PD_ALLOC_POLICY_RR == pdAllocPolicy) {
+        newBinding = offset + (idsPerPackage * (pdLocation / (nbPdLocations / nbPackages)));
+    } else if (PD_ALLOC_POLICY_BLOCK == pdAllocPolicy) {
+        newBinding = (offset + (idsPerPackage * (pdLocation % nbPackages)));
+    } else {
+        newBinding = offset;
+    }
+    return newBinding;
+}
+
 static void * pthreadRoutineExecute(ocrWorker_t * worker) {
     return worker->fcts.run(worker);
 }
 
 static void pthreadRoutineInitializer(ocrCompPlatformPthread_t * pthreadCompPlatform) {
-    s32 cpuBind = pthreadCompPlatform->binding;
+    ocrPolicyDomain_t * pd = ((ocrCompPlatform_t *) pthreadCompPlatform)->pd;
+    s32 cpuBind = computeCpuId(pthreadCompPlatform->bindingInfo, pd->myLocation, pd->neighborCount);
+    pthreadCompPlatform->bindingInfo.offset = cpuBind;
     if(cpuBind != -1) {
         DPRINTF(DEBUG_LVL_INFO, "Binding comp-platform to cpu_id %"PRId32"\n", cpuBind);
         bindThread(cpuBind);
@@ -57,7 +79,7 @@ static void pthreadRoutineInitializer(ocrCompPlatformPthread_t * pthreadCompPlat
             snprintf(buffer, 50, "profiler_%"PRIx64"-%"PRIx64"",
                      ((ocrPolicyDomain_t *)(pthreadCompPlatform->base.pd))->myLocation, (u64)pthreadCompPlatform);
             d->output = fopen(buffer, "w");
-            ASSERT(d->output);
+            ocrAssert(d->output);
         }
         RESULT_ASSERT(pthread_setspecific(_profilerThreadData, d), ==, 0);
     }
@@ -119,7 +141,7 @@ static void * pthreadRoutineWrapper(void * arg) {
     {
         // This should never happen. The NODE master thread should always
         // exist and never enter pthreadRoutineWrapper
-        ASSERT(0);
+        ocrAssert(0);
         break;
     }
     default:
@@ -149,12 +171,12 @@ u8 pthreadSwitchRunlevel(ocrCompPlatform_t *self, ocrPolicyDomain_t *PD, ocrRunl
 
     // The worker is the capable module and we operate as
     // inert wrt it
-    ASSERT(callback == NULL);
+    ocrAssert(callback == NULL);
 
     // Verify properties for this call
-    ASSERT((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
+    ocrAssert((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
            && !(properties & RL_RELEASE));
-    ASSERT(!(properties & RL_FROM_MSG));
+    ocrAssert(!(properties & RL_FROM_MSG));
 
     ocrCompPlatformPthread_t *pthreadCompPlatform = (ocrCompPlatformPthread_t*)self;
     switch(runlevel) {
@@ -200,7 +222,7 @@ u8 pthreadSwitchRunlevel(ocrCompPlatform_t *self, ocrPolicyDomain_t *PD, ocrRunl
                 // This means that we are the node master and therefore do not
                 // need to start another thread. Instead, we set the current environment
                 // for ourself
-                ASSERT(pthread_getspecific(selfKey) == NULL); // The key has not been setup yet
+                ocrAssert(pthread_getspecific(selfKey) == NULL); // The key has not been setup yet
                 RESULT_ASSERT(pthread_setspecific(selfKey, &pthreadCompPlatform->tls), ==, 0);
                 self->fcts.setCurrentEnv(self, self->pd, NULL);
             } else if(properties & RL_PD_MASTER) {
@@ -272,7 +294,7 @@ u8 pthreadSwitchRunlevel(ocrCompPlatform_t *self, ocrPolicyDomain_t *PD, ocrRunl
     case RL_USER_OK:
         break;
     default:
-        ASSERT(0);
+        ocrAssert(0);
     }
     return toReturn;
 }
@@ -288,7 +310,7 @@ u8 pthreadSetThrottle(ocrCompPlatform_t *self, u64 value) {
 u8 pthreadSetCurrentEnv(ocrCompPlatform_t *self, ocrPolicyDomain_t *pd,
                         ocrWorker_t *worker) {
 
-    ASSERT(ocrGuidIsEq(pd->fguid.guid, self->pd->fguid.guid));
+    ocrAssert(ocrGuidIsEq(pd->fguid.guid, self->pd->fguid.guid));
     perThreadStorage_t *tls = pthread_getspecific(selfKey);
     tls->pd = pd;
     tls->worker = worker;
@@ -316,7 +338,12 @@ void initializeCompPlatformPthread(ocrCompPlatformFactory_t * factory, ocrCompPl
 
     ocrCompPlatformPthread_t *compPlatformPthread = (ocrCompPlatformPthread_t *)derived;
     compPlatformPthread->base.fcts = factory->platformFcts;
-    compPlatformPthread->binding = (params != NULL) ? params->binding : -1;
+    if (params != NULL) {
+        // Default values are inherited from the CFG file parser
+        compPlatformPthread->bindingInfo = params->bindingInfo;
+    } else {
+        compPlatformPthread->bindingInfo = (bindingInfo_t) {.offset = ((s32)-1), .idsPerPackage=((u16)0), .nbPackages=((u8)0), .pdAllocPolicy=((u8)0)};
+    }
     compPlatformPthread->stackSize = ((params != NULL) && (params->stackSize > 0)) ? params->stackSize : 8388608;
 #ifdef OCR_RUNTIME_PROFILER
     compPlatformPthread->doProfile = (params != NULL) ? params->doProfile:true;
@@ -356,7 +383,7 @@ void getCurrentEnv(ocrPolicyDomain_t** pd, ocrWorker_t** worker,
     if(task && tls->worker)
         *task = tls->worker->curTask;
     if(msg) {
-        ASSERT(tls->pd != NULL);
+        ocrAssert(tls->pd != NULL);
         //By default set src and dest location to current location.
         msg->srcLocation = tls->pd->myLocation;
         msg->destLocation = msg->srcLocation;

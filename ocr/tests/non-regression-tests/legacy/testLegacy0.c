@@ -19,7 +19,7 @@ int main(int argc, const char * argv[]) {
     ocrGuid_t legacyCtx;
     ocrParseArgs(argc, argv, &ocrConfig);
     ocrLegacyInit(&legacyCtx, &ocrConfig);
-    PRINTF("Running\n");
+    ocrPrintf("Running\n");
     ocrShutdown();
     ocrLegacyFinalize(legacyCtx, true);
     return 0;

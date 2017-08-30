@@ -16,10 +16,10 @@
 #define NB_EDT 10
 
 ocrGuid_t mapFunc(ocrGuid_t startGuid, u64 stride, s64* params, s64* tuple) {
-    ASSERT(params[0] == 4);
-    ASSERT(params[1] == 3);
-    ASSERT(params[2] == 2);
-    ASSERT(params[3] == 1);
+    ocrAssert(params[0] == 4);
+    ocrAssert(params[1] == 3);
+    ocrAssert(params[2] == 2);
+    ocrAssert(params[3] == 1);
     return addValueToGuid(startGuid, tuple[0]*stride);
 }
 
@@ -28,7 +28,7 @@ ocrGuid_t shutEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     int i = 0;
     while (i < NB_EDT) {
         if (!ocrGuidIsNull(depv[i].guid)) {
-            ASSERT(ocrGuidIsNull(db));
+            ocrAssert(ocrGuidIsNull(db));
             db = depv[i].guid;
         }
         i++;
@@ -87,7 +87,7 @@ ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
 #else
 
 ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
-    PRINTF("Test disabled - ENABLE_EXTENSION_LABELING not defined\n");
+    ocrPrintf("Test disabled - ENABLE_EXTENSION_LABELING not defined\n");
     ocrShutdown();
     return NULL_GUID;
 }

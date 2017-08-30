@@ -52,7 +52,7 @@ static inline u8 guidLocationShort(struct _ocrPolicyDomain_t * pd, ocrFatGuid_t 
 
 
 extern u8 resolveRemoteMetaData(ocrPolicyDomain_t * pd, ocrFatGuid_t * fatGuid,
-                                ocrPolicyMsg_t * msg, bool isBlocking);
+                                ocrPolicyMsg_t * msg, bool isBlocking, bool fetch);
 
 #define RETRIEVE_LOCATION_FROM_MSG(pd, fname, dstLoc, DIR) \
     ocrFatGuid_t fatGuid__ = PD_MSG_FIELD_##DIR(fname); \
@@ -79,7 +79,7 @@ extern u8 resolveRemoteMetaData(ocrPolicyDomain_t * pd, ocrFatGuid_t * fatGuid,
 
 static void setReturnDetail(ocrPolicyMsg_t * msg, u8 returnDetail) {
     // This is open for debate here #932
-    ASSERT(returnDetail == 0);
+    ocrAssert(returnDetail == 0);
     switch(msg->type & PD_MSG_TYPE_ONLY) {
     case PD_MSG_EVT_DESTROY:
     {
@@ -154,7 +154,7 @@ static void setReturnDetail(ocrPolicyMsg_t * msg, u8 returnDetail) {
     break;
     }
     default:
-    ASSERT("Unhandled message type in setReturnDetail");
+    ocrAssert("Unhandled message type in setReturnDetail");
     break;
     }
 }
@@ -162,7 +162,7 @@ static void setReturnDetail(ocrPolicyMsg_t * msg, u8 returnDetail) {
 extern u8 processIncomingMsg(ocrPolicyDomain_t * pd, ocrPolicyMsg_t * msg);
 
 u8 processCommEvent(ocrPolicyDomain_t *self, pdEvent_t** evt, u32 idx) {
-    ASSERT(((*evt)->properties & PDEVT_TYPE_MASK) == PDEVT_TYPE_MSG);
+    ocrAssert(((*evt)->properties & PDEVT_TYPE_MASK) == PDEVT_TYPE_MSG);
     DPRINTF(DEBUG_LVL_VERB, "processCommEvent invoked\n");
     processIncomingMsg(self, ((pdEventMsg_t *) *evt)->msg);
     // Ok to systematically free for now because msg events is a separate allocation from the pd msg itself
@@ -170,9 +170,9 @@ u8 processCommEvent(ocrPolicyDomain_t *self, pdEvent_t** evt, u32 idx) {
     // to make a decision.
     // NOTE: the event is actually auto garbage collected. We check to make sure this
     // is the case
-    ASSERT((*evt)->properties & PDEVT_GC);
+    ocrAssert((*evt)->properties & PDEVT_GC);
     // It should also not free the message itself (see above)
-    ASSERT(!((*evt)->properties & PDEVT_DESTROY_DEEP));
+    ocrAssert(!((*evt)->properties & PDEVT_DESTROY_DEEP));
     *evt = NULL;
     return 0;
 }
@@ -244,9 +244,9 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
 
     // This check is only meant to prevent erroneous uses of non-blocking processing for messages
     // that require a response. For now, only PD_MSG_DEP_REGWAITER message is using this feature.
-    ASSERT(msg->bufferSize != 0);
+    ocrAssert(msg->bufferSize != 0);
     if ((isBlocking == false) && (msg->type & PD_MSG_REQ_RESPONSE)) {
-        ASSERT(((msg->type & PD_MSG_TYPE_ONLY) == PD_MSG_DB_ACQUIRE)
+        ocrAssert(((msg->type & PD_MSG_TYPE_ONLY) == PD_MSG_DB_ACQUIRE)
             || ((msg->type & PD_MSG_TYPE_ONLY) == PD_MSG_GUID_METADATA_CLONE)
             // Some scenario we want the satisfy to be blocking
             // (see EDT's finish latch and MD_MOVE)
@@ -322,11 +322,11 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
         ocrLocation_t srcLocation = msg->srcLocation;
 #endif
         //TODO-MD-MT could create a continuation for that
-        u8 res = resolveRemoteMetaData(self, &PD_MSG_FIELD_I(templateGuid), msg, (msg->srcLocation == self->myLocation));
+        u8 res = resolveRemoteMetaData(self, &PD_MSG_FIELD_I(templateGuid), msg, (msg->srcLocation == self->myLocation), true);
         if (res == OCR_EPEND) {
             // We do not handle pending if it is an edt spawned locally as there's
             // context on the call stack we can't just return from.
-            ASSERT(srcLocation != curLoc);
+            ocrAssert(srcLocation != curLoc);
             // template's metadata not available, message processing will be rescheduled.
             PROCESS_MESSAGE_RETURN_NOW(self, OCR_EPEND);
         }
@@ -337,12 +337,12 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
         if((PD_MSG_FIELD_IO(paramc) == EDT_PARAM_DEF) || (PD_MSG_FIELD_IO(depc) == EDT_PARAM_DEF)) {
             getTemplateParamcDepc(self, &PD_MSG_FIELD_I(templateGuid), &PD_MSG_FIELD_IO(paramc), &PD_MSG_FIELD_IO(depc));
         }
-        ASSERT(PD_MSG_FIELD_IO(paramc) != EDT_PARAM_UNK && PD_MSG_FIELD_IO(depc) != EDT_PARAM_UNK);
-        ASSERT(PD_MSG_FIELD_IO(paramc) != EDT_PARAM_DEF && PD_MSG_FIELD_IO(depc) != EDT_PARAM_DEF);
+        ocrAssert(PD_MSG_FIELD_IO(paramc) != EDT_PARAM_UNK && PD_MSG_FIELD_IO(depc) != EDT_PARAM_UNK);
+        ocrAssert(PD_MSG_FIELD_IO(paramc) != EDT_PARAM_DEF && PD_MSG_FIELD_IO(depc) != EDT_PARAM_DEF);
         if((PD_MSG_FIELD_I(paramv) == NULL) && (PD_MSG_FIELD_IO(paramc) != 0)) {
             // User error, paramc non zero but no parameters
             DPRINTF(DEBUG_LVL_WARN, "error: paramc is non-zero but paramv is NULL\n");
-            ASSERT(false);
+            ocrAssert(false);
             PROCESS_MESSAGE_RETURN_NOW(self, OCR_EINVAL);
         }
         ocrFatGuid_t currentEdt = PD_MSG_FIELD_I(currentEdt);
@@ -366,7 +366,7 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
                 u32 depc = ((depv != NULL) ? PD_MSG_FIELD_IO(depc) : 0);
                 u32 i;
                 for(i=0; i<depc; i++) {
-                    ASSERT(!(ocrGuidIsUninitialized(depv[i].guid)));
+                    ocrAssert(!(ocrGuidIsUninitialized(depv[i].guid)));
                     ocrGuidKind kind;
                     RESULT_ASSERT(self->guidProviders[0]->fcts.getKind(self->guidProviders[0], depv[i].guid, &kind), ==, 0);
                     if ((kind == OCR_GUID_EVENT_ONCE) || (kind == OCR_GUID_EVENT_LATCH)) {
@@ -387,7 +387,7 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
                 ocrLocation_t parentLatchLoc;
                 RETRIEVE_LOCATION_FROM_GUID(self, parentLatchLoc, parentLatch.guid);
                 //By construction the parent latch is always local
-                ASSERT(parentLatchLoc == curLoc);
+                ocrAssert(parentLatchLoc == curLoc);
                 //Check in to parent latch
                 PD_MSG_STACK(msg2);
                 getCurrentEnv(NULL, NULL, NULL, &msg2);
@@ -419,7 +419,7 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
     {
 #define PD_MSG msg
 #define PD_TYPE PD_MSG_METADATA_COMM
-        ASSERT(msg->destLocation != msg->srcLocation);
+        ocrAssert(msg->destLocation != msg->srcLocation);
         //Notes about the previous assert:
         //- Basically says I know we're pushing and pulling so it makes
         //no sense that a PD asks itself something. For now this is useful
@@ -436,6 +436,29 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
             DPRINTF(DEBUG_LVL_VERB, "Sending MD_COMM to %"PRIu64" mode=%"PRIu64" for "GUIDF"\n", msg->destLocation, PD_MSG_FIELD_I(mode), GUIDA(PD_MSG_FIELD_I(guid)));
         } else {
             DPRINTF(DEBUG_LVL_VERB, "Receiving MD_COMM from %"PRIu64" mode=%"PRIu64" for "GUIDF"\n", msg->srcLocation, PD_MSG_FIELD_I(mode), GUIDA(PD_MSG_FIELD_I(guid)));
+            ASSERT((msg->srcLocation != self->myLocation));
+            ocrGuidKind guidKind;
+            RESULT_ASSERT(self->guidProviders[0]->fcts.getKind(self->guidProviders[0], PD_MSG_FIELD_I(guid), &guidKind), == , 0);
+            //Handle races when reduction event traffic reaches a PD that hasn't created its reduction event yet.
+            //In that case we use the remote metadata resolve mecanism, but do not require a fetch, so that the
+            //current message is enqueued if the metadata is not present.
+            //Other MD implementation just fall-through and go through the factory to proceed with their MD protocol,
+            //typically a M_CLONE operation that will create an instance in this PD.
+#ifdef ENABLE_EXTENSION_COLLECTIVE_EVT
+            if (guidKind == OCR_GUID_EVENT_COLLECTIVE) {
+                //COL-EVTX: Revisit this if we change the init/usage of reduction events. We may have to do a fetch instead
+                //TODO-MD-MT could create a continuation for that
+                ocrFatGuid_t fguid = {.guid = PD_MSG_FIELD_I(guid), .metaDataPtr = NULL};
+                u8 res = resolveRemoteMetaData(self, &fguid, msg, /*isBlocking=*/false, /*fetch=*/false);
+                if (res == OCR_EPEND) {
+                    // We do not handle pending if it is an edt spawned locally as
+                    // there's context on the call stack we can't just return from.
+                    ASSERT(msg->srcLocation != curLoc);
+                    // metadata not available, message processing will be rescheduled.
+                    PROCESS_MESSAGE_RETURN_NOW(self, OCR_EPEND);
+                }
+            }
+#endif
         }
         // Fall-through:
         // - Outgoing: just forward as a one-way
@@ -452,7 +475,7 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
         // We override in case the GUID is labeled
         if (PD_MSG_FIELD_IO(properties) & GUID_PROP_IS_LABELED) {
             RETRIEVE_LOCATION_FROM_GUID_MSG(self, msg->destLocation, IO);
-            ASSERT(false); //TODO need to think about how labeled DB creation plays out with MD
+            ocrAssert(false); //TODO need to think about how labeled DB creation plays out with MD
         }
 
         //TODO-MD: Pas cool. The DB carries a hint to a location that's used
@@ -469,7 +492,14 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
     {
 #define PD_MSG msg
 #define PD_TYPE PD_MSG_EVT_CREATE
+#ifdef ENABLE_EXTENSION_COLLECTIVE_EVT
+        ocrGuidKind guidKind;
+        self->guidProviders[0]->fcts.getKind(self->guidProviders[0], PD_MSG_FIELD_IO(guid.guid), &guidKind);
+        bool GUID_PROP_IS_LOCAL_LABELED = (guidKind == OCR_GUID_EVENT_COLLECTIVE);
+        if ((PD_MSG_FIELD_I(properties) & GUID_PROP_IS_LABELED) && (!GUID_PROP_IS_LOCAL_LABELED)) {
+#else
         if (PD_MSG_FIELD_I(properties) & GUID_PROP_IS_LABELED) {
+#endif
             // We need to resolve location because of labeled GUIDs.
             RETRIEVE_LOCATION_FROM_GUID_MSG(self, msg->destLocation, IO);
         } else {
@@ -503,7 +533,15 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
     {
 #define PD_MSG (msg)
 #define PD_TYPE PD_MSG_DEP_SATISFY
+#ifdef ENABLE_EXTENSION_COLLECTIVE_EVT
+        ocrGuidKind guidKind;
+        RESULT_ASSERT(self->guidProviders[0]->fcts.getKind(self->guidProviders[0], PD_MSG_FIELD_I(guid.guid), &guidKind), == , 0);
+        if (guidKind != OCR_GUID_EVENT_COLLECTIVE) {
+            RETRIEVE_LOCATION_FROM_GUID_MSG(self, msg->destLocation, I);
+        }// else satisfy involving reduction events are always local
+#else
         RETRIEVE_LOCATION_FROM_GUID_MSG(self, msg->destLocation, I);
+#endif
         DPRINTF(DEBUG_LVL_VVERB,"DEP_SATISFY: target is %"PRId32"\n", (u32) msg->destLocation);
 #ifdef ENABLE_EXTENSION_CHANNEL_EVT
 #ifndef XP_CHANNEL_EVT_NONFIFO
@@ -522,7 +560,7 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
                 if (dbLoc == curLoc) {
                     self->guidProviders[0]->fcts.getVal(self->guidProviders[0], dbFat.guid,
                                     (u64*)&(dbFat.metaDataPtr), NULL, MD_LOCAL, NULL);
-                    ASSERT(dbFat.metaDataPtr != NULL);
+                    ocrAssert(dbFat.metaDataPtr != NULL);
                     // Check for eager
                     ocrHint_t hint;
                     RESULT_ASSERT(ocrHintInit(&hint, OCR_HINT_DB_T), ==, 0);
@@ -612,7 +650,7 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
     }
     case PD_MSG_DB_DESTROY:
     {
-        ASSERT(false);
+        ocrAssert(false);
         //TODO this is where the PD should ask the factory what to do with the call
 #define PD_MSG (msg)
 #define PD_TYPE PD_MSG_DB_DESTROY
@@ -661,7 +699,7 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
         self->guidProviders[0]->fcts.getVal(self->guidProviders[0], PD_MSG_FIELD_IO(guid.guid), &val, &kind, MD_LOCAL, NULL);
         if ((val == 0) && (kind == OCR_GUID_GUIDMAP)) {
             //BUG #536: cloning - piggy back on the mecanism that fetches templates
-            RESULT_ASSERT(resolveRemoteMetaData(self, &PD_MSG_FIELD_IO(guid), msg, true), ==, 0);
+            RESULT_ASSERT(resolveRemoteMetaData(self, &PD_MSG_FIELD_IO(guid), msg, true, true), ==, 0);
         } else {
             //BUG #536: cloning: What's the meaning of guid info in distributed ?
             msg->destLocation = curLoc;
@@ -676,8 +714,7 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
 #define PD_TYPE PD_MSG_GUID_METADATA_CLONE
         if (msg->type & PD_MSG_REQUEST) {
             if (HAS_MD_CLONE(PD_MSG_FIELD_I(type))) {
-                // Do not call the macro because it relies on GUID_INFO
-                // and we go into a deadlock when cloning GUID maps
+                // Do not call the macro because it relies on GUID_INFO and we go into a deadlock when cloning GUID maps
                 // RETRIEVE_LOCATION_FROM_GUID_MSG(self, msg->destLocation, IO);
                 self->guidProviders[0]->fcts.getLocation(self->guidProviders[0], PD_MSG_FIELD_IO(guid.guid), &(msg->destLocation));
                 DPRINTF(DEBUG_LVL_VVERB,"METADATA_CLONE: request for guid="GUIDF" src=%"PRId32" dest=%"PRId32"\n",
@@ -691,7 +728,7 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
                     // The caller must ensure this code is executed by a single worker thread per OCR object instance.
                     ocrGuidKind guidKind;
                     u8 ret = self->guidProviders[0]->fcts.getKind(self->guidProviders[0], PD_MSG_FIELD_IO(guid.guid), &guidKind);
-                    ASSERT(!ret);
+                    ocrAssert(!ret);
                     // TODO: Extend to ocrObjectFactory_t when md cloning is fully implemented
                     // TODO: forge support: Only sticky events supported so far
                     if ((guidKind == OCR_GUID_DB) || MDC_SUPPORT_EVT(guidKind)) {
@@ -724,8 +761,8 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
                 }
             } else { // MD_MOVE request
                 // In current implementation this type of message never leaves the current PD
-                ASSERT(msg->srcLocation == msg->destLocation);
-                ASSERT(msg->srcLocation == curLoc);
+                ocrAssert(msg->srcLocation == msg->destLocation);
+                ocrAssert(msg->srcLocation == curLoc);
                 // Local PD needs to inspect the MD_MOVE operation and take appropriate actions
                 // which include notifying relevant PD modules and invoke lower-level MD_COMM APIs
             }
@@ -740,8 +777,8 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
                 // Incoming response to an asynchronous metadata clone
                 u64 metaDataSize = sizeof(ocrTaskTemplateHc_t) + (sizeof(u64) * OCR_HINT_COUNT_EDT_HC);
                 void * metaDataPtr = self->fcts.pdMalloc(self, metaDataSize);
-                ASSERT(PD_MSG_FIELD_IO(guid.metaDataPtr) != NULL); // Currently points to message's payload
-                ASSERT(PD_MSG_FIELD_O(size) == metaDataSize);
+                ocrAssert(PD_MSG_FIELD_IO(guid.metaDataPtr) != NULL); // Currently points to message's payload
+                ocrAssert(PD_MSG_FIELD_O(size) == metaDataSize);
                 hal_memCopy(metaDataPtr, PD_MSG_FIELD_IO(guid.metaDataPtr), metaDataSize, false);
                 void * base = PD_MSG_FIELD_IO(guid.metaDataPtr);
                 ocrTaskTemplateHc_t * tpl = (ocrTaskTemplateHc_t *) metaDataPtr;
@@ -768,7 +805,7 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
                 ocrGuidMap_t * mapOrg = (ocrGuidMap_t *) PD_MSG_FIELD_IO(guid.metaDataPtr);
                 u64 metaDataSize = ((sizeof(ocrGuidMap_t) + sizeof(s64) - 1) & ~(sizeof(s64)-1)) + mapOrg->numParams*sizeof(s64);
                 void * metaDataPtr = self->fcts.pdMalloc(self, metaDataSize);
-                ASSERT(PD_MSG_FIELD_IO(guid.metaDataPtr) != NULL);
+                ocrAssert(PD_MSG_FIELD_IO(guid.metaDataPtr) != NULL);
                 hal_memCopy(metaDataPtr, mapOrg, metaDataSize, false);
                 ocrGuidMap_t * map = (ocrGuidMap_t *) metaDataPtr;
                 if (mapOrg->numParams) { // Fix-up params
@@ -780,7 +817,7 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
             }
 #endif
             else {
-                ASSERT(tkind == OCR_GUID_AFFINITY);
+                ocrAssert(tkind == OCR_GUID_AFFINITY);
                 DPRINTF(DEBUG_LVL_VVERB,"METADATA_CLONE: Incoming response for affinity "GUIDF")\n", GUIDA(PD_MSG_FIELD_IO(guid.guid)));
                 // Intercept that and make a copy of the affinity
                 u64 metaDataSize = sizeof(ocrAffinity_t);
@@ -803,7 +840,7 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
 #define PD_TYPE PD_MSG_GUID_DESTROY
         u64 val;
         self->guidProviders[0]->fcts.getVal(self->guidProviders[0], PD_MSG_FIELD_I(guid).guid, &val, NULL, MD_LOCAL, NULL);
-        ASSERT(val != 0);
+        ocrAssert(val != 0);
 //         RETRIEVE_LOCATION_FROM_GUID_MSG(self, msg->destLocation, I);
 //         DPRINTF(DEBUG_LVL_VVERB, "GUID_DESTROY: target is %"PRId32"\n", (u32)msg->destLocation);
 #undef PD_MSG
@@ -816,8 +853,8 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
 #define PD_MSG (msg)
 #define PD_TYPE PD_MSG_MGT_RL_NOTIFY
         if ((msg->srcLocation != curLoc) && (msg->destLocation == curLoc)) {
-            ASSERT(PD_MSG_FIELD_I(runlevel) == RL_COMPUTE_OK);
-            ASSERT(PD_MSG_FIELD_I(properties) == (RL_REQUEST | RL_BARRIER | RL_TEAR_DOWN));
+            ocrAssert(PD_MSG_FIELD_I(runlevel) == RL_COMPUTE_OK);
+            ocrAssert(PD_MSG_FIELD_I(properties) == (RL_REQUEST | RL_BARRIER | RL_TEAR_DOWN));
             // Incoming rl notify message from another PD
             ocrPolicyDomainHcDist_t * rself = ((ocrPolicyDomainHcDist_t*)self);
             // incr the shutdown counter (compete with hcDistPdSwitchRunlevel)
@@ -879,7 +916,7 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
     {
 #define PD_MSG (msg)
 #define PD_TYPE PD_MSG_DB_ACQUIRE
-        ASSERT((msg->srcLocation == msg->destLocation) && "All DB_ACQUIRE messages should be local");
+        ocrAssert((msg->srcLocation == msg->destLocation) && "All DB_ACQUIRE messages should be local");
         if (msg->type & PD_MSG_REQUEST) {
             // Whether the DB is local or not try to resolve it.
             // - Rationale is that even if the MD is already available in this PD,
@@ -889,7 +926,7 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
             ocrFatGuid_t fguid = PD_MSG_FIELD_IO(guid);
             // TODO: Do we want blocking to be driven by the blocking parameter of processMessage ?
             // TODO: Ideally disambiguation here based on LowLevel MD if operation should pull the MD or delegate to where GUID lives
-            u8 ret = resolveRemoteMetaData(self, &fguid, msg, /*isBlocking=*/false);
+            u8 ret = resolveRemoteMetaData(self, &fguid, msg, /*isBlocking=*/false, true);
 
             // NOTE: PD_MSG_DB_ACQUIRE messages never leaves the policy domain.
             // Acquisition protocol is implemented by the metadata.
@@ -914,13 +951,13 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
         #ifdef OCR_ASSERT
 #define PD_MSG (msg)
 #define PD_TYPE PD_MSG_DB_RELEASE
-        ASSERT((msg->srcLocation == msg->destLocation) && "All DB_RELEASE messages should be local");
+        ocrAssert((msg->srcLocation == msg->destLocation) && "All DB_RELEASE messages should be local");
         if ((msg->srcLocation == curLoc) && (msg->destLocation != curLoc)) {
             // If there are multiple concurrent acquire on the same DB's metadata, only one cloning operation is issued and others are enqueued.
             // Note this differs from the actual acquire operation where concurrency is handle in the datablock implementation.
             // This is just for assertion purpose and ok if not executed when asserts are off
             u64 val;
-            ASSERT(self->guidProviders[0]->fcts.getVal(self->guidProviders[0], PD_MSG_FIELD_IO(guid.guid), &val, NULL, MD_LOCAL, NULL) == 0);
+            ocrAssert(self->guidProviders[0]->fcts.getVal(self->guidProviders[0], PD_MSG_FIELD_IO(guid.guid), &val, NULL, MD_LOCAL, NULL) == 0);
         }
 #undef PD_MSG
 #undef PD_TYPE
@@ -941,7 +978,15 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
     {
 #define PD_MSG (msg)
 #define PD_TYPE PD_MSG_DEP_REGWAITER
+#if defined(ENABLE_EXTENSION_COLLECTIVE_EVT) || (defined(ENABLE_EVENT_MDC_FORGE) && (ENABLE_EVENT_MDC_FORGE == 1))
+        ocrGuidKind guidKind;
+        RESULT_ASSERT(self->guidProviders[0]->fcts.getKind(self->guidProviders[0], PD_MSG_FIELD_I(dest.guid), &guidKind), == , 0);
+        if ((guidKind != OCR_GUID_EVENT_COLLECTIVE) && (!MDC_SUPPORT_EVT(guidKind))) {
+#endif
         RETRIEVE_LOCATION_FROM_MSG(self, dest, msg->destLocation, I);
+#if defined(ENABLE_EXTENSION_COLLECTIVE_EVT) || (defined(ENABLE_EVENT_MDC_FORGE) && (ENABLE_EVENT_MDC_FORGE == 1))
+        }
+#endif
         DPRINTF(DEBUG_LVL_VVERB, "DEP_REGWAITER: destGuid is "GUIDF" target is %"PRId32"\n",
                                 GUIDA(PD_MSG_FIELD_I(dest.guid)), (u32)msg->destLocation);
 #undef PD_MSG
@@ -1002,12 +1047,12 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
     }
     case PD_MSG_DEP_UNREGSIGNALER: {
         //Not implemented: see #521, #522
-        ASSERT(false && "Not implemented PD_MSG_DEP_UNREGSIGNALER");
+        ocrAssert(false && "Not implemented PD_MSG_DEP_UNREGSIGNALER");
         break;
     }
     case PD_MSG_DEP_UNREGWAITER: {
         //Not implemented: see #521, #522
-        ASSERT(false && "Not implemented PD_MSG_DEP_UNREGWAITER");
+        ocrAssert(false && "Not implemented PD_MSG_DEP_UNREGWAITER");
         break;
     }
     // filter out local messages
@@ -1046,7 +1091,7 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
 
         // This is just a fail-safe to make sure the
         // PD impl accounts for all type of messages.
-        ASSERT(false && "Unsupported message type");
+        ocrAssert(false && "Unsupported message type");
     }
 
     // By now, we must have decided what's the actual destination of the message
@@ -1095,7 +1140,7 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
             // need this strand
             {
                 u8 ret __attribute__((unused)) = pdResolveEvent(self, (u64*)&event, true);
-                ASSERT(ret == 0 || ret == OCR_ENOP);
+                ocrAssert(ret == 0 || ret == OCR_ENOP);
             }
             ocrPolicyMsg_t *response = ((pdEventMsg_t*)event)->msg;
             // We have the response and won't do anything with the event anymore; we destroy it
@@ -1113,7 +1158,7 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
             self->fcts.waitMessage(self, &handle);
             DPRINTF(DEBUG_LVL_VVERB,"Received reply from %"PRId32" for original message @ %p\n",
                     (u32)msg->destLocation, originalMsg);
-            ASSERT(handle->response != NULL);
+            ocrAssert(handle->response != NULL);
 
             // Check if we need to copy the response header over to the request msg.
             // Happens when the message includes some additional variable size payload
@@ -1166,7 +1211,7 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
 
                 // That should only happen for cloning for which we've already
                 // extracted payload as a separated heap-allocated pointer
-                ASSERT(baseSize <= originalMsg->bufferSize);
+                ocrAssert(baseSize <= originalMsg->bufferSize);
 
                 // Marshall 'response' into 'originalMsg': DOES NOT duplicate the payload
 
@@ -1211,13 +1256,13 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
                 sendProp = ASYNC_MSG_PROP;
                 // Outgoing asynchronous response for a two-way communication
                 // Should be the only asynchronous two-way msg kind for now
-                ASSERT((msg->type & PD_MSG_TYPE_ONLY) == PD_MSG_GUID_METADATA_CLONE);
+                ocrAssert((msg->type & PD_MSG_TYPE_ONLY) == PD_MSG_GUID_METADATA_CLONE);
             } else {
-                ASSERT(msg->type & PD_MSG_REQUEST);
+                ocrAssert(msg->type & PD_MSG_REQUEST);
 #define PD_MSG msg
 #define PD_TYPE PD_MSG_WORK_CREATE
                 if (((msg->type & PD_MSG_TYPE_ONLY) == PD_MSG_WORK_CREATE) && !(msg->type & PD_MSG_REQ_RESPONSE)) {
-                    ASSERT(ocrGuidIsNull(PD_MSG_FIELD_IO(guid.guid)));
+                    ocrAssert(ocrGuidIsNull(PD_MSG_FIELD_IO(guid.guid)));
                     // Do a full marshalling to make sure we capture paramv/depv
                     ocrMarshallMode_t marshallMode = MARSHALL_FULL_COPY;
                     sendProp |= (((u32)marshallMode) << COMM_PROP_BEHAVIOR_OFFSET);
@@ -1356,8 +1401,8 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
         if ((ret != OCR_EPEND) && (msg->destLocation != curLoc)) {
             // For now a two-way is always between the same pair of src/dst.
             // Cannot answer to someone else on behalf of the original sender.
-            ASSERT(msg->destLocation == orgSrcLocation);
-            ASSERT(reqResponse); // double check not trying to answer when we shouldn't
+            ocrAssert(msg->destLocation == orgSrcLocation);
+            ocrAssert(reqResponse); // double check not trying to answer when we shouldn't
 
             //IMPL: Because we are processing a two-way originating from another PD,
             // the message buffer is necessarily managed by the runtime (as opposed
@@ -1366,8 +1411,8 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
             // The message will be deallocated on one-way call completion.
             u32 sendProp = PERSIST_MSG_PROP;
             DPRINTF(DEBUG_LVL_VVERB, "Send response to %"PRIu64" type=%"PRIx64" after local processing of msg\n", msg->destLocation, msg->type & PD_MSG_TYPE_ONLY);
-            ASSERT(msg->type & PD_MSG_RESPONSE);
-            ASSERT((msg->type & PD_MSG_TYPE_ONLY) != PD_MSG_MGT_MONITOR_PROGRESS);
+            ocrAssert(msg->type & PD_MSG_RESPONSE);
+            ocrAssert((msg->type & PD_MSG_TYPE_ONLY) != PD_MSG_MGT_MONITOR_PROGRESS);
             switch(msg->type & PD_MSG_TYPE_ONLY) {
             case PD_MSG_WORK_CREATE:
             {
@@ -1394,13 +1439,13 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
             case PD_MSG_METADATA_COMM:
             {
                 //BUG #190
-                ASSERT(msg->type & PD_MSG_RESPONSE);
+                ocrAssert(msg->type & PD_MSG_RESPONSE);
                 // This is necessary to tag the response as a one-way
                 sendProp |= ASYNC_MSG_PROP;
                 break;
             }
             default: {
-                ASSERT(msg->type & PD_MSG_RESPONSE);
+                ocrAssert(msg->type & PD_MSG_RESPONSE);
             }
             }
             // Do the post processing BEFORE sending otherwise the msg destruction is concurrent
@@ -1450,9 +1495,9 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
 u8 hcDistProcessEvent(ocrPolicyDomain_t* self, pdEvent_t **evt, u32 idx) {
     // Simple version to test out micro tasks for now. This just executes a blocking
     // call to the regular process message and returns NULL
-    ASSERT(idx == 0);
-    ASSERT((evt != NULL) && (*evt != NULL));
-    ASSERT(((*evt)->properties & PDEVT_TYPE_MASK) == PDEVT_TYPE_MSG);
+    ocrAssert(idx == 0);
+    ocrAssert((evt != NULL) && (*evt != NULL));
+    ocrAssert(((*evt)->properties & PDEVT_TYPE_MASK) == PDEVT_TYPE_MSG);
     pdEventMsg_t *evtMsg = (pdEventMsg_t*)(*evt);
     ocrPolicyMsg_t * msg = evtMsg->msg;
 
@@ -1474,7 +1519,7 @@ u8 hcDistProcessEvent(ocrPolicyDomain_t* self, pdEvent_t **evt, u32 idx) {
     } else {
         // HACK: For now, this path should not be exercised
 #ifndef ENABLE_OCR_API_DEFERRABLE
-        ASSERT(0);
+        ocrAssert(0);
 #endif
         //TODO-DEFERRED Copy paste from hc-policy.c
         ocrWorker_t * worker;
@@ -1498,7 +1543,7 @@ u8 hcDistPdSwitchRunlevel(ocrPolicyDomain_t *self, ocrRunlevel_t runlevel, u32 p
     ocrPolicyDomainHc_t *rself = (ocrPolicyDomainHc_t*) self;
 
     if((runlevel == RL_USER_OK) && RL_IS_LAST_PHASE_DOWN(self, RL_USER_OK, rself->rlSwitch.nextPhase)) {
-        ASSERT(rself->rlSwitch.runlevel == runlevel);
+        ocrAssert(rself->rlSwitch.runlevel == runlevel);
         // The local shutdown is completed.
         // Notify neighbors PDs and stall the phase change
         // until we got acknoledgements from all of them.
@@ -1553,7 +1598,7 @@ u8 hcDistPdSwitchRunlevel(ocrPolicyDomain_t *self, ocrRunlevel_t runlevel, u32 p
                 RL_ENSURE_PHASE_DOWN(self, RL_USER_OK, 0, 3);
             }
         } else {
-            ASSERT(properties & RL_TEAR_DOWN);
+            ocrAssert(properties & RL_TEAR_DOWN);
         }
         return res;
     }
@@ -1563,12 +1608,15 @@ u8 hcDistPdSendMessage(ocrPolicyDomain_t* self, ocrLocation_t target, ocrPolicyM
                    ocrMsgHandle_t **handle, u32 properties) {
     ocrWorker_t * worker;
 #ifdef UTASK_COMM2
-    ASSERT(0); // Should use micro-tasks to communicate
+    ocrAssert(0); // Should use micro-tasks to communicate
 #endif
     getCurrentEnv(NULL, &worker, NULL, NULL);
-    ASSERT(((s32)target) > -1);
-    ASSERT(message->srcLocation == self->myLocation);
-    ASSERT(message->destLocation != self->myLocation);
+    ocrAssert(((s32)target) > -1);
+    ocrAssert(message->srcLocation == self->myLocation);
+    ocrAssert(message->destLocation != self->myLocation);
+#ifdef OCR_ENABLE_SIMULATOR
+    message->msgTime = self->pdTime & ~OCR_SIM_ALLOW_PROGRESS;
+#endif
     u32 id = worker->id;
     u8 ret = self->commApis[id]->fcts.sendMessage(self->commApis[id], target, message, handle, properties);
     return ret;
@@ -1576,7 +1624,7 @@ u8 hcDistPdSendMessage(ocrPolicyDomain_t* self, ocrLocation_t target, ocrPolicyM
 
 u8 hcDistPdPollMessage(ocrPolicyDomain_t *self, ocrMsgHandle_t **handle) {
 #ifdef UTASK_COMM2
-    ASSERT(0); // Should use micro-tasks to communicate
+    ocrAssert(0); // Should use micro-tasks to communicate
 #endif
     ocrWorker_t * worker;
     getCurrentEnv(NULL, &worker, NULL, NULL);
@@ -1587,19 +1635,25 @@ u8 hcDistPdPollMessage(ocrPolicyDomain_t *self, ocrMsgHandle_t **handle) {
 
 u8 hcDistPdWaitMessage(ocrPolicyDomain_t *self,  ocrMsgHandle_t **handle) {
 #ifdef UTASK_COMM2
-    ASSERT(0); // Should use micro-tasks to communicate
+    ocrAssert(0); // Should use micro-tasks to communicate
 #endif
     ocrWorker_t * worker;
     getCurrentEnv(NULL, &worker, NULL, NULL);
     u32 id = worker->id;
+#ifdef OCR_ENABLE_SIMULATOR
+    worker->workerTime |= OCR_SIM_ALLOW_PROGRESS;
+#endif
     u8 ret = self->commApis[id]->fcts.waitMessage(self->commApis[id], handle);
+#ifdef OCR_ENABLE_SIMULATOR
+    worker->workerTime &= ~OCR_SIM_ALLOW_PROGRESS;
+#endif
     return ret;
 }
 
 u8 hcDistPdSendMessageMT(ocrPolicyDomain_t* self, pdEvent_t **inOutEvent,
                          pdEvent_t **statusEvent, u32 idx) {
 #ifdef UTASK_COMM2
-    ASSERT(0); // Should use micro-tasks to communicate
+    ocrAssert(0); // Should use micro-tasks to communicate
 #endif
     return OCR_ENOTSUP;
 }

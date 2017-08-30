@@ -137,9 +137,12 @@ void translateObject(ocrTraceObj_t *trace){
             {
                 ocrGuid_t src = TRACE_FIELD(TASK, taskDepReady, trace, src);
                 ocrGuid_t dest = TRACE_FIELD(TASK, taskDepReady, trace, dest);
+                u32 sslot = TRACE_FIELD(TASK, taskDepReady, trace, sslot);
+                u32 dslot = TRACE_FIELD(TASK, taskDepReady, trace, dslot);
 
-                printf("[TRACE] U/R: %s | PD: 0x%"PRIx64" | WORKER_ID: %"PRIu64" | EDT: "GUIDF" | TIMESTAMP: %"PRIu64" | TYPE: EDT | ACTION: ADD_DEP | SRC: "GUIDF" | DEST: "GUIDF"\n",
-                        evt_type[evtType], location, workerId, GUIDA(parent), timestamp, GUIDA(src), GUIDA(dest));
+
+                printf("[TRACE] U/R: %s | PD: 0x%"PRIx64" | WORKER_ID: %"PRIu64" | EDT: "GUIDF" | TIMESTAMP: %"PRIu64" | TYPE: EDT | ACTION: ADD_DEP | SRC: "GUIDF" | DEST: "GUIDF" | SSLOT: %"PRIu32" | DSLOT: %"PRIu32"\n",
+                        evt_type[evtType], location, workerId, GUIDA(parent), timestamp, GUIDA(src), GUIDA(dest), sslot, dslot);
                 break;
             }
             case OCR_ACTION_EXECUTE:
@@ -148,8 +151,15 @@ void translateObject(ocrTraceObj_t *trace){
 #if !defined(OCR_ENABLE_SIMULATOR)
                 ocrGuid_t taskGuid = TRACE_FIELD(TASK, taskExeBegin, trace, taskGuid);
                 ocrEdt_t funcPtr = TRACE_FIELD(TASK, taskExeBegin, trace, funcPtr);
-                printf("[TRACE] U/R: %s | PD: 0x%"PRIx64" | WORKER_ID: %"PRIu64" | EDT: "GUIDF" | TIMESTAMP: %"PRIu64" | TYPE: EDT | ACTION: EXECUTE | GUID: "GUIDF" | FUNC_PTR: 0x%"PRIx64"\n",
-                       evt_type[evtType], location, workerId, GUIDA(parent), timestamp, GUIDA(taskGuid), (u64)funcPtr);
+                u64 strLen = TRACE_FIELD(TASK, taskExeBegin, trace, strLen);
+                char *name = malloc(strLen*sizeof(char));
+                char *nameIn = TRACE_FIELD(TASK, taskExeBegin, trace, name);
+                u32 i;
+                for(i = 0; i < strLen; i++)
+                    name[i] = nameIn[i];
+
+                printf("[TRACE] U/R: %s | PD: 0x%"PRIx64" | WORKER_ID: %"PRIu64" | EDT: "GUIDF" | TIMESTAMP: %"PRIu64" | TYPE: EDT | ACTION: EXECUTE | GUID: "GUIDF" | FUNC_PTR: 0x%"PRIx64" | NAME: %s\n",
+                       evt_type[evtType], location, workerId, GUIDA(parent), timestamp, GUIDA(taskGuid), (u64)funcPtr, name);
 
 #else
                 ocrGuid_t taskGuid = TRACE_FIELD(TASK, taskExeBegin, trace, taskGuid);
@@ -176,8 +186,17 @@ void translateObject(ocrTraceObj_t *trace){
             case OCR_ACTION_FINISH:
             {
 #if !defined(OCR_ENABLE_SIMULATOR)
-                ocrGuid_t taskGuid = TRACE_FIELD(TASK, taskCreate, trace, taskGuid);
-                genericPrint(evtType, ttype, action, location, workerId, timestamp, parent);
+                ocrGuid_t taskGuid = TRACE_FIELD(TASK, taskExeEnd, trace, taskGuid);
+                u64 startTime = TRACE_FIELD(TASK, taskExeEnd, trace, startTime);
+                u64 strLen = TRACE_FIELD(TASK, taskExeEnd, trace, strLen);
+                char *name = malloc(strLen*sizeof(char));
+                char *nameIn = TRACE_FIELD(TASK, taskExeEnd, trace, name);
+                u32 i;
+                for(i = 0; i < strLen; i++)
+                    name[i] = nameIn[i];
+
+                printf("[TRACE] U/R: %s | PD: 0x%"PRIx64" | WORKER_ID: %"PRIu64" | EDT: "GUIDF" | TIMESTAMP: %"PRIu64" | TYPE: EDT | ACTION: FINISH | START_TIME: %lu | NAME: %s\n",
+                        evt_type[evtType], location, workerId, GUIDA(parent), timestamp, startTime, name);
 #else
                 ocrGuid_t taskGuid = TRACE_FIELD(TASK, taskExeEnd, trace, taskGuid);
                 u32 count = TRACE_FIELD(TASK, taskExeEnd, trace, count);
@@ -257,9 +276,11 @@ void translateObject(ocrTraceObj_t *trace){
             {
                 ocrGuid_t src = TRACE_FIELD(EVENT, eventDepAdd, trace, src);
                 ocrGuid_t dest = TRACE_FIELD(EVENT, eventDepAdd, trace, dest);
+                u32 sslot = TRACE_FIELD(TASK, taskDepReady, trace, sslot);
+                u32 dslot = TRACE_FIELD(TASK, taskDepReady, trace, dslot);
 
-                printf("[TRACE] U/R: %s | PD: 0x%"PRIx64" | WORKER_ID: %"PRIu64" | EDT: "GUIDF" | TIMESTAMP: %"PRIu64" | TYPE: EVENT | ACTION: ADD_DEP | SRC: "GUIDF" | DEST: "GUIDF"\n",
-                        evt_type[evtType], location, workerId, GUIDA(parent), timestamp, GUIDA(src), GUIDA(dest));
+                printf("[TRACE] U/R: %s | PD: 0x%"PRIx64" | WORKER_ID: %"PRIu64" | EDT: "GUIDF" | TIMESTAMP: %"PRIu64" | TYPE: EVENT | ACTION: ADD_DEP | SRC: "GUIDF" | DEST: "GUIDF" | SSLOT: %"PRIu32" | DSLOT: %"PRIu32"\n",
+                        evt_type[evtType], location, workerId, GUIDA(parent), timestamp, GUIDA(src), GUIDA(dest), sslot, dslot);
                 break;
             }
 
@@ -377,6 +398,38 @@ void translateObject(ocrTraceObj_t *trace){
         }
         break;
 
+    case OCR_TRACE_TYPE_ALLOCATOR:
+
+        switch(trace->actionSwitch){
+
+            case OCR_ACTION_ALLOCATE:
+            {
+                u64 startTime = TRACE_FIELD(ALLOCATOR, memAlloc, trace, startTime);
+                u64 callFunc = TRACE_FIELD(ALLOCATOR, memAlloc, trace, callFunc);
+                u64 memSize = TRACE_FIELD(ALLOCATOR, memAlloc, trace, memSize);
+                u64 memHint = TRACE_FIELD(ALLOCATOR, memAlloc, trace, memHint);
+                void *memPtr = TRACE_FIELD(ALLOCATOR, memAlloc, trace, memPtr);
+                printf("[TRACE] U/R: %s | PD: 0x%"PRIx64" | WORKER_ID: %"PRIu64" | TASK: "GUIDF" | TIMESTAMP: %"PRIu64" | STARTTIME: %"PRIu64" | TYPE: ALLOCATOR | ACTION: ALLOCTATE | FUNC:  %"PRIu64" | MEMSIZE: %"PRIu64" | MEMHINT: %"PRIx64" | MEMPTR: %p\n",
+                        evt_type[evtType], location, workerId, NULL_GUID, timestamp, startTime, callFunc, memSize, memHint, memPtr);
+                break;
+            }
+
+            case OCR_ACTION_DEALLOCATE:
+            {
+                u64 startTime = TRACE_FIELD(ALLOCATOR, memDealloc, trace, startTime);
+                u64 callFunc = TRACE_FIELD(ALLOCATOR, memAlloc, trace, callFunc);
+                void *memPtr = TRACE_FIELD(ALLOCATOR, memDealloc, trace, memPtr);
+                printf("[TRACE] U/R: %s | PD: 0x%"PRIx64" | WORKER_ID: %"PRIu64" | TASK: "GUIDF" | TIMESTAMP: %"PRIu64" | STARTTIME: %"PRIu64" | TYPE: ALLOCATOR | ACTION: DEALLOCATE | FUNC:  %"PRIu64" | MEMPTR: %p\n",
+                        evt_type[evtType], location, workerId, NULL_GUID, timestamp, startTime, callFunc, memPtr);
+                break;
+            }
+
+            default:
+                break;
+
+        }
+        break;
+
 #ifdef OCR_ENABLE_SIMULATOR
     case OCR_TRACE_TYPE_API_EDT:
 
@@ -446,11 +499,12 @@ void translateObject(ocrTraceObj_t *trace){
 
                 ocrGuid_t src = TRACE_FIELD(API_EVENT, simEventAddDep, trace, source);
                 ocrGuid_t dest = TRACE_FIELD(API_EVENT, simEventAddDep, trace, destination);
-                u32 slot = TRACE_FIELD(API_EVENT, simEventAddDep, trace, slot);
+                u32 sslot = TRACE_FIELD(TASK, taskDepReady, trace, sslot);
+                u32 dslot = TRACE_FIELD(TASK, taskDepReady, trace, dslot);
                 ocrDbAccessMode_t accessMode = TRACE_FIELD(API_EVENT, simEventAddDep, trace, accessMode);
 
-                printf("[TRACE] U/R: %s | PD: 0x%"PRIx64" | WORKER_ID: %"PRIu64" | EDT: "GUIDF" | TIMESTAMP: %"PRIu64" | TYPE: API_EVENT | ACTION: ADD_DEP | SRC: "GUIDF" | DEST: "GUIDF" | SLOT: %"PRId32" | ACCESS_MODE: 0x%"PRIx64"\n",
-                        evt_type[evtType], location, workerId, GUIDA(parent), timestamp, GUIDA(src), GUIDA(dest), slot, accessMode);
+                printf("[TRACE] U/R: %s | PD: 0x%"PRIx64" | WORKER_ID: %"PRIu64" | EDT: "GUIDF" | TIMESTAMP: %"PRIu64" | TYPE: API_EVENT | ACTION: ADD_DEP | SRC: "GUIDF" | DEST: "GUIDF" | SSLOT: %"PRId32" | DSLOT: %"PRIu32" | ACCESS_MODE: 0x%"PRIx64"\n",
+                        evt_type[evtType], location, workerId, GUIDA(parent), timestamp, GUIDA(src), GUIDA(dest), sslot, dslot, accessMode);
                 break;
             }
             case OCR_ACTION_DESTROY:

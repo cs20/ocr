@@ -188,7 +188,8 @@ function run() {
         ARGS+="-logdir ${LOGDIR_ARG}"
     fi
 
-    for prog in `echo "$PROGRAMS"`; do
+    for progVar in `echo "$PROGRAMS"`; do
+        prog=${progVar##*/}
         local found=""
         local runnerArgs=""
         # Try to match a sweep file for the program

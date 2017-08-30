@@ -322,6 +322,16 @@ struct slab_header {
 #define CACHE_LINE_MASK         ((1UL<<(CACHE_LINE_SHIFT))-1)
 #endif
 
+#ifdef OCR_CACHE_LINE_OFFSET_ALLOCATIONS
+ocrAllocatorQuick_CacheLineHints_t ocrQuickCacheLineHints = {
+    0,          // offset
+    4096,       // largeSize
+    4096,       // cacheSize
+    0           // curOffset (atomic)
+};
+#endif // OCR_CACHE_LINE_OFFSET_ALLOCATIONS
+
+
 // VALGRIND SUPPORT
 // ( blocks are sometimes called chunks. i.e. chunk == block )
 // VALGRIND_MEMPOOL_ALLOC: If the pool was created with the is_zeroed argument set, Memcheck will mark the chunk as DEFINED, otherwise Memcheck will mark the chunk as UNDEFINED.
@@ -572,7 +582,7 @@ static void quickCleanPool(poolHdr_t *pool)
             if (flag == FLAG_INUSE) {
             } else if (flag == FLAG_INUSE_SLAB) {
                 struct slab_header *head = (struct slab_header *)HEAD_TO_USER(p);
-                ASSERT(head->mark == SLAB_MARK);
+                ocrAssert(head->mark == SLAB_MARK);
                 if (head->bitmap == head->bitmap_initial /* empty slab? */) {
                     // it must be only (and first) slab in the slab list
                     s32 slabsIndex = head->index;
@@ -619,10 +629,10 @@ static void quickWalkPool(poolHdr_t *pool, int opt)
             } else if (flag == FLAG_INUSE_SLAB) {
 #ifdef PER_AGENT_CACHE
                 struct slab_header *head = (struct slab_header *)HEAD_TO_USER(p);
-                ASSERT(head->mark == SLAB_MARK);
+                ocrAssert(head->mark == SLAB_MARK);
                 DPRINTF(DEBUG_LVL_INFO, "[size %"PRId64" user %"PRIx64"] slab for %p\n", size, GET_USER(HEAD(p))>>SHIFT_USER, head->per_agent);
 #else
-                ASSERT(0 && "FLAG_INUSE_SLAB without slab enabled?\n");
+                ocrAssert(0 && "FLAG_INUSE_SLAB without slab enabled?\n");
 #endif
             } else {
                 DPRINTF(DEBUG_LVL_INFO, "{size %"PRId64" user %"PRIx64"}\n", size, GET_USER(HEAD(p))>>SHIFT_USER);
@@ -723,7 +733,7 @@ retry_FL:
 
         // Look for the first bit that is a one
         flIndex = myffs(flBitmap);
-        ASSERT(flIndex < pPool->flCount);
+        ocrAssert(flIndex < pPool->flCount);
 
         // Now we get the slBitMap. Retry if no 1's there.
         slBitmap = pPool->sl[flIndex].slAvailOrNot;
@@ -733,7 +743,7 @@ retry_FL:
         }
     }
     slIndex = myffs(slBitmap);
-    ASSERT(slIndex < SL_COUNT);
+    ocrAssert(slIndex < SL_COUNT);
 
     *fli = flIndex;
     *sli = slIndex;
@@ -746,8 +756,8 @@ static void setFreeList(poolHdr_t *pPool, u64 size, u64 *p, u32 flIndex, u32 slI
     if (p == NULL) {
         v = -1;
     } else {
-        ASSERT((u64)p >= (u64)pPool->glebeStart);
-        ASSERT((u64)p < (u64)pPool->glebeEnd);
+        ocrAssert((u64)p >= (u64)pPool->glebeStart);
+        ocrAssert((u64)p < (u64)pPool->glebeEnd);
         v = p-(pPool->glebeStart);
     }
 #ifndef FINE_LOCKING
@@ -757,21 +767,21 @@ static void setFreeList(poolHdr_t *pPool, u64 size, u64 *p, u32 flIndex, u32 slI
 #ifndef FINE_LOCKING
     // adjust bitmap
     u32 oldBitmap = pPool->sl[flIndex].slAvailOrNot;
-    ASSERT(slIndex < sizeof(pPool->sl[flIndex].slAvailOrNot)*8);
-    ASSERT(flIndex < sizeof(pPool->flAvailOrNot)*8);
+    ocrAssert(slIndex < sizeof(pPool->sl[flIndex].slAvailOrNot)*8);
+    ocrAssert(flIndex < sizeof(pPool->flAvailOrNot)*8);
     if (old == -1 && v != -1) {
-        ASSERT(!(oldBitmap & (1UL << slIndex)));
+        ocrAssert(!(oldBitmap & (1UL << slIndex)));
         pPool->sl[flIndex].slAvailOrNot |= (1UL << slIndex);
         if (!oldBitmap) {
-            ASSERT(!(pPool->flAvailOrNot & (1UL << flIndex)));
+            ocrAssert(!(pPool->flAvailOrNot & (1UL << flIndex)));
             pPool->flAvailOrNot |= (1UL << flIndex);
         }
     }
     if (old != -1 && v == -1) {
-        ASSERT(oldBitmap & (1UL << slIndex));
+        ocrAssert(oldBitmap & (1UL << slIndex));
         pPool->sl[flIndex].slAvailOrNot &= ~(1UL << slIndex);
         if (!(pPool->sl[flIndex].slAvailOrNot)) {
-            ASSERT(pPool->flAvailOrNot & (1UL << flIndex));
+            ocrAssert(pPool->flAvailOrNot & (1UL << flIndex));
             pPool->flAvailOrNot &= ~(1UL << flIndex);
         }
     }
@@ -801,7 +811,7 @@ void doBmapOp(poolHdr_t *pool, struct bmapOp *bmap_op)
     case 2:
         // optimization for common cases.
         if ( bmap_op->fli[0] == bmap_op->fli[1] && bmap_op->sli[0] == bmap_op->sli[1] ) {
-            ASSERT(bmap_op->delta[0] == -1 && bmap_op->delta[1] == 1);
+            ocrAssert(bmap_op->delta[0] == -1 && bmap_op->delta[1] == 1);
 //dobmap_count_case2++;
             return;
         }
@@ -810,7 +820,7 @@ void doBmapOp(poolHdr_t *pool, struct bmapOp *bmap_op)
         // optimization for count==3 case
         // e.g.[ 13,15, -1 ], [ 0,8, -1 ], [13,15, +1]
         if ( bmap_op->fli[0] == bmap_op->fli[2] && bmap_op->sli[0] == bmap_op->sli[2] ) {
-            ASSERT(bmap_op->delta[0] == -1 && bmap_op->delta[2] == 1);
+            ocrAssert(bmap_op->delta[0] == -1 && bmap_op->delta[2] == 1);
             bmap_op->count = 1;
             bmap_op->fli[0] = bmap_op->fli[1];
             bmap_op->sli[0] = bmap_op->sli[1];
@@ -841,7 +851,7 @@ bmap_fallback:
         hal_lock(&(pool->sl[flIndex].bmapLockSL));
         u = pool->sl[flIndex].listCount[slIndex];
         v = (pool->sl[flIndex].listCount[slIndex] += bmap_op->delta[i]);
-        ASSERT(bmap_op->delta[i] == 1 || bmap_op->delta[i] == -1);
+        ocrAssert(bmap_op->delta[i] == 1 || bmap_op->delta[i] == -1);
 
         if (u && v) { // common cases. i.e. no bitmap change
             hal_unlock(&(pool->sl[flIndex].bmapLockSL));
@@ -850,17 +860,17 @@ bmap_fallback:
 
         // adjust bitmap
         u32 oldBitmap = pool->sl[flIndex].slAvailOrNot;
-        ASSERT(slIndex < sizeof(pool->sl[flIndex].slAvailOrNot)*8);
-        ASSERT(flIndex < sizeof(pool->flAvailOrNot)*8);
+        ocrAssert(slIndex < sizeof(pool->sl[flIndex].slAvailOrNot)*8);
+        ocrAssert(flIndex < sizeof(pool->flAvailOrNot)*8);
         if (u == 0 && v == 1) {  // 0 -> 1
-            ASSERT(!(oldBitmap & (1UL << slIndex)));
+            ocrAssert(!(oldBitmap & (1UL << slIndex)));
             pool->sl[flIndex].slAvailOrNot |= (1UL << slIndex);
             hal_unlock(&(pool->sl[flIndex].bmapLockSL));
             if (!oldBitmap) {
                 hal_lock(&(pool->bmapLockFL));
                 pool->sl[flIndex].count++;
                 if (pool->sl[flIndex].count == 1) {
-                    ASSERT(!(pool->flAvailOrNot & (1UL << flIndex)));
+                    ocrAssert(!(pool->flAvailOrNot & (1UL << flIndex)));
                     pool->flAvailOrNot |= (1UL << flIndex);
                 }
                 hal_unlock(&(pool->bmapLockFL));
@@ -868,14 +878,14 @@ bmap_fallback:
             continue;
         }
         if (u == 1 && v == 0) {  // 1 -> 0
-            ASSERT(oldBitmap & (1UL << slIndex));
+            ocrAssert(oldBitmap & (1UL << slIndex));
             u32 newBitmap = (pool->sl[flIndex].slAvailOrNot &= ~(1UL << slIndex));
             hal_unlock(&(pool->sl[flIndex].bmapLockSL));
             if (!newBitmap) {
                 hal_lock(&(pool->bmapLockFL));
                 pool->sl[flIndex].count--;
                 if (pool->sl[flIndex].count == 0) {
-                    ASSERT(pool->flAvailOrNot & (1UL << flIndex));
+                    ocrAssert(pool->flAvailOrNot & (1UL << flIndex));
                     pool->flAvailOrNot &= ~(1UL << flIndex);
                 }
                 hal_unlock(&(pool->bmapLockFL));
@@ -920,8 +930,8 @@ static void quickTest(u64 start, u64 size)
 
 static void quickFinish(poolHdr_t *pool, u64 size)
 {
-    ASSERT((sizeof(poolHdr_t) & ALIGNMENT_MASK) == 0);
-    ASSERT((size & ALIGNMENT_MASK) == 0);
+    ocrAssert((sizeof(poolHdr_t) & ALIGNMENT_MASK) == 0);
+    ocrAssert((size & ALIGNMENT_MASK) == 0);
 
     DPRINTF(DEBUG_LVL_VERB, "quickFinish called. size 0x%"PRIx64" at %p\n", size, (u8 *)pool);
 
@@ -955,11 +965,11 @@ static blkPayload_t *quickMallocInternal(poolHdr_t *pool,u64 size, struct _ocrPo
 static void quickInit(poolHdr_t *pool, u64 size)
 {
     u8 *p = (u8 *)pool;
-    ASSERT((sizeof(poolHdr_t) & ALIGNMENT_MASK) == 0);
-    ASSERT((size & ALIGNMENT_MASK) == 0);
+    ocrAssert((sizeof(poolHdr_t) & ALIGNMENT_MASK) == 0);
+    ocrAssert((size & ALIGNMENT_MASK) == 0);
 
 #ifdef PER_AGENT_CACHE
-    ASSERT((sizeof(struct slab_header) & ALIGNMENT_MASK) == 0);
+    ocrAssert((sizeof(struct slab_header) & ALIGNMENT_MASK) == 0);
 #endif
 
 
@@ -976,7 +986,7 @@ static void quickInit(poolHdr_t *pool, u64 size)
         // init annex area
         u64 offsetToGlebe = quickInitAnnex(pool, size);
         u64 *q = (u64 *)(p + offsetToGlebe);
-        ASSERT(((u64)q & ALIGNMENT_MASK) == 0);
+        ocrAssert(((u64)q & ALIGNMENT_MASK) == 0);
 #ifdef ALIGN_CACHE_LINE
         q = (u64 *)(((u64)q + CACHE_LINE_MASK)&(~CACHE_LINE_MASK));   // ceiling
 #endif
@@ -984,7 +994,7 @@ static void quickInit(poolHdr_t *pool, u64 size)
         size = size - offsetToGlebe;
         if (size >= MAX_BLOCK_SIZE) {
             DPRINTF(DEBUG_LVL_WARN,"Too big pool size! MAX is 0x%lx\n", MAX_BLOCK_SIZE);
-            ASSERT(0);
+            ocrAssert(0);
         }
         HEAD(q) = MARK | size | FLAG_FREE;
 
@@ -999,7 +1009,7 @@ static void quickInit(poolHdr_t *pool, u64 size)
         pool->glebeStart = (u64 *)q;
         pool->glebeEnd = (u64 *)(p+size+offsetToGlebe);
         DPRINTF(DEBUG_LVL_VERB, "end of annex:%p , glebeStart:%p\n", &pool->sl[pool->flCount], pool->glebeStart);
-        ASSERT( (u64)(&pool->sl[pool->flCount]) <= (u64)(pool->glebeStart));
+        ocrAssert( (u64)(&pool->sl[pool->flCount]) <= (u64)(pool->glebeStart));
 
         // place a guard value at both ends
         pool->guard = KNOWN_VALUE_AS_GUARD;
@@ -1036,7 +1046,8 @@ static void quickInit(poolHdr_t *pool, u64 size)
 
         doBmapOp(pool, &bmap_op);
 #endif
-        DPRINTF(DEBUG_LVL_INFO, "init'ed pool %p, avail %"PRId64" bytes , sizeof(poolHdr_t) = %"PRId64"\n", pool, size, sizeof(poolHdr_t));
+        DPRINTF(DEBUG_LVL_INFO, "init'ed pool %p, avail %"PRId64" bytes , sizeof(poolHdr_t) = %"PRIu64"\n",
+                pool, size, (u64)sizeof(poolHdr_t));
         pool->init_count++;
 #ifdef ENABLE_VALGRIND
         VALGRIND_CREATE_MEMPOOL(p, 0, 1);  // BUG #600: Mempool needs to be destroyed
@@ -1059,7 +1070,7 @@ static void quickInit(poolHdr_t *pool, u64 size)
 static void *quickInitCache(poolHdr_t *pool)
 {
     struct per_agent_cache *q = quickMallocInternal(pool, sizeof(struct per_agent_cache), NULL /* TODO PD for TG ??*/);
-    ASSERT(q);
+    ocrAssert(q);
     int i;
     for(i=0;i<MAX_SLABS;i++) {
         q->slabs[i] = NULL;
@@ -1075,7 +1086,7 @@ static void quickInsertFree(poolHdr_t *pool,u64 *p, u64 size, u32 flIndex, u32 s
     VALGRIND_POOL_OPEN(pool);
 
 #ifdef ALIGN_CACHE_LINE
-    ASSERT(!((u64)p & CACHE_LINE_MASK));
+    ocrAssert(!((u64)p & CACHE_LINE_MASK));
 #endif
 #ifdef FINE_LOCKING
     hal_lock(&pool->sl[flIndex].listLock[slIndex]);
@@ -1108,8 +1119,8 @@ static void quickDeleteFree1(poolHdr_t *pool,u64 *p, u32 flIndex, u32 slIndex)
 {
     VALGRIND_POOL_OPEN(pool);
     VALGRIND_CHUNK_OPEN(p);
-    ASSERT(GET_FLAG(HEAD(p)) == FLAG_FREE);   // cleared in-use bit in list.
-    ASSERT(PREV(p) != -1 && NEXT(p) != -1);
+    ocrAssert(GET_FLAG(HEAD(p)) == FLAG_FREE);   // cleared in-use bit in list.
+    ocrAssert(PREV(p) != -1 && NEXT(p) != -1);
     u64 size = GET_SIZE(HEAD(p));
     u64 *list;
 //    u32 flIndex, slIndex;
@@ -1118,7 +1129,7 @@ static void quickDeleteFree1(poolHdr_t *pool,u64 *p, u32 flIndex, u32 slIndex)
         list = pool->glebeStart + pool->sl[flIndex].freeList[slIndex];
     else {
         DPRINTF(DEBUG_LVL_WARN, "quickMalloc : not-in-list free block in Free1!?!\n");
-        ASSERT(0);
+        ocrAssert(0);
         list = NULL;
     }
 
@@ -1166,13 +1177,13 @@ static void quickDeleteFree2(poolHdr_t *pool,u64 *p, struct bmapOp *bmap_op)
     bmap_op->delta[i] = -1;
     hal_lock(&pool->sl[flIndex].listLock[slIndex]);
 #endif
-    ASSERT(GET_FLAG(HEAD(p)) == FLAG_MERGE);
-    ASSERT(PREV(p) != -1 && NEXT(p) != -1);
+    ocrAssert(GET_FLAG(HEAD(p)) == FLAG_MERGE);
+    ocrAssert(PREV(p) != -1 && NEXT(p) != -1);
     if (pool->sl[flIndex].freeList[slIndex] != -1)
         list = pool->glebeStart + pool->sl[flIndex].freeList[slIndex];
     else {
         DPRINTF(DEBUG_LVL_WARN, "quickMalloc : not-in-list free block!?!\n");
-        ASSERT(0);
+        ocrAssert(0);
         list = NULL;
     }
 
@@ -1273,7 +1284,7 @@ retry:
         goto retry;
     }
 #else
-    ASSERT(pool->sl[fli].freeList[sli] != -1);
+    ocrAssert(pool->sl[fli].freeList[sli] != -1);
 #endif
     p = pool->glebeStart + pool->sl[fli].freeList[sli];
 
@@ -1313,8 +1324,8 @@ retry:
 
     VALGRIND_CHUNK_OPEN_INIT(p, size);
     u64 remain = GET_SIZE(HEAD(p)) - size;
-    ASSERT( remain < GET_SIZE(HEAD(p)) );
-    ASSERT((size & ALIGNMENT_MASK) == 0);
+    ocrAssert( remain < GET_SIZE(HEAD(p)) );
+    ocrAssert((size & ALIGNMENT_MASK) == 0);
     // make sure the remaining block is bigger than minimum size
     if (remain >= MINIMUM_SIZE) {  // we need split
 #ifdef FINE_LOCKING
@@ -1333,7 +1344,7 @@ retry:
         mappingInsert(remain - ALLOC_OVERHEAD, &flIndex, &slIndex);
 
         VALGRIND_CHUNK_OPEN_INIT(right, remain);
-        ASSERT((remain & ALIGNMENT_MASK) == 0);
+        ocrAssert((remain & ALIGNMENT_MASK) == 0);
         HEAD(right) = MARK | remain | FLAG_FREE;
         PREV(right) = NEXT(right) = -1;
 #ifdef FINE_LOCKING
@@ -1369,7 +1380,7 @@ retry:
     INFO1(p) = (u64)addrGlobalizeOnTG((void *)pool, pd);   // old : INFO1(p) = (u64)pool;
     INFO2(p) = (u64)addrGlobalizeOnTG((void *)ret, pd);    // old : INFO2(p) = (u64)ret;
 
-    ASSERT((*(u8 *)(&INFO2(p)) & POOL_HEADER_TYPE_MASK) == 0);
+    ocrAssert((*(u8 *)(&INFO2(p)) & POOL_HEADER_TYPE_MASK) == 0);
     *(u8 *)(&INFO2(p)) |= allocatorQuick_id;
 
     ASSERT_BLOCK_BEGIN((*(u8 *)(&INFO2(p)) & POOL_HEADER_TYPE_MASK) == allocatorQuick_id)
@@ -1400,6 +1411,15 @@ static void quickFreeInternal(blkPayload_t *p)
 {
     if (p == NULL)
         return;
+
+#ifdef OCR_CACHE_LINE_OFFSET_ALLOCATIONS
+    // Address may be offset to avoid cache line conflicts
+    ocrAllocatorQuick_offsetHeader_t *clcHdr =
+        ((ocrAllocatorQuick_offsetHeader_t *)p);
+    if (clcHdr->negativeOne == ((u64)-1))
+        p = (blkPayload_t *)clcHdr->realAddr;
+#endif // OCR_CACHE_LINE_OFFSET_ALLOCATIONS
+
     u64 *q = USER_TO_HEAD(p);
     VALGRIND_CHUNK_OPEN(q);
     poolHdr_t *pool = (poolHdr_t *)INFO1(q);
@@ -1424,7 +1444,7 @@ static void quickFreeInternal(blkPayload_t *p)
     checkGuard(pool);
     VALGRIND_POOL_CLOSE(pool);
 
-    ASSERT((*(u8 *)(&INFO2(q)) & POOL_HEADER_TYPE_MASK) == allocatorQuick_id);
+    ocrAssert((*(u8 *)(&INFO2(q)) & POOL_HEADER_TYPE_MASK) == allocatorQuick_id);
     *(u8 *)(&INFO2(q)) &= ~POOL_HEADER_TYPE_MASK;
 
     // Make sure we have the global address to free, even if user passed local address...
@@ -1528,7 +1548,7 @@ left_merge_retry:
         hal_lock(&PEER_LEFT_TAIL_LOCK(q));
 #endif
         peer_left = &PEER_LEFT(q);
-        ASSERT(peer_left != q);
+        ocrAssert(peer_left != q);
 
         VALGRIND_CHUNK_CLOSE(q);
         // just omit chunk_close_left()
@@ -1588,7 +1608,7 @@ left_merge_retry:
         mappingInsert(size - ALLOC_OVERHEAD, &flIndex, &slIndex);
     quickInsertFree(pool, q, size, flIndex, slIndex);
 #ifdef FINE_LOCKING
-    ASSERT(GET_FLAG(HEAD(q)) == FLAG_FREE);
+    ocrAssert(GET_FLAG(HEAD(q)) == FLAG_FREE);
     hal_unlock(&HEAD_LOCK(q));
 #endif
 #ifdef FINE_LOCKING
@@ -1622,7 +1642,7 @@ static void quickSetUserbits(blkPayload_t *p, u64 user)
     if (p == NULL)
         return;
     u64 *q = USER_TO_HEAD(p);
-    ASSERT(GET_USER(HEAD(q)) == 0);
+    ocrAssert(GET_USER(HEAD(q)) == 0);
     HEAD(q) |= ((user<<SHIFT_USER)&MASK_USER);
 }
 
@@ -1639,12 +1659,12 @@ static struct slab_header *quickNewSlab(poolHdr_t *pool,s32 objsize, s32 objcoun
         // mark flag as slab flag
         u64 *q = USER_TO_HEAD(slab);
         HEAD(q) |= FLAG_FOR_SLAB;
-        ASSERT(GET_FLAG(HEAD(q)) == FLAG_INUSE_SLAB);
+        ocrAssert(GET_FLAG(HEAD(q)) == FLAG_INUSE_SLAB);
 
         struct slab_header *head = slab;
         head->per_agent = addrGlobalizeOnTG((void *)per_agent, pd);
         head->next = head->prev = head;
-        ASSERT(objcount <= MAX_OBJ_PER_SLAB);
+        ocrAssert(objcount <= MAX_OBJ_PER_SLAB);
         head->bitmap = (1UL << objcount)-1UL;
         head->bitmap_initial = head->bitmap;    // save the initial state, i.e. all objs are available
         head->mark = SLAB_MARK;
@@ -1656,7 +1676,7 @@ static struct slab_header *quickNewSlab(poolHdr_t *pool,s32 objsize, s32 objcoun
 static blkPayload_t *quickMallocSlab(poolHdr_t *pool, s32 slabsIndex, struct _ocrPolicyDomain_t *pd)
 {
     // s64 myid = (s64)pd;
-    // ASSERT(myid >=0 && myid < MAX_THREAD);
+    // ocrAssert(myid >=0 && myid < MAX_THREAD);
     if (CACHE_POOL(myid) == NULL) {
         CACHE_POOL(myid) = quickInitCache(pool);
         DPRINTF(DEBUG_LVL_VERB, "cache %p created, handles up to size %"PRId64"\n", CACHE_POOL(myid), (s64)MAX_SIZE_FOR_SLABS);
@@ -1670,7 +1690,7 @@ static blkPayload_t *quickMallocSlab(poolHdr_t *pool, s32 slabsIndex, struct _oc
         objsize = slabSizeTable.size[slabsIndex-MAX_SLABS_UNNAMED];
         objcount = slabSizeTable.next_objcount[slabsIndex-MAX_SLABS_UNNAMED];
     }
-    ASSERT(objsize > 0);
+    ocrAssert(objsize > 0);
 
     hal_lock(&CACHE_POOL(myid)->lock);
     struct slab_header *slabs = CACHE_POOL(myid)->slabs[slabsIndex];
@@ -1693,16 +1713,16 @@ static blkPayload_t *quickMallocSlab(poolHdr_t *pool, s32 slabsIndex, struct _oc
             slabSizeTable.next_objcount[slabsIndex-MAX_SLABS_UNNAMED] = (MAX_OBJ_PER_SLAB < objcount) ? MAX_OBJ_PER_SLAB : objcount; // set next objcount
         }
     }
-    ASSERT(slabs->bitmap);
+    ocrAssert(slabs->bitmap);
     s32 pos = myffs(slabs->bitmap);
-    ASSERT(pos >= 0 && pos < MAX_OBJ_PER_SLAB);
+    ocrAssert(pos >= 0 && pos < MAX_OBJ_PER_SLAB);
     u64 *p = (u64 *)((u64)slabs + sizeof(struct slab_header)+(SLAB_OVERHEAD+objsize)*pos);
     HEAD(p) = ((s64)slabs - (s64)p)&(~MASK_USER);   // for cached objects, put negative offset in header, and clear user bits.
 
     // for only TG
     void *ret = HEAD_TO_USER(p);
     INFO2(p) = (u64)ret; // already globalized addr
-    ASSERT((*(u8 *)(&INFO2(p)) & POOL_HEADER_TYPE_MASK) == 0);
+    ocrAssert((*(u8 *)(&INFO2(p)) & POOL_HEADER_TYPE_MASK) == 0);
     *(u8 *)(&INFO2(p)) |= allocatorQuick_id;
 
     //__sync_fetch_and_xor(&slabs->bitmap , 1UL << pos);
@@ -1730,6 +1750,15 @@ static void quickFree(blkPayload_t *p)
 {
     if (p == NULL)
         return;
+
+#ifdef OCR_CACHE_LINE_OFFSET_ALLOCATIONS
+    // Address may be offset to avoid cache line conflicts
+    ocrAllocatorQuick_offsetHeader_t *clcHdr =
+        ((ocrAllocatorQuick_offsetHeader_t *)p);
+    if (clcHdr->negativeOne == ((u64)-1))
+        p = (blkPayload_t *)clcHdr->realAddr;
+#endif // OCR_CACHE_LINE_OFFSET_ALLOCATIONS
+
     u64 *q = USER_TO_HEAD(p);
 
     // in case of cached objects, the head holds negative offset to slab header
@@ -1743,13 +1772,13 @@ static void quickFree(blkPayload_t *p)
     // in case of cached object, it's negative offset to slab header
 
     struct slab_header *head = (struct slab_header *)((s64)(q) + neg_off);
-    ASSERT(head->mark == SLAB_MARK);
+    ocrAssert(head->mark == SLAB_MARK);
     s64 offset = (s64)q - (s64)head - sizeof(struct slab_header);
     s64 pos = offset / (head->objsize+SLAB_OVERHEAD);
-    ASSERT(pos >= 0 && pos < MAX_OBJ_PER_SLAB);
+    ocrAssert(pos >= 0 && pos < MAX_OBJ_PER_SLAB);
     //printf("%"PRIx64" , %"PRId64", pos %"PRId32"\n", HEAD(q), HEAD(q), pos);
     //printf("offset %"PRId64" , size %"PRId32" \n", offset, head->size+SLAB_OVERHEAD);
-    ASSERT((offset % (head->objsize+SLAB_OVERHEAD)) == 0);
+    ocrAssert((offset % (head->objsize+SLAB_OVERHEAD)) == 0);
 
     // local if (addrGlobalizeOnTG(CACHE_POOL(X)) == head->per_agent)
     s32 slabsIndex = head->index;
@@ -1805,7 +1834,7 @@ static inline void quickFree(blkPayload_t *p)
 #ifndef ENABLE_ALLOCATOR_QUICK_STANDALONE
 void quickDestruct(ocrAllocator_t *self) {
     DPRINTF(DEBUG_LVL_VERB, "Entered quickDestruct on allocator 0x%"PRIx64"\n", (u64) self);
-    ASSERT(self->memoryCount == 1);
+    ocrAssert(self->memoryCount == 1);
     self->memories[0]->fcts.destruct(self->memories[0]);
     /*
       BUG #288
@@ -1824,14 +1853,14 @@ u8 quickSwitchRunlevel(ocrAllocator_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_
                              phase_t phase, u32 properties, void (*callback)(ocrPolicyDomain_t*, u64), u64 val) {
     u8 toReturn = 0;
     // This is an inert module, we do not handle callbacks (caller needs to wait on us)
-    ASSERT(callback == NULL);
+    ocrAssert(callback == NULL);
 
     // Verify properties for this call
-    ASSERT((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
+    ocrAssert((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
            && !(properties & RL_RELEASE));
-    ASSERT(!(properties & RL_FROM_MSG));
+    ocrAssert(!(properties & RL_FROM_MSG));
 
-    ASSERT(self->memoryCount == 1);
+    ocrAssert(self->memoryCount == 1);
     // Call the runlevel change on the underlying memory
     // On tear-down, we do it *AFTER* we do stuff because otherwise our mem-platform goes away
     if(properties & RL_BRING_UP)
@@ -1859,6 +1888,12 @@ u8 quickSwitchRunlevel(ocrAllocator_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_
             ocrAllocatorQuick_t * rself = (ocrAllocatorQuick_t *) self;
 
             u64 poolAddr = 0;
+
+#ifdef OCR_ENABLE_MEMORY_HEATMAP
+            ocrPrintf("quickBegin : poolsize 0x%"PRIx64", level %"PRIu64", startAddr 0x%"PRIx64"\n",
+                    rself->poolSize, self->memories[0]->level, self->memories[0]->memories[0]->startAddr);
+#endif
+
             DPRINTF(DEBUG_LVL_VERB, "quickBegin : poolsize 0x%"PRIx64", level %"PRIu64", startAddr 0x%"PRIx64"\n",
                     rself->poolSize, self->memories[0]->level, self->memories[0]->memories[0]->startAddr);
 
@@ -1888,14 +1923,14 @@ u8 quickSwitchRunlevel(ocrAllocator_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_
 #if 0 // TODO: 4.1.0 - check if this is really needed
             // See bug #875
             // at this moment, this is for only x86
-            ASSERT(self->memories[0]->memories[0]->startAddr /* startAddr of the memory that memplatform allocated. (for x86, at mallocBegin()) */
+            ocrAssert(self->memories[0]->memories[0]->startAddr /* startAddr of the memory that memplatform allocated. (for x86, at mallocBegin()) */
                       + MEM_PLATFORM_ZEROED_AREA_SIZE >= /* Add the size of zero-ed area (for x86, at mallocBegin()), then this should be greater than */
                      rself->poolAddr + sizeof(poolHdr_t) /* the end of poolHdr_t, so this ensures zero'ed rangeTracker,pad,poolHdr_t */ );
 #endif
             quickInit((poolHdr_t *)addrGlobalizeOnTG((void *)rself->poolAddr, PD), rself->poolSize);
         } else if((properties & RL_TEAR_DOWN) && RL_IS_LAST_PHASE_DOWN(PD, RL_MEMORY_OK, phase)) {
             ocrAllocatorQuick_t * rself = (ocrAllocatorQuick_t *) self;
-            ASSERT(self->memoryCount == 1);
+            ocrAssert(self->memoryCount == 1);
 
             quickFinish((poolHdr_t *)addrGlobalizeOnTG((void *)rself->poolAddr, PD), rself->poolSize);
 
@@ -1935,7 +1970,7 @@ u8 quickSwitchRunlevel(ocrAllocator_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_
         break;
     default:
         // Unknown runlevel
-        ASSERT(0);
+        ocrAssert(0);
     }
     if(properties & RL_TEAR_DOWN)
         toReturn |= self->memories[0]->fcts.switchRunlevel(self->memories[0], PD, runlevel, phase, properties,
@@ -1949,13 +1984,36 @@ void* quickAllocate(
     u64 hints) {            // Allocator-dependent hints
 
     ocrAllocatorQuick_t * rself = (ocrAllocatorQuick_t *) self;
+#ifdef OCR_CACHE_LINE_OFFSET_ALLOCATIONS
+    u64 delta = ocrQuickCacheLineHints.offset;    // Guarantee hints used for this call
+    u64 large = ocrQuickCacheLineHints.largeSize; // Guarantee hints used for this call
+    u64 offset = 0;
+
+    if (size >= large) {
+        // Figure out offset for this allocation
+        u64 origVal, retVal, newVal;
+        retVal = ocrQuickCacheLineHints.curOffset;
+        do {
+            // Increment current offset by offset delta, but wrap at cache size boundary
+            origVal = retVal;
+            newVal = origVal + delta;
+            if (newVal >= ocrQuickCacheLineHints.cacheSize)
+                // Note that delta > cacheSize means no offset every applied..
+                newVal = 0;
+            retVal = hal_cmpswap64(&(ocrQuickCacheLineHints.curOffset), origVal, newVal);
+        } while(retVal != origVal);
+        offset = newVal;
+
+        size += newVal;
+    }
+#endif // OCR_CACHE_LINE_OFFSET_ALLOCATIONS
 
     void *ret;
 #ifdef PER_AGENT_CACHE
     s64 type_id = (s64)size;
     if (type_id < 0) {         // negative size is interpreted as type_id for slab allocation request
         type_id = -type_id;
-        ASSERT(type_id > 0 && type_id < MAX_SLABS_NAMED );
+        ocrAssert(type_id > 0 && type_id < MAX_SLABS_NAMED );
         ret = quickMallocSlab((poolHdr_t *)rself->poolAddr, type_id+MAX_SLABS_UNNAMED, self->pd);
     } else if (hints & OCR_ALLOC_HINT_PDMALLOC) {
         // ideally pdMalloc uses fast path only, but sometimes pdMalloc wants quite big size,
@@ -1963,7 +2021,7 @@ void* quickAllocate(
         //
         //if (size > MAX_SIZE_FOR_SLABS) {
         //    DPRINTF(DEBUG_LVL_WARN, "size %"PRId64" is too large for slab?\n", size);
-        //    ASSERT(0);
+        //    ocrAssert(0);
         //}
         // ret = quickMallocSlab((poolHdr_t *)rself->poolAddr, SIZE_TO_SLABS(size), self->pd);
         ret = quickMalloc((poolHdr_t *)rself->poolAddr, size, self->pd);
@@ -1975,6 +2033,28 @@ void* quickAllocate(
 #endif
     DPRINTF(DEBUG_LVL_VERB, "quickAllocate called, ret %p from PoolAddr %"PRIx64"\n", ret, rself->poolAddr);
     quickSetUserbits(ret, hints);
+#ifdef OCR_CACHE_LINE_OFFSET_ALLOCATIONS
+    if (size > large) {
+        // Hand user an offset value so they are more likely to
+        // avoid cache line conflicts.
+        u8 *orig = (u8 *)ret;
+        u8 *tmp = orig + offset;
+        ret = (void *)tmp;
+        // Set flag and header with address of real value to free
+        tmp -= sizeof(ocrAllocatorQuick_offsetHeader_t);
+        ocrAllocatorQuick_offsetHeader_t *hdr = (ocrAllocatorQuick_offsetHeader_t *)tmp;
+        hdr->negativeOne = (u64)(-1);
+        hdr->realAddr = (void *)orig;
+    }
+#endif // OCR_CACHE_LINE_OFFSET_ALLOCATIONS
+
+#ifdef OCR_ENABLE_MEMORY_HEATMAP
+    u64 allocTime = salGetTime();
+    if(ret != NULL){
+        ocrPrintf("ALLOCATING %lu @ %p ts: %lu\n", size, ret, allocTime);
+    }
+#endif
+
     return ret;
 }
 void quickDeallocate(void* address) {
@@ -1986,7 +2066,7 @@ void* quickReallocate(
     void * pCurrBlkPayload, // Address of existing block.  (NOT necessarily allocated to this Allocator instance, nor even in an allocator of this type.)
     u64 size,               // Size of desired block, in bytes
     u64 hints) {            // Allocator-dependent hints
-    ASSERT(0);
+    ocrAssert(0);
     return 0;
 }
 
@@ -2023,7 +2103,7 @@ static void destructAllocatorFactoryQuick(ocrAllocatorFactory_t * factory) {
 ocrAllocatorFactory_t * newAllocatorFactoryQuick(ocrParamList_t *perType) {
     ocrAllocatorFactory_t* base = (ocrAllocatorFactory_t*)
         runtimeChunkAlloc(sizeof(ocrAllocatorFactoryQuick_t), NONPERSISTENT_CHUNK);
-    ASSERT(base);
+    ocrAssert(base);
     base->instantiate = &newAllocatorQuick;
     base->initialize = &initializeAllocatorQuick;
     base->destruct = &destructAllocatorFactoryQuick;

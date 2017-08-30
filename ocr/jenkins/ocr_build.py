@@ -8,7 +8,7 @@ jobtype_ocr_init = {
     'run-cmd': '${JJOB_INITDIR_OCR}/ocr/jenkins/scripts/init.sh',
     'param-cmd': '${JJOB_INITDIR_OCR}/jenkins/scripts/empty-cmd.sh',
     'keywords': ('ocr',),
-    'timeout': 60,
+    'timeout': 240,
     'sandbox': ('local', 'shared', 'emptyLocal', 'emptyShared', 'shareOK'),
     'req-repos': ('ocr',)
 }
@@ -42,7 +42,7 @@ jobtype_ocr_build_tg = {
                  'TG_ROOT': '${JJOB_INITDIR_TG}/tg',
                  'OCR_ROOT': '${JJOB_PRIVATE_HOME}/ocr/ocr',
                  'OCR_BUILD_ROOT': '${JJOB_PRIVATE_HOME}/ocr/ocr/build',
-                 'APPS_LIBS_INSTALL_ROOT': '${JJOB_PRIVATE_HOME}/apps/apps/libs/install/',
+                 'APPS_LIBS_INSTALL_ROOT': '${JJOB_SHARED_HOME}/apps/apps/libs/install/',
                  'OCR_INSTALL': '${JJOB_SHARED_HOME}/ocr/ocr/install'}
 }
 
@@ -86,7 +86,7 @@ job_ocr_build_x86_pthread_x86_perfs = {
     'sandbox': ('inherit0',),
     'env-vars': {
             'NO_DEBUG': 'yes',
-            'CFLAGS_USER': '-DINIT_DEQUE_CAPACITY=2500000 -DELS_USER_SIZE=0',
+            'CFLAGS_USER': '-DINIT_DEQUE_CAPACITY=2500000 -DGUID_PROVIDER_NB_BUCKETS=2500000 -DELS_USER_SIZE=0',
     }
 }
 
@@ -151,7 +151,8 @@ job_ocr_build_tg_null_tg_ce = {
 
 job_ocr_build_tg_null_tg_xe = {
     'name': 'ocr-build-tg-xe',
-    'depends': ('__alternate ocr-init',),
+    # 'apps-tg-init-job' is to build newlib before-hand if necessary
+    'depends': ('__alternate ocr-init', 'apps-tg-init-job',),
     'jobtype': 'ocr-build-tg',
     'run-args': 'tg-xe',
     'sandbox': ('inherit0',)

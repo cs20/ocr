@@ -59,10 +59,10 @@ YMAX=1.4
 if [ -z $WORKSPACE ]; then # debug
     #  Manual execution of framework (i.e. local run and not by jenkins)
     cat ${JJOB_SHARED_HOME}/../${STATS_FILE}
-    python ${SCRIPT_FOLDER}/plotGraph.py ${JJOB_SHARED_HOME}/../${STATS_FILE} "Performance Trend Line" "Build" "Normalized Execution Time" ${YMIN} ${YMAX} "${JJOB_SHARED_HOME}/../${PLOT_FILE}"
+    python ${SCRIPT_FOLDER}/plotGraph.py ${JJOB_SHARED_HOME}/../${STATS_FILE} "Performance Trend Line" "Build" "Normalized Throughout" ${YMIN} ${YMAX} "${JJOB_SHARED_HOME}/../${PLOT_FILE}"
 else
     cat ${WORKSPACE}/${STATS_FILE}
-    python ${SCRIPT_FOLDER}/plotGraph.py ${WORKSPACE}/${STATS_FILE} "Performance Trend Line" "Build" "Normalized Execution Time" ${YMIN} ${YMAX} "${WORKSPACE}/${PLOT_FILE}"
+    python ${SCRIPT_FOLDER}/plotGraph.py ${WORKSPACE}/${STATS_FILE} "Performance Trend Line" "Build" "Normalized Throughout" ${YMIN} ${YMAX} "${WORKSPACE}/${PLOT_FILE}"
 fi
 RET_VAL=$?
 if [ $RET_VAL -eq 0 ]; then

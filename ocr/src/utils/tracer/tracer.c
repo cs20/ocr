@@ -9,6 +9,12 @@
 #include "utils/tracer/tracer.h"
 #include "worker/hc/hc-worker.h"
 
+// The flag below has been added to support tracing of memory allocation.
+// Trace uses an allocation to do it's job and when tracing allocation
+// this causes a recursive race condition resulting in stack overflow.
+// This flag allows tracing of allocations without including the trace
+// sub-system's allocation usage.
+__thread bool inside_trace = false;
 
 bool isDequeFull(deque_t *deq){
     if(deq == NULL) return false;
@@ -67,12 +73,12 @@ void populateTraceObject(u64 location, bool evtType, ocrTraceType_t objType, ocr
                 u64 *paramvIn = va_arg(ap, u64 *);
                 u64 paramvOut[MAX_PARAMS];
                 if(paramc > 0){
-                    memcpy(paramvOut, paramvIn, sizeof(paramvOut));
+                    hal_memCopy(paramvOut, paramvIn, sizeof(paramvOut), false);
                 }
                 TRACE_FIELD(TASK, taskCreate, tr, taskGuid) = guid;
                 TRACE_FIELD(TASK, taskCreate, tr, depc) = depc;
                 TRACE_FIELD(TASK, taskCreate, tr, paramc) = paramc;
-                memcpy(TRACE_FIELD(TASK, taskCreate, tr, paramv), paramvOut, sizeof(paramvOut));
+                hal_memCopy(TRACE_FIELD(TASK, taskCreate, tr, paramv), paramvOut, sizeof(paramvOut), false);
                 PUSH_TO_TRACE_DEQUE();
 #endif
                 break;
@@ -134,8 +140,11 @@ void populateTraceObject(u64 location, bool evtType, ocrTraceType_t objType, ocr
                 void (*traceFunc)() = va_arg(ap, void *);
                 ocrGuid_t src = va_arg(ap, ocrGuid_t);
                 ocrGuid_t dest = va_arg(ap, ocrGuid_t);
+                u32 sslot = va_arg(ap, u32);
+                u32 dslot = va_arg(ap, u32);
+                ocrDbAccessMode_t accessMode = va_arg(ap, ocrDbAccessMode_t);
                 //Callback
-                traceFunc(location, evtType, objType, actionType, workerId, timestamp, parent, src, dest);
+                traceFunc(location, evtType, objType, actionType, workerId, timestamp, parent, src, dest, sslot, dslot, accessMode);
                 break;
             }
             case OCR_ACTION_EXECUTE:
@@ -144,8 +153,11 @@ void populateTraceObject(u64 location, bool evtType, ocrTraceType_t objType, ocr
                 void (*traceFunc)() = va_arg(ap, void *);
                 ocrGuid_t taskGuid = va_arg(ap, ocrGuid_t);
                 ocrEdt_t func = va_arg(ap, ocrEdt_t);
+                char *nameIn = va_arg(ap, char *);
+                char nameOut[OCR_EDT_NAME_SIZE];
+                memcpy(nameOut, nameIn, sizeof(nameOut));
                 //Callback
-                traceFunc(location, evtType, objType, actionType, workerId, timestamp, parent, taskGuid, func);
+                traceFunc(location, evtType, objType, actionType, workerId, timestamp, parent, taskGuid, func, nameOut);
 #else
                 INIT_TRACE_OBJECT()
                 //Get callback function ptr, but ignore; arrange trace obj manually
@@ -157,13 +169,13 @@ void populateTraceObject(u64 location, bool evtType, ocrTraceType_t objType, ocr
                 u64 *paramvIn = va_arg(ap, u64 *);
                 u64 paramvOut[MAX_PARAMS];
                 if(paramc > 0){
-                    memcpy(paramvOut, paramvIn, sizeof(paramvOut));
+                    hal_memCopy(paramvOut, paramvIn, sizeof(paramvOut), false);
                 }
                 TRACE_FIELD(TASK, taskExeBegin, tr, taskGuid) = taskGuid;
                 TRACE_FIELD(TASK, taskExeBegin, tr, funcPtr) = funcPtr;
                 TRACE_FIELD(TASK, taskExeBegin, tr, depc) = depc;
                 TRACE_FIELD(TASK, taskExeBegin, tr, paramc) = paramc;
-                memcpy(TRACE_FIELD(TASK, taskExeBegin, tr, paramv), paramvOut, sizeof(paramvOut));
+                hal_memCopy(TRACE_FIELD(TASK, taskExeBegin, tr, paramv), paramvOut, sizeof(paramvOut), false);
                 PUSH_TO_TRACE_DEQUE();
 #endif
                 break;
@@ -174,8 +186,12 @@ void populateTraceObject(u64 location, bool evtType, ocrTraceType_t objType, ocr
                 //Get var args
                 void (*traceFunc)() = va_arg(ap, void *);
                 ocrGuid_t taskGuid = va_arg(ap, ocrGuid_t);
+                u64 startTime = va_arg(ap, u64);
+                char *nameIn = va_arg(ap, char *);
+                char nameOut[OCR_EDT_NAME_SIZE];
+                memcpy(nameOut, nameIn, sizeof(nameOut));
                 //Callback
-                traceFunc(location, evtType, objType, actionType, workerId, timestamp, parent, taskGuid);
+                traceFunc(location, evtType, objType, actionType, workerId, timestamp, parent, taskGuid, startTime, nameOut);
 #else
                 INIT_TRACE_OBJECT();
                 //Get callback function ptr, but ignore; arrange trace obj manually
@@ -183,9 +199,10 @@ void populateTraceObject(u64 location, bool evtType, ocrTraceType_t objType, ocr
                 ocrGuid_t taskGuid = va_arg(ap, ocrGuid_t);
                 void* edt = va_arg(ap, void *);
                 u32 count = va_arg(ap, u32);
-                ocrPerfStat_t *stats = va_arg(ap, ocrPerfStat_t *);
                 TRACE_FIELD(TASK, taskExeEnd, tr, taskGuid) = taskGuid;
                 TRACE_FIELD(TASK, taskExeEnd, tr, count) = count;
+#ifdef ENABLE_EXTENSION_PERF
+                ocrPerfStat_t *stats = va_arg(ap, ocrPerfStat_t *);
                 TRACE_FIELD(TASK, taskExeEnd, tr, hwCycles) = stats[PERF_HW_CYCLES].current;
                 TRACE_FIELD(TASK, taskExeEnd, tr, hwCacheRefs) = stats[PERF_L1_HITS].current;
                 TRACE_FIELD(TASK, taskExeEnd, tr, hwCacheMisses) = stats[PERF_L1_MISSES].current;
@@ -195,6 +212,7 @@ void populateTraceObject(u64 location, bool evtType, ocrTraceType_t objType, ocr
                 TRACE_FIELD(TASK, taskExeEnd, tr, swDbCreates) = stats[PERF_DB_CREATES].current;
                 TRACE_FIELD(TASK, taskExeEnd, tr, swDbDestroys) = stats[PERF_DB_DESTROYS].current;
                 TRACE_FIELD(TASK, taskExeEnd, tr, swEvtSats) = stats[PERF_EVT_SATISFIES].current;
+#endif
                 TRACE_FIELD(TASK, taskExeEnd, tr, edt) = edt;
                 PUSH_TO_TRACE_DEQUE();
 #endif
@@ -257,8 +275,11 @@ void populateTraceObject(u64 location, bool evtType, ocrTraceType_t objType, ocr
                 void (*traceFunc)() = va_arg(ap, void *);
                 ocrGuid_t src = va_arg(ap, ocrGuid_t);
                 ocrGuid_t dest = va_arg(ap, ocrGuid_t);
+                u32 sslot = va_arg(ap, u32);
+                u32 dslot = va_arg(ap, u32);
+                ocrDbAccessMode_t accessMode = va_arg(ap, ocrDbAccessMode_t);
                 //Callback
-                traceFunc(location, evtType, objType, actionType, workerId, timestamp, parent, src, dest);
+                traceFunc(location, evtType, objType, actionType, workerId, timestamp, parent, src, dest, sslot, dslot, accessMode);
                 break;
             }
             case OCR_ACTION_SATISFY:
@@ -334,6 +355,39 @@ void populateTraceObject(u64 location, bool evtType, ocrTraceType_t objType, ocr
                 ocrGuid_t dbGuid = va_arg(ap, ocrGuid_t);
                 //Callback
                 traceFunc(location, evtType, objType, actionType, workerId, timestamp, parent, dbGuid);
+                break;
+            }
+            default:
+                break;
+        }
+        break;
+
+    case OCR_TRACE_TYPE_ALLOCATOR:
+
+        switch(actionType){
+
+            case OCR_ACTION_ALLOCATE:
+            {
+                //Get var args
+                void (*traceFunc)() = va_arg(ap, void *);
+                u64 startTime = va_arg(ap, u64);
+                u64 callFunc = va_arg(ap, u64);
+                u64 memSize = va_arg(ap, u64);
+                u64 memHint = va_arg(ap, u64);
+                void * memPtr = va_arg(ap, void *);
+                //Callback
+                traceFunc(location, evtType, objType, actionType, workerId, timestamp, parent, startTime, callFunc, memSize, memHint, memPtr);
+                break;
+            }
+            case OCR_ACTION_DEALLOCATE:
+            {
+                //Get var args
+                void (*traceFunc)() = va_arg(ap, void *);
+                u64 startTime = va_arg(ap, u64);
+                u64 callFunc = va_arg(ap, u64);
+                void * memPtr = va_arg(ap, void *);
+                //Callback
+                traceFunc(location, evtType, objType, actionType, workerId, timestamp, parent, startTime, callFunc, memPtr);
                 break;
             }
             default:
@@ -427,12 +481,12 @@ void populateTraceObject(u64 location, bool evtType, ocrTraceType_t objType, ocr
                 u64 *paramvIn = va_arg(ap, u64 *);
                 u64 paramvOut[MAX_PARAMS];
                 if(paramc > 0 && paramvIn != NULL){
-                    memcpy(paramvOut, paramvIn, sizeof(paramvOut));
+                    hal_memCopy(paramvOut, paramvIn, sizeof(paramvOut), false);
                 }
                 u32 depc = va_arg(ap, u32);
                 TRACE_FIELD(API_EDT, simEdtCreate, tr, templateGuid) = templateGuid;
                 TRACE_FIELD(API_EDT, simEdtCreate, tr, paramc) = paramc;
-                memcpy(TRACE_FIELD(API_EDT, simEdtCreate, tr, paramv), paramvOut, sizeof(paramvOut));
+                hal_memCopy(TRACE_FIELD(API_EDT, simEdtCreate, tr, paramv), paramvOut, sizeof(paramvOut), false);
                 TRACE_FIELD(API_EDT, simEdtCreate, tr, depc) = depc;
                 PUSH_TO_TRACE_DEQUE();
                 break;
@@ -481,11 +535,13 @@ void populateTraceObject(u64 location, bool evtType, ocrTraceType_t objType, ocr
                 INIT_TRACE_OBJECT();
                 ocrGuid_t source = va_arg(ap, ocrGuid_t);
                 ocrGuid_t dest = va_arg(ap, ocrGuid_t);
-                u32 slot = va_arg(ap, u32);
+                u32 sslot = va_arg(ap, u32);
+                u32 dslot = va_arg(ap, u32);
                 ocrDbAccessMode_t accessMode = va_arg(ap, ocrDbAccessMode_t);
                 TRACE_FIELD(API_EVENT, simEventAddDep, tr, source) = source;
                 TRACE_FIELD(API_EVENT, simEventAddDep, tr, destination) = dest;
-                TRACE_FIELD(API_EVENT, simEventAddDep, tr, slot) = slot;
+                TRACE_FIELD(API_EVENT, simEventAddDep, tr, sslot) = sslot;
+                TRACE_FIELD(API_EVENT, simEventAddDep, tr, dslot) = dslot;
                 TRACE_FIELD(API_EVENT, simEventAddDep, tr, accessMode) = accessMode;
                 PUSH_TO_TRACE_DEQUE();
                 break;

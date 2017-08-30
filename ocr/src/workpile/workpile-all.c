@@ -36,7 +36,7 @@ ocrWorkpileFactory_t * newWorkpileFactory(workpileType_t type, ocrParamList_t * 
 #endif
     case workpileMax_id:
     default:
-        ASSERT(0);
+        ocrAssert(0);
     }
     return NULL;
 }

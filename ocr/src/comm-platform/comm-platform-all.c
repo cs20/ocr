@@ -74,7 +74,7 @@ ocrCommPlatformFactory_t *newCommPlatformFactory(commPlatformType_t type, ocrPar
         return newCommPlatformFactoryGasnet(typeArg);
 #endif
     default:
-        ASSERT(0);
+        ocrAssert(0);
         return NULL;
     };
 }

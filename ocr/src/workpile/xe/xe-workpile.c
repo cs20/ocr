@@ -28,12 +28,12 @@ u8 xeWorkpileSwitchRunlevel(ocrWorkpile_t *self, ocrPolicyDomain_t *PD, ocrRunle
     u8 toReturn = 0;
 
     // This is an inert module, we do not handle callbacks (caller needs to wait on us)
-    ASSERT(callback == NULL);
+    ocrAssert(callback == NULL);
 
     // Verify properties for this call
-    ASSERT((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
+    ocrAssert((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
            && !(properties & RL_RELEASE));
-    ASSERT(!(properties & RL_FROM_MSG));
+    ocrAssert(!(properties & RL_FROM_MSG));
 
     switch(runlevel) {
     case RL_CONFIG_PARSE:
@@ -49,6 +49,14 @@ u8 xeWorkpileSwitchRunlevel(ocrWorkpile_t *self, ocrPolicyDomain_t *PD, ocrRunle
     case RL_MEMORY_OK:
         break;
     case RL_GUID_OK:
+        // We have memory, we can now allocate a deque
+        if((properties & RL_BRING_UP) && RL_IS_FIRST_PHASE_UP(PD, RL_GUID_OK, phase)) {
+            ocrWorkpileXe_t* derived = (ocrWorkpileXe_t*)self;
+            derived->deque = newDeque(self->pd, (void *) NULL, WORK_STEALING_DEQUE);
+        } else if((properties & RL_TEAR_DOWN) && RL_IS_LAST_PHASE_DOWN(PD, RL_GUID_OK, phase)) {
+            ocrWorkpileXe_t* derived = (ocrWorkpileXe_t*)self;
+            derived->deque->destruct(PD, derived->deque);
+        }
         break;
     case RL_COMPUTE_OK:
         if(properties & RL_BRING_UP) {
@@ -77,19 +85,39 @@ u8 xeWorkpileSwitchRunlevel(ocrWorkpile_t *self, ocrPolicyDomain_t *PD, ocrRunle
         break;
     default:
         // Unknown runlevel
-        ASSERT(0);
+        ocrAssert(0);
     }
     return toReturn;
 }
 
 ocrFatGuid_t xeWorkpilePop(ocrWorkpile_t * base, ocrWorkPopType_t type,
                            ocrCost_t *cost) {
-    ocrFatGuid_t guid = {UNINITIALIZED_GUID, NULL};
-    return guid;
+    ocrWorkpileXe_t* derived = (ocrWorkpileXe_t*) base;
+    ocrFatGuid_t fguid, * fguidp;
+    fguid.guid = NULL_GUID;
+    fguid.metaDataPtr = NULL;
+    switch(type) {
+    case POP_WORKPOPTYPE:
+        fguidp = derived->deque->popFromHead(derived->deque, 0);
+        if (fguidp != NULL) {
+            fguid.guid = fguidp->guid;
+            fguid.metaDataPtr = fguidp->metaDataPtr;
+            base->pd->fcts.pdFree(base->pd, fguidp);
+        }
+        break;
+    default:
+        ocrAssert(0);
+    }
+    return fguid;
 }
 
 void xeWorkpilePush(ocrWorkpile_t * base, ocrWorkPushType_t type,
                     ocrFatGuid_t g ) {
+    ocrWorkpileXe_t* derived = (ocrWorkpileXe_t*) base;
+    ocrFatGuid_t* gp = base->pd->fcts.pdMalloc(base->pd, sizeof(ocrFatGuid_t));
+    gp->guid = g.guid;
+    gp->metaDataPtr = g.metaDataPtr;
+    derived->deque->pushAtTail(derived->deque, (void *)(gp), 0);
 }
 
 ocrWorkpile_t * newWorkpileXe(ocrWorkpileFactory_t * factory, ocrParamList_t *perInstance) {

@@ -43,6 +43,7 @@
 // Datablock
 #define ENABLE_DATABLOCK_REGULAR
 #define ENABLE_DATABLOCK_LOCKABLE
+#define ENABLE_EXTENSION_DB_INFO
 
 // Event
 #define ENABLE_EVENT_HC
@@ -134,13 +135,20 @@
 // Channel Events support
 #define ENABLE_EXTENSION_CHANNEL_EVT
 
+// Support for multiple output slots
+//#define ENABLE_EXTENSION_MULTI_OUTPUT_SLOT
+
+// Collective Events support
+//#define ENABLE_EXTENSION_DISTRIBUTED_LABELED
+//#define ENABLE_EXTENSION_COLLECTIVE_EVT
+
 // OCR legacy support
 #define ENABLE_EXTENSION_LEGACY
 
 // Affinity support
 #define ENABLE_EXTENSION_AFFINITY
 
-//GUID Labeling
+// GUID Labeling
 #define ENABLE_EXTENSION_LABELING
 
 // Build pause support
@@ -152,6 +160,9 @@
 // Performance monitoring
 //#define ENABLE_EXTENSION_PERF
 
+// Load balancing
+//#define LOAD_BALANCING_TEST
+
 //#define ENABLE_RESILIENCY
 
 #ifdef ENABLE_RESILIENCY
@@ -160,6 +171,13 @@
 //#define ENABLE_CHECKPOINT_VERIFICATION
 //#define OCR_CHECKPOINT_INTERVAL   1000000000UL /* 1 second */
 //#define OCR_CHECKPOINT_INTERVAL     10000000UL /* 10 miliseconds */
+#endif
+
+// OCR Simulator
+//#define OCR_ENABLE_SIMULATOR
+
+#ifdef OCR_ENABLE_SIMULATOR
+#define ENABLE_EXTENSION_PERF
 #endif
 
 #endif /* __OCR_CONFIG_H__ */

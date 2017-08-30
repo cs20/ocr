@@ -210,7 +210,7 @@ u32 ocrGuidTrackerTrack(ocrGuidTracker_t *self, ocrGuid_t toTrack) {
     if(self->slotsStatus == 0) return slot;
     slot = fls64(self->slotsStatus);
     self->slotsStatus &= ~(1ULL<<slot);
-    ASSERT(slot <= 63);
+    ocrAssert(slot <= 63);
     self->slots[slot] = toTrack;
     return slot;
 }

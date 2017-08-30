@@ -77,7 +77,7 @@ static inline u8 guidify(struct _ocrPolicyDomain_t * pd, u64 val,
     PD_MSG_STACK(msg);
     getCurrentEnv(NULL, NULL, NULL, &msg);
 
-    ASSERT(ocrGuidIsNull(guidRes->guid) || ocrGuidIsUninitialized(guidRes->guid));
+    ocrAssert(ocrGuidIsNull(guidRes->guid) || ocrGuidIsUninitialized(guidRes->guid));
 
 #define PD_MSG (&msg)
 #define PD_TYPE PD_MSG_GUID_CREATE
@@ -94,7 +94,7 @@ static inline u8 guidify(struct _ocrPolicyDomain_t * pd, u64 val,
 
     if(returnCode == 0) {
         *guidRes = PD_MSG_FIELD_IO(guid);
-        ASSERT((u64)(guidRes->metaDataPtr) == val);
+        ocrAssert((u64)(guidRes->metaDataPtr) == val);
     }
     return returnCode;
 #undef PD_MSG

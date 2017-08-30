@@ -84,12 +84,12 @@ u8 xeCommSwitchRunlevel(ocrCommPlatform_t *self, ocrPolicyDomain_t *PD, ocrRunle
     u8 toReturn = 0;
 
     // This is an inert module, we do not handle callbacks (caller needs to wait on us)
-    ASSERT(callback == NULL);
+    ocrAssert(callback == NULL);
 
     // Verify properties for this call
-    ASSERT((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
+    ocrAssert((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
            && !(properties & RL_RELEASE));
-    ASSERT(!(properties & RL_FROM_MSG));
+    ocrAssert(!(properties & RL_FROM_MSG));
 
     switch(runlevel) {
     case RL_CONFIG_PARSE:
@@ -109,7 +109,12 @@ u8 xeCommSwitchRunlevel(ocrCommPlatform_t *self, ocrPolicyDomain_t *PD, ocrRunle
             DPRINTF(DEBUG_LVL_VVERB, "Zeroed out local addresses for incoming buffer @ 0x%"PRIx64" for size %"PRIu32"\n", AR_L1_BASE + MSG_QUEUE_OFFT, MSG_QUEUE_SIZE);
 
             // Remember which XE number we are
+#ifdef OCR_SHARED_XE_POLICY_DOMAIN
+            for (i=0; PD->commApis[i]->commPlatform != self; i++);
+            cp->N = i;
+#else
             cp->N = AGENT_FROM_ID(PD->myLocation) - ID_AGENT_XE0;
+#endif
 
             // Pre-compute pointer to our stage at the CE
             cp->rq = (fsimCommSlot_t *)(BR_L1_BASE(ID_AGENT_CE) + MSG_QUEUE_OFFT + cp->N * MSG_QUEUE_SIZE);
@@ -134,7 +139,7 @@ u8 xeCommSwitchRunlevel(ocrCommPlatform_t *self, ocrPolicyDomain_t *PD, ocrRunle
         break;
     default:
         // Unknown runlevel
-        ASSERT(0);
+        ocrAssert(0);
     }
     return toReturn;
 }
@@ -144,15 +149,15 @@ u8 xeCommSendMessage(ocrCommPlatform_t *self, ocrLocation_t target,
                      u32 properties, u32 mask) {
 
 #ifndef ENABLE_BUILDER_ONLY
-    ASSERT(self != NULL);
-    ASSERT(message != NULL && message->bufferSize != 0);
+    ocrAssert(self != NULL);
+    ocrAssert(message != NULL && message->bufferSize != 0);
 
     ocrCommPlatformXe_t * cp = (ocrCommPlatformXe_t *)self;
 
     // For now, XEs only sent to their CE; make sure!
     if(target != self->pd->parentLocation)
         DPRINTF(DEBUG_LVL_WARN, "XE trying to send to %"PRIx64" not parent %"PRIx64"\n", target, self->pd->parentLocation);
-    ASSERT(target == self->pd->parentLocation);
+    ocrAssert(target == self->pd->parentLocation);
 
     // - Atomically test & set remote stage to Busy. Error if already non-Empty.
     DPRINTF(DEBUG_LVL_VVERB, "XE trying to grab its remote slot @ %p\n", cp->rq);
@@ -169,6 +174,13 @@ u8 xeCommSendMessage(ocrCommPlatform_t *self, ocrLocation_t target,
     DPRINTF(DEBUG_LVL_VERB, "Got size of message %p: base:%"PRIu64" addl:%"PRIu64"\n",
         message, baseSize, marshalledSize);
     cp->rq->size = baseSize + marshalledSize;
+
+#ifdef OCR_SHARED_XE_POLICY_DOMAIN
+    // If multiple XE's are sharing the same PD, then we need to update the srcLocation
+    // to be the location of this XE (not pd->myLocation as this will always be the first
+    // CE in the PD)
+    message->srcLocation = *(u64*)(AR_MSR_BASE + CORE_LOCATION_NUM * sizeof(u64));
+#endif
 
     // We are also going to marshall things locally so that the CE only
     // needs to copy things over once
@@ -198,10 +210,13 @@ u8 xeCommSendMessage(ocrCommPlatform_t *self, ocrLocation_t target,
             DPRINTF(DEBUG_LVL_VVERB, "Message %p is too small -- using outbuffer\n", message);
             tmsg = &(cp->outBuffer[0]);
             tmsg->bufferSize = XE_HACK_BUFFER_SIZE;
+#ifndef OCR_SHARED_XE_POLICY_DOMAIN
+            // Our PD is AR in XE L1 so we need to convert tmsg to BR
             u64 taddr = (u64)tmsg;
-            ASSERT(taddr & _AR_LEAD_ONE);
+            ocrAssert(taddr & _AR_LEAD_ONE);
             taddr = BR_L1_BASE(cp->N + ID_AGENT_XE0) + taddr - AR_L1_BASE;
             tmsg = (ocrPolicyMsg_t*)taddr;
+#endif
         } else {
             DPRINTF(DEBUG_LVL_WARN, "POSSIBLE DEADLOCK: Message @ %p is too small -- creating additional buffer of size 0x%"PRIu64"\n",
                 message, baseSize + marshalledSize);
@@ -239,8 +254,8 @@ u8 xeCommSendMessage(ocrCommPlatform_t *self, ocrLocation_t target,
 u8 xeCommPollMessage(ocrCommPlatform_t *self, ocrPolicyMsg_t **msg,
                      u32 properties, u32 *mask) {
 
-    ASSERT(self != NULL);
-    ASSERT(msg != NULL);
+    ocrAssert(self != NULL);
+    ocrAssert(msg != NULL);
 
     ocrCommPlatformXe_t *cp = (ocrCommPlatformXe_t*)self;
     // Local stage is at well-known address
@@ -291,8 +306,8 @@ u8 xeCommWaitMessage(ocrCommPlatform_t *self,  ocrPolicyMsg_t **msg,
                      u32 properties, u32 *mask) {
 
     DPRINTF(DEBUG_LVL_VERB, "Waiting for message\n");
-    ASSERT(self != NULL);
-    ASSERT(msg != NULL);
+    ocrAssert(self != NULL);
+    ocrAssert(msg != NULL);
 
     ocrCommPlatformXe_t *cp = (ocrCommPlatformXe_t*)self;
 
@@ -342,24 +357,24 @@ u8 xeCommWaitMessage(ocrCommPlatform_t *self,  ocrPolicyMsg_t **msg,
 }
 
 u8 xeCommSetMaxExpectedMessageSize(ocrCommPlatform_t *self, u64 size, u32 mask) {
-    ASSERT(0);
+    ocrAssert(0);
     return 0;
 }
 
 u8 xeCommDestructMessage(ocrCommPlatform_t *self, ocrPolicyMsg_t *msg) {
 
-    ASSERT(self != NULL);
-    ASSERT(msg != NULL);
+    ocrAssert(self != NULL);
+    ocrAssert(msg != NULL);
     DPRINTF(DEBUG_LVL_VERB, "Resetting incomming message buffer, freeing %p\n", msg);
 #ifndef ENABLE_BUILDER_ONLY
     ocrCommPlatformXe_t *cp = (ocrCommPlatformXe_t*)self;
     // Local stage is at well-known address
     fsimCommSlot_t *lq = (fsimCommSlot_t*)(AR_L1_BASE + MSG_QUEUE_OFFT);
-    ASSERT(msg == lq->laddr); // We should only be destroying the message we received
+    ocrAssert(msg == lq->laddr); // We should only be destroying the message we received
     if(lq->laddr != &(cp->inBuffer[0])) {
         self->pd->fcts.pdFree(self->pd, msg);
     } else {
-        ASSERT(!cp->inBufferFree);
+        ocrAssert(!cp->inBufferFree);
         cp->inBufferFree = true;
     }
 

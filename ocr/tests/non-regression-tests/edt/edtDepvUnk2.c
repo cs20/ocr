@@ -13,7 +13,7 @@
  */
 
 ocrGuid_t terminateEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
-    PRINTF("Everything went OK\n");
+    ocrPrintf("Everything went OK\n");
     ocrShutdown(); // This is the last EDT to execute, terminate
     return NULL_GUID;
 }

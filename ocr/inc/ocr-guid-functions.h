@@ -150,7 +150,7 @@ static inline bool ocrGuidIsLt(ocrGuid_t g1, ocrGuid_t g2){
 #endif
 
 /* Legacy support */
-/* WARNING: All these calls are depcrecated. Please use the ones above */
+/* WARNING: All these calls are deprecated. Please use the ones above */
 static inline bool IS_GUID_NULL(ocrGuid_t guid){ return ocrGuidIsNull(guid); }
 static inline bool IS_GUID_UNINITIALIZED(ocrGuid_t guid){ return ocrGuidIsUninitialized(guid); }
 static inline bool IS_GUID_ERROR(ocrGuid_t guid){ return ocrGuidIsError(guid); }

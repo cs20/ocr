@@ -43,9 +43,9 @@ u64 FsimRuntimeChunkAlloc(u64 size, u64 *extra) {
         nonpersistent_pointer += size;
     }
 
-    ASSERT((persistent_pointer < CHUNKSZ) && "Persistent allocation needs more than CHUNKSZ bytes of memory");
-    ASSERT((nonpersistent_pointer < CHUNKSZ) && "Non-persistent allocation needs more than CHUNKSZ bytes of memory");
-    ASSERT((args_pointer < CHUNKSZ) && "Non-persistent allocation needs more than CHUNKSZ bytes of memory");
+    ocrAssert((persistent_pointer < CHUNKSZ) && "Persistent allocation needs more than CHUNKSZ bytes of memory");
+    ocrAssert((nonpersistent_pointer < CHUNKSZ) && "Non-persistent allocation needs more than CHUNKSZ bytes of memory");
+    ocrAssert((args_pointer < CHUNKSZ) && "Non-persistent allocation needs more than CHUNKSZ bytes of memory");
 
     DPRINTF(DEBUG_LVL_VVERB, "Runtime chunk alloc(%"PRId64", %"PRId64") => 0x%"PRIx64"\n", size, (u64)extra, (u64)returnValue);
 
@@ -53,7 +53,7 @@ u64 FsimRuntimeChunkAlloc(u64 size, u64 *extra) {
 }
 
 void FsimRuntimeChunkFree(u64 addr, u64* extra) {
-    ASSERT(addr);
+    ocrAssert(addr);
     // Nothing to do
 }
 
@@ -64,11 +64,11 @@ void FsimRuntimeUpdateMemTarget(ocrMemTarget_t *me, u64 extra) {
 }
 
 void FsimBootUpAbort() {
-    ASSERT(0);
+    ocrAssert(0);
 }
 
 void FsimBootUpPrint(const char* str, u64 length) {
-    PRINTF("%s", str);
+    ocrPrintf("%s", str);
 }
 
 extern void *getAddress(const char *fname);

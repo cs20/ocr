@@ -19,7 +19,7 @@ ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     // No real right or wrong here, just check the call doesn't crash
     ocrGuid_t workerGuid;
     ocrCurrentWorkerGuid(&workerGuid);
-    PRINTF("Current worker GUID is "GUIDF"\n", GUIDA(workerGuid));
+    ocrPrintf("Current worker GUID is "GUIDF"\n", GUIDA(workerGuid));
     ocrShutdown();
     return NULL_GUID;
 }
@@ -27,7 +27,7 @@ ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
 #else
 
 ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
-    PRINTF("No RT API\n");
+    ocrPrintf("No RT API\n");
     ocrShutdown();
     return NULL_GUID;
 }

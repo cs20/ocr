@@ -19,7 +19,7 @@ ocrGuid_t prodEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     u32 * dbPtr = depv[0].ptr;
     u32 i = 0;
     while (i < NB_ELEMS) {
-        ASSERT(dbPtr[i] == i);
+        ocrAssert(dbPtr[i] == i);
         i++;
     }
     ocrShutdown();
@@ -37,7 +37,7 @@ ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
 
     u64 affinityCount;
     ocrAffinityCount(AFFINITY_PD, &affinityCount);
-    ASSERT(affinityCount >= 1);
+    ocrAssert(affinityCount >= 1);
     ocrGuid_t affinities[affinityCount];
     ocrAffinityGet(AFFINITY_PD, &affinityCount, affinities);
     ocrGuid_t edtAffinity = affinities[affinityCount-1];
@@ -71,7 +71,7 @@ ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
 #else
 
 ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
-    PRINTF("Test disabled - ENABLE_EXTENSION_CHANNEL_EVT not defined\n");
+    ocrPrintf("Test disabled - ENABLE_EXTENSION_CHANNEL_EVT not defined\n");
     ocrShutdown();
     return NULL_GUID;
 }

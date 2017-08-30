@@ -21,7 +21,7 @@ inline ocrMemTargetFactory_t *newMemTargetFactory(memTargetType_t type, ocrParam
         return newMemTargetFactoryShared(typeArg);
 #endif
     default:
-        ASSERT(0);
+        ocrAssert(0);
         return NULL;
     };
 }

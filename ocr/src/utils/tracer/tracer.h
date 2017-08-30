@@ -24,6 +24,10 @@
 #define MAX_DEPS 32
 #endif
 
+#ifndef OCR_EDT_NAME_SIZE
+#define OCR_EDT_NAME_SIZE 32
+#endif
+
 bool isDequeFull(deque_t *deq);
 bool isSystem(ocrPolicyDomain_t *pd);
 bool isSupportedTraceType(bool evtType, ocrTraceType_t ttype, ocrTraceAction_t atype);
@@ -31,6 +35,7 @@ void populateTraceObject(u64 location, bool evtType, ocrTraceType_t objType, ocr
                                 u64 workerId, u64 timestamp, ocrGuid_t parent, va_list ap);
 
 
+extern __thread bool inside_trace;
 
 /* Macros to condense and simplify the packing of trace objects */
 #define INIT_TRACE_OBJECT()                                                 \
@@ -38,7 +43,9 @@ void populateTraceObject(u64 location, bool evtType, ocrTraceType_t objType, ocr
     ocrPolicyDomain_t *pd = NULL;                                           \
     ocrWorker_t *worker = NULL;                                             \
     getCurrentEnv(&pd, &worker, NULL, NULL);                                \
+    inside_trace = true;                                                    \
     ocrTraceObj_t *tr = pd->fcts.pdMalloc(pd, sizeof(ocrTraceObj_t));       \
+    inside_trace = false;                                                   \
                                                                             \
     tr->typeSwitch = objType;                                               \
     tr->actionSwitch = actionType;                                          \
@@ -94,6 +101,9 @@ typedef struct {
                 struct{
                     ocrGuid_t src;                  /* Source GUID of dependence being added */
                     ocrGuid_t dest;                 /* Destination GUID of dependence being added*/
+                    u32 sslot;                      /* Source slot number */
+                    u32 dslot;                      /* Destination slot number */
+                    ocrDbAccessMode_t accessMode;   /* Access mode of associated dependence */
                 }taskDepReady;
 
                 struct{
@@ -117,10 +127,15 @@ typedef struct {
                     u64 depc;                       /* Number of dependencies associated with task */
                     u64 paramc;                     /* Number of paramaters associated with task */
                     u64 paramv[MAX_PARAMS];         /* List of paramaters associated with task */
+                    char name[OCR_EDT_NAME_SIZE];
+                    u64 strLen;
                 }taskExeBegin;
 
                 struct{
                     ocrGuid_t taskGuid;             /* GUID of task completing */
+                    u64 startTime;
+                    char name[OCR_EDT_NAME_SIZE];
+                    u64 strLen;
                     void *edt;                      /* Pointer to EDT */
                     u32 count;                      /* Number of times this EDT has executed */
                     u64 hwCycles;                   /* Perf counter: total clock cycles */
@@ -185,6 +200,26 @@ typedef struct {
 
         } TRACE_TYPE_NAME(DATA);
 
+        struct{ /* Allocator */
+            union{
+                struct{
+                    u64 startTime;                  /* Time when allocation started */
+                    u64 callFunc;                   /* Identifier of function calling allocate */
+                    u64 memSize;                    /* Size of memory in bytes */
+                    u64 memHint;                    /* Hint for allocator */
+                    void *memPtr;                   /* Pointer to memory allocated */
+                }memAlloc;
+
+                struct{
+                    u64 startTime;                  /* Time when deallocation started */
+                    u64 callFunc;                   /* Identifier of function calling allocate */
+                    void *memPtr;                   /* Pointer to memory allocated */
+                }memDealloc;
+
+            }action;
+
+        } TRACE_TYPE_NAME(ALLOCATOR);
+
         struct{ /* Event (OCR module) */
             union{
                 struct{
@@ -194,6 +229,9 @@ typedef struct {
                 struct{
                     ocrGuid_t src;                  /* Source GUID of dependence being added */
                     ocrGuid_t dest;                 /* Destination GUID of dependence being added */
+                    u32 sslot;                      /* Source slot number of event where dependence being added on API entry */
+                    u32 dslot;                      /* Destination slot number of event where dependence being added on API entry */
+                    ocrDbAccessMode_t accessMode;   /* Access mode of associated dependence on API entry */
                 }eventDepAdd;
 
                 struct{
@@ -292,7 +330,8 @@ typedef struct {
                 struct{
                     ocrGuid_t source;                   /* OCR object having dependence added on API entry */
                     ocrGuid_t destination;              /* OCR object bieng depended on by source on API entry */
-                    u32 slot;                           /* Slot number of event where dependence being added on API entry */
+                    u32 sslot;                          /* Source slot number of event where dependence being added on API entry */
+                    u32 dslot;                          /* Destination slot number of event where dependence being added on API entry */
                     ocrDbAccessMode_t accessMode;       /* Access mode of associated dependence on API entry */
                 }simEventAddDep;
 

@@ -13,7 +13,7 @@
 #define N 16
 
 ocrGuid_t terminateEDT(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
-    PRINTF("Call Terminate\n");
+    ocrPrintf("Call Terminate\n");
     ocrShutdown();
     return NULL_GUID;
 }

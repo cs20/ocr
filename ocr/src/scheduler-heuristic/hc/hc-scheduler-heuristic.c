@@ -18,6 +18,8 @@
 #include "ocr-workpile.h"
 #include "ocr-scheduler-object.h"
 #include "scheduler-heuristic/hc/hc-scheduler-heuristic.h"
+#include "extensions/ocr-hints.h"
+#include "scheduler-object/wst/wst-scheduler-object.h"
 
 #define DEBUG_TYPE SCHEDULER_HEURISTIC
 
@@ -56,12 +58,12 @@ u8 hcSchedulerHeuristicSwitchRunlevel(ocrSchedulerHeuristic_t *self, ocrPolicyDo
     u8 toReturn = 0;
 
     // This is an inert module, we do not handle callbacks (caller needs to wait on us)
-    ASSERT(callback == NULL);
+    ocrAssert(callback == NULL);
 
     // Verify properties for this call
-    ASSERT((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
+    ocrAssert((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
            && !(properties & RL_RELEASE));
-    ASSERT(!(properties & RL_FROM_MSG));
+    ocrAssert(!(properties & RL_FROM_MSG));
 
     switch(runlevel) {
     case RL_CONFIG_PARSE:
@@ -72,9 +74,9 @@ u8 hcSchedulerHeuristicSwitchRunlevel(ocrSchedulerHeuristic_t *self, ocrPolicyDo
         break;
     case RL_PD_OK:
     {
-        ASSERT(self->scheduler);
+        ocrAssert(self->scheduler);
         self->contextCount = PD->workerCount; //Shared mem heuristic
-        ASSERT(self->contextCount > 0);
+        ocrAssert(self->contextCount > 0);
         break;
     }
     case RL_MEMORY_OK:
@@ -114,7 +116,7 @@ u8 hcSchedulerHeuristicSwitchRunlevel(ocrSchedulerHeuristic_t *self, ocrPolicyDo
             for (i = 0; i < self->contextCount; i++) {
                 ocrSchedulerHeuristicContextHc_t *hcContext = (ocrSchedulerHeuristicContextHc_t*)self->contexts[i];
                 hcContext->mySchedulerObject = rootFact->fcts.getSchedulerObjectForLocation(rootFact, rootObj, OCR_SCHEDULER_OBJECT_DEQUE, i, OCR_SCHEDULER_OBJECT_MAPPING_WORKER, 0);
-                ASSERT(hcContext->mySchedulerObject);
+                ocrAssert(hcContext->mySchedulerObject);
                 hcContext->stealSchedulerObjectIndex = (i + 1) % self->contextCount;
             }
         }
@@ -124,7 +126,7 @@ u8 hcSchedulerHeuristicSwitchRunlevel(ocrSchedulerHeuristic_t *self, ocrPolicyDo
         break;
     default:
         // Unknown runlevel
-        ASSERT(0);
+        ocrAssert(0);
     }
     return toReturn;
 }
@@ -151,27 +153,45 @@ static u8 hcSchedulerHeuristicGetEdt(ocrSchedulerHeuristic_t *self, ocrScheduler
 {
     ocrSchedulerOpWorkArgs_t *taskArgs = (ocrSchedulerOpWorkArgs_t*)opArgs;
     ocrSchedulerObject_t edtObj;
+    ocrSchedulerObject_t* rootObj = self->scheduler->rootObj;
+    ocrSchedulerObject_t* stealSchedulerObject;
+    ocrSchedulerHeuristicContextHc_t *hcContext = (ocrSchedulerHeuristicContextHc_t*)context;
+    ocrSchedulerObject_t *schedObj = hcContext->mySchedulerObject;
+    ocrAssert(schedObj);
+    ocrSchedulerObjectFactory_t* fact = self->scheduler->pd->schedulerObjectFactories[schedObj->fctId];
     edtObj.guid.guid = NULL_GUID;
     edtObj.guid.metaDataPtr = NULL;
     edtObj.kind = kind;
-
+    u8 retVal;
+#ifdef OCR_ENABLE_SCHEDULER_SPAWN_QUEUE
+    ocrSchedulerHeuristicHc_t* derived = (ocrSchedulerHeuristicHc_t*)self;
+    // first look in spawn_queue
+    DPRINTF(DEBUG_LVL_INFO, ">>> Look in spawn_queue\n");
+    //TODO: you should check here to see if request is from another block/PD!!
+    ocrSchedulerObjectWst_t* wstSchedObj = (ocrSchedulerObjectWst_t*)rootObj;
+    stealSchedulerObject = wstSchedObj->spawn_queue;
+    hal_lock(&derived->lock);
+    retVal = fact->fcts.remove(fact, stealSchedulerObject, OCR_SCHEDULER_OBJECT_EDT, 1, &edtObj, NULL, SCHEDULER_OBJECT_REMOVE_HEAD);
+    hal_unlock(&derived->lock);
+    if (!ocrGuidIsNull(edtObj.guid.guid) ) {
+       DPRINTF(DEBUG_LVL_INFO, ">>> Found guid in spawn_queue\n");
+    }
+#endif
     //First try to pop from own deque
-    ocrSchedulerHeuristicContextHc_t *hcContext = (ocrSchedulerHeuristicContextHc_t*)context;
-    ocrSchedulerObject_t *schedObj = hcContext->mySchedulerObject;
-    ASSERT(schedObj);
-    ocrSchedulerObjectFactory_t *fact = self->scheduler->pd->schedulerObjectFactories[schedObj->fctId];
-    u8 retVal = fact->fcts.remove(fact, schedObj, kind , 1, &edtObj, NULL, SCHEDULER_OBJECT_REMOVE_TAIL);
+    if (ocrGuidIsNull(edtObj.guid.guid)) {
+       retVal = fact->fcts.remove(fact, schedObj, kind , 1, &edtObj, NULL, SCHEDULER_OBJECT_REMOVE_TAIL);
+    }
 
     //If pop fails, then try to steal from other deques
     if (ocrGuidIsNull(edtObj.guid.guid)) {
 
         //First try to steal from the last deque that was visited (probably had a successful steal)
-        ocrSchedulerObject_t *stealSchedulerObject = ((ocrSchedulerHeuristicContextHc_t*)self->contexts[hcContext->stealSchedulerObjectIndex])->mySchedulerObject;
-        ASSERT(stealSchedulerObject);
+        stealSchedulerObject = ((ocrSchedulerHeuristicContextHc_t*)self->contexts[hcContext->stealSchedulerObjectIndex])->mySchedulerObject;
+        ocrAssert(stealSchedulerObject);
         retVal = fact->fcts.remove(fact, stealSchedulerObject, kind, 1, &edtObj, NULL, SCHEDULER_OBJECT_REMOVE_HEAD); //try cached deque first
 
         //If cached steal failed, then restart steal loop from starting index
-        ocrSchedulerObject_t *rootObj = self->scheduler->rootObj;
+        //*rootObj = self->scheduler->rootObj;
         ocrSchedulerObjectFactory_t *sFact = self->scheduler->pd->schedulerObjectFactories[rootObj->fctId];
         while (ocrGuidIsNull(edtObj.guid.guid) && sFact->fcts.count(sFact, rootObj, countProp) != 0) {
             u32 i;
@@ -186,6 +206,7 @@ static u8 hcSchedulerHeuristicGetEdt(ocrSchedulerHeuristic_t *self, ocrScheduler
     }
 
     if (!(ocrGuidIsNull(edtObj.guid.guid))){
+        DPRINTF(DEBUG_LVL_INFO, ">>> Found GUID "GUIDF" from somewhere\n",GUIDA(edtObj.guid.guid));
         taskArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).edt = edtObj.guid;
 #ifdef OCR_MONITOR_SCHEDULER
         OCR_TOOL_TRACE(false, OCR_TRACE_TYPE_WORKER, OCR_ACTION_WORK_TAKEN, edtObj.guid.guid, schedObj);
@@ -205,7 +226,7 @@ extern ocrGuid_t processRequestEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_
 static u8 hcSchedulerHeuristicNotifyEdtSatisfiedInvoke(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicContext_t *context, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
     ocrSchedulerOpNotifyArgs_t *notifyArgs = (ocrSchedulerOpNotifyArgs_t*)opArgs;
     ocrSchedulerHeuristicContextHc_t *hcContext = (ocrSchedulerHeuristicContextHc_t*)context;
-    ASSERT(hcContext->mySchedulerObject);
+    ocrAssert(hcContext->mySchedulerObject);
     ocrSchedulerObject_t edtObj;
     edtObj.guid = notifyArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_EDT_READY).guid;
     edtObj.kind = OCR_SCHEDULER_OBJECT_EDT;
@@ -214,10 +235,22 @@ static u8 hcSchedulerHeuristicNotifyEdtSatisfiedInvoke(ocrSchedulerHeuristic_t *
     ocrLocation_t edtLoc;
     pd->guidProviders[0]->fcts.getLocation(pd->guidProviders[0], edtObj.guid.guid, &edtLoc);
     if (edtLoc != pd->myLocation) {
-        DPRINTF(DEBUG_LVL_VVERB, "[LB] Scheduler: Received foreign EDT for execution\n");
-    } else {
         ocrTask_t * edt = (ocrTask_t *) edtObj.guid.metaDataPtr;
         ASSERT(edt != NULL);
+        DPRINTF(DEBUG_LVL_VERB, "[LB] Scheduler: Received foreign EDT "GUIDF" for execution\n", GUIDA(edtObj.guid.guid));
+#ifdef ENABLE_EXTENSION_PERF
+        {
+            u32 k;
+            for (k = 0; k < queueGetSize(pd->taskPerfs); k++)
+                if(((ocrPerfCounters_t*)queueGet(pd->taskPerfs, k))->edt == edt->funcPtr) break;
+            if(k<queueGetSize(pd->taskPerfs))
+                edt->taskPerfsEntry = (ocrPerfCounters_t *)queueGet(pd->taskPerfs, k);
+            else edt->taskPerfsEntry = NULL;
+        }
+#endif
+    } else {
+        ocrTask_t * edt = (ocrTask_t *) edtObj.guid.metaDataPtr;
+        ocrAssert(edt != NULL);
         // These checks short-circuit a little bit the call path so that the placement
         // heuristic is not called to end up doing the same kind of checks
         ocrHint_t edtHints;
@@ -227,7 +260,7 @@ static u8 hcSchedulerHeuristicNotifyEdtSatisfiedInvoke(ocrSchedulerHeuristic_t *
         u8 noPlcHint = noHint || (!noHint && ocrGetHintValue(&edtHints, OCR_HINT_EDT_AFFINITY, &edtAff));
         bool loadBalance = ((edt->funcPtr != &processRequestEdt) && noPlcHint);
         if (loadBalance) {
-            DPRINTF(DEBUG_LVL_VVERB, "[LB] Scheduler node-level load balancing "GUIDF"\n", GUIDA(edtObj.guid.guid));
+            DPRINTF(DEBUG_LVL_VERB, "[LB] Scheduler node-level load balancing "GUIDF"\n", GUIDA(edtObj.guid.guid));
             return OCR_ENOSPC;
         } // else fall-through and continue with scheduling
     }
@@ -242,7 +275,7 @@ u8 hcSchedulerHeuristicGetWorkInvoke(ocrSchedulerHeuristic_t *self, ocrScheduler
     case OCR_SCHED_WORK_EDT_USER:
         {
 #ifdef ENABLE_SCHEDULER_RUNTIME_OBJECT_MGMT
-            ASSERT(ocrGuidIsNull(taskArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).edt.guid));
+            ocrAssert(ocrGuidIsNull(taskArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).edt.guid));
             u8 retVal = hcSchedulerHeuristicGetEdt(self, context, opArgs, hints, OCR_SCHEDULER_OBJECT_RUNTIME_EDT, SCHEDULER_OBJECT_COUNT_RUNTIME_EDT);
             if (!(ocrGuidIsNull(taskArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).edt.guid)))
                 return retVal;
@@ -259,14 +292,14 @@ u8 hcSchedulerHeuristicGetWorkInvoke(ocrSchedulerHeuristic_t *self, ocrScheduler
         }
     // Unknown ops
     default:
-        ASSERT(0);
+        ocrAssert(0);
         return OCR_ENOTSUP;
     }
     return 0;
 }
 
 u8 hcSchedulerHeuristicGetWorkSimulate(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicContext_t *context, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
@@ -274,7 +307,7 @@ static u8 hcSchedulerHeuristicNotifyEdtReadyInvoke(ocrSchedulerHeuristic_t *self
     ocrSchedulerOpNotifyArgs_t *notifyArgs = (ocrSchedulerOpNotifyArgs_t*)opArgs;
     ocrSchedulerHeuristicContextHc_t *hcContext = (ocrSchedulerHeuristicContextHc_t*)context;
     ocrSchedulerObject_t *schedObj = hcContext->mySchedulerObject;
-    ASSERT(schedObj);
+    ocrAssert(schedObj);
     ocrSchedulerObject_t edtObj;
     edtObj.guid = notifyArgs->OCR_SCHED_ARG_FIELD(OCR_SCHED_NOTIFY_EDT_READY).guid;
     edtObj.kind = OCR_SCHEDULER_OBJECT_EDT;
@@ -283,7 +316,7 @@ static u8 hcSchedulerHeuristicNotifyEdtReadyInvoke(ocrSchedulerHeuristic_t *self
     if ((task->flags & OCR_TASK_FLAG_RUNTIME_EDT) != 0) {
         edtObj.kind = OCR_SCHEDULER_OBJECT_RUNTIME_EDT;
     } else {
-        ASSERT(task->state == ALLACQ_EDTSTATE);
+        ocrAssert(task->state == ALLACQ_EDTSTATE);
     }
 #endif
 #ifdef OCR_MONITOR_SCHEDULER
@@ -291,7 +324,26 @@ static u8 hcSchedulerHeuristicNotifyEdtReadyInvoke(ocrSchedulerHeuristic_t *self
     OCR_TOOL_TRACE(false, OCR_TRACE_TYPE_EDT, OCR_ACTION_SCHEDULED, taskGuid, schedObj);
 #endif
     ocrSchedulerObjectFactory_t *fact = self->scheduler->pd->schedulerObjectFactories[schedObj->fctId];
-    return fact->fcts.insert(fact, schedObj, &edtObj, NULL, (SCHEDULER_OBJECT_INSERT_AFTER | SCHEDULER_OBJECT_INSERT_POSITION_TAIL));
+#ifdef OCR_ENABLE_SCHEDULER_SPAWN_QUEUE
+    ocrSchedulerHeuristicHc_t* derived = (ocrSchedulerHeuristicHc_t*)self;
+    DPRINTF(DEBUG_LVL_INFO, ">>> should we put guid: "GUIDF" in the spawn_queue?\n",GUIDA(edtObj.guid.guid));
+    ocrHint_t spawnHint;
+    ocrHintInit(&spawnHint, OCR_HINT_EDT_T);
+    u64 hintVal = 0ULL;
+    RESULT_ASSERT(ocrGetHint(edtObj.guid.guid, &spawnHint), ==, 0);
+    if (ocrGetHintValue(&spawnHint, OCR_HINT_EDT_SPAWNING, &hintVal) > 0) {
+        DPRINTF(DEBUG_LVL_INFO, ">>> put it into spawn_queue guid: "GUIDF"\n",GUIDA(edtObj.guid.guid));
+        ocrSchedulerObject_t *rootObj = self->scheduler->rootObj;
+        ocrSchedulerObjectWst_t *wstSchedObj = (ocrSchedulerObjectWst_t*)rootObj;
+        schedObj = wstSchedObj->spawn_queue;
+    }
+    hal_lock(&derived->lock);
+#endif
+    u8 retVal = fact->fcts.insert(fact, schedObj, &edtObj, NULL, (SCHEDULER_OBJECT_INSERT_AFTER | SCHEDULER_OBJECT_INSERT_POSITION_TAIL));
+#ifdef OCR_ENABLE_SCHEDULER_SPAWN_QUEUE
+    hal_unlock(&derived->lock);
+#endif
+    return retVal;
 }
 
 u8 hcSchedulerHeuristicNotifyInvoke(ocrSchedulerHeuristic_t *self, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
@@ -334,43 +386,43 @@ u8 hcSchedulerHeuristicNotifyInvoke(ocrSchedulerHeuristic_t *self, ocrSchedulerO
 
 #if 0 //Example simulate op
 u8 hcSchedulerHeuristicGiveSimulate(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicContext_t *context, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
-    ASSERT(opArgs->schedulerObject->kind == OCR_SCHEDULER_OBJECT_EDT);
+    ocrAssert(opArgs->schedulerObject->kind == OCR_SCHEDULER_OBJECT_EDT);
     ocrSchedulerHeuristicContext_t *context = (ocrSchedulerHeuristicContext_t*)self->contexts[opArgs->contextId];
     ocrSchedulerHeuristicContextHc_t *hcContext = (ocrSchedulerHeuristicContextHc_t*)context;
-    ASSERT(context->actionSet == NULL);
+    ocrAssert(context->actionSet == NULL);
 
     ocrSchedulerObjectActionSet_t *actionSet = &(hcContext->singleActionSet);
     actionSet->actions = &(hcContext->insertAction);
-    ASSERT(actionSet->actions->schedulerObject == hcContext->mySchedulerObject);
+    ocrAssert(actionSet->actions->schedulerObject == hcContext->mySchedulerObject);
     actionSet->actions->args.insert.el = opArgs->schedulerObject;
     context->actionSet = actionSet;
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 #endif
 
 u8 hcSchedulerHeuristicNotifySimulate(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicContext_t *context, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 u8 hcSchedulerHeuristicTransactInvoke(ocrSchedulerHeuristic_t *self, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 u8 hcSchedulerHeuristicTransactSimulate(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicContext_t *context, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 u8 hcSchedulerHeuristicAnalyzeInvoke(ocrSchedulerHeuristic_t *self, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 u8 hcSchedulerHeuristicAnalyzeSimulate(ocrSchedulerHeuristic_t *self, ocrSchedulerHeuristicContext_t *context, ocrSchedulerOpArgs_t *opArgs, ocrRuntimeHint_t *hints) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 

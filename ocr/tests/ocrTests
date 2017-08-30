@@ -21,6 +21,15 @@ ARGS="-makefile ${ARGS}"
 # Get default tests options from env
 export OCR_CFLAGS="${OCR_CFLAGS}"
 
+function checkOCR {
+    if [ -e ${LIB_DIR}/libocr_${OCR_TYPE}.so -o -e ${LIB_DIR}/libocr_${OCR_TYPE}.a ]; then
+        echo "OCR library for ${OCR_TYPE} found under ${OCR_INSTALL}/lib"
+    else
+        echo "ERROR OCR library for ${OCR_TYPE} not found under ${OCR_INSTALL}/lib"
+        exit 1
+    fi
+}
+
 #
 #handling options
 #
@@ -53,6 +62,18 @@ while [[ $# -gt 0 ]]; do
         TEST_EXT_PARAMS_EVT=yes
         TEST_EXT_COUNTED_EVT=yes
         TEST_EXT_CHANNEL_EVT=yes
+    elif [[ "$1" = "-ext_collective_evt" ]]; then
+        shift
+        TEST_EXT_LABELING=yes
+        TEST_EXT_PARAMS_EVT=yes
+        TEST_EXT_COLLECTIVE_EVT=yes
+    elif [[ "$1" = "-ext_db_info" ]]; then
+        shift
+        TEST_EXT_DB_INFO=yes
+    elif [[ "$1" = "-newlib" ]]; then
+        # Use newlib when running TG non-regression tests
+        shift
+        WITH_NEWLIB=yes
     elif [[ "$1" = "-co" ]]; then
         shift
         STEP_COMPILE_ONLY="yes"
@@ -76,6 +97,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 # try to lookup for a default ocr install
+# - OCR_INSTALL is probably only relevant for non TG
+# - Makefile.tg uses OCR_INSTALL_ROOT
 if [ -z "${OCR_TYPE}" ]; then
     echo "OCR_TYPE is not set, defaulting to x86"
     export OCR_TYPE=x86
@@ -83,32 +106,33 @@ fi
 
 if [ -z "${OCR_INSTALL}" ]; then
     echo "OCR_INSTALL is not set, defaulting to ../install"
-    OCR_INSTALL_TMP=`pwd`/../install
-    if [ -e ${OCR_INSTALL_TMP}/lib/libocr_${OCR_TYPE}.so ]; then
-        export OCR_INSTALL=${OCR_INSTALL_TMP}
-    else
-        echo "Error ${OCR_INSTALL_TMP}/lib/libocr_${OCR_TYPE}.so not found..."
-        exit 1
-    fi
+    export OCR_INSTALL=`pwd`/../install
 fi
 
+BIN_DIR=${OCR_INSTALL}/bin
+LIB_DIR=${OCR_INSTALL}/lib
 
-#
-# Default compilation option for ocr
-#
-
-if [ -z "${CC}" ]; then
-    echo "CC is not defined, defaulting to gcc"
-    CC=gcc
+if [ "${OCR_TYPE}" = "tg" ]; then
+    OCR_TYPE="tg-xe" checkOCR
+    OCR_TYPE="tg-ce" checkOCR
+    export NO_COLOR="yes"
+else
+    checkOCR
 fi
 
-export INCLUDES="-I${OCR_INSTALL}/include"
-# See bug #894
-#if [[ ("$OCR_INSTALL" =~ "mpi") || ("$OCR_INSTALL" =~ "gasnet") ]]; then
-export CFLAGS=" -Wall -g -Werror -DOCR_ENABLE_EDT_NAMING -DOCR_ASSERT -DENABLE_EXTENSION_AFFINITY"
-#else
-#    export CFLAGS=" -Wall -g -Werror -DOCR_ENABLE_EDT_NAMING -DOCR_ASSERT -DENABLE_EXTENSION_AFFINITY -DENABLE_EXTENSION_PAUSE"
-#fi
+export PATH=${BIN_DIR}:${PATH}
+
+#update LD_LIBRARY_PATH to find the runtime .so
+export LD_LIBRARY_PATH=${LIB_DIR}:${LD_LIBRARY_PATH}
+
+
+# This timeout is to make sure the testing does
+# not get stuck in case of any coredumps or hangs
+# while running a particular testcase.
+TG_TIMEOUT=60
+
+# Required for the metrics framework
+export CFLAGS="$CFLAGS -lm "
 
 if [ -n "${TEST_EXT_RTAPI}" ]; then
     CFLAGS="$CFLAGS -DENABLE_EXTENSION_RTITF"
@@ -134,75 +158,96 @@ if [ -n "${TEST_EXT_CHANNEL_EVT}" ]; then
     CFLAGS="$CFLAGS -DENABLE_EXTENSION_CHANNEL_EVT"
 fi
 
-CFLAGS="$CFLAGS -DOCR_TYPE_H=${OCR_TYPE}.h"
+if [ -n "${TEST_EXT_COLLECTIVE_EVT}" ]; then
+    CFLAGS="$CFLAGS -DENABLE_EXTENSION_MULTI_OUTPUT_SLOT -DENABLE_EXTENSION_COLLECTIVE_EVT"
+fi
 
-export LDFLAGS="-L${OCR_INSTALL}/lib -locr_${OCR_TYPE} -lpthread ${OCR_LDFLAGS}"
-export OCR_TESTS_BIN_OUTPUT=
+if [ -n "${TEST_EXT_DB_INFO}" ]; then
+    CFLAGS="$CFLAGS -DENABLE_EXTENSION_DB_INFO"
+fi
 
+CFLAGS="$CFLAGS -DOCR_ENABLE_EDT_NAMING -DOCR_ASSERT -DENABLE_EXTENSION_AFFINITY"
 
-# Generates an OCR configuration file
-if [ -z "${OCR_CONFIG}" ]; then
-    #default values
-    export CFGARG_THREADS=${CFGARG_THREADS-8}
-    export CFGARG_ALLOCTYPE=${CFGARG_ALLOCTYPE-mallocproxy}
-    export CFGARG_DBTYPE=${CFGARG_DBTYPE-Lockable}
-    if [ -n "${TEST_EXT_LABELING}" ]; then
-        export CFGARG_GUID=${CFGARG_GUID-LABELED}
+if [ "${OCR_TYPE}" == "tg" ]; then
+    TG_ROOT=${TG_ROOT-"${PWD}/../../../../tg/tg"}
+    TG_INSTALL=${TG_INSTALL-"${TG_ROOT}/install"}
+    APPS_ROOT=${APPS_ROOT-"${PWD}/../../../apps/apps"}
+    APPS_LIBS_ROOT=${APPS_LIBS_ROOT-"${APPS_ROOT}/libs/install/tg-xe"}
+
+    OCR_ROOT=${OCR_ROOT-"${PWD}/../../ocr"}
+    OCR_BUILD_ROOT=${OCR_BUILD_ROOT-"${OCR_ROOT}/build"}
+    OCR_INSTALL_ROOT=${OCR_INSTALL_ROOT-"${OCR_ROOT}/install"}
+    # for the tests
+    WORKLOAD_BUILD_ROOT=${WORKLOAD_BUILD_ROOT-"$PWD"}
+    WORKLOAD_INSTALL_ROOT=${WORKLOAD_INSTALL_ROOT-"$PWD"}
+else #"
+    #
+    # Default compilation option for ocr
+    #
+
+    if [ -z "${CC}" ]; then
+        echo "CC is not defined, defaulting to gcc"
+        CC=gcc
     fi
-    if [ "${OCR_TYPE}" = "x86-mpi" ]; then
-        export CFGARG_GUID=${CFGARG_GUID-COUNTED_MAP}
-        export CFGARG_TARGET=${CFGARG_TARGET-mpi}
-    elif [[ "${OCR_TYPE}" = "x86-gasnet" ]]; then
-        export CFGARG_GUID=${CFGARG_GUID-COUNTED_MAP}
-        export CFGARG_TARGET=${CFGARG_TARGET-gasnet}
-    elif [[ "${OCR_TYPE}" = "tg-x86" ]]; then
-        echo "error: ocrrun cannot call config-generator for tg-x86 (not supported - set OCR_CONFIG)"
-        exit 1
-    fi
 
-    CFG_ARGS=""
-    # Read all CFGARG_ environment variables and transform them into config generator's arguments
-    for cfgarg in `env | grep CFGARG_`; do
-        #Extract argument name and value
-        parsed=(${cfgarg//=/ })
-        argNameU=${parsed[0]#CFGARG_}
-        if [[ ${BASH_VER} -eq 4 ]]; then
-            argNameL=${argNameU,,}
-        else
-            argNameL=`echo ${argNameU} | tr '[:upper:]' '[:lower:]'`
+    export INCLUDES="-I${OCR_INSTALL}/include"
+    # See bug #894
+    #if [[ ("$OCR_INSTALL" =~ "mpi") || ("$OCR_INSTALL" =~ "gasnet") ]]; then
+    CFLAGS="-Wall -g -Werror $CFLAGS "
+    #else
+    #    export CFLAGS=" -Wall -g -Werror -DOCR_ENABLE_EDT_NAMING -DOCR_ASSERT -DENABLE_EXTENSION_AFFINITY -DENABLE_EXTENSION_PAUSE"
+    #fi
+
+    CFLAGS="$CFLAGS -DOCR_TYPE_H=${OCR_TYPE}.h"
+
+    export LDFLAGS="-L${OCR_INSTALL}/lib -locr_${OCR_TYPE} -lpthread ${OCR_LDFLAGS}"
+    export OCR_TESTS_BIN_OUTPUT=
+
+    # Generates an OCR configuration file
+    if [ -z "${OCR_CONFIG}" ]; then
+        #default values
+        export CFGARG_THREADS=${CFGARG_THREADS-8}
+        export CFGARG_ALLOCTYPE=${CFGARG_ALLOCTYPE-mallocproxy}
+        export CFGARG_DBTYPE=${CFGARG_DBTYPE-Lockable}
+        if [ -n "${TEST_EXT_LABELING}" ]; then
+            export CFGARG_GUID=${CFGARG_GUID-LABELED}
         fi
-        # toLower ${argNameU} argNameL
-        argValue=${parsed[1]}
-        #Append to generator argument list
-        arg="--${argNameL} ${argValue}"
-        CFG_ARGS+="$arg "
-    done
+        if [ "${OCR_TYPE}" = "x86-mpi" ]; then
+            export CFGARG_GUID=${CFGARG_GUID-COUNTED_MAP}
+            export CFGARG_TARGET=${CFGARG_TARGET-mpi}
+        elif [[ "${OCR_TYPE}" = "x86-gasnet" ]]; then
+            export CFGARG_GUID=${CFGARG_GUID-COUNTED_MAP}
+            export CFGARG_TARGET=${CFGARG_TARGET-gasnet}
+        elif [[ "${OCR_TYPE}" = "tg-x86" ]]; then
+            echo "error: ocrrun cannot call config-generator for tg-x86 (not supported - set OCR_CONFIG)"
+            exit 1
+        fi
 
-    export OCR_CONFIG=${OCR_INSTALL}/share/ocr/config/${OCR_TYPE}/generated_ocrTests.cfg
-    ${OCR_INSTALL}/share/ocr/scripts/Configs/config-generator.py ${CFG_ARGS} --output ${OCR_CONFIG} --remove-destination
-    echo "OCR_CONFIG is not set, defaulting to ${OCR_CONFIG}"
+        CFG_ARGS=""
+        # Read all CFGARG_ environment variables and transform them into config generator's arguments
+        for cfgarg in `env | grep CFGARG_`; do
+            #Extract argument name and value
+            parsed=(${cfgarg//=/ })
+            argNameU=${parsed[0]#CFGARG_}
+            if [[ ${BASH_VER} -eq 4 ]]; then
+                argNameL=${argNameU,,}
+            else
+                argNameL=`echo ${argNameU} | tr '[:upper:]' '[:lower:]'`
+            fi
+            # toLower ${argNameU} argNameL
+            argValue=${parsed[1]}
+            #Append to generator argument list
+            arg="--${argNameL} ${argValue}"
+            CFG_ARGS+="$arg "
+        done
+
+        export OCR_CONFIG=${OCR_INSTALL}/share/ocr/config/${OCR_TYPE}/generated_ocrTests.cfg
+        ${OCR_INSTALL}/share/ocr/scripts/Configs/config-generator.py ${CFG_ARGS} --output ${OCR_CONFIG} --remove-destination
+        echo "OCR_CONFIG is not set, defaulting to ${OCR_CONFIG}"
+    fi
+
+    export OCR_FLAGS=" -ocr:cfg ${OCR_CONFIG}"
 fi
-
-export OCR_FLAGS=" -ocr:cfg ${OCR_CONFIG}"
-
-#
-# Checking options
-#
-
-BIN_DIR=${OCR_INSTALL}/bin
-LIB_DIR=${OCR_INSTALL}/lib
-
-if [ -e ${LIB_DIR}/libocr_${OCR_TYPE}.so -o -e ${LIB_DIR}/libocr_${OCR_TYPE}.a ]; then
-    echo "OCR library found in ${OCR_INSTALL}/lib"
-else
-    echo "ERROR OCR library not found in ${OCR_INSTALL}/lib"
-    exit 1
-fi
-
-export PATH=${BIN_DIR}:${PATH}
-
-#update LD_LIBRARY_PATH to find the runtime .so
-export LD_LIBRARY_PATH=${LIB_DIR}:${LD_LIBRARY_PATH}
 
 #
 # Ending extension specific option parsing and checking
@@ -271,10 +316,12 @@ function read_testdir_opts () {
 
     eval $__resultvar="'$VALUE'"
 }
+
 #
 # Take a step name as a parameter as well as a list of option sweeping names
 # Look for environments variables named after a step name
 #
+#"
 
 function is_opt_sweep_set() {
     test "${OPTION_SWEEPING}" == "${OPT_SWEEP_NULL}"
@@ -365,29 +412,69 @@ function clean () {
     return 0
 }
 
+function invokeTgMakefile {
+    local TARGET=$1
+    local RUN_MODE=$2
+    APPS_ROOT=${APPS_ROOT} \
+    APPS_LIBS_ROOT=${APPS_LIBS_ROOT} \
+    OCR_ROOT=${OCR_ROOT} \
+    OCR_BUILD_ROOT=${OCR_BUILD_ROOT} \
+    OCR_INSTALL_ROOT=${OCR_INSTALL_ROOT} \
+    WORKLOAD_SRC=${TEST_BUILD_DIR} \
+    WORKLOAD_BUILD_ROOT=${TEST_WORKLOAD_BUILD_ROOT} \
+    WORKLOAD_INSTALL_ROOT=${TEST_WORKLOAD_INSTALL_ROOT} \
+    SRCS=${FILE} TARGET=${NAME} \
+    CFLAGS=${CFLAGS} RUN_MODE=${RUN_MODE}\
+    WITH_NEWLIB=${WITH_NEWLIB} \
+    make -f ./tg-configs/Makefile.tg ${TARGET}
+}
+
 function compile () {
     local FILE=$1
     local FOLDER=$2
 
-    cd $FOLDER;
     NAME=
     get_name ${FILE}
-    if [[ "${OCR_ASAN}" = "yes" ]]; then
-        ASAN_FLAGS=" -g -fsanitize=address -fno-omit-frame-pointer"
-        CFLAGS+=${ASAN_FLAGS}
-        LDFLAGS+=${ASAN_FLAGS}
+
+    if [ "${OCR_TYPE}" == "tg" ]; then
+        echo "Compiling $NAME for TG"
+        # Adapting the folder structure to work with Makefile.tg
+        # We create a single folder per tests and compile/run from there
+        # using the makefile correctly parameterized with the updated paths
+
+        # Setting up a folder to build and install the test
+        local TEST_BUILD_DIR=${WORKLOAD_BUILD_ROOT}/tests-bin/${NAME}
+        local TEST_WORKLOAD_BUILD_ROOT=${WORKLOAD_BUILD_ROOT}/tests-bin/${NAME}/build
+        local TEST_WORKLOAD_INSTALL_ROOT=${WORKLOAD_INSTALL_ROOT}/tests-bin/${NAME}/install
+        mkdir -p ${TEST_BUILD_DIR}
+
+        # colocate the test source file and config.cfg since the makefile expects to see them together
+        echo "Copying test file ${NAME}"
+        cp ${FOLDER}/${FILE} ${TEST_BUILD_DIR}
+        # Note 1: the TG config.cfg is generated by the makefile
+        # Note 2: There seems to be a problem when calling make clean install in a single step
+        #         the TEST_WORKLOAD_BUILD_ROOT/tg doesn't get build
+        invokeTgMakefile clean buildApp
+        invokeTgMakefile install buildApp
+        RES=$?
+        mkdir -p ${TEST_WORKLOAD_INSTALL_ROOT}/tg/logs
+    else
+        cd $FOLDER;
+        if [[ "${OCR_ASAN}" = "yes" ]]; then
+            ASAN_FLAGS=" -g -fsanitize=address -fno-omit-frame-pointer"
+            CFLAGS+=${ASAN_FLAGS}
+            LDFLAGS+=${ASAN_FLAGS}
+        fi
+        echo "${CC} ${OCR_CFLAGS} ${CFLAGS} ${INCLUDES} ${FILE} -o ${BIN_GEN_DIR}/${NAME} ${LDFLAGS}"
+        ${CC} ${OCR_CFLAGS} ${CFLAGS} ${INCLUDES} ${FILE} -o ${BIN_GEN_DIR}/${NAME} ${LDFLAGS}
+        RES=$?
+
+        rename_binary ${FILE}
+
+        cd -;
     fi
-    echo "${CC} ${OCR_CFLAGS} ${CFLAGS} ${INCLUDES} ${FILE} -o ${BIN_GEN_DIR}/${NAME} ${LDFLAGS}"
-    ${CC} ${OCR_CFLAGS} ${CFLAGS} ${INCLUDES} ${FILE} -o ${BIN_GEN_DIR}/${NAME} ${LDFLAGS}
-    RES=$?
-
-    rename_binary ${FILE}
-
-    cd -;
-
     return $RES
 }
-
 
 function run () {
     local FILE=$1
@@ -398,30 +485,42 @@ function run () {
     NAME=
     get_name ${FILE}
 
-    cd $FOLDER;
-    TEST_ARGS_FILE=${NAME}.args
+    TEST_ARGS_FILE=${FOLDER}/${NAME}.args
     if [ -f ${TEST_ARGS_FILE} ]; then
         TEST_ARGS=`cat ${TEST_ARGS_FILE}`
     fi
-    TEST_RES_FILE=${NAME}.res
+
+    TEST_RES_FILE=${FOLDER}/${NAME}.res
     if [ -f ${TEST_RES_FILE} ]; then
         TEST_RES=`cat ${TEST_RES_FILE}`
     fi
-    echo "ocrrun_${OCR_TYPE} ${RUN_WRAPPER} ${BIN_GEN_DIR}/${NAME} ${OCR_FLAGS} ${TEST_ARGS}"
 
-    if [[ "$LOOP_UNTIL_CRASH" == "yes" ]]; then
-        let i=0;
-        RES=0;
-        while (( $RES == 0)); do
-            echo "==== Loop until crash iteration $i ===="
-            ocrrun_${OCR_TYPE} ${RUN_WRAPPER} ${BIN_GEN_DIR}/${NAME} ${OCR_FLAGS} ${TEST_ARGS}
-            RES=$?
-            let i=$i+1
-        done
+    if [ "${OCR_TYPE}" == "tg" ]; then
+        echo "Running $NAME for TG"
+        local TEST_BUILD_DIR=${WORKLOAD_BUILD_ROOT}/tests-bin/${NAME}
+        local TEST_WORKLOAD_BUILD_ROOT=${WORKLOAD_BUILD_ROOT}/tests-bin/${NAME}/build
+        local TEST_WORKLOAD_INSTALL_ROOT=${WORKLOAD_INSTALL_ROOT}/tests-bin/${NAME}/install
+        invokeTgMakefile run runApp | tee ${TEST_WORKLOAD_INSTALL_ROOT}/fsim-output
+        SCNT=`grep -c "SUCCESS in Simulation" ${TEST_WORKLOAD_INSTALL_ROOT}/fsim-output`
+        RES=$(( ! ${SCNT} )) # if SUCCESS is detected set RES to zero
     else
-        ocrrun_${OCR_TYPE} ${RUN_WRAPPER} ${BIN_GEN_DIR}/${NAME} ${OCR_FLAGS} ${TEST_ARGS}
+        cd $FOLDER;
+        echo "ocrrun_${OCR_TYPE} ${RUN_WRAPPER} ${BIN_GEN_DIR}/${NAME} ${OCR_FLAGS} ${TEST_ARGS}"
+        if [[ "$LOOP_UNTIL_CRASH" == "yes" ]]; then
+            let i=0;
+            RES=0;
+            while (( $RES == 0 )); do
+                echo "==== Loop until crash iteration $i ===="
+                ocrrun_${OCR_TYPE} ${RUN_WRAPPER} ${BIN_GEN_DIR}/${NAME} ${OCR_FLAGS} ${TEST_ARGS}
+                RES=$?
+                let i=$i+1
+            done
+        else
+            ocrrun_${OCR_TYPE} ${RUN_WRAPPER} ${BIN_GEN_DIR}/${NAME} ${OCR_FLAGS} ${TEST_ARGS}
+        fi
+        RES=$? #TODO: aren't we losing the results of ocrrun in the loop ?
     fi
-    RES=$?
+    # Adapt test results according to expectation
     if [[ $RES -eq $TEST_RES ]]; then
         RES=0;
     elif [[ $TEST_RES -ne 0 ]]; then
@@ -429,8 +528,6 @@ function run () {
             RES=${TEST_RES};
         fi
     fi
-    cd -;
-
     return $RES
 }
 
@@ -1283,11 +1380,11 @@ function runTests () {
                         # Increment status
                         STEPS_COMPLETED=`expr $STEPS_COMPLETED \+ 1`
                     else
-			determine_test_status ${TEST_NAME} ${STEPS_COMPLETED} TEST_STATUS
-			if [[ ${TEST_STATUS} -ne ${RUN_STATUS} ]]; then
+                        determine_test_status ${TEST_NAME} ${STEPS_COMPLETED} TEST_STATUS
+                        if [[ ${TEST_STATUS} -ne ${RUN_STATUS} ]]; then
                             RET_CODE=1
                             break
-			fi
+                        fi
                     fi
                 done
 

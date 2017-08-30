@@ -17,7 +17,7 @@ ocrGuid_t terminateEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     u64 * dbPtr = depv[0].ptr;
     u64 i = 0;
     while (i < NB_ELEM) {
-        ASSERT(dbPtr[i] == i);
+        ocrAssert(dbPtr[i] == i);
         i++;
     }
     ocrShutdown(); // This is the last EDT to execute, terminate
@@ -49,7 +49,7 @@ ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     ocrGuid_t dbGuid;
     void * dbPtr;
     ocrDbCreate(&dbGuid, &dbPtr, sizeof(u64)*NB_ELEM, DB_PROP_NO_ACQUIRE, NULL_HINT, NO_ALLOC);
-    ASSERT(dbPtr == NULL);
+    ocrAssert(dbPtr == NULL);
     ocrGuid_t edtGuid;
     ocrGuid_t edtTplGuid;
     ocrEdtTemplateCreate(&edtTplGuid, writeEdt, 0 /*paramc*/, 1 /*depc*/);

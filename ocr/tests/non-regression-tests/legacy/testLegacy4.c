@@ -42,9 +42,9 @@ void ocrBlock(ocrConfig_t cfg) {
 int main(int argc, const char *argv[]) {
     ocrConfig_t ocrConfig;
     ocrParseArgs(argc, argv, &ocrConfig);
-    PRINTF("Legacy code...\n");
+    ocrPrintf("Legacy code...\n");
     ocrBlock(ocrConfig);
-    PRINTF("Back to legacy code, done.\n");
+    ocrPrintf("Back to legacy code, done.\n");
     return 0;
 }
 

@@ -55,8 +55,8 @@ static void deqSchedulerObjectInitialize(ocrSchedulerObjectFactory_t *fact, ocrS
 ocrSchedulerObject_t* newSchedulerObjectDeq(ocrSchedulerObjectFactory_t *factory, ocrParamList_t *perInstance) {
 #ifdef OCR_ASSERT
     paramListSchedulerObject_t *paramSchedObj = (paramListSchedulerObject_t*)perInstance;
-    ASSERT(paramSchedObj->config);
-    ASSERT(!paramSchedObj->guidRequired);
+    ocrAssert(paramSchedObj->config);
+    ocrAssert(!paramSchedObj->guidRequired);
 #endif
     ocrSchedulerObject_t* schedObj = (ocrSchedulerObject_t*)runtimeChunkAlloc(sizeof(ocrSchedulerObjectDeq_t), PERSISTENT_CHUNK);
     deqSchedulerObjectInitialize(factory, schedObj);
@@ -67,8 +67,8 @@ ocrSchedulerObject_t* newSchedulerObjectDeq(ocrSchedulerObjectFactory_t *factory
 ocrSchedulerObject_t* deqSchedulerObjectCreate(ocrSchedulerObjectFactory_t *factory, ocrParamList_t *perInstance) {
 #ifdef OCR_ASSERT
     paramListSchedulerObject_t *paramSchedObj = (paramListSchedulerObject_t*)perInstance;
-    ASSERT(!paramSchedObj->config);
-    ASSERT(!paramSchedObj->guidRequired);
+    ocrAssert(!paramSchedObj->config);
+    ocrAssert(!paramSchedObj->guidRequired);
 #endif
     ocrPolicyDomain_t *pd = NULL;
     getCurrentEnv(&pd, NULL, NULL, NULL);
@@ -84,7 +84,7 @@ u8 deqSchedulerObjectDestroy(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObje
     if (IS_SCHEDULER_OBJECT_CONFIG_ALLOCATED(self->kind)) {
         runtimeChunkFree((u64)self, PERSISTENT_CHUNK);
     } else {
-        ASSERT(IS_SCHEDULER_OBJECT_PD_ALLOCATED(self->kind));
+        ocrAssert(IS_SCHEDULER_OBJECT_PD_ALLOCATED(self->kind));
         ocrPolicyDomain_t *pd = NULL;
         getCurrentEnv(&pd, NULL, NULL, NULL);
         ocrSchedulerObjectDeq_t* deqSchedObj = (ocrSchedulerObjectDeq_t*)self;
@@ -99,7 +99,7 @@ u8 deqSchedulerObjectDestroy(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObje
 
 u8 deqSchedulerObjectInsert(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObject_t *self, ocrSchedulerObject_t *element, ocrSchedulerObjectIterator_t *iterator, u32 properties) {
     ocrSchedulerObjectDeq_t *schedObj = (ocrSchedulerObjectDeq_t*)self;
-    ASSERT(IS_SCHEDULER_OBJECT_TYPE_SINGLETON(element->kind));
+    ocrAssert(IS_SCHEDULER_OBJECT_TYPE_SINGLETON(element->kind));
 #ifdef ENABLE_SCHEDULER_RUNTIME_OBJECT_MGMT
     if (IS_SCHEDULER_OBJECT_TYPE_RUNTIME(element->kind)) {
         deque_t * deq = schedObj->dequeRt;
@@ -110,7 +110,7 @@ u8 deqSchedulerObjectInsert(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObjec
             schedObj->dequeRt = deq;
         }
         //Sanity check - Ensure work is local
-        ASSERT(element->guid.metaDataPtr != NULL);
+        ocrAssert(element->guid.metaDataPtr != NULL);
         deq->pushAtTail(deq, (void *)(element->guid.metaDataPtr), 0);
         return 0;
     }
@@ -123,7 +123,7 @@ u8 deqSchedulerObjectInsert(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObjec
         schedObj->deque = deq;
     }
     //Sanity check - Ensure work is local
-    ASSERT(element->guid.metaDataPtr != NULL);
+    ocrAssert(element->guid.metaDataPtr != NULL);
     deq->pushAtTail(deq, (void *)(element->guid.metaDataPtr), 0);
 
     return 0;
@@ -132,7 +132,7 @@ u8 deqSchedulerObjectInsert(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObjec
 u8 deqSchedulerObjectRemove(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObject_t *self, ocrSchedulerObjectKind kind, u32 count, ocrSchedulerObject_t *dst, ocrSchedulerObjectIterator_t *iterator, u32 properties) {
     u32 i;
     ocrSchedulerObjectDeq_t *schedObj = (ocrSchedulerObjectDeq_t*)self;
-    ASSERT(IS_SCHEDULER_OBJECT_TYPE_SINGLETON(kind));
+    ocrAssert(IS_SCHEDULER_OBJECT_TYPE_SINGLETON(kind));
     deque_t * deq = schedObj->deque;
 #ifdef ENABLE_SCHEDULER_RUNTIME_OBJECT_MGMT
     if (IS_SCHEDULER_OBJECT_TYPE_RUNTIME(kind))
@@ -170,14 +170,14 @@ u8 deqSchedulerObjectRemove(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObjec
             }
             break;
         default:
-            ASSERT(0);
+            ocrAssert(0);
             return OCR_ENOTSUP;
         }
         if (ocrGuidIsNull(retGuid))
             break;
 
         if (IS_SCHEDULER_OBJECT_TYPE_SINGLETON(dst->kind)) {
-            ASSERT((ocrGuidIsNull(dst->guid.guid)) && count == 1);
+            ocrAssert((ocrGuidIsNull(dst->guid.guid)) && count == 1);
             dst->guid.guid = retGuid;
         } else {
             ocrSchedulerObject_t taken;
@@ -207,22 +207,22 @@ u64 deqSchedulerObjectCount(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObjec
 }
 
 ocrSchedulerObjectIterator_t* deqSchedulerObjectCreateIterator(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObject_t *self, u32 properties) {
-    ASSERT(0);
+    ocrAssert(0);
     return NULL;
 }
 
 u8 deqSchedulerObjectDestroyIterator(ocrSchedulerObjectFactory_t * fact, ocrSchedulerObjectIterator_t *iterator) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 u8 deqSchedulerObjectIterate(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObjectIterator_t *iterator, u32 properties) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 ocrSchedulerObject_t* deqGetSchedulerObjectForLocation(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObject_t *self, ocrSchedulerObjectKind kind, ocrLocation_t loc, ocrSchedulerObjectMappingKind mapping, u32 properties) {
-    ASSERT(self->loc == loc && self->mapping == mapping);
+    ocrAssert(self->loc == loc && self->mapping == mapping);
     return self;
 }
 
@@ -233,33 +233,33 @@ u8 deqSetLocationForSchedulerObject(ocrSchedulerObjectFactory_t *fact, ocrSchedu
 }
 
 ocrSchedulerObjectActionSet_t* deqSchedulerObjectNewActionSet(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObject_t *self, u32 count) {
-    ASSERT(0);
+    ocrAssert(0);
     return NULL;
 }
 
 u8 deqSchedulerObjectDestroyActionSet(ocrSchedulerObjectFactory_t *fact, ocrSchedulerObjectActionSet_t *actionSet) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 u8 deqSchedulerObjectSwitchRunlevel(ocrSchedulerObject_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_t runlevel,
                                     phase_t phase, u32 properties, void (*callback)(ocrPolicyDomain_t*, u64), u64 val) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 u8 deqSchedulerObjectOcrPolicyMsgGetMsgSize(ocrSchedulerObjectFactory_t *fact, ocrPolicyMsg_t *msg, u64 *marshalledSize, u32 properties) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 u8 deqSchedulerObjectOcrPolicyMsgMarshallMsg(ocrSchedulerObjectFactory_t *fact, ocrPolicyMsg_t *msg, u8 *buffer, u32 properties) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 
 u8 deqSchedulerObjectOcrPolicyMsgUnMarshallMsg(ocrSchedulerObjectFactory_t *fact, ocrPolicyMsg_t *msg, u8 *localMainPtr, u8 *localAddlPtr, u32 properties) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOTSUP;
 }
 

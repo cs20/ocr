@@ -52,14 +52,14 @@ ocrStaticAssert(OCR_HINT_COUNT_DB_REGULAR < OCR_RUNTIME_HINT_PROP_BITS);
 // Forward declaraction
 u8 regularDestruct(ocrDataBlock_t *self);
 
-u8 regularAcquire(ocrDataBlock_t *self, void** ptr, ocrFatGuid_t edt, u32 edtSlot,
+u8 regularAcquire(ocrDataBlock_t *self, void** ptr, ocrFatGuid_t edt, ocrLocation_t dstLoc, u32 edtSlot,
                   ocrDbAccessMode_t mode, bool isInternal, u32 properties) {
 
     ocrDataBlockRegular_t *rself = (ocrDataBlockRegular_t*)self;
     *ptr = NULL;
 
-    DPRINTF(DEBUG_LVL_VERB, "Acquiring DB @ 0x%"PRIx64" (GUID: "GUIDF") from EDT (GUID: "GUIDF") (runtime acquire: %"PRId32") size: %"PRIu64"\n",
-            (u64)self->ptr, GUIDA(rself->base.guid), GUIDA(edt.guid), (u32)isInternal, self->size);
+    DPRINTFMSK(DEBUG_LVL_VERB, DEBUG_MSK_EDTSTATS, "Acquiring DB @ 0x%"PRIx64" (GUID: "GUIDF") size %"PRId64" from EDT (GUID: "GUIDF") (runtime acquire: %"PRId32") (mode: %"PRId32") (numUsers: %"PRId32") (dbMode: %"PRId32")\n",
+            (u64)self->ptr, GUIDA(rself->base.guid), self->size, GUIDA(edt.guid), (u32)isInternal, (int)mode, rself->attributes.numUsers, 0);
 
     // Critical section
     hal_lock(&(rself->lock));
@@ -128,9 +128,9 @@ u8 regularDestruct(ocrDataBlock_t *self) {
 #ifdef OCR_ASSERT
     ocrDataBlockRegular_t *rself = (ocrDataBlockRegular_t*)self;
     // Check that no other EDT has acquired this datablock
-    ASSERT(rself->attributes.numUsers == 0);
-    ASSERT(rself->attributes.internalUsers == 0);
-    ASSERT(rself->attributes.freeRequested == 1);
+    ocrAssert(rself->attributes.numUsers == 0);
+    ocrAssert(rself->attributes.internalUsers == 0);
+    ocrAssert(rself->attributes.freeRequested == 1);
 #endif
 
     DPRINTF(DEBUG_LVL_VERB, "Really freeing DB (GUID: "GUIDF")\n", GUIDA(self->guid));
@@ -216,13 +216,13 @@ u8 regularFree(ocrDataBlock_t *self, ocrFatGuid_t edt, ocrLocation_t srcLoc, u32
 
 u8 regularRegisterWaiter(ocrDataBlock_t *self, ocrFatGuid_t waiter, u32 slot,
                          bool isDepAdd) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOSYS;
 }
 
 u8 regularUnregisterWaiter(ocrDataBlock_t *self, ocrFatGuid_t waiter, u32 slot,
                            bool isDepRem) {
-    ASSERT(0);
+    ocrAssert(0);
     return OCR_ENOSYS;
 }
 
@@ -247,7 +247,7 @@ u8 newDataBlockRegular(ocrDataBlockFactory_t *factory, ocrFatGuid_t *guid, ocrFa
             affGuid.upper = 0ULL;
             affGuid.lower = hintValue;
 #endif
-            ASSERT(!ocrGuidIsNull(affGuid));
+            ocrAssert(!ocrGuidIsNull(affGuid));
             affinityToLocation(&targetLoc, affGuid);
         }
     }
@@ -297,7 +297,7 @@ u8 newDataBlockRegular(ocrDataBlockFactory_t *factory, ocrFatGuid_t *guid, ocrFa
         }
     }
 
-    ASSERT(result);
+    ocrAssert(result);
     result->base.fctId = factory->factoryId;
     result->base.allocator = allocator.guid;
     result->base.allocatingPD = allocPD.guid;

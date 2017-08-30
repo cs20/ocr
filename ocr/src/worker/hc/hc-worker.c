@@ -17,10 +17,13 @@
 #include "ocr-worker.h"
 #include "worker/hc/hc-worker.h"
 #include "policy-domain/hc/hc-policy.h"
-
 #include "experimental/ocr-platform-model.h"
 #include "extensions/ocr-affinity.h"
 #include "extensions/ocr-hints.h"
+
+#if defined(STAT_EDT_EXEC)
+#include "statistics/metrics.h"
+#endif
 
 #ifdef OCR_ENABLE_STATISTICS
 #include "ocr-statistics.h"
@@ -48,6 +51,9 @@
 #ifdef OCR_ASSERT // For debugging spurious tasks at shutdown
 extern ocrGuid_t processRequestEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]);
 #endif
+#ifdef OCR_ENABLE_SIMULATOR
+#define MAX_TIME (((u64)1)<<62)       // Bit to indicate shutdown-in-progress
+#endif
 
 static void hcWorkShift(ocrWorker_t * worker) {
 
@@ -71,9 +77,27 @@ static void hcWorkShift(ocrWorker_t * worker) {
 #endif
 
     ocrWorkerHc_t *hcWorker = (ocrWorkerHc_t *) worker;
+
+#ifdef OCR_ENABLE_SIMULATOR
+    // Wait until global time catches up
+    while((pd->pdTime != MAX_TIME)
+          && ((worker->workerTime & OCR_SIM_ALLOW_PROGRESS) != OCR_SIM_ALLOW_PROGRESS)
+          && (worker->workerTime > pd->pdTime))
+        hal_pause();
+#endif
+
 #if defined(UTASK_COMM) || defined(UTASK_COMM2) || defined(ENABLE_OCR_API_DEFERRABLE_MT)
     RESULT_ASSERT(pdProcessStrands(pd, NP_WORK, 0), ==, 0);
 #endif
+
+#if ENABLE_WORKER_METRICS
+    // To identify when the metric framework should start
+    #define PHASE_RUN ((u8) 3)
+    // Only record if we are in user ok, executing user code. Avoids boot/shutdown clutter.
+    u8 recordMetrics = (GET_STATE(RL_USER_OK, PHASE_RUN) == worker->curState);
+    u64 startGetWork = salGetTime();
+#endif
+
     u8 retCode = 0;
     {
     START_PROFILE(wo_hc_getWork);
@@ -93,10 +117,18 @@ static void hcWorkShift(ocrWorker_t * worker) {
     retCode = pd->fcts.processMessage(pd, &msg, true);
     EXIT_PROFILE;
     }
+#if ENABLE_WORKER_METRICS
+    u64 stopGetWork = salGetTime();
+#endif
     if(retCode == 0) {
         // We got a response
         ocrFatGuid_t taskGuid = PD_MSG_FIELD_IO(schedArgs).OCR_SCHED_ARG_FIELD(OCR_SCHED_WORK_EDT_USER).edt;
         if(!(ocrGuidIsNull(taskGuid.guid))){
+#if ENABLE_WORKER_METRICS
+            if (recordMetrics) {
+                RECORD_DIFF(&worker->metricStore, WORKER, WORKER_METRIC_TIME_GETWORK_ACK, startGetWork, stopGetWork)
+            }
+#endif
 #ifdef ENABLE_RESILIENCY
             worker->isIdle = 0;
 #endif
@@ -105,7 +137,7 @@ static void hcWorkShift(ocrWorker_t * worker) {
             if (GET_STATE_PHASE(worker->curState) < (RL_GET_PHASE_COUNT_DOWN(pd, RL_USER_OK)-1)) {
                 if (curTask->funcPtr != processRequestEdt) {
                     DPRINTF(DEBUG_LVL_WARN, "user-error: task with funcPtr=%p scheduled after ocrShutdown\n", curTask->funcPtr);
-                    ASSERT(false);
+                    RETURN_PROFILE(); // Ignore EDT after emitting warning & proceed
                 }
             }
 #endif
@@ -119,7 +151,7 @@ static void hcWorkShift(ocrWorker_t * worker) {
             {
                 START_PROFILE(wo_hc_executeWork);
                 // Task sanity checks
-                ASSERT(taskGuid.metaDataPtr != NULL);
+                ocrAssert(taskGuid.metaDataPtr != NULL);
                 worker->curTask = curTask;
                 DPRINTF(DEBUG_LVL_VERB, "Worker shifting to execute EDT GUID "GUIDF"\n", GUIDA(taskGuid.guid));
                 u32 factoryId = PD_MSG_FIELD_O(factoryId);
@@ -131,7 +163,25 @@ static void hcWorkShift(ocrWorker_t * worker) {
 #endif
 #undef PD_MSG
 #undef PD_TYPE
+#ifdef OCR_ENABLE_SIMULATOR
+                // Update if I'm the slowest worker
+                if(hcWorker->worker.workerTime <= pd->pdTime)
+                    hal_cmpswap32(&pd->slowestWorker, pd->slowestWorker, worker->id);
+                u64 edtTime = salGetTime(NULL);
+#endif
+#if ENABLE_WORKER_METRICS
+                u64 startExecEdt = salGetTime();
+#endif
                 RESULT_ASSERT(((ocrTaskFactory_t *)(pd->factories[factoryId]))->fcts.execute(curTask), ==, 0);
+#if ENABLE_WORKER_METRICS
+                if (recordMetrics) {
+                    u64 stopExecEdt = salGetTime();
+                    RECORD_DIFF(&worker->metricStore, WORKER, WORKER_METRIC_TIME_EXEC_EDT, startExecEdt, stopExecEdt)
+                    // curTask
+                    // Aggregate the EDT metrics at the worker level.
+                    // Would that be better done in the scheduler since it is the one doing the destroy ?
+                }
+#endif
                 //TODO-DEFERRED: With MT, there can be multiple workers executing curTask.
                 // Not sure we thought about that and implications
 #ifdef ENABLE_EXTENSION_PERF
@@ -141,6 +191,7 @@ static void hcWorkShift(ocrWorker_t * worker) {
 
                 ocrPerfCounters_t* ctrs = worker->curTask->taskPerfsEntry;
 
+if (ctrs) {
                 if(curTask->flags & OCR_TASK_FLAG_PERFMON_ME) {
                     ctrs->count++;
                     // Update this value - atomic update is not necessary,
@@ -187,11 +238,19 @@ static void hcWorkShift(ocrWorker_t * worker) {
                         ctrs->steadyStateMask = 0;
                     }
                 }
+}
 #endif
                 //Store state at worker level to report most recent state on pause.
                 hcWorker->edtGuid = curTask->guid;
-#ifdef OCR_ENABLE_EDT_NAMING
+#if defined(OCR_ENABLE_EDT_NAMING) || defined(OCR_TRACE_BINARY)
                 hcWorker->name = curTask->name;
+#endif
+#ifdef OCR_ENABLE_SIMULATOR
+                edtTime = salGetTime(NULL)-edtTime;
+                // This is the slowest worker currently
+                if((pd->slowestWorker == worker->id) && (pd->pdTime != MAX_TIME))
+                    pd->pdTime = worker->workerTime+edtTime;
+                worker->workerTime += edtTime;
 #endif
                 EXIT_PROFILE;
             }
@@ -215,6 +274,11 @@ static void hcWorkShift(ocrWorker_t * worker) {
             // Important for this to be the last
             worker->curTask = NULL;
         } else {
+#if ENABLE_WORKER_METRICS
+            if (recordMetrics) {
+                RECORD_DIFF(&worker->metricStore, WORKER, WORKER_METRIC_TIME_GETWORK_NAK, startGetWork, stopGetWork)
+            }
+#endif
 #ifdef ENABLE_RESILIENCY
             if (worker->isIdle == 0 && worker->edtDepth == 0) {
                 if (pd->schedulers[0]->fcts.count(pd->schedulers[0], SCHEDULER_OBJECT_COUNT_RUNTIME_EDT) == 0) {
@@ -224,7 +288,7 @@ static void hcWorkShift(ocrWorker_t * worker) {
 #endif
         }
     } else {
-        ASSERT(0); //Handle error code
+        ocrAssert(0); //Handle error code
     }
 #ifdef ENABLE_RESILIENCY
     {
@@ -239,8 +303,6 @@ static void hcWorkShift(ocrWorker_t * worker) {
 #undef PD_TYPE
     }
 #endif
-// #undef PD_MSG
-// #undef PD_TYPE
 #ifdef ENABLE_EXTENSION_PAUSE
     ocrPolicyDomainHc_t *self = (ocrPolicyDomainHc_t *)pd;
     if(self->pqrFlags.runtimePause == true) {
@@ -267,8 +329,11 @@ static void workerLoop(ocrWorker_t * worker) {
 #endif
 
     // At this stage, we are in the USER_OK runlevel
-    ASSERT(worker->curState == GET_STATE(RL_USER_OK, (RL_GET_PHASE_COUNT_DOWN(worker->pd, RL_USER_OK))));
+    ocrAssert(worker->curState == GET_STATE(RL_USER_OK, (RL_GET_PHASE_COUNT_DOWN(worker->pd, RL_USER_OK))));
     ocrPolicyDomain_t *pd = worker->pd;
+#ifdef OCR_ENABLE_SIMULATOR
+    worker->workerTime = 0;
+#endif
 #ifdef ENABLE_RESILIENCY
     if (worker->amBlessed && !doCheckpointResume(pd))
 #else
@@ -278,7 +343,7 @@ static void workerLoop(ocrWorker_t * worker) {
         ocrGuid_t affinityMasterPD;
         u64 count = 0;
         // There should be a single master PD
-        ASSERT(!ocrAffinityCount(AFFINITY_PD_MASTER, &count) && (count == 1));
+        ocrAssert(!ocrAffinityCount(AFFINITY_PD_MASTER, &count) && (count == 1));
         ocrAffinityGet(AFFINITY_PD_MASTER, &count, &affinityMasterPD);
 
         // This is all part of the mainEdt setup
@@ -350,7 +415,8 @@ static void workerLoop(ocrWorker_t * worker) {
     }
 
 #ifdef ENABLE_EXTENSION_PERF
-    salPerfInit(hcWorker->perfCtrs);
+    //salPerfInit(hcWorker->perfCtrs, sched_getcpu());
+    salPerfInit(hcWorker->perfCtrs, -1);
 #endif
 
     // Actual loop
@@ -369,8 +435,8 @@ static void workerLoop(ocrWorker_t * worker) {
         case RL_USER_OK: {
             u8 desiredPhase = GET_STATE_PHASE(worker->desiredState);
             // Should never fall-through here if there has been no transition
-            ASSERT(desiredPhase != RL_GET_PHASE_COUNT_DOWN(worker->pd, RL_USER_OK));
-            ASSERT(worker->callback != NULL);
+            ocrAssert(desiredPhase != RL_GET_PHASE_COUNT_DOWN(worker->pd, RL_USER_OK));
+            ocrAssert(worker->callback != NULL);
             worker->curState = GET_STATE(RL_USER_OK, desiredPhase);
             // Callback the PD, but keep working
             worker->callback(worker->pd, worker->callbackArg);
@@ -390,13 +456,13 @@ static void workerLoop(ocrWorker_t * worker) {
                 // There is no need to do anything else except quit
                 continueLoop = false;
             } else {
-                ASSERT(0);
+                ocrAssert(0);
             }
             break;
         }
         default:
             // Only these two RL should occur
-            ASSERT(0);
+            ocrAssert(0);
         }
     } while(continueLoop);
 
@@ -420,14 +486,14 @@ u8 hcWorkerSwitchRunlevel(ocrWorker_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_
 #endif
 
     // Verify properties
-    ASSERT((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
+    ocrAssert((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
            && !(properties & RL_RELEASE));
-    ASSERT(!(properties & RL_FROM_MSG));
+    ocrAssert(!(properties & RL_FROM_MSG));
 
     // Call the runlevel change on the underlying platform
     if(runlevel == RL_CONFIG_PARSE && (properties & RL_BRING_UP) && phase == 0) {
         // Set the worker properly the first time
-        ASSERT(self->computeCount == 1);
+        ocrAssert(self->computeCount == 1);
         self->computes[0]->worker = self;
     }
     // Even if we have a callback, we make things synchronous for the computes
@@ -456,7 +522,7 @@ u8 hcWorkerSwitchRunlevel(ocrWorker_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_
                    RL_GET_PHASE_COUNT_UP(PD, RL_USER_OK) != 1 ||
                    RL_GET_PHASE_COUNT_DOWN(PD, RL_USER_OK) != 1) {
                     DPRINTF(DEBUG_LVL_WARN, "Worker does not support compute and user counts\n");
-                    ASSERT(0);
+                    ocrAssert(0);
                 }
             }
         }
@@ -484,6 +550,14 @@ u8 hcWorkerSwitchRunlevel(ocrWorker_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_
 #ifdef ENABLE_EXTENSION_PERF
             hcWorker->perfCtrs = PD->fcts.pdMalloc(PD, PERF_HW_MAX*sizeof(salPerfCounter));
 #endif
+#if ENABLE_WORKER_METRICS
+            INIT_METRIC_STORE(&(self->metricStore), WORKER)
+#if ENABLE_EDT_METRICS
+            self->edtMetricStores = NULL;
+            self->edtMetricStoresCount = 0;
+            self->edtMetricStoresCountMax = 0;
+#endif
+#endif
         } else if((properties & RL_TEAR_DOWN) && (RL_IS_LAST_PHASE_DOWN(PD, RL_GUID_OK, phase))) {
 #ifdef ENABLE_EXTENSION_PERF
             PD->fcts.pdFree(PD, hcWorker->perfCtrs);
@@ -495,7 +569,7 @@ u8 hcWorkerSwitchRunlevel(ocrWorker_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_
             // Guidify ourself
             guidify(self->pd, (u64)self, &(self->fguid), OCR_GUID_WORKER);
             // We need a way to inform the PD
-            ASSERT(callback != NULL);
+            ocrAssert(callback != NULL);
             self->curState = GET_STATE(RL_MEMORY_OK, 0); // Technically last phase of memory OK but doesn't really matter
             self->desiredState = GET_STATE(RL_COMPUTE_OK, phase);
             self->location = (u64) self; // Currently used only by visualizer, value is not important as long as it's unique
@@ -528,6 +602,9 @@ u8 hcWorkerSwitchRunlevel(ocrWorker_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_
             toReturn |= self->computes[0]->fcts.switchRunlevel(self->computes[0], PD, runlevel, phase, properties,
                                                                NULL, 0);
             if(RL_IS_LAST_PHASE_DOWN(PD, RL_COMPUTE_OK, phase)) {
+#if ENABLE_WORKER_METRICS
+                dumpWorkerMetric(self, &(self->metricStore));
+#endif
                 // Destroy GUID
                 PD_MSG_STACK(msg);
                 getCurrentEnv(NULL, NULL, NULL, &msg);
@@ -546,8 +623,8 @@ u8 hcWorkerSwitchRunlevel(ocrWorker_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_
                     self, properties & RL_PD_MASTER);
                 self->desiredState = self->curState = GET_STATE(RL_COMPUTE_OK, phase);
             } else if(RL_IS_FIRST_PHASE_DOWN(PD, RL_COMPUTE_OK, phase)) {
-                ASSERT(self->curState == GET_STATE(RL_USER_OK, 0));
-                ASSERT(callback != NULL);
+                ocrAssert(self->curState == GET_STATE(RL_USER_OK, 0));
+                ocrAssert(callback != NULL);
                 self->callback = callback;
                 self->callbackArg = val;
                 hal_fence();
@@ -559,7 +636,7 @@ u8 hcWorkerSwitchRunlevel(ocrWorker_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_
                 }
 #endif
             } else {
-                ASSERT(false && "Unexpected phase on runlevel RL_COMPUTE_OK teardown");
+                ocrAssert(false && "Unexpected phase on runlevel RL_COMPUTE_OK teardown");
             }
         }
         break;
@@ -600,12 +677,18 @@ u8 hcWorkerSwitchRunlevel(ocrWorker_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_
                 // another worker has started and executes the shutdown protocol
                 //while(self->curState != GET_STATE(RL_USER_OK, (phase+1))){
                 while(self->curState != GET_STATE(RL_USER_OK, (phase+1)));
-                ASSERT(self->curState == GET_STATE(RL_USER_OK, (phase+1)));
+                ocrAssert(self->curState == GET_STATE(RL_USER_OK, (phase+1)));
+#ifdef OCR_ENABLE_SIMULATOR
+                if(self->pd->pdTime != MAX_TIME) {
+                    ocrPrintf("Virtual clock at shutdown %ld\n", self->pd->pdTime & ~OCR_SIM_ALLOW_PROGRESS);
+                    self->pd->pdTime = MAX_TIME;
+                }
+#endif
             }
 
             // Transition to the next phase
-            ASSERT(GET_STATE_PHASE(self->curState) == (phase+1));
-            ASSERT(callback != NULL);
+            ocrAssert(GET_STATE_PHASE(self->curState) == (phase+1));
+            ocrAssert(callback != NULL);
             self->callback = callback;
             self->callbackArg = val;
             hal_fence();
@@ -615,7 +698,7 @@ u8 hcWorkerSwitchRunlevel(ocrWorker_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_
         break;
     default:
         // Unknown runlevel
-        ASSERT(0);
+        ocrAssert(0);
     }
     return toReturn;
 }
@@ -623,7 +706,7 @@ u8 hcWorkerSwitchRunlevel(ocrWorker_t *self, ocrPolicyDomain_t *PD, ocrRunlevel_
 void* hcRunWorker(ocrWorker_t * worker) {
     // At this point, we should have a callback to inform the PD
     // that we have successfully achieved the RL_COMPUTE_OK RL
-    ASSERT(worker->callback != NULL);
+    ocrAssert(worker->callback != NULL);
     worker->callback(worker->pd, worker->callbackArg);
     // Set the current environment
     worker->computes[0]->fcts.setCurrentEnv(worker->computes[0], worker->pd, worker);
@@ -633,14 +716,14 @@ void* hcRunWorker(ocrWorker_t * worker) {
     while(worker->curState == worker->desiredState) ;
 
     // At this point, we should be going to RL_USER_OK
-    ASSERT(worker->desiredState == GET_STATE(RL_USER_OK, (RL_GET_PHASE_COUNT_DOWN(worker->pd, RL_USER_OK))));
+    ocrAssert(worker->desiredState == GET_STATE(RL_USER_OK, (RL_GET_PHASE_COUNT_DOWN(worker->pd, RL_USER_OK))));
 
     // Start the worker loop
     worker->curState = worker->desiredState;
     workerLoop(worker);
     // Worker loop will transition back down to RL_COMPUTE_OK last phase
 
-    ASSERT((worker->curState == worker->desiredState) &&
+    ocrAssert((worker->curState == worker->desiredState) &&
             (worker->curState == GET_STATE(RL_COMPUTE_OK, (RL_GET_PHASE_COUNT_DOWN(worker->pd, RL_COMPUTE_OK) - 1))));
     return NULL;
 }
@@ -673,7 +756,7 @@ void initializeWorkerHc(ocrWorkerFactory_t * factory, ocrWorker_t* self, ocrPara
     u64 workerId = ((paramListWorkerInst_t*)perInstance)->workerId;
     //TODO: try to get away from SYSTEM_WORKERTYPE and remove this check.
     if (self->type !=  SYSTEM_WORKERTYPE)
-        ASSERT((workerId && self->type == SLAVE_WORKERTYPE) ||
+        ocrAssert((workerId && self->type == SLAVE_WORKERTYPE) ||
            (workerId == 0 && self->type == MASTER_WORKERTYPE));
 #endif
     ocrWorkerHc_t * workerHc = (ocrWorkerHc_t*) self;

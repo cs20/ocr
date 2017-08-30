@@ -34,7 +34,7 @@ ocrGuid_t eReaderEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     TYPE_ELEM_DB c = data[0];
     u32 i = 0;
     while (i < NB_ELEM_DB) {
-        ASSERT ((data[i] == c) && "Inconsistent read detected");
+        ocrAssert((data[i] == c) && "Inconsistent read detected");
         i++;
     }
     ocrDbRelease(depv[0].guid);
@@ -47,8 +47,8 @@ ocrGuid_t eWriteEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     TYPE_ELEM_DB c = data[0];
     u32 i = 0;
     while (i < NB_ELEM_DB) {
-        // PRINTF("[%"PRId32"] data[%"PRId32"] == %"PRId32"\n", c, i, data[i]);
-        ASSERT ((data[i] == c) && "Inconsistent check before write detected");
+        // ocrPrintf("[%"PRId32"] data[%"PRId32"] == %"PRId32"\n", c, i, data[i]);
+        ocrAssert((data[i] == c) && "Inconsistent check before write detected");
         i++;
     }
     // Then write a new value
@@ -59,7 +59,7 @@ ocrGuid_t eWriteEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
         i++;
     }
     ocrDbRelease(depv[0].guid);
-    // PRINTF("Done with write %"PRId32"\n", c);
+    // ocrPrintf("Done with write %"PRId32"\n", c);
     // fflush(stdout);
     return NULL_GUID;
 }
@@ -67,7 +67,7 @@ ocrGuid_t eWriteEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
 ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     u64 affinityCount;
     ocrAffinityCount(AFFINITY_PD, &affinityCount);
-    ASSERT(affinityCount >= 1);
+    ocrAssert(affinityCount >= 1);
     ocrGuid_t affinities[affinityCount];
     ocrAffinityGet(AFFINITY_PD, &affinityCount, affinities);
     ocrGuid_t affinity = affinities[affinityCount-1];
@@ -88,7 +88,7 @@ ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     }
     ocrDbRelease(dbGuid);
 
-    PRINTF("DB (GUID: "GUIDF")\n",GUIDA(dbGuid));
+    ocrPrintf("DB (GUID: "GUIDF")\n",GUIDA(dbGuid));
 
     ocrGuid_t shutdownEdtTemplateGuid;
     ocrEdtTemplateCreate(&shutdownEdtTemplateGuid, shutdownEdt, 0, (NB_WRITERS+(NB_WRITERS*NB_READERS_PER_WRITER)));

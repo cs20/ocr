@@ -5,6 +5,8 @@
 */
 
 #include "comp-platform/comp-platform-all.h"
+#include "comp-platform/platform-binding-info.h"
+#include "ocr-errors.h"
 #include "debug.h"
 
 const char * compplatform_types[] = {
@@ -28,11 +30,21 @@ ocrCompPlatformFactory_t *newCompPlatformFactory(compPlatformType_t type, ocrPar
         return newCompPlatformFactoryFsim(typeArg);
 #endif
     default:
-        ASSERT(0);
+        ocrAssert(0);
         return NULL;
     };
 }
 
 void initializeCompPlatformOcr(ocrCompPlatformFactory_t * factory, ocrCompPlatform_t * self, ocrParamList_t *perInstance) {
     self->fcts = factory->platformFcts;
+}
+
+u8 getCompPlatformBindingInfo(ocrCompPlatform_t * platform, bindingInfo_t * bindingInfo) {
+#ifdef ENABLE_COMP_PLATFORM_PTHREAD
+    ocrCompPlatformPthread_t * pthreadPlatform = (ocrCompPlatformPthread_t *) platform;
+    *bindingInfo = pthreadPlatform->bindingInfo;
+    return 0;
+#else
+    return OCR_ENOTSUP;
+#endif
 }

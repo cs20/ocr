@@ -237,7 +237,7 @@ static u8 GasnetCommSendMessage(ocrCommPlatform_t * self,
         message->msgId = gasnetId;
     } else {
         // For response in ASYNC set the message ID as any.
-        ASSERT(message->type & PD_MSG_RESPONSE);
+        ocrAssert(message->type & PD_MSG_RESPONSE);
         if (properties & ASYNC_MSG_PROP) {
             message->msgId = SEND_ANY_ID;
         }
@@ -262,7 +262,7 @@ static u8 GasnetCommSendMessage(ocrCommPlatform_t * self,
             ocrPolicyMsgMarshallMsg(messageBuffer, baseSize, (u8*)messageBuffer,
                                     MARSHALL_APPEND | MARSHALL_DBPTR | MARSHALL_NSADDR);
         } else {
-            ASSERT(marshallMode == MARSHALL_FULL_COPY);
+            ocrAssert(marshallMode == MARSHALL_FULL_COPY);
             //BUG #604 Communication API extensions
             // They are needed in a comm-platform such as mpi or gasnet
             // but it feels off that the calling context already set those
@@ -270,18 +270,18 @@ static u8 GasnetCommSendMessage(ocrCommPlatform_t * self,
             // crossing address space
             // | MARSHALL_DBPTR :  only for acquire/release message
             // | MARSHALL_NSADDR : only used when unmarshalling so far
-            ASSERT ((((messageBuffer->type & PD_MSG_TYPE_ONLY) == PD_MSG_DB_ACQUIRE) ||
+            ocrAssert((((messageBuffer->type & PD_MSG_TYPE_ONLY) == PD_MSG_DB_ACQUIRE) ||
                     ((messageBuffer->type & PD_MSG_TYPE_ONLY) == PD_MSG_DB_RELEASE))
                     ? (marshallMode & (MARSHALL_DBPTR | MARSHALL_NSADDR)) : 1);
         }
     }
 
     // Warning: From now on, exclusively use 'messageBuffer' instead of 'message'
-    ASSERT(fullMsgSize == messageBuffer->usefulSize);
+    ocrAssert(fullMsgSize == messageBuffer->usefulSize);
 
     // Prepare GASNET call arguments
     int targetRank = locationToGasnetRank(target);
-    ASSERT(targetRank > -1);
+    ocrAssert(targetRank > -1);
     DPRINTF(DEBUG_LVL_VVERB,"GasnetCommSendMessage self=%p, to %"PRId64" (%"PRId32") %"PRId64" bytes\n",
                             self, target, targetRank, fullMsgSize);
 
@@ -318,14 +318,14 @@ static u8 GasnetCommSendMessage(ocrCommPlatform_t * self,
     // ------------------------------------------------------------
     const int max_medium_size = gasnet_AMMaxMedium();
 
-    if (max_medium_size > fullMsgSize) {
+    if (max_medium_size >= fullMsgSize) {
         sendMediumMessage( self, targetRank, gasnetId, messageBuffer, fullMsgSize,
         addr_hi, addr_lo, segment_size);
     } else {
         // sending large messages require access to the remote share segment
         // (only when am long enabled)
         gasnetCommBlock_t *blockRemote = gasnetSegmentBlockGet(self->pd, targetRank);
-        if (gasnet_AMMaxLongRequest() > fullMsgSize) {
+        if (gasnet_AMMaxLongRequest() >= fullMsgSize) {
             gasnetSendLongMessage(targetRank, messageBuffer, fullMsgSize, gasnetId, blockRemote,
                                   addr_hi, addr_lo, segment_size);
         } else {
@@ -353,7 +353,7 @@ static u8 GasnetCommSendMessage(ocrCommPlatform_t * self,
     //    => What about if the response was larger than the request who deallocates ?
     if (!(message->type & PD_MSG_REQ_RESPONSE)) {
         // A one-way (req or resp) should have been made persistent in upper-layers
-        ASSERT(properties & PERSIST_MSG_PROP);
+        ocrAssert(properties & PERSIST_MSG_PROP);
         // Hence, free the original since we've just made a copy
         self->pd->fcts.pdFree(self->pd, message);
     }
@@ -371,8 +371,8 @@ u8 GasnetCommPollMessage(ocrCommPlatform_t *self, ocrPolicyMsg_t **msg,
                          u32 properties, u32 *mask) {
     ocrCommPlatformGasnet_t *gasnetComm = (ocrCommPlatformGasnet_t*) self;
 
-    ASSERT(msg != NULL);
-    ASSERT(*msg == NULL && "GASNet cannot poll for a specific message");
+    ocrAssert(msg != NULL);
+    ocrAssert(*msg == NULL && "GASNet cannot poll for a specific message");
 
     // remove all incoming tasks in the check the queue
     GASNET_Safe(gasnet_AMPoll());
@@ -428,9 +428,9 @@ u8 GasnetCommSwitchRunlevel(ocrCommPlatform_t *self, ocrPolicyDomain_t *PD, ocrR
     ocrCommPlatformGasnet_t * gasnetComm = ((ocrCommPlatformGasnet_t *) self);
     u8 toReturn = 0;
     // Verify properties for this call
-    ASSERT((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
+    ocrAssert((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
            && !(properties & RL_RELEASE));
-    ASSERT(!(properties & RL_FROM_MSG));
+    ocrAssert(!(properties & RL_FROM_MSG));
 
     switch(runlevel) {
     case RL_CONFIG_PARSE:
@@ -450,7 +450,7 @@ u8 GasnetCommSwitchRunlevel(ocrCommPlatform_t *self, ocrPolicyDomain_t *PD, ocrR
         // Nothing to do
         break;
     case RL_GUID_OK:
-        ASSERT(self->pd == PD);
+        ocrAssert(self->pd == PD);
         if((properties & RL_BRING_UP) && RL_IS_LAST_PHASE_UP(self->pd, RL_GUID_OK, phase)) {
             gasnetComm->incoming = newLinkedList(PD);
             gasnetComm->incomingIt = gasnetComm->incoming->iterator(gasnetComm->incoming);
@@ -476,7 +476,7 @@ u8 GasnetCommSwitchRunlevel(ocrCommPlatform_t *self, ocrPolicyDomain_t *PD, ocrR
         }
         if ((properties & RL_TEAR_DOWN) && RL_IS_FIRST_PHASE_DOWN(self->pd, RL_GUID_OK, phase)) {
             gasnetComm->incomingIt->destruct(gasnetComm->incomingIt);
-            ASSERT(gasnetComm->incoming->isEmpty(gasnetComm->incoming));
+            ocrAssert(gasnetComm->incoming->isEmpty(gasnetComm->incoming));
             gasnetComm->incoming->destruct(gasnetComm->incoming);
         }
         break;
@@ -494,7 +494,7 @@ u8 GasnetCommSwitchRunlevel(ocrCommPlatform_t *self, ocrPolicyDomain_t *PD, ocrR
         break;
     default:
         // Unknown runlevel
-        ASSERT(0);
+        ocrAssert(0);
     }
     return toReturn;
 }

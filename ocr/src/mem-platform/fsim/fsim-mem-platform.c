@@ -19,6 +19,7 @@
 #include "mem-platform/fsim/fsim-mem-platform.h"
 #include "ocr-mem-platform.h"
 #include "ocr-sysboot.h"
+#include "xstg-map.h"
 
 #define DEBUG_TYPE MEM_PLATFORM
 
@@ -44,12 +45,12 @@ u8 fsimSwitchRunlevel(ocrMemPlatform_t *self, ocrPolicyDomain_t *PD, ocrRunlevel
     u8 toReturn = 0;
 
     // This is an inert module, we do not handle callbacks (caller needs to wait on us)
-    ASSERT(callback == NULL);
+    ocrAssert(callback == NULL);
 
     // Verify properties for this call
-    ASSERT((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
+    ocrAssert((properties & RL_REQUEST) && !(properties & RL_RESPONSE)
            && !(properties & RL_RELEASE));
-    ASSERT(!(properties & RL_FROM_MSG));
+    ocrAssert(!(properties & RL_FROM_MSG));
 
     switch(runlevel) {
     case RL_CONFIG_PARSE:
@@ -65,7 +66,7 @@ u8 fsimSwitchRunlevel(ocrMemPlatform_t *self, ocrPolicyDomain_t *PD, ocrRunlevel
             // We can now set our PD (before this, we couldn't because
             // "our" PD might not have been started
             self->pd = PD;
-            ASSERT(self->startAddr);
+            ocrAssert(self->startAddr);
             self->endAddr = self->startAddr + self->size;
 
 #ifdef SAL_FSIM_CE
@@ -79,8 +80,27 @@ u8 fsimSwitchRunlevel(ocrMemPlatform_t *self, ocrPolicyDomain_t *PD, ocrRunlevel
 
             DPRINTF(DEBUG_LVL_VERB, "Initializing memory range %"PRIx64" to %"PRIx64"\n", self->startAddr, self->endAddr);
             ocrMemPlatformFsim_t *rself = (ocrMemPlatformFsim_t*)self;
+#if defined(SAL_FSIM_XE) && defined(OCR_SHARED_XE_POLICY_DOMAIN)
+            if ((self->startAddr & ~AR_L1_BASE) < AR_L1_BASE) {
+                u64 rangeStart, rangeEnd;
+                // If range is agent relative, then convert it to block relative
+                // if we are using the OCR_SHARED_XE_POLICY_DOMAIN.
+                rangeStart = (self->startAddr - AR_L1_BASE)
+                            + BR_L1_BASE(ID_AGENT_XE(self->id));
+                rangeEnd   = (self->endAddr   - AR_L1_BASE)
+                            + BR_L1_BASE(ID_AGENT_XE(self->id));
+                rself->pRangeTracker = initializeRange(16, rangeStart,
+                        rangeEnd, USER_FREE_TAG);
+            }
+#ifdef OCR_ENABLE_XE_L2_ALLOC
+            else
+                rself->pRangeTracker = initializeRange(16, self->startAddr,
+                        self->endAddr, USER_FREE_TAG);
+#endif
+#else // OCR_SHARED_XE_POLICY_DOMAIN
             rself->pRangeTracker = initializeRange(16, self->startAddr,
                     self->endAddr, USER_FREE_TAG);
+#endif // OCR_SHARED_XE_POLICY_DOMAIN
         }
         break;
     case RL_GUID_OK:
@@ -91,7 +111,7 @@ u8 fsimSwitchRunlevel(ocrMemPlatform_t *self, ocrPolicyDomain_t *PD, ocrRunlevel
         break;
     default:
         // Unknown runlevel
-        ASSERT(0);
+        ocrAssert(0);
     }
     return toReturn;
 }
@@ -233,6 +253,7 @@ void initializeMemPlatformFsim(ocrMemPlatformFactory_t * factory,
     initializeMemPlatformOcr(factory, result, perInstance);
     ocrMemPlatformFsim_t *rself = (ocrMemPlatformFsim_t*)result;
     result->startAddr = ((paramListMemPlatformFsim_t *)perInstance)->start;
+    result->id = ((paramListMemPlatformFsim_t *)perInstance)->memplatId;
     INIT_LOCKF(&(rself->lock));
 }
 

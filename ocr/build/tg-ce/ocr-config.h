@@ -77,6 +77,7 @@
 // Scheduler Objects
 #define ENABLE_SCHEDULER_OBJECT_WST
 #define ENABLE_SCHEDULER_OBJECT_DEQ
+#define ENABLE_SCHEDULER_OBJECT_LIST
 
 // SAL layer to use
 #define SAL_FSIM_CE

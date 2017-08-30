@@ -15,13 +15,13 @@
 
 ocrGuid_t run(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[])
 {
-    PRINTF("run\n");
+    ocrPrintf("run\n");
     ocrGuid_t my_affinity;
     ocrAffinityGetCurrent(&my_affinity);
-    PRINTF("current affinity is " GUIDF "\n", GUIDA(my_affinity));
+    ocrPrintf("current affinity is " GUIDF "\n", GUIDA(my_affinity));
     if (paramc==0) return NULL_GUID;
     ocrGuid_t aff = *(ocrGuid_t*)paramv;
-    PRINTF("Spawned affinity is " GUIDF "\n", GUIDA(aff));
+    ocrPrintf("Spawned affinity is " GUIDF "\n", GUIDA(aff));
     ocrGuid_t trun, w1;
     ocrEdtTemplateCreate(&trun,run,EDT_PARAM_UNK, EDT_PARAM_UNK);
     ocrHint_t h1;
@@ -33,7 +33,7 @@ ocrGuid_t run(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[])
 
 ocrGuid_t stop(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[])
 {
-    PRINTF("stop\n");
+    ocrPrintf("stop\n");
     ocrShutdown();
     return NULL_GUID;
 }
@@ -41,7 +41,7 @@ ocrGuid_t stop(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[])
 ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     u64 aff_count;
     ocrAffinityCount(AFFINITY_PD, &aff_count);
-    // ASSERT(aff_count >= 2);
+    // ocrAssert(aff_count >= 2);
     ocrGuid_t affs[aff_count];
     ocrAffinityGet(AFFINITY_PD, &aff_count, affs);
 
@@ -56,7 +56,7 @@ ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     ocrHintInit(&h2, OCR_HINT_EDT_T);
     ocrSetHintValue(&h2, OCR_HINT_EDT_AFFINITY, ocrAffinityToHintValue(affs[aff_count-1]));
 
-    ASSERT(sizeof(u64)==sizeof(ocrGuid_t));
+    ocrAssert(sizeof(u64)==sizeof(ocrGuid_t));
     u64 params1[] = { *(u64*)&affs[aff_count-1]};
     u64 params2[] = { *(u64*)&affs[0]};
     ocrEdtCreate(&w1,trun,1,params1,1,0,EDT_PROP_FINISH,&h1,&w1e);

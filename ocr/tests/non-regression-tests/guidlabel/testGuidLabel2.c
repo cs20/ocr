@@ -24,7 +24,7 @@ ocrGuid_t shutEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     int i = 0;
     while (i < NB_EDT) {
         if (!ocrGuidIsNull(depv[i].guid)) {
-            ASSERT(ocrGuidIsNull(db));
+            ocrAssert(ocrGuidIsNull(db));
             db = depv[i].guid;
         }
         i++;
@@ -82,7 +82,7 @@ ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
 #else
 
 ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
-    PRINTF("Test disabled - ENABLE_EXTENSION_LABELING not defined\n");
+    ocrPrintf("Test disabled - ENABLE_EXTENSION_LABELING not defined\n");
     ocrShutdown();
     return NULL_GUID;
 }

@@ -4,10 +4,6 @@
  * removed or modified.
  */
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <assert.h>
-
 #include "ocr.h"
 
 /**
@@ -15,10 +11,10 @@
  */
 
 ocrGuid_t taskForEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
-    ASSERT(((u32*)depv[0].ptr)[0] == 11);
-    ASSERT(((u32*)depv[1].ptr)[0] == 22);
-    ASSERT(((u32*)depv[2].ptr)[0] == 33);
-    ASSERT(((u32*)depv[3].ptr)[0] == 44);
+    ocrAssert(((u32*)depv[0].ptr)[0] == 11);
+    ocrAssert(((u32*)depv[1].ptr)[0] == 22);
+    ocrAssert(((u32*)depv[2].ptr)[0] == 33);
+    ocrAssert(((u32*)depv[3].ptr)[0] == 44);
     ocrShutdown();
     return NULL_GUID;
 }

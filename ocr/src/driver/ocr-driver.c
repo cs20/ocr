@@ -297,7 +297,7 @@ extern void free_instance(void *instance, type_enum inst_type);
 ocrGuid_t __attribute__ ((weak)) mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     // This is just to make the linker happy and shouldn't be executed
     printf("error: no mainEdt defined.\n");
-    ASSERT(false);
+    ocrAssert(false);
     return NULL_GUID;
 }
 
@@ -481,7 +481,7 @@ void platformSpecificFinalizer(u8 returnCode) {
 
 void bringUpRuntime(ocrConfig_t *ocrConfig) {
     const char *inifile = ocrConfig->iniFile;
-    ASSERT(inifile != NULL);
+    ocrAssert(inifile != NULL);
 
     int i, j, nsec;
     dictionary *dict = iniparser_load(inifile);
@@ -528,7 +528,7 @@ void bringUpRuntime(ocrConfig_t *ocrConfig) {
     }
 #ifdef OCR_ASSERT
     for (j = 0; j < total_types; j++) {
-        ASSERT(type_counts[j] <=  type_max[j]);
+        ocrAssert(type_counts[j] <=  type_max[j]);
     }
 #endif
 
@@ -706,7 +706,7 @@ void bringUpRuntime(ocrConfig_t *ocrConfig) {
     }
 
     ocrPolicyDomain_t* tpd = (ocrPolicyDomain_t*)(all_instances[policydomain_type][0]);
-    ASSERT(inst_counts[policydomain_type] > 0);
+    ocrAssert(inst_counts[policydomain_type] > 0);
     i = 0;
     while(true) {
         u32 tpdIdx = CLUSTER_FROM_ID(tpd->myLocation)*MAX_NUM_BLOCK +
@@ -737,9 +737,9 @@ void bringUpRuntime(ocrConfig_t *ocrConfig) {
  //             if (neighbors_count > 0) {
  //                 int low, high, count;
  //                 count = read_range(dict, secname, "id", &low, &high);
- //                 ASSERT(count == 1 && low == high);
+ //                 ocrAssert(count == 1 && low == high);
  //                 ocrPolicyDomain_t *pd = (ocrPolicyDomain_t*)all_instances[policydomain_type][low];
- //                 ASSERT(neighbors_count == pd->neighborCount);
+ //                 ocrAssert(neighbors_count == pd->neighborCount);
  //                 pd->neighbors = (ocrLocation_t*)runtimeChunkAlloc(sizeof(ocrLocation_t) * neighbors_count, PERSISTENT_CHUNK);
  // #ifndef ENABLE_BUILDER_ONLY
  //                 pd->neighborPDs = (ocrPolicyDomain_t**)runtimeChunkAlloc(sizeof(ocrPolicyDomain_t*) * neighbors_count, NONPERSISTENT_CHUNK);
@@ -958,7 +958,7 @@ void freeUpRuntime (bool doTeardown, u8 *returnCode) {
  */
 static void * packUserArguments(int argc, char ** argv) {
     // Prepare arguments for the mainEdt
-    ASSERT(argc < 64); // For now
+    ocrAssert(argc < 64); // For now
     u32 i;
     u64* offsets = (u64*) runtimeChunkAlloc(sizeof(u64)*argc, ARGS_CHUNK);
     u64 argsUsed = 0ULL;

@@ -604,7 +604,7 @@ s32 populate_inst(ocrParamList_t **inst_param, int inst_param_size, void **insta
     // access to inst_param[high] is out-of-array, i.e. bug
     // Make sure your config file has no holes in ID space.
     // a hole in ID space makes this assertion fail
-    ASSERT(high < inst_param_size);
+    ocrAssert(high < inst_param_size);
 
     snprintf(key, MAX_KEY_SZ, "%s:%s", secname, "type");
     INI_GET_STR (key, inststr, "");
@@ -659,6 +659,11 @@ s32 populate_inst(ocrParamList_t **inst_param, int inst_param_size, void **insta
             // BUG #594
             snprintf(key, MAX_KEY_SZ, "%s:%s", secname, "start");
             ((paramListMemPlatformFsim_t*)inst_param[j])->start = (u64)iniparser_getlonglong(dict, key, 0);
+            ((paramListMemPlatformFsim_t*)inst_param[j])->memplatId = j; // j will correspond to the XE number within the block
+#endif
+#ifdef ENABLE_MEM_PLATFORM_NUMA_ALLOC
+            snprintf(key, MAX_KEY_SZ, "%s:%s", secname, "numa_node");
+            ((paramListMemPlatformInst_t*)inst_param[j])->numa_node = (u32)iniparser_getint(dict, key, 0);
 #endif
 
             instance[j] = (void *)((ocrMemPlatformFactory_t *)factory)->instantiate(factory, inst_param[j]);
@@ -753,22 +758,60 @@ s32 populate_inst(ocrParamList_t **inst_param, int inst_param_size, void **insta
         for (j = low; j<=high; j++) {
 
             compPlatformType_t mytype = -1;
-
             TO_ENUM (mytype, inststr, compPlatformType_t, compplatform_types, compPlatformMax_id);
             switch (mytype) {
 #ifdef ENABLE_COMP_PLATFORM_PTHREAD
             case compPlatformPthread_id: {
                 ALLOC_PARAM_LIST(inst_param[j], paramListCompPlatformPthread_t);
-
                 snprintf(key, MAX_KEY_SZ, "%s:%s", secname, "stacksize");
                 INI_GET_INT (key, value, -1);
                 ((paramListCompPlatformPthread_t *)inst_param[j])->stackSize = (value==-1)?0:value;
                 if (key_exists(dict, secname, "binding")) {
                     value = get_key_value(dict, secname, "binding", j-low);
-                    ((paramListCompPlatformPthread_t *)inst_param[j])->binding = value;
+                    ((paramListCompPlatformPthread_t *)inst_param[j])->bindingInfo.offset = value;
                 } else {
-                    ((paramListCompPlatformPthread_t *)inst_param[j])->binding = -1;
+                    ((paramListCompPlatformPthread_t *)inst_param[j])->bindingInfo.offset = -1;
                 }
+                u16 pdAllocPolicy = ((u16)0);
+                u8 nbPackages = ((u8)0);
+                u8 idsPerPackage = ((u8)0);
+                // Extract information from numa field
+                if (key_exists(dict, secname, "numa")) {
+                    char * strValue;
+                    snprintf(key, MAX_KEY_SZ, "%s:%s", secname, "numa");
+                    INI_GET_STR (key, strValue, "");
+                    const int strSize = 20;
+                    char strValueCpy[strSize];
+                    strncpy(strValueCpy, strValue, strSize-1);
+                    const char * delim = ":";
+                    char * pdAllocPolicyStr = strtok(strValueCpy, delim);
+                    if (!strcmp(pdAllocPolicyStr, "RR")) {
+                        pdAllocPolicy = PD_ALLOC_POLICY_RR;
+                    } else if (!strcmp(pdAllocPolicyStr, "BLOCK")) {
+                        pdAllocPolicy = PD_ALLOC_POLICY_BLOCK;
+                    } else {
+                        DPRINTF(DEBUG_LVL_WARN, "Unrecognized PD allocation policy %s for numa option\n", pdAllocPolicyStr);
+                        printf("Unrecognized PD allocation policy %s for numa option\n", pdAllocPolicyStr);
+                        return 0;
+                    }
+                    char * nbPackagesStr = strtok(NULL, delim);
+                    if (nbPackagesStr == NULL) {
+                        DPRINTF(DEBUG_LVL_WARN, "Malformed numa option (%s) is missing number of packages\n", strValueCpy);
+                        printf("Malformed numa option (%s) is missing number of packages\n", strValueCpy);
+                        return 0;
+                    }
+                    nbPackages = (u8) atoi(nbPackagesStr);
+                    char * idsPerPackageStr = strtok(NULL, delim);
+                    if (idsPerPackageStr == NULL) {
+                        DPRINTF(DEBUG_LVL_WARN, "Malformed numa option (%s) is missing number of id per package\n", strValueCpy);
+                        printf("Malformed numa option (%s) is missing number of id per package\n", strValueCpy);
+                        return 0;
+                    }
+                    idsPerPackage = (u8) atoi(idsPerPackageStr);
+                }
+                ((paramListCompPlatformPthread_t *)inst_param[j])->bindingInfo.pdAllocPolicy = pdAllocPolicy;
+                ((paramListCompPlatformPthread_t *)inst_param[j])->bindingInfo.nbPackages = nbPackages;
+                ((paramListCompPlatformPthread_t *)inst_param[j])->bindingInfo.idsPerPackage = idsPerPackage;
 #ifdef OCR_RUNTIME_PROFILER
                 bool doProfile = false;
                 snprintf(key, MAX_KEY_SZ, "%s:%s", secname, "profilethread");
@@ -852,7 +895,7 @@ s32 populate_inst(ocrParamList_t **inst_param, int inst_param_size, void **insta
                 break;
 #endif
             case schedulerObjectMax_id:
-                ASSERT (0); // Unimplemented scheduler object type
+                ocrAssert(0); // Unimplemented scheduler object type
                 break;
             default:
                 ALLOC_PARAM_LIST(inst_param[j], paramListSchedulerObject_t);
@@ -882,7 +925,7 @@ s32 populate_inst(ocrParamList_t **inst_param, int inst_param_size, void **insta
                             ((paramListSchedulerHeuristicCeAff_t*)inst_param[j])->enforceAffinity = true;
                         } else {
                             u32 t = strcmp(valuestr, "no");
-                            ASSERT(t == 0 && "enforceaffinity should be 'yes' or 'no'");
+                            ocrAssert(t == 0 && "enforceaffinity should be 'yes' or 'no'");
                             ((paramListSchedulerHeuristicCeAff_t*)inst_param[j])->enforceAffinity = false;
                         }
                     } else {
@@ -900,7 +943,7 @@ s32 populate_inst(ocrParamList_t **inst_param, int inst_param_size, void **insta
                 char *valuestr = NULL;
                 snprintf(key, MAX_KEY_SZ, "%s:%s", secname, "kind");
                 INI_GET_STR (key, valuestr, "");
-                ASSERT(strcmp(valuestr, "master") == 0);
+                ocrAssert(strcmp(valuestr, "master") == 0);
                 ((paramListSchedulerHeuristic_t*)inst_param[j])->isMaster = true;
             }
             instance[j] = (void *)((ocrSchedulerHeuristicFactory_t *)factory)->instantiate(factory, inst_param[j]);
@@ -968,6 +1011,7 @@ s32 populate_inst(ocrParamList_t **inst_param, int inst_param_size, void **insta
                     workertype += 1;  // because workertype is 1-indexed, not 0-indexed
                     if (workertype == MAX_WORKERTYPE) workertype = SLAVE_WORKERTYPE; // reasonable default
                     ALLOC_PARAM_LIST(inst_param[j], paramListWorkerXeInst_t);
+                    ((paramListWorkerInst_t *)inst_param[j])->workerId = j; // j will correspond to the XE number within the block
                 }
                 break;
 #endif
@@ -991,7 +1035,7 @@ s32 populate_inst(ocrParamList_t **inst_param, int inst_param_size, void **insta
 #endif
 
                 default:
-                    ASSERT (0); // Unimplemented worker type.
+                    ocrAssert(0); // Unimplemented worker type.
                     break;
             }
 
@@ -1050,7 +1094,7 @@ s32 populate_inst(ocrParamList_t **inst_param, int inst_param_size, void **insta
                 ALLOC_PARAM_LIST(inst_param[j], paramListSchedulerInst_t);
                 break;
             }
-            ASSERT(inst_param[j]);
+            ocrAssert(inst_param[j]);
             instance[j] = (void *)((ocrSchedulerFactory_t *)factory)->instantiate(factory, inst_param[j]);
             if (instance[j])
                 DPRINTF(DEBUG_LVL_INFO, "Created scheduler of type %s, index %"PRId32"\n", inststr, j);
@@ -1119,7 +1163,7 @@ s32 populate_inst(ocrParamList_t **inst_param, int inst_param_size, void **insta
                 read_range(dict, secname, "location", &sublo, &subhi);
                 // Make sure there is the same number of instances so we can
                 // match them 1 to 1
-                ASSERT(subhi - sublo == high - low);
+                ocrAssert(subhi - sublo == high - low);
                 ((paramListPolicyDomainInst_t*)inst_param[j])->location = sublo + j - low;
             } else {
                 INI_GET_INT (key, value, -1);
@@ -1219,7 +1263,7 @@ void add_dependence (type_enum fromtype, type_enum totype, char *refstr,
         }
         case schedulerObject_type: {
             if (toinstance != NULL) {
-                ASSERT(f->rootObj == NULL); //scheduler can have only one schedulerObject root
+                ocrAssert(f->rootObj == NULL); //scheduler can have only one schedulerObject root
                 f->rootObj = (ocrSchedulerObject_t *)toinstance;
             }
             break;
@@ -1243,7 +1287,7 @@ void add_dependence (type_enum fromtype, type_enum totype, char *refstr,
         DPRINTF(DEBUG_LVL_INFO, "PD %"PRId32" to %"PRId32"\n", fromtype, totype);
         switch (totype) {
         case guid_type: {
-            ASSERT(dependence_count==1);
+            ocrAssert(dependence_count==1);
             if (f->guidProviders == NULL) {
                 f->guidProviderCount = dependence_count;
                 f->guidProviders = (ocrGuidProvider_t **)runtimeChunkAlloc(dependence_count * sizeof(ocrGuidProvider_t *), PERSISTENT_CHUNK);
@@ -1312,13 +1356,13 @@ void add_dependence (type_enum fromtype, type_enum totype, char *refstr,
                 break;
             }
             default:
-                ASSERT(0);
+                ocrAssert(0);
                 break;
             }
             break;
         }
         case schedulerObject_type: {
-            ASSERT(strcasecmp(refstr, "schedulerObjectfactory") == 0);
+            ocrAssert(strcasecmp(refstr, "schedulerObjectfactory") == 0);
             if (f->schedulerObjectFactories == NULL) {
                 f->schedulerObjectFactoryCount = dependence_count;
                 f->schedulerObjectFactories = (ocrSchedulerObjectFactory_t **)runtimeChunkAlloc(dependence_count * sizeof(ocrSchedulerObjectFactory_t *), PERSISTENT_CHUNK);

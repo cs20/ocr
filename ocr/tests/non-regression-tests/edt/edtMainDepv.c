@@ -13,13 +13,13 @@ ocrGuid_t mainEdt ( u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     void *programArg = depv[0].ptr;
     u64* dbAsU64 = (u64*)programArg;
     argc = dbAsU64[0];
-    ASSERT(argc == 2);
+    ocrAssert(argc == 2);
 
     u64 offset = dbAsU64[2];
     char *dbAsChar = (char*)programArg;
     int res = atoi(dbAsChar+offset);
-    PRINTF("In mainEdt with value %"PRId32"\n", res);
-    ASSERT(res == 42);
+    ocrPrintf("In mainEdt with value %"PRId32"\n", res);
+    ocrAssert(res == 42);
 
     ocrShutdown();
     return NULL_GUID;

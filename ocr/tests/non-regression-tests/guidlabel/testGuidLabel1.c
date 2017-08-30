@@ -31,10 +31,10 @@ ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
     ocrGuid_t evtGuid;
     ocrGuidFromLabel(&evtGuid, mapGuid, &val);
     u8 retCode = ocrEventCreate(&evtGuid, OCR_EVENT_STICKY_T, GUID_PROP_IS_LABELED | GUID_PROP_CHECK);
-    ASSERT(retCode == 0);
+    ocrAssert(retCode == 0);
 
     retCode = ocrEventCreate(&evtGuid, OCR_EVENT_STICKY_T, GUID_PROP_IS_LABELED | GUID_PROP_CHECK);
-    ASSERT(retCode == OCR_EGUIDEXISTS);
+    ocrAssert(retCode == OCR_EGUIDEXISTS);
 
     ocrGuid_t templGuid;
     ocrEdtTemplateCreate(&templGuid, shutEdt, 0, 1);
@@ -50,7 +50,7 @@ ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
 #else
 
 ocrGuid_t mainEdt(u32 paramc, u64* paramv, u32 depc, ocrEdtDep_t depv[]) {
-    PRINTF("Test disabled - ENABLE_EXTENSION_LABELING not defined\n");
+    ocrPrintf("Test disabled - ENABLE_EXTENSION_LABELING not defined\n");
     ocrShutdown();
     return NULL_GUID;
 }
