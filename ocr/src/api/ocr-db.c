@@ -360,7 +360,8 @@ void* ocrDbFetch(ocrGuid_t db, u64 *size) {
 }
 
 u8 ocrDbRepublish(ocrGuid_t db, void *ptr) {
-    return salResilientDataBlockRepublish(db, ptr);
+    ASSERT(false && "ocrDbRepublish not supported");
+    return OCR_EINVAL;
 }
 
 #else

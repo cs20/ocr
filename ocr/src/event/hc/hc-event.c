@@ -717,6 +717,7 @@ u8 satisfyEventHcLatch(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
         event->dbPublishCount = 0;
         pd->fcts.pdFree(pd, event->dbPublishArray);
     }
+    salResilientEventSatisfy(base->guid, 0, NULL_GUID);
 #endif
 
     u32 waitersCount = event->base.waitersCount;
@@ -1744,17 +1745,19 @@ u8 newEventHc(ocrEventFactory_t * factory, ocrFatGuid_t *fguid,
     // of the GUID is actually valid
     hal_fence(); // Make sure sure this really happens last
     ((ocrEvent_t*) event)->guid = fguid->guid;
-#ifdef ENABLE_AMT_RESILIENCE
-    if (properties & EVT_PROP_RESILIENT) {
-        ASSERT(perInstance != NULL);
-        paramListEvent_t *paramEvent = (paramListEvent_t*)perInstance;
-        salResilientGuidCreate(fguid->guid, paramEvent->resilientEdtParent, paramEvent->key, paramEvent->ip, paramEvent->ac);
-    }
-#endif
 
     DPRINTF(DEBUG_LVL_INFO, "Create %s: "GUIDF"\n", eventTypeToString(((ocrEvent_t*) event)), GUIDA(fguid->guid));
 #ifdef OCR_ENABLE_STATISTICS
     statsEVT_CREATE(getCurrentPD(), getCurrentEDT(), NULL, fguid->guid, ((ocrEvent_t*) event));
+#endif
+#ifdef ENABLE_AMT_RESILIENCE
+    ocrEvent_t *base = (ocrEvent_t*)event;
+    base->properties = properties;
+    if (properties & EVT_PROP_RESILIENT) {
+        ASSERT(perInstance != NULL);
+        paramListEvent_t *paramEvent = (paramListEvent_t*)perInstance;
+        salResilientEventCreate(base, paramEvent->resilientEdtParent, paramEvent->key, paramEvent->ip, paramEvent->ac);
+    }
 #endif
     ASSERT(!returnValue);
     return returnValue;

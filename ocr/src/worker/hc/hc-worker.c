@@ -267,6 +267,8 @@ static void hcWorkShift(ocrWorker_t * worker) {
 static void hcWorkShiftResilient(ocrWorker_t * worker) {
     processFailure();
     hal_fence();
+    salResilientAdvanceWaiters();
+    hal_fence();
     jmp_buf buf;
     jmp_buf *oldbuf = worker->jmpbuf;
     int rc = setjmp(buf);

@@ -528,17 +528,6 @@ u8 lockableDestruct(ocrDataBlock_t *self) {
     ASSERT(rself->itwWaiterList == NULL);
 #endif
 
-#ifdef ENABLE_AMT_RESILIENCE
-    ocrDataBlockLockable_t *dself = (ocrDataBlockLockable_t*)self;
-    u8 dbIsPublished = salIsSatisfiedResilientGuid(self->guid);
-    if (dbIsPublished || (dself->attributes.published == 1)) {
-#ifdef OCR_ASSERT
-        ASSERT(dbIsPublished && (dself->attributes.published == 1));
-#endif
-        RESULT_ASSERT(salResilientDataBlockRemove(self), ==, 0);
-    }
-#endif
-
 #ifdef ENABLE_RESILIENCY
     if(self->bkPtr) {
         pd->fcts.pdFree(pd, self->bkPtr);
@@ -583,11 +572,7 @@ u8 lockableDestruct(ocrDataBlock_t *self) {
 
 #ifdef ENABLE_AMT_RESILIENCE
 static u8 lockablePublishInternal(ocrDataBlock_t *self, u32 properties) {
-    if (salIsSatisfiedResilientGuid(self->guid)) {
-        RESULT_ASSERT(salResilientDataBlockRepublish(self->guid, self->ptr), ==, 0);
-    } else {
-        RESULT_ASSERT(salResilientDataBlockPublish(self), ==, 0);
-    }
+    RESULT_ASSERT(salResilientDataBlockPublish(self), ==, 0);
     ocrDataBlockLockable_t * rself = (ocrDataBlockLockable_t*) self;
     rself->attributes.published = 1;
     return 0;
@@ -743,14 +728,6 @@ u8 newDataBlockLockable(ocrDataBlockFactory_t *factory, ocrFatGuid_t *guid, ocrF
         result->hint.hintVal = (u64*)((u64)result + sizeof(ocrDataBlockLockable_t));
     }
 
-#ifdef ENABLE_AMT_RESILIENCE
-    if (flags & DB_PROP_RESILIENT) {
-        ASSERT(perInstance != NULL);
-        paramListDataBlockInst_t *dbParams = (paramListDataBlockInst_t*)perInstance;
-        salResilientGuidCreate(resultGuid, dbParams->resilientEdtParent, dbParams->key, dbParams->ip, dbParams->ac);
-    }
-#endif
-
 #ifdef OCR_ENABLE_STATISTICS
     ocrTask_t *task = NULL;
     getCurrentEnv(NULL, NULL, &task, NULL);
@@ -769,6 +746,14 @@ u8 newDataBlockLockable(ocrDataBlockFactory_t *factory, ocrFatGuid_t *guid, ocrF
 
     guid->guid = resultGuid;
     guid->metaDataPtr = result;
+
+#ifdef ENABLE_AMT_RESILIENCE
+    if (flags & DB_PROP_RESILIENT) {
+        ASSERT(perInstance != NULL);
+        paramListDataBlockInst_t *dbParams = (paramListDataBlockInst_t*)perInstance;
+        salResilientDbCreate((ocrDataBlock_t*)result, dbParams->resilientEdtParent, dbParams->key, dbParams->ip, dbParams->ac);
+    }
+#endif
     return 0;
 }
 

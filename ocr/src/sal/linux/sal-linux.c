@@ -582,6 +582,7 @@ bool salCheckpointExistsResumeQuery() {
 
 #define FNL                 256
 #define RECORD_INCR_SIZE    256
+#define DNL                 32
 
 //Publish-Fetch hashtable
 static int pfIsInitialized = 0;
@@ -615,6 +616,29 @@ typedef struct _edtStorage {
     u64* paramv;
     ocrGuid_t *depv;
 } edtStorage_t;
+
+typedef enum {
+    DEP_UNKNOWN,        //Dep hasn't been added (ocrAddDependence not called yet)
+    DEP_UNSATISFIED,    //Dep is known but not yet satisfied
+    DEP_READY,          //Dep is satisfied and ready
+} salWaiterSlotStatus_t;
+
+typedef struct _salWaiterSlot {
+    volatile ocrGuid_t dep;
+    salWaiterSlotStatus_t status;
+} salWaiterSlot_t;
+
+typedef struct _salWaiter {
+    ocrGuid_t guid;
+    ocrGuidKind kind;
+    u32 slotc;
+    salWaiterSlot_t *slotv;
+    struct _salWaiter *next;
+} salWaiter_t;
+
+static volatile salWaiter_t *salWaiterListHead = NULL;
+static volatile u32 salWaiterMaster = 0;
+
 
 ///////////////////////////////////////////////////////////////////////////////
 //////////////////////////////  Init/Destroy Functions  ///////////////////////
@@ -722,9 +746,9 @@ void salFinalizePublishFetch() {
 }
 
 
-///////////////////////////////////////////////////////////////////////////////
-//////////////////////////////  Utility Functions  ////////////////////////////
-///////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////  Static Utility Functions  /////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 //Publish the guid and insert the ptr to the hashtable
 static u8 salPublishData(char *fname, u64 key, void *ptr, u64 size) {
@@ -836,7 +860,8 @@ static u8 salPublishMetaData(char *fname, void *ptr, u64 size, u8 overwrite) {
         ASSERT(0);
         return 1;
     }
-    int fd = open(fname, O_WRONLY | O_CREAT, S_IRUSR | S_IWUSR );
+    int flags = overwrite ? (O_WRONLY|O_CREAT) : (O_WRONLY|O_CREAT|O_EXCL);
+    int fd = open(fname, flags, S_IRUSR | S_IWUSR );
     if (fd<0) {
         fprintf(stderr, "open failed: (filename: %s)\n", fname);
         ASSERT(0);
@@ -844,44 +869,19 @@ static u8 salPublishMetaData(char *fname, void *ptr, u64 size, u8 overwrite) {
     }
     if (ptr != NULL && size > 0) {
         u64 sz = write(fd, (const void *)ptr, size);
-        if (sz<0) {
+        if (sz != size) {
             fprintf(stderr, "write failed: (filename: %s, size: %lu)\n", fname, size);
             ASSERT(0);
             return 1;
         }
-        ASSERT(sz == size);
+    } else {
+        int rc = ftruncate(fd, 0);
+        if (rc) {
+            fprintf(stderr, "ftruncate failed: (filename: %s filedesc: %d)\n", fname, fd);
+            ASSERT(0);
+            return 1;
+        }
     }
-    int rc = close(fd);
-    if (rc) {
-        fprintf(stderr, "close failed: (filedesc: %d)\n", fd);
-        ASSERT(0);
-        return 1;
-    }
-    return 0;
-}
-
-//Update exisiting metadata file
-static u8 salUpdateMetaData(char *fname, void *ptr, u64 size) {
-    ASSERT(ptr != NULL && size > 0);
-    struct stat sb;
-    if (stat(fname, &sb) != 0) {
-        fprintf(stderr, "Cannot find existing file %s during write!\n", fname);
-        ASSERT(0);
-        return 1;
-    }
-    int fd = open(fname, O_WRONLY);
-    if (fd<0) {
-        fprintf(stderr, "open failed: (filename: %s)\n", fname);
-        ASSERT(0);
-        return 1;
-    }
-    u64 sz = write(fd, (const void *)ptr, size);
-    if (sz<0) {
-        fprintf(stderr, "write failed: (filename: %s, size: %lu)\n", fname, size);
-        ASSERT(0);
-        return 1;
-    }
-    ASSERT(sz == size);
     int rc = close(fd);
     if (rc) {
         fprintf(stderr, "close failed: (filedesc: %d)\n", fd);
@@ -909,13 +909,12 @@ static u8 salFetchMetaData(char *fname, void *ptr, u64 size, u8 tryFetch) {
         return 1;
     }
     u64 sz = read(fd, ptr, size);
-    if (sz<0) {
+    if (sz != size) {
         if (tryFetch) return 1;
         fprintf(stderr, "read failed: (filename: %s, size: %lu)\n", fname, size);
         ASSERT(0);
         return 1;
     }
-    ASSERT(sz == size);
     int rc = close(fd);
     if (rc) {
         if (tryFetch) return 1;
@@ -939,11 +938,36 @@ static u8 salWriteGuidPayload(ocrGuid_t guid, ocrGuid_t payload) {
     char fname[FNL];
     int c = snprintf(fname, FNL, "%lu.guid", g);
     if (c < 0 || c >= FNL) {
-        fprintf(stderr, "failed to create filename for publish\n");
+        fprintf(stderr, "failed to create filename for write\n");
         ASSERT(0);
         return 1;
     }
-    salUpdateMetaData(fname, &payload, sizeof(ocrGuid_t));
+    struct stat sb;
+    if (stat(fname, &sb) != 0) {
+        fprintf(stderr, "Cannot find existing file %s during write!\n", fname);
+        ASSERT(0);
+        return 1;
+    }
+    //ASSERT(sb.st_size == 0);
+    int fd = open(fname, O_WRONLY);
+    if (fd<0) {
+        fprintf(stderr, "open failed: (filename: %s)\n", fname);
+        ASSERT(0);
+        return 1;
+    }
+    u64 size = sizeof(ocrGuid_t);
+    u64 sz = write(fd, (const void *)&payload, size);
+    if (sz != size) {
+        fprintf(stderr, "write failed: (filename: %s, size: %lu)\n", fname, size);
+        ASSERT(0);
+        return 1;
+    }
+    int rc = close(fd);
+    if (rc) {
+        fprintf(stderr, "close failed: (filedesc: %d)\n", fd);
+        ASSERT(0);
+        return 1;
+    }
     return 0;
 }
 
@@ -968,508 +992,12 @@ static u8 salReadGuidPayload(ocrGuid_t guid, ocrGuid_t *payload) {
     return 0;
 }
 
-/* when return 1, scandir will put this dirent to the list */
-static int parse_ext(const struct dirent *dir)
-{
-    if(dir == NULL) return 0;
-    if(dir->d_type == DT_REG) { /* only deal with regular file */
-        const char *ext = strrchr(dir->d_name,'.');
-        if((ext == NULL) || (ext == dir->d_name))
-            return 0;
-        if(strcmp(ext, (const char *)nodeExt) == 0)
-            return 1;
-    }
-    return 0;
-}
-
-/* when return 1, scandir will put this dirent to the list */
-static int parse_dep(const struct dirent *dir)
-{
-    if(dir == NULL) return 0;
-    if(dir->d_type == DT_REG) { /* only deal with regular file */
-        const char *ext = strrchr(dir->d_name,'.');
-        if((ext == NULL) || (ext == dir->d_name))
-            return 0;
-        if(strcmp(ext, ".dep") == 0)
-            return 1;
-    }
-    return 0;
-}
-
-/* when return 1, scandir will put this dirent to the list */
-static int parse_fault(const struct dirent *dir)
-{
-    if(dir == NULL) return 0;
-    if(dir->d_type == DT_REG) { /* only deal with regular file */
-        const char *ext = strrchr(dir->d_name,'.');
-        if((ext == NULL) || (ext == dir->d_name))
-            return 0;
-        if(strcmp(ext, ".fault") == 0)
-            return 1;
-    }
-    return 0;
-}
-
-///////////////////////////////////////////////////////////////////////////////
-//////////////////////////////  Static Functions  /////////////////////////////
-///////////////////////////////////////////////////////////////////////////////
-
-//Satisfy a dependence
-static u8 salResilientGuidSatisfy(ocrGuid_t guid, u32 slot, ocrGuid_t data) {
-    ASSERT(!ocrGuidIsNull(guid));
-    ocrPolicyDomain_t *pd = NULL;
-    ocrTask_t * curEdt = NULL;
-    PD_MSG_STACK(msg);
-    getCurrentEnv(&pd, NULL, &curEdt, &msg);
-    ocrGuidKind kind;
-    pd->guidProviders[0]->fcts.getKind(pd->guidProviders[0], data, &kind);
-    ASSERT(((kind == OCR_GUID_DB) && salIsResilientGuid(data)) || ocrGuidIsNull(data));
-    pd->guidProviders[0]->fcts.getKind(pd->guidProviders[0], guid, &kind);
-    if ((kind & OCR_GUID_EVENT) && salIsResilientGuid(guid))
-        return salResilientEventSatisfy(guid, slot, data);
-    ASSERT(kind == OCR_GUID_EDT);
-#if GUID_BIT_COUNT == 64
-    u64 g = guid.guid;
-#elif GUID_BIT_COUNT == 128
-    u64 g = guid.lower;
-#else
-#error Unknown type of GUID
-#endif
-
-    //Check if guid is valid
-    ocrLocation_t loc;
-    pd->guidProviders[0]->fcts.getLocation(pd->guidProviders[0], guid, &loc);
-    if (checkPlatformModelLocationFault(loc)) {
-        ocrGuid_t newGuid = NULL_GUID;
-        salGuidTableGet(g, &newGuid);
-        if (ocrGuidIsNull(newGuid)) {
-            DPRINTF(DEBUG_LVL_WARN, "Ignoring SATISFY for guid: "GUIDF" on slot %u due to node failure.\n", GUIDA(guid), slot);
-            return 1;
-        }
-        pd->guidProviders[0]->fcts.getKind(pd->guidProviders[0], newGuid, &kind);
-        ASSERT(kind == OCR_GUID_EDT);
-        guid = newGuid;
-    }
-
-#define PD_MSG (&msg)
-#define PD_TYPE PD_MSG_DEP_SATISFY
-    msg.type = PD_MSG_DEP_SATISFY | PD_MSG_REQUEST;
-    PD_MSG_FIELD_I(satisfierGuid.guid) = curEdt?curEdt->guid:NULL_GUID;
-    PD_MSG_FIELD_I(satisfierGuid.metaDataPtr) = curEdt;
-    PD_MSG_FIELD_I(guid.guid) = guid;
-    PD_MSG_FIELD_I(guid.metaDataPtr) = NULL;
-    PD_MSG_FIELD_I(payload.guid) = data;
-    PD_MSG_FIELD_I(payload.metaDataPtr) = NULL;
-    PD_MSG_FIELD_I(currentEdt.guid) = curEdt ? curEdt->guid : NULL_GUID;
-    PD_MSG_FIELD_I(currentEdt.metaDataPtr) = curEdt;
-    PD_MSG_FIELD_I(slot) = slot;
-#ifdef REG_ASYNC_SGL
-    PD_MSG_FIELD_I(mode) = DB_MODE_RW;
-#endif
-    PD_MSG_FIELD_I(properties) = 0;
-    pd->fcts.processMessage(pd, &msg, true);
-#undef PD_MSG
-#undef PD_TYPE
-    return 0;
-}
-
-//Ensure only one of signaler and waiter will satisfy a dependence
-static u8 salResilientGuidSatisfyMutex(ocrGuid_t guid, u32 slot, ocrGuid_t data, char *depfile) {
-    ASSERT(!ocrGuidIsNull(guid));
-#if GUID_BIT_COUNT == 64
-    u64 g = guid.guid;
-#elif GUID_BIT_COUNT == 128
-    u64 g = guid.lower;
-#else
-#error Unknown type of GUID
-#endif
-    //Try to create sat file exclusively
-    char fname[FNL];
-    int c = snprintf(fname, FNL, "%lu.%u.sat", g, slot);
-    if (c < 0 || c >= FNL) {
-        fprintf(stderr, "failed to create filename for publish\n");
-        ASSERT(0);
-        return 1;
-    }
-
-    struct stat sb;
-    if (stat(fname, &sb) == 0) {
-        return 1; //Found existing sat file
-    }
-
-    int fd = open(fname, O_RDWR | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR );
-    if (fd<0) {
-        return 1; //Could not create sat file exclusively
-    }
-
-    //We have successfully and exclusively created the sat file.
-
-    int rc = close(fd);
-    if (rc) {
-        fprintf(stderr, "close failed: (filedesc: %d)\n", fd);
-        ASSERT(0);
-        return 1;
-    }
-
-    //Ensure dep file exists
-    if (stat(depfile, &sb) == 0) {
-
-        //Create node record for sat
-        ocrPolicyDomain_t *pd = NULL;
-        getCurrentEnv(&pd, NULL, NULL, NULL);
-        char sname[FNL];
-        int c = snprintf(sname, FNL, "%lu.%u.sat%lu", g, slot, (u64)(pd->myLocation));
-        if (c < 0 || c >= FNL) {
-            fprintf(stderr, "failed to create filename for publish\n");
-            ASSERT(0);
-            return 1;
-        }
-        fd = open(sname, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR );
-        if (fd<0) {
-            fprintf(stderr, "open failed: (filename: %s)\n", sname);
-            ASSERT(0);
-            return 1;
-        }
-        rc = close(fd);
-        if (rc) {
-            fprintf(stderr, "close failed: (filedesc: %d)\n", fd);
-            ASSERT(0);
-            return 1;
-        }
-
-        //Now proceed to satisfy.
-        salResilientGuidSatisfy(guid, slot, data);
-
-        //Delete node sat file
-        rc = unlink(sname);
-        if (rc) {
-            fprintf(stderr, "unlink failed: (filename: %s)\n", sname);
-            ASSERT(0);
-            return 1;
-        }
-
-        hal_fence();
-
-        //Delete dep file
-        rc = unlink(depfile);
-        if (rc) {
-            fprintf(stderr, "unlink failed: (filename: %s)\n", depfile);
-            ASSERT(0);
-            return 1;
-        }
-    }
-
-    hal_fence();
-
-    rc = unlink(fname);
-    if (rc) {
-        fprintf(stderr, "unlink failed: (filename: %s)\n", fname);
-        ASSERT(0);
-        return 1;
-    }
-    return 0;
-}
-
-//Release all waiters after a satisfy
-static u8 salResilientReleaseWaiters(ocrGuid_t guid, ocrGuid_t data) {
-    ASSERT(!ocrGuidIsNull(guid));
-#if GUID_BIT_COUNT == 64
-    u64 g = guid.guid;
-#elif GUID_BIT_COUNT == 128
-    u64 g = guid.lower;
-#else
-#error Unknown type of GUID
-#endif
-    struct dirent **namelist;
-    int n = scandir(".", &namelist, parse_dep, alphasort);
-    if (n < 0) {
-        perror("scandir");
-        return 1;
-    }
-    while (n--) {
-        char *c = strchr(namelist[n]->d_name,'.');
-        *c = '\0';
-        u64 sg = strtoul(namelist[n]->d_name, NULL, 10);
-        ASSERT(sg > 0);
-        *c = '.';
-        if (g == sg) {
-            char *d = ++c;
-            c = strchr(d,'.');
-            *c = '\0';
-            u64 dg = strtoul(d, NULL, 10);
-            ASSERT(dg > 0);
-            *c = '.';
-            char *s = ++c;
-            c = strchr(s,'.');
-            *c = '\0';
-            u64 slot = strtoul(s, NULL, 10);
-            *c = '.';
-
-            //printf("%s\n", namelist[n]->d_name);
-            ocrGuid_t dguid = NULL_GUID;
-            u8 ret = salFetchMetaData(namelist[n]->d_name, &dguid, sizeof(ocrGuid_t), 1);
-            if (ret == 0) {
-                ASSERT(!ocrGuidIsNull(dguid));
-#if GUID_BIT_COUNT == 64
-                u64 d = dguid.guid;
-#elif GUID_BIT_COUNT == 128
-                u64 d = dguid.lower;
-#else
-#error Unknown type of GUID
-#endif
-                ASSERT(d == dg);
-                salResilientGuidSatisfyMutex(dguid, slot, data, namelist[n]->d_name);
-            }
-        }
-        free(namelist[n]);
-    }
-    free(namelist);
-
-    //Now check if guid has any older execution version
-    ocrGuid_t oldguid = NULL_GUID;
-    salGuidTableGet(g, &oldguid);
-    if (!ocrGuidIsNull(oldguid)) {
-        return salResilientReleaseWaiters(oldguid, data);
-    }
-    return 0;
-}
-
-//Create global and local records for EDTs that have failed
-static u8 salCreateFaultRecord(u64 guid) {
-    //Create fault record
-    char fname[FNL];
-    int c = snprintf(fname, FNL, "%lu.fault", guid);
-    if (c < 0 || c >= FNL) {
-        fprintf(stderr, "failed to create filename for EDT record\n");
-        ASSERT(0);
-        return 1;
-    }
-    struct stat sb;
-    if (stat(fname, &sb) == 0) {
-        fprintf(stderr, "Found existing fault guid [0x%lx] during recovery!\n", guid);
-        ASSERT(0);
-        return 1;
-    }
-    int fd = open(fname, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR );
-    if (fd<0) {
-        fprintf(stderr, "open failed: (filename: %s)\n", fname);
-        ASSERT(0);
-        return 1;
-    }
-    int rc = close(fd);
-    if (rc) {
-        fprintf(stderr, "close failed: (filedesc: %d)\n", fd);
-        ASSERT(0);
-        return 1;
-    }
-    //Record fault guid locally
-    hashtableConcBucketLockedPut(faultTable, (void*)guid, (void*)guid);
-    return 0;
-}
-
-//Find EDTs in failed node
-static u8 salCreateEdtSetForRecoveryExtensions(char *extension) {
-    nodeExt = extension;
-    struct dirent **namelist;
-    int n = scandir(".", &namelist, parse_ext, alphasort);
-    if (n < 0) {
-        perror("scandir");
-        return 1;
-    }
-    while (n--) {
-        //printf("%s\n", namelist[n]->d_name);
-        char *s = strchr(namelist[n]->d_name,'.');
-        *s = '\0';
-        u64 guid = strtoul(namelist[n]->d_name, NULL, 10);
-        ASSERT(guid > 0);
-        *s = '.';
-        char fname[FNL];
-        int c = snprintf(fname, FNL, "%lu.guid", guid);
-        if (c < 0 || c >= FNL) {
-            fprintf(stderr, "failed to create filename for EDT guid\n");
-            ASSERT(0);
-            return 1;
-        }
-        struct stat sb;
-        if (stat(fname, &sb) == 0) {
-            if (hashtableConcBucketLockedGet(faultTable, (void*)guid) == NULL) {
-                salCreateFaultRecord(guid);
-            }
-        }
-        free(namelist[n]);
-    }
-    free(namelist);
-    return 0;
-}
-
-static u8 salCreateRootEdtSetForRecovery(u64 nodeId) {
-    char extension[FNL];
-    int c = snprintf(extension, FNL, ".root");
-    if (c < 0 || c >= FNL) {
-        fprintf(stderr, "failed to create filename for EDT record\n");
-        ASSERT(0);
-        return 1;
-    }
-    nodeExt = extension;
-    struct dirent **namelist;
-    int n = scandir(".", &namelist, parse_ext, alphasort);
-    if (n < 0) {
-        perror("scandir");
-        return 1;
-    }
-    while (n--) {
-        //printf("%s\n", namelist[n]->d_name);
-        ocrLocation_t loc;
-        salFetchMetaData(namelist[n]->d_name, &loc, sizeof(ocrLocation_t), 0);
-        if (loc == nodeId) {
-            char *s = strchr(namelist[n]->d_name,'.');
-            *s = '\0';
-            u64 guid = strtoul(namelist[n]->d_name, NULL, 10);
-            ASSERT(guid > 0);
-            *s = '.';
-            char fname[FNL];
-            int c = snprintf(fname, FNL, "%lu.guid", guid);
-            if (c < 0 || c >= FNL) {
-                fprintf(stderr, "failed to create filename for EDT guid\n");
-                ASSERT(0);
-                return 1;
-            }
-            struct stat sb;
-            if (stat(fname, &sb) == 0) {
-                if (hashtableConcBucketLockedGet(faultTable, (void*)guid) == NULL) {
-                    salCreateFaultRecord(guid);
-                }
-            }
-        }
-        free(namelist[n]);
-    }
-    free(namelist);
-    return 0;
-}
-
-static u8 salCreateEdtSetForRecovery(ocrLocation_t nodeId) {
-    //First process the .node# files
-    char extension[FNL];
-    int c = snprintf(extension, FNL, ".node%lu", (u64)nodeId);
-    if (c < 0 || c >= FNL) {
-        fprintf(stderr, "failed to create filename for EDT record\n");
-        ASSERT(0);
-        return 1;
-    }
-    salCreateEdtSetForRecoveryExtensions(extension);
-
-    //Next process the .sat# files
-    ocrPolicyDomain_t *pd = NULL;
-    getCurrentEnv(&pd, NULL, NULL, NULL);
-    c = snprintf(extension, FNL, ".sat%lu", (u64)pd->myLocation);
-    if (c < 0 || c >= FNL) {
-        fprintf(stderr, "failed to create filename for EDT record\n");
-        ASSERT(0);
-        return 1;
-    }
-    salCreateEdtSetForRecoveryExtensions(extension);
-
-    salCreateRootEdtSetForRecovery(nodeId);
-    return 0;
-}
-
-//Find sat files in failed node
-static u8 salCleanupFailedSatisfy(ocrLocation_t nodeId) {
-    char extension[FNL];
-    int c = snprintf(extension, FNL, ".sat%lu", (u64)nodeId);
-    if (c < 0 || c >= FNL) {
-        fprintf(stderr, "failed to create filename for EDT record\n");
-        ASSERT(0);
-        return 1;
-    }
-    nodeExt = extension;
-    struct dirent **namelist;
-    int n = scandir(".", &namelist, parse_ext, alphasort);
-    if (n < 0) {
-        perror("scandir");
-        return 1;
-    }
-    while (n--) {
-        //Delete node sat file
-        int rc = unlink(namelist[n]->d_name);
-        if (rc) {
-            fprintf(stderr, "unlink failed: (filename: %s)\n", namelist[n]->d_name);
-            ASSERT(0);
-            return 1;
-        }
-
-        //Delete sat file
-        char *s = strrchr(namelist[n]->d_name,'.');
-        strcpy(s, ".sat");
-        struct stat sb;
-        if (stat(namelist[n]->d_name, &sb) != 0) {
-            fprintf(stderr, "stat failed: (filename: %s)\n", namelist[n]->d_name);
-            ASSERT(0);
-            return 1;
-        }
-        free(namelist[n]);
-    }
-    free(namelist);
-    return 0;
-}
-
-///////////////////////////////////////////////////////////////////////////////
-//////////////////////////////  API Functions  ////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////
-
-//Returns true if guid is resilient
-u8 salIsResilientGuid(ocrGuid_t guid) {
-    if (ocrGuidIsNull(guid)) return 0;
-#if GUID_BIT_COUNT == 64
-    u64 g = guid.guid;
-#elif GUID_BIT_COUNT == 128
-    u64 g = guid.lower;
-#else
-#error Unknown type of GUID
-#endif
-    char fname[FNL];
-    int c = snprintf(fname, FNL, "%lu.guid", g);
-    if (c < 0 || c >= FNL) {
-        fprintf(stderr, "failed to create filename for publish\n");
-        ASSERT(0);
-        return 0;
-    }
-    struct stat sb;
-    if (stat(fname, &sb) == 0) {
-        return 1;
-    }
-    return 0;
-}
-
-//Returns true if guid is satisfied
-u8 salIsSatisfiedResilientGuid(ocrGuid_t guid) {
-    if (ocrGuidIsNull(guid)) return 0;
-#if GUID_BIT_COUNT == 64
-    u64 g = guid.guid;
-#elif GUID_BIT_COUNT == 128
-    u64 g = guid.lower;
-#else
-#error Unknown type of GUID
-#endif
-    char fname[FNL];
-    int c = snprintf(fname, FNL, "%lu.guid", g);
-    if (c < 0 || c >= FNL) {
-        fprintf(stderr, "failed to create filename for publish\n");
-        ASSERT(0);
-        return 0;
-    }
-    struct stat sb;
-    if (stat(fname, &sb) == 0) {
-        if (sb.st_size > 0) {
-            ASSERT(sb.st_size == sizeof(ocrGuid_t));
-            return 1;
-        }
-    }
-    return 0;
-}
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////  Static Runtime Functions  /////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 //Create a resilient guid during metadata creation
-u8 salResilientGuidCreate(ocrGuid_t guid, ocrGuid_t pguid, u64 key, u64 ip, u64 ac) {
+static u8 salResilientGuidCreate(ocrGuid_t guid, ocrGuid_t pguid, u64 key, u64 ip, u64 ac) {
     ASSERT(!ocrGuidIsNull(guid));
 #if GUID_BIT_COUNT == 64
     u64 g = guid.guid;
@@ -1536,8 +1064,312 @@ u8 salResilientGuidCreate(ocrGuid_t guid, ocrGuid_t pguid, u64 key, u64 ip, u64 
     return 0;
 }
 
-//Create a mapping from new EDT guid to old guid for recovery EDTs
-u8 salResilientFaultGuidMap(ocrGuid_t keyGuid, ocrGuid_t valGuid) {
+static void salInsertSalWaiter(salWaiter_t *salWaiterNew) {
+    salWaiter_t *salWaiterOld = NULL;
+    salWaiter_t *salWaiterCur = NULL;
+    do {
+        salWaiterCur = (salWaiter_t*)salWaiterListHead;
+        salWaiterNew->next = salWaiterCur;
+        salWaiterOld = (salWaiter_t*) hal_cmpswap64((u64*)&salWaiterListHead, (u64)salWaiterCur, (u64)salWaiterNew);
+    } while(salWaiterOld != salWaiterCur);
+}
+
+static void salWaiterCreate(ocrGuid_t guid, u32 slotc) {
+    u32 i;
+    ocrPolicyDomain_t *pd;
+    if (slotc == 0) return;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+    ocrGuidKind kind;
+    pd->guidProviders[0]->fcts.getKind(pd->guidProviders[0], guid, &kind);
+    u64 size = sizeof(salWaiter_t) + slotc * sizeof(salWaiterSlot_t);
+    salWaiter_t *waiter = pd->fcts.pdMalloc(pd, size);
+    waiter->guid = guid;
+    waiter->kind = kind;
+    waiter->slotc = slotc;
+    waiter->slotv = (salWaiterSlot_t*)((u64)waiter + sizeof(salWaiter_t));
+    for (i = 0; i < slotc; i++) {
+        waiter->slotv[i].dep = UNINITIALIZED_GUID;
+        waiter->slotv[i].status = DEP_UNKNOWN;
+    }
+    waiter->next = NULL;
+    salInsertSalWaiter(waiter);
+}
+
+//Returns true if dependence has been added for guid on slot
+static u8 salIsResilientDependenceAdded(ocrGuid_t guid, u32 slot, ocrGuid_t *data) {
+    if (ocrGuidIsNull(guid)) return 0;
+#if GUID_BIT_COUNT == 64
+    u64 g = guid.guid;
+#elif GUID_BIT_COUNT == 128
+    u64 g = guid.lower;
+#else
+#error Unknown type of GUID
+#endif
+    char fname[FNL];
+    int c = snprintf(fname, FNL, "%lu.dep%d", g, slot);
+    if (c < 0 || c >= FNL) {
+        fprintf(stderr, "failed to create filename for publish\n");
+        ASSERT(0);
+        return 0;
+    }
+    struct stat sb;
+    if (stat(fname, &sb) == 0) {
+        if (sb.st_size > 0) {
+            ASSERT(sb.st_size == sizeof(ocrGuid_t));
+            salFetchMetaData(fname, (void*)data, sizeof(ocrGuid_t), 0);
+            int rc = unlink(fname);
+            if (rc) {
+                fprintf(stderr, "unlink failed: (filename: %s)\n", fname);
+                ASSERT(0);
+            }
+            return 1;
+        }
+    }
+    return 0;
+}
+
+//Satisfy a dependence
+static u8 salResilientGuidSatisfy(ocrGuid_t guid, u32 slot, ocrGuid_t data) {
+    ASSERT(!ocrGuidIsNull(guid));
+    ocrPolicyDomain_t *pd = NULL;
+    ocrTask_t * curEdt = NULL;
+    PD_MSG_STACK(msg);
+    getCurrentEnv(&pd, NULL, &curEdt, &msg);
+
+    //Ensure this is a local satisfy
+    ocrLocation_t loc;
+    pd->guidProviders[0]->fcts.getLocation(pd->guidProviders[0], guid, &loc);
+    ASSERT(loc == pd->myLocation);
+
+    ocrGuidKind kind;
+    pd->guidProviders[0]->fcts.getKind(pd->guidProviders[0], data, &kind);
+    ASSERT(ocrGuidIsNull(data) || kind == OCR_GUID_DB);
+    ASSERT(ocrGuidIsNull(data) || salIsSatisfiedResilientGuid(data));
+
+#define PD_MSG (&msg)
+#define PD_TYPE PD_MSG_DEP_SATISFY
+    msg.type = PD_MSG_DEP_SATISFY | PD_MSG_REQUEST;
+    PD_MSG_FIELD_I(satisfierGuid.guid) = curEdt?curEdt->guid:NULL_GUID;
+    PD_MSG_FIELD_I(satisfierGuid.metaDataPtr) = curEdt;
+    PD_MSG_FIELD_I(guid.guid) = guid;
+    PD_MSG_FIELD_I(guid.metaDataPtr) = NULL;
+    PD_MSG_FIELD_I(payload.guid) = data;
+    PD_MSG_FIELD_I(payload.metaDataPtr) = NULL;
+    PD_MSG_FIELD_I(currentEdt.guid) = curEdt ? curEdt->guid : NULL_GUID;
+    PD_MSG_FIELD_I(currentEdt.metaDataPtr) = curEdt;
+    PD_MSG_FIELD_I(slot) = slot;
+#ifdef REG_ASYNC_SGL
+    PD_MSG_FIELD_I(mode) = DB_MODE_RW;
+#endif
+    PD_MSG_FIELD_I(properties) = 0;
+    pd->fcts.processMessage(pd, &msg, true);
+#undef PD_MSG
+#undef PD_TYPE
+    return 0;
+}
+
+static u8 salWaiterCheck(salWaiter_t *waiter) {
+    u32 i;
+
+    if (salIsSatisfiedResilientGuid(waiter->guid)) {
+        ASSERT(waiter->kind & OCR_GUID_EVENT);
+        return 1;
+    }
+
+    ASSERT(waiter->slotc > 0);
+    for (i = 0; i < waiter->slotc; i++) {
+        if (waiter->slotv[i].status == DEP_UNKNOWN) {
+            ocrGuid_t depGuid = NULL_GUID;
+            u8 depKnown = salIsResilientDependenceAdded(waiter->guid, i, &depGuid);
+            if (!depKnown) break;
+            DPRINTF(DEBUG_LVL_VERB, "[Waiter Known] EDT: 0x%lx SLOT: %d DEP: 0x%lx\n", (u64)waiter->guid.guid, i, (u64)depGuid.guid);
+            waiter->slotv[i].dep = depGuid;
+            waiter->slotv[i].status = ocrGuidIsNull(depGuid) ? DEP_READY : DEP_UNSATISFIED;
+            if (waiter->slotv[i].status == DEP_READY) 
+                DPRINTF(DEBUG_LVL_VERB, "[Waiter Ready] EDT: 0x%lx SLOT: %d DATA: 0x%lx\n", (u64)waiter->guid.guid, i, (u64)waiter->slotv[i].dep.guid);
+        }
+        while (waiter->slotv[i].status == DEP_UNSATISFIED) {
+            u8 depSatisfied = salIsSatisfiedResilientGuid(waiter->slotv[i].dep);
+            if (!depSatisfied) break;
+            DPRINTF(DEBUG_LVL_VERB, "[Waiter Satisfied] EDT: 0x%lx SLOT: %d DEP: 0x%lx\n", (u64)waiter->guid.guid, i, (u64)waiter->slotv[i].dep.guid);
+            ocrPolicyDomain_t *pd = NULL;
+            getCurrentEnv(&pd, NULL, NULL, NULL);
+            ocrGuidKind kind;
+            pd->guidProviders[0]->fcts.getKind(pd->guidProviders[0], waiter->slotv[i].dep, &kind);
+            if (kind == OCR_GUID_DB || ocrGuidIsNull(waiter->slotv[i].dep)) {
+                waiter->slotv[i].status = DEP_READY;
+                DPRINTF(DEBUG_LVL_VERB, "[Waiter Ready] EDT: 0x%lx SLOT: %d DATA: 0x%lx\n", (u64)waiter->guid.guid, i, (u64)waiter->slotv[i].dep.guid);
+                break;
+            }
+            ocrGuid_t data = NULL_GUID;
+            salReadGuidPayload(waiter->slotv[i].dep, &data);
+            waiter->slotv[i].dep = data;
+            if (ocrGuidIsNull(waiter->slotv[i].dep)) {
+                waiter->slotv[i].status = DEP_READY;
+                DPRINTF(DEBUG_LVL_VERB, "[Waiter Ready] EDT: 0x%lx SLOT: %d DATA: 0x%lx\n", (u64)waiter->guid.guid, i, (u64)waiter->slotv[i].dep.guid);
+                break;
+            }
+        }
+        if (waiter->slotv[i].status != DEP_READY) 
+            break;
+    }
+
+    if (i == waiter->slotc) 
+    {
+        if (waiter->kind == OCR_GUID_EDT) {
+            ocrWorker_t *worker = NULL;
+            getCurrentEnv(NULL, &worker, NULL, NULL);
+            jmp_buf buf;
+            jmp_buf *oldbuf = worker->jmpbuf;
+            int rc = setjmp(buf);
+            if (rc == 0) {
+                worker->jmpbuf = &buf;
+                DPRINTF(DEBUG_LVL_VERB, "[Waiter EdtSatisfy] EDT: 0x%lx\n", (u64)waiter->guid.guid);
+                for (i = 0; i < waiter->slotc; i++) {
+                    ASSERT(waiter->slotv[i].status == DEP_READY);
+                    salResilientGuidSatisfy(waiter->guid, i, waiter->slotv[i].dep);
+                }
+            } else {
+                DPRINTF(DEBUG_LVL_WARN, "Worker aborted scheduling EDT "GUIDF"\n", GUIDA(waiter->guid));
+            }
+            hal_fence();
+            worker->jmpbuf = oldbuf;
+        } else {
+            ASSERT(waiter->kind & OCR_GUID_EVENT);
+            ASSERT(waiter->slotv[0].status == DEP_READY);
+            DPRINTF(DEBUG_LVL_VERB, "[Waiter EventSatisfy] EVT: 0x%lx DATA: 0x%lx\n", (u64)waiter->guid.guid, (u64)waiter->slotv[0].dep.guid);
+            salWriteGuidPayload(waiter->guid, waiter->slotv[0].dep);
+        }
+        return 1;
+    }
+    return 0;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////  OCR API Functions  /////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//Record a new resilient task
+u8 salResilientEdtCreate(ocrTask_t *task, ocrGuid_t pguid, u64 key, u64 ip, u64 ac) {
+    DPRINTF(DEBUG_LVL_INFO, "[EdtCreate] EDT: 0x%lx\n", (u64)task->guid.guid);
+    salWaiterCreate(task->guid, task->depc);
+    return salResilientGuidCreate(task->guid, pguid, key, ip, ac);
+}
+
+//Record a new resilient datablock
+u8 salResilientDbCreate(ocrDataBlock_t *db, ocrGuid_t pguid, u64 key, u64 ip, u64 ac) {
+    DPRINTF(DEBUG_LVL_INFO, "[DbCreate] DB: 0x%lx\n", (u64)db->guid.guid);
+    return salResilientGuidCreate(db->guid, pguid, key, ip, ac);
+}
+
+//Record a new resilient event
+u8 salResilientEventCreate(ocrEvent_t *evt, ocrGuid_t pguid, u64 key, u64 ip, u64 ac) {
+    DPRINTF(DEBUG_LVL_INFO, "[EventCreate] EVT: 0x%lx\n", (u64)evt->guid.guid);
+    salWaiterCreate(evt->guid, 1);
+    return salResilientGuidCreate(evt->guid, pguid, key, ip, ac);
+}
+
+//Add a dependence between resilient objects
+u8 salResilientAddDependence(ocrGuid_t sguid, ocrGuid_t dguid, u32 slot) {
+    ASSERT(!ocrGuidIsNull(dguid));
+    if (!salIsResilientGuid(dguid)) return 1;
+    if (!ocrGuidIsNull(sguid) && !salIsResilientGuid(sguid)) return 1;
+    DPRINTF(DEBUG_LVL_INFO, "[AddDep] SRC: 0x%lx DEST: 0x%lx SLOT: %d\n", (u64)sguid.guid, (u64)dguid.guid, slot);
+#if GUID_BIT_COUNT == 64
+    u64 g = dguid.guid;
+#elif GUID_BIT_COUNT == 128
+    u64 g = dguid.lower;
+#else
+#error Unknown type of GUID
+#endif
+    //Create dep file
+    char fname[FNL];
+    int c = snprintf(fname, FNL, "%lu.dep%d", g, slot);
+    if (c < 0 || c >= FNL) {
+        fprintf(stderr, "failed to create filename for publish\n");
+        ASSERT(0);
+        return 1;
+    }
+    return salPublishMetaData(fname, &sguid, sizeof(ocrGuid_t), 0);
+}
+
+//Satisfy a resilient event
+u8 salResilientEventSatisfy(ocrGuid_t guid, u32 slot, ocrGuid_t data) {
+    if (!salIsResilientGuid(guid)) return 1;
+    ocrPolicyDomain_t *pd = NULL;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+    ocrGuidKind kind;
+    pd->guidProviders[0]->fcts.getKind(pd->guidProviders[0], guid, &kind);
+    ASSERT(kind & OCR_GUID_EVENT);
+    DPRINTF(DEBUG_LVL_INFO, "[EventSatisfy] EVT: 0x%lx DATA: 0x%lx\n", (u64)guid.guid, (u64)data.guid);
+
+    //Publish data to event guid
+    salWriteGuidPayload(guid, data);
+    return 0;
+}
+
+u8 salResilientGuidDestroy(ocrGuid_t guid) {
+    //TODO
+    return 0;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////  Runtime API Functions  ///////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+//Returns true if guid is resilient
+u8 salIsResilientGuid(ocrGuid_t guid) {
+    if (ocrGuidIsNull(guid)) return 0;
+#if GUID_BIT_COUNT == 64
+    u64 g = guid.guid;
+#elif GUID_BIT_COUNT == 128
+    u64 g = guid.lower;
+#else
+#error Unknown type of GUID
+#endif
+    char fname[FNL];
+    int c = snprintf(fname, FNL, "%lu.guid", g);
+    if (c < 0 || c >= FNL) {
+        fprintf(stderr, "failed to create filename for publish\n");
+        ASSERT(0);
+        return 0;
+    }
+    struct stat sb;
+    if (stat(fname, &sb) == 0) {
+        return 1;
+    }
+    return 0;
+}
+
+//Returns true if guid is satisfied
+u8 salIsSatisfiedResilientGuid(ocrGuid_t guid) {
+    if (ocrGuidIsNull(guid)) return 0;
+#if GUID_BIT_COUNT == 64
+    u64 g = guid.guid;
+#elif GUID_BIT_COUNT == 128
+    u64 g = guid.lower;
+#else
+#error Unknown type of GUID
+#endif
+    char fname[FNL];
+    int c = snprintf(fname, FNL, "%lu.guid", g);
+    if (c < 0 || c >= FNL) {
+        fprintf(stderr, "failed to create filename for publish\n");
+        ASSERT(0);
+        return 0;
+    }
+    struct stat sb;
+    if (stat(fname, &sb) == 0) {
+        if (sb.st_size > 0) {
+            ASSERT(sb.st_size == sizeof(ocrGuid_t));
+            return 1;
+        }
+    }
+    return 0;
+}
+
+//Create a mapping from key EDT guid to val guid for recovery EDTs
+u8 salResilientGuidConnect(ocrGuid_t keyGuid, ocrGuid_t valGuid) {
     ASSERT(!ocrGuidIsNull(keyGuid));
     ASSERT(!ocrGuidIsNull(valGuid));
 #if GUID_BIT_COUNT == 64
@@ -1551,82 +1383,47 @@ u8 salResilientFaultGuidMap(ocrGuid_t keyGuid, ocrGuid_t valGuid) {
     return 0;
 }
 
-//Add a dependence between resilient objects
-u8 salResilientAddDependence(ocrGuid_t sguid, ocrGuid_t dguid, u32 slot) {
-    if (!ocrGuidIsNull(sguid) && !salIsResilientGuid(sguid)) return 1;
-    if (!salIsResilientGuid(dguid)) return 1;
-    ocrPolicyDomain_t *pd = NULL;
-    getCurrentEnv(&pd, NULL, NULL, NULL);
-    ocrGuidKind skind, dkind;
-    pd->guidProviders[0]->fcts.getKind(pd->guidProviders[0], sguid, &skind);
-    pd->guidProviders[0]->fcts.getKind(pd->guidProviders[0], dguid, &dkind);
-    ASSERT((skind & OCR_GUID_EVENT) || (skind == OCR_GUID_DB) || (skind == OCR_GUID_NONE));
-    ASSERT((dkind & OCR_GUID_EVENT) || (dkind == OCR_GUID_EDT));
-    if ((skind & OCR_GUID_EVENT) && salIsSatisfiedResilientGuid(sguid)) {
-        salReadGuidPayload(sguid, &sguid);
-        pd->guidProviders[0]->fcts.getKind(pd->guidProviders[0], sguid, &skind);
-        ASSERT(((skind == OCR_GUID_DB) && salIsResilientGuid(sguid)) || ocrGuidIsNull(sguid));
-    }
-
-    //Convert add dep to satisfy
-    if (((skind == OCR_GUID_DB) && salIsSatisfiedResilientGuid(sguid)) || ocrGuidIsNull(sguid)) {
-        salResilientGuidSatisfy(dguid, slot, sguid);
-        return 0;
-    }
-
-#if GUID_BIT_COUNT == 64
-    u64 s = sguid.guid;
-    u64 d = dguid.guid;
-#elif GUID_BIT_COUNT == 128
-    u64 s = sguid.lower;
-    u64 d = dguid.lower;
-#else
-#error Unknown type of GUID
-#endif
-    //Create dependence file
-    char fname[FNL];
-    int c = snprintf(fname, FNL, "%lu.%lu.%u.dep", s, d, slot);
-    if (c < 0 || c >= FNL) {
-        fprintf(stderr, "failed to create filename for publish\n");
-        ASSERT(0);
-        return 1;
-    }
-    salPublishMetaData(fname, &dguid, sizeof(ocrGuid_t), 0);
-
+u8 salResilientAdvanceWaiters() {
+    u32 masterOldVal = hal_cmpswap32((u32*)&salWaiterMaster, 0, 1);
+    if (masterOldVal == 1) return 1;
     hal_fence();
 
-    //Check again if src is now satisfied
-    if (salIsSatisfiedResilientGuid(sguid)) {
-        if (skind & OCR_GUID_EVENT) {
-            salReadGuidPayload(sguid, &sguid);
-            pd->guidProviders[0]->fcts.getKind(pd->guidProviders[0], sguid, &skind);
-            ASSERT(((skind == OCR_GUID_DB) && salIsResilientGuid(sguid)) || ocrGuidIsNull(sguid));
+    salWaiter_t *waiter = (salWaiter_t*)salWaiterListHead;
+    salWaiter_t *waiterPrev = NULL;
+    while (waiter != NULL) {
+        u8 done = salWaiterCheck(waiter);
+        if (done) {
+            salWaiter_t *waiterNext = waiter->next;
+            salWaiter_t *waiterHead = NULL;
+            if (waiter == (salWaiter_t*)salWaiterListHead) {
+                waiterHead = (salWaiter_t*) hal_cmpswap64((u64*)&salWaiterListHead, (u64)waiter, (u64)waiterNext);
+            }
+            if (waiter != waiterHead) {
+                if (waiterPrev == NULL) {
+                    waiterPrev = (salWaiter_t*)salWaiterListHead;
+                    while (waiterPrev != NULL && waiterPrev->next != waiter)
+                        waiterPrev = waiterPrev->next;
+                }
+                ASSERT(waiterPrev->next == waiter);
+                waiterPrev->next = waiterNext;
+            }
+            ocrPolicyDomain_t *pd;
+            getCurrentEnv(&pd, NULL, NULL, NULL);
+            pd->fcts.pdFree(pd, waiter);
+            waiter = waiterNext;
+        } else {
+            waiterPrev = waiter;
+            waiter = waiter->next;
         }
-        salResilientGuidSatisfyMutex(dguid, slot, sguid, fname);
     }
 
-    return 0;
-}
-
-//Satisfy a resilient event
-u8 salResilientEventSatisfy(ocrGuid_t guid, u32 slot, ocrGuid_t data) {
-    if (!salIsResilientGuid(guid)) return 1;
-    ocrPolicyDomain_t *pd = NULL;
-    getCurrentEnv(&pd, NULL, NULL, NULL);
-    ocrGuidKind kind;
-    pd->guidProviders[0]->fcts.getKind(pd->guidProviders[0], guid, &kind);
-    ASSERT(kind & OCR_GUID_EVENT);
-
-    //Publish data to event guid
-    salWriteGuidPayload(guid, data);
-
-    //Release event deps
-    salResilientReleaseWaiters(guid, data);
+    hal_fence();
+    salWaiterMaster = 0;
     return 0;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-//////////////////////////////  Runtime Functions  ////////////////////////////
+///////////////////////  Publish-Fetch API Functions  /////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
 //Publish the data-block when parent scope completes
@@ -1653,133 +1450,6 @@ u8 salResilientDataBlockPublish(ocrDataBlock_t *db) {
 
     //Publish DB guid
     salWriteGuidPayload(dbGuid, dbGuid);
-
-    //Release DB deps
-    salResilientReleaseWaiters(dbGuid, dbGuid);
-    return 0;
-}
-
-//Update a published guid's contents
-//User takes responsibility of maintaining consistency
-u8 salResilientDataBlockRepublish(ocrGuid_t guid, void *ptr) {
-    ASSERT(pfIsInitialized);
-    ASSERT(!(ocrGuidIsNull(guid)));
-    ocrPolicyDomain_t *pd;
-    getCurrentEnv(&pd, NULL, NULL, NULL);
-    ocrGuidKind kind;
-    pd->guidProviders[0]->fcts.getKind(pd->guidProviders[0], guid, &kind);
-    if (kind != OCR_GUID_DB) {
-        DPRINTF(DEBUG_LVL_WARN, "Cannot re-publish DB: (GUID: "GUIDF" is not a data-block)\n", GUIDA(guid));
-        return 1;
-    }
-#if GUID_BIT_COUNT == 64
-    u64 g = guid.guid;
-#elif GUID_BIT_COUNT == 128
-    u64 g = guid.lower;
-#else
-#error Unknown type of GUID
-#endif
-
-    char fname[FNL];
-    int c = snprintf(fname, FNL, "%lu.db", g);
-    if (c < 0 || c >= FNL) {
-        fprintf(stderr, "failed to create filename for re-publish\n");
-        ASSERT(0);
-        return 1;
-    }
-
-    struct stat sb;
-    if (stat(fname, &sb) != 0) {
-        DPRINTF(DEBUG_LVL_WARN, "Cannot re-publish DB "GUIDF": (data-block is not yet published)\n", GUIDA(guid));
-        return 1;
-    }
-    u64 size = sb.st_size;
-
-    void* buf = hashtableConcBucketLockedGet(pfTable, (void*)g);
-    ASSERT(buf != ptr);
-    u8 available = (buf == NULL) ? 0 : 1;
-
-    //Lock access to file from other threads
-    hal_lock(&pfLock);
-
-    //Update existing buffer contents
-    if (available) memcpy(buf, ptr, size);
-
-    //open underlying file
-    int fd = open(fname, O_RDWR);
-    if (fd<0) {
-        fprintf(stderr, "open failed: (filename: %s)\n", fname);
-        ASSERT(0);
-        return 1;
-    }
-
-    //Lock access to file from other processes
-    struct flock fl;
-    fl.l_type = F_WRLCK;
-    fl.l_whence = SEEK_SET;
-    fl.l_start = 0;
-    fl.l_len = 0;
-    if (fcntl(fd, F_SETLKW, &fl) == -1) {
-        hal_unlock(&pfLock);
-        fprintf(stderr, "fcntl lock failed: (filename: %s)\n", fname);
-        ASSERT(0);
-        return 1;
-    }
-
-    //map file
-    buf = mmap( NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0 );
-    if (buf == MAP_FAILED) {
-        fprintf(stderr, "mmap failed for size %lu (filename: %s filedesc: %d)\n", size, fname, fd);
-        ASSERT(0);
-        return 1;
-    }
-
-    //Update file contents
-    memcpy(buf, ptr, size);
-
-    //flush out changes
-    int rc = msync(buf, size, MS_INVALIDATE | MS_SYNC);
-    if (rc) {
-        fprintf(stderr, "msync failed for buffer %p of size %lu\n", buf, size);
-        ASSERT(0);
-        return 1;
-    }
-
-    if (available) {
-        //unmap file
-        rc = munmap(buf, size);
-        if (rc) {
-            fprintf(stderr, "munmap failed for buffer %p of size %lu\n", buf, size);
-            ASSERT(0);
-            return 1;
-        }
-    } else {
-        hashtableConcBucketLockedPut(pfTable, (void*)g, buf);
-    }
-
-    //Unlock access to file from other processes
-    fl.l_type = F_UNLCK;
-    fl.l_whence = SEEK_SET;
-    fl.l_start = 0;
-    fl.l_len = 0;
-    if (fcntl(fd, F_SETLKW, &fl) == -1) {
-        hal_unlock(&pfLock);
-        fprintf(stderr, "fcntl unlock failed: (filename: %s)\n", fname);
-        ASSERT(0);
-        return 1;
-    }
-
-    //close file
-    rc = close(fd);
-    if (rc) {
-        fprintf(stderr, "close failed: (filedesc: %d)\n", fd);
-        ASSERT(0);
-        return 1;
-    }
-
-    //Unlock access to file from other threads
-    hal_unlock(&pfLock);
-
     return 0;
 }
 
@@ -2163,11 +1833,6 @@ u8 salResilientTaskRemove(ocrGuid_t guid) {
     return 0;
 }
 
-u8 salResilientGuidDestroy(ocrGuid_t guid) {
-    //TODO
-    return 0;
-}
-
 ///////////////////////////////////////////////////////////////////////////////
 //////////////////////////////  Guid Table Functions  /////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -2249,9 +1914,169 @@ u8 salGuidTableRemove(u64 key, ocrGuid_t *val) {
     return 0;
 }
 
-///////////////////////////////////////////////////////////////////////////////
-//////////////////////////////  Fault Handler Functions  //////////////////////
-///////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////  Static Fault Handler Functions  ////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+/* when return 1, scandir will put this dirent to the list */
+static int parse_ext(const struct dirent *dir)
+{
+    if(dir == NULL) return 0;
+    if(dir->d_type == DT_REG) { /* only deal with regular file */
+        const char *ext = strrchr(dir->d_name,'.');
+        if((ext == NULL) || (ext == dir->d_name))
+            return 0;
+        if(strcmp(ext, (const char *)nodeExt) == 0)
+            return 1;
+    }
+    return 0;
+}
+
+/* when return 1, scandir will put this dirent to the list */
+static int parse_fault(const struct dirent *dir)
+{
+    if(dir == NULL) return 0;
+    if(dir->d_type == DT_REG) { /* only deal with regular file */
+        const char *ext = strrchr(dir->d_name,'.');
+        if((ext == NULL) || (ext == dir->d_name))
+            return 0;
+        if(strcmp(ext, ".fault") == 0)
+            return 1;
+    }
+    return 0;
+}
+
+//Create global and local records for EDTs that have failed
+static u8 salCreateFaultRecord(u64 guid) {
+    //Create fault record
+    char fname[FNL];
+    int c = snprintf(fname, FNL, "%lu.fault", guid);
+    if (c < 0 || c >= FNL) {
+        fprintf(stderr, "failed to create filename for EDT record\n");
+        ASSERT(0);
+        return 1;
+    }
+    struct stat sb;
+    if (stat(fname, &sb) == 0) {
+        fprintf(stderr, "Found existing fault guid [0x%lx] during recovery!\n", guid);
+        ASSERT(0);
+        return 1;
+    }
+    int fd = open(fname, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR );
+    if (fd<0) {
+        fprintf(stderr, "open failed: (filename: %s)\n", fname);
+        ASSERT(0);
+        return 1;
+    }
+    int rc = close(fd);
+    if (rc) {
+        fprintf(stderr, "close failed: (filedesc: %d)\n", fd);
+        ASSERT(0);
+        return 1;
+    }
+    //Record fault guid locally
+    hashtableConcBucketLockedPut(faultTable, (void*)guid, (void*)guid);
+    return 0;
+}
+
+//Find EDTs in failed node
+static u8 salCreateEdtSetForRecoveryExtensions(char *extension) {
+    nodeExt = extension;
+    struct dirent **namelist;
+    int n = scandir(".", &namelist, parse_ext, alphasort);
+    if (n < 0) {
+        perror("scandir");
+        return 1;
+    }
+    while (n--) {
+        //printf("%s\n", namelist[n]->d_name);
+        char *s = strchr(namelist[n]->d_name,'.');
+        *s = '\0';
+        u64 guid = strtoul(namelist[n]->d_name, NULL, 10);
+        ASSERT(guid > 0);
+        *s = '.';
+        char fname[FNL];
+        int c = snprintf(fname, FNL, "%lu.guid", guid);
+        if (c < 0 || c >= FNL) {
+            fprintf(stderr, "failed to create filename for EDT guid\n");
+            ASSERT(0);
+            return 1;
+        }
+        struct stat sb;
+        if (stat(fname, &sb) == 0) {
+            if (hashtableConcBucketLockedGet(faultTable, (void*)guid) == NULL) {
+                salCreateFaultRecord(guid);
+            }
+        }
+        free(namelist[n]);
+    }
+    free(namelist);
+    return 0;
+}
+
+static u8 salCreateRootEdtSetForRecovery(u64 nodeId) {
+    char extension[FNL];
+    int c = snprintf(extension, FNL, ".root");
+    if (c < 0 || c >= FNL) {
+        fprintf(stderr, "failed to create filename for EDT record\n");
+        ASSERT(0);
+        return 1;
+    }
+    nodeExt = extension;
+    struct dirent **namelist;
+    int n = scandir(".", &namelist, parse_ext, alphasort);
+    if (n < 0) {
+        perror("scandir");
+        return 1;
+    }
+    while (n--) {
+        //printf("%s\n", namelist[n]->d_name);
+        ocrLocation_t loc;
+        salFetchMetaData(namelist[n]->d_name, &loc, sizeof(ocrLocation_t), 0);
+        if (loc == nodeId) {
+            char *s = strchr(namelist[n]->d_name,'.');
+            *s = '\0';
+            u64 guid = strtoul(namelist[n]->d_name, NULL, 10);
+            ASSERT(guid > 0);
+            *s = '.';
+            char fname[FNL];
+            int c = snprintf(fname, FNL, "%lu.guid", guid);
+            if (c < 0 || c >= FNL) {
+                fprintf(stderr, "failed to create filename for EDT guid\n");
+                ASSERT(0);
+                return 1;
+            }
+            struct stat sb;
+            if (stat(fname, &sb) == 0) {
+                if (hashtableConcBucketLockedGet(faultTable, (void*)guid) == NULL) {
+                    salCreateFaultRecord(guid);
+                }
+            }
+        }
+        free(namelist[n]);
+    }
+    free(namelist);
+    return 0;
+}
+
+static u8 salCreateEdtSetForRecovery(ocrLocation_t nodeId) {
+    //First process the .node# files
+    char extension[FNL];
+    int c = snprintf(extension, FNL, ".node%lu", (u64)nodeId);
+    if (c < 0 || c >= FNL) {
+        fprintf(stderr, "failed to create filename for EDT record\n");
+        ASSERT(0);
+        return 1;
+    }
+    salCreateEdtSetForRecoveryExtensions(extension);
+
+    salCreateRootEdtSetForRecovery(nodeId);
+    return 0;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////  Fault Handler Function API  //////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 void salThreadExit() {
     pthread_exit(NULL);
@@ -2319,16 +2144,6 @@ u8 salProcessNodeFailure(ocrLocation_t nodeId) {
     u32 maxCount = pd->workerCount - 1;
     while(workerCounter < maxCount);
     hal_fence();
-
-    //Next process the .sat# files
-    char extension[FNL];
-    int c = snprintf(extension, FNL, ".sat%lu", (u64)pd->myLocation);
-    if (c < 0 || c >= FNL) {
-        fprintf(stderr, "failed to create filename for EDT record\n");
-        ASSERT(0);
-        return 1;
-    }
-    salCreateEdtSetForRecoveryExtensions(extension);
 
     //Build fault table on local node
     struct dirent **namelist;
@@ -2415,9 +2230,6 @@ void salImportEdt(void * key, void * value, void * args) {
 u8 salRecoverNodeFailureAtBuddy(ocrLocation_t nodeId) {
     //Finalize all EDT guids impacted by node failure
     salCreateEdtSetForRecovery(nodeId);
-
-    //Cleanup failed satisfies
-    salCleanupFailedSatisfy(nodeId);
 
     //Reschedule execution sub-graph dominator EDTs
     iterateHashtable(faultTable, salImportEdt, NULL);

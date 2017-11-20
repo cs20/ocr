@@ -250,6 +250,9 @@ typedef struct _ocrEvent_t {
 #endif
     ocrEventTypes_t kind;  /**< The kind of this event instance */
     u32 fctId;             /**< The functions to use to access this event */
+#ifdef ENABLE_AMT_RESILIENCE
+    u32 properties;
+#endif
 } ocrEvent_t;
 
 

@@ -71,23 +71,28 @@ bool salCheckpointExistsResumeQuery();
 
 #ifdef ENABLE_AMT_RESILIENCE
 #include "ocr-task.h"
+#include "ocr-event.h"
 #include "ocr-datablock.h"
 //Init/Finialize
 void      salInitPublishFetch();
 void      salFinalizePublishFetch();
 
 //OCR resilience api
-u8        salIsResilientGuid(ocrGuid_t guid);
-u8        salIsSatisfiedResilientGuid(ocrGuid_t guid);
-u8        salResilientGuidCreate(ocrGuid_t guid, ocrGuid_t pguid, u64 key, u64 ip, u64 ac);
-u8        salResilientFaultGuidMap(ocrGuid_t keyGuid, ocrGuid_t valGuid);
+u8        salResilientEdtCreate(ocrTask_t *task, ocrGuid_t pguid, u64 key, u64 ip, u64 ac);
+u8        salResilientDbCreate(ocrDataBlock_t *db, ocrGuid_t pguid, u64 key, u64 ip, u64 ac);
+u8        salResilientEventCreate(ocrEvent_t *evt, ocrGuid_t pguid, u64 key, u64 ip, u64 ac);
 u8        salResilientAddDependence(ocrGuid_t sguid, ocrGuid_t dguid, u32 slot);
 u8        salResilientEventSatisfy(ocrGuid_t guid, u32 slot, ocrGuid_t data);
 u8        salResilientGuidDestroy(ocrGuid_t guid);
 
+//Runtime internal api
+u8        salIsResilientGuid(ocrGuid_t guid);
+u8        salIsSatisfiedResilientGuid(ocrGuid_t guid);
+u8        salResilientGuidConnect(ocrGuid_t keyGuid, ocrGuid_t valGuid);
+u8        salResilientAdvanceWaiters();
+
 //Publish-Fetch api
 u8        salResilientDataBlockPublish(ocrDataBlock_t *db);
-u8        salResilientDataBlockRepublish(ocrGuid_t guid, void *ptr);
 void*     salResilientDataBlockFetch(ocrGuid_t guid, u64 *size);
 u8        salResilientDataBlockRemove(ocrDataBlock_t *db);
 u8        salResilientTaskPublish(ocrTask_t *task);

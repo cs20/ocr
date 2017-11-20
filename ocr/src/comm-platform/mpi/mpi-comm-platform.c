@@ -804,7 +804,7 @@ static u8 MPICommSendMessage(ocrCommPlatform_t * self,
     AMT_RESILIENCE_CHECK_FOR_FAULT(self);
     if (checkPlatformModelLocationFault(target)) {
         if (self->pd->faultCode == OCR_NODE_SHUTDOWN) {
-            DPRINTF(DEBUG_LVL_WARN, "OCR shutdown as MPI ABORT\n");
+            DPRINTF(DEBUG_LVL_WARN, "OCR Shutdown using MPI_Abort\n");
             MPI_Abort(MPI_COMM_WORLD, 0);
         }
         RETURN_PROFILE(OCR_EFAULT);

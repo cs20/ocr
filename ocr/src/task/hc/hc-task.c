@@ -498,7 +498,9 @@ static u8 iterateDbFrontier(ocrTask_t *self) {
                 ASSERT(depv[i].slot / 64 < OCR_MAX_MULTI_SLOT);
                 rself->doNotReleaseSlots[depv[i].slot / 64] |= (1ULL << (depv[i].slot % 64));
 #ifdef ENABLE_AMT_RESILIENCE
-            } else if ((self->flags & OCR_TASK_FLAG_RESILIENT) || (salIsSatisfiedResilientGuid(depv[i].guid))) { //For resilient tasks and DB, fetch instead of acquire
+            } else if (self->flags & OCR_TASK_FLAG_RESILIENT) { //For resilient tasks and DB, fetch instead of acquire
+                if (!salIsSatisfiedResilientGuid(depv[i].guid)) fprintf(stderr, "iterateDbFrontier: EDT: 0x%lx DB: 0x%lx\n", self->guid.guid, depv[i].guid.guid);
+                ASSERT(salIsSatisfiedResilientGuid(depv[i].guid));
                 rself->resolvedDeps[depv[i].slot].ptr = UNINITIALIZED_DB_FETCH_PTR;
                 ASSERT(depv[i].slot / 64 < OCR_MAX_MULTI_SLOT);
                 rself->doNotReleaseSlots[depv[i].slot / 64] |= (1ULL << (depv[i].slot % 64));
@@ -1060,10 +1062,10 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
         ASSERT(perInstance != NULL);
         paramListTask_t *taskParams = (paramListTask_t*)perInstance;
         if (!ocrGuidIsNull(taskParams->faultGuid)) {
-            salResilientFaultGuidMap(taskGuid, taskParams->faultGuid);
-            salResilientFaultGuidMap(taskParams->faultGuid, taskGuid);
+            salResilientGuidConnect(taskGuid, taskParams->faultGuid);
+            salResilientGuidConnect(taskParams->faultGuid, taskGuid);
         }
-        salResilientGuidCreate(taskGuid, resilientEdtParent, taskParams->key, taskParams->ip, taskParams->ac);
+        salResilientEdtCreate(self, resilientEdtParent, taskParams->key, taskParams->ip, taskParams->ac);
     }
     if (doResDep) {
         ocrAddDependence(resilientLatch, taskGuid, (depc - 1), DB_MODE_NULL);
@@ -1104,6 +1106,9 @@ u8 dependenceResolvedTaskHc(ocrTask_t * self, ocrGuid_t dbGuid, void * localDbPt
         // Implementation acquires DB sequentially, so the DB's GUID
         // must match the frontier's DB and we do not need to lock this code
         ASSERT(ocrGuidIsEq(dbGuid, rself->signalers[rself->frontierSlot-1].guid));
+#ifdef ENABLE_AMT_RESILIENCE
+        ASSERT(localDbPtr == UNINITIALIZED_DB_FETCH_PTR);
+#endif
         rself->resolvedDeps[rself->signalers[rself->frontierSlot-1].slot].ptr = localDbPtr;
     }
     if (!iterateDbFrontier(self)) {
@@ -1171,13 +1176,6 @@ u8 satisfyTaskHc(ocrTask_t * base, ocrFatGuid_t data, u32 slot)
     ASSERT_BLOCK_BEGIN((slot >= 0) && (slot < base->depc))
     DPRINTF(DEBUG_LVL_WARN, "error: EDT "GUIDF" is satisfied on slot=%"PRIu32" but depc is %"PRIu32"\n", GUIDA(base->guid), slot, base->depc);
     ASSERT_BLOCK_END
-
-#ifdef ENABLE_AMT_RESILIENCE
-    if ((base->flags & OCR_TASK_FLAG_RESILIENT) && salIsResilientGuid(data.guid) && !salIsSatisfiedResilientGuid(data.guid)) {
-        RESULT_ASSERT(salResilientAddDependence(data.guid, base->guid, slot), ==, 0);
-        return 0;
-    }
-#endif
 
     // Replace the signaler's guid by the data guid, this is to avoid
     // further references to the event's guid, which is good in general
@@ -1925,7 +1923,7 @@ u8 taskExecute(ocrTask_t* base) {
             latchParams.EVENT_LATCH.counter = 1;
             PD_MSG_FIELD_I(params) = &latchParams;
 #endif
-            PD_MSG_FIELD_I(properties) = (base->flags & OCR_TASK_FLAG_RESILIENT) ? EVT_RT_PROP_RESILIENT_LATCH : 0;
+            PD_MSG_FIELD_I(properties) = (base->flags & OCR_TASK_FLAG_RESILIENT) ? (EVT_PROP_RESILIENT | EVT_RT_PROP_RESILIENT_LATCH) : 0;
             RESULT_PROPAGATE(pd->fcts.processMessage(pd, &msg, true));
             newFinishLatchFGuid = PD_MSG_FIELD_IO(guid);
             ASSERT(!(ocrGuidIsNull(newFinishLatchFGuid.guid)) && newFinishLatchFGuid.metaDataPtr != NULL);

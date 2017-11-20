@@ -2268,6 +2268,9 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
                     // We only add dependences that are not UNINITIALIZED_GUID
                     PD_MSG_STACK(msgAddDep);
                     getCurrentEnv(NULL, NULL, NULL, &msgAddDep);
+#ifdef ENABLE_AMT_RESILIENCE
+                    u8 ret = 1;
+#endif
                 #undef PD_MSG
                 #undef PD_TYPE
                     //NOTE: Could systematically call DEP_ADD but it's faster to disambiguate
@@ -2300,6 +2303,10 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
                 #undef PD_MSG
                 #undef PD_TYPE
                     } else {
+#ifdef ENABLE_AMT_RESILIENCE
+                        ret = salResilientAddDependence(NULL_GUID, destination, i);
+                        if (ret) {
+#endif
                       //Handle 'NULL_GUID' case here to avoid overhead of
                       //going through dep_add and end-up doing the same thing.
                 #define PD_MSG (&msgAddDep)
@@ -2318,12 +2325,21 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
                         PD_MSG_FIELD_I(currentEdt) = curEdtFatGuid;
                 #undef PD_MSG
                 #undef PD_TYPE
+#ifdef ENABLE_AMT_RESILIENCE
+                        }
+#endif
                     }
 #endif /*!EDT_DEPV_DELAYED*/
 #define PD_MSG msg
 #define PD_TYPE PD_MSG_WORK_CREATE
+#ifdef ENABLE_AMT_RESILIENCE
+                    if (ret) {
+#endif
                     u8 toReturn __attribute__((unused)) = self->fcts.processMessage(self, &msgAddDep, true);
                     ASSERT(!toReturn);
+#ifdef ENABLE_AMT_RESILIENCE
+                    }
+#endif
                 }
                 ++i;
             }
