@@ -107,12 +107,13 @@ u8        salGuidTableGet(u64 key, ocrGuid_t *val);
 u8        salGuidTableRemove(u64 key, ocrGuid_t *val);
 
 //Node failure api
-void      salThreadExit();
-void      salThreadRecover();
+void      salComputeThreadExitOnFailure();
+void      salWaitForAllComputeThreadExit();
+void      salComputeThreadWaitForRecovery();
 u8        salCheckEdtFault(ocrGuid_t edt);
-u8        salProcessNodeFailureAtBuddy(ocrLocation_t nodeId);
 u8        salProcessNodeFailure(ocrLocation_t nodeId);
 u8        salRecoverNodeFailureAtBuddy(ocrLocation_t nodeId);
+u8        salRecoverNodeFailureAtNonBuddy(ocrLocation_t nodeId);
 
 #endif
 

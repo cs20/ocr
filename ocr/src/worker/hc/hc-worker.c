@@ -125,6 +125,7 @@ static void hcWorkShift(ocrWorker_t * worker) {
                 hal_fence();
                 if (salCheckEdtFault(curTask->resilientEdtParent)) {
                     abortCurrentWork();
+                    ASSERT(0 && "Task aborted... (we should not be here)!!");
                 }
 #endif
                 DPRINTF(DEBUG_LVL_VERB, "Worker shifting to execute EDT GUID "GUIDF"\n", GUIDA(taskGuid.guid));
@@ -266,11 +267,16 @@ static void hcWorkShift(ocrWorker_t * worker) {
 #ifdef ENABLE_AMT_RESILIENCE
 static void hcWorkShiftResilient(ocrWorker_t * worker) {
     processFailure();
-    hal_fence();
+
+    hal_fence(); //Fence ------------------
+
     salResilientAdvanceWaiters();
-    hal_fence();
+
+    hal_fence(); //Fence ------------------
+
+    ASSERT(worker->curTask == NULL);
+    ASSERT(worker->jmpbuf == NULL);
     jmp_buf buf;
-    jmp_buf *oldbuf = worker->jmpbuf;
     int rc = setjmp(buf);
     if (rc == 0) {
         worker->jmpbuf = &buf;
@@ -280,13 +286,14 @@ static void hcWorkShiftResilient(ocrWorker_t * worker) {
         if (!ocrGuidIsNull(worker->curTask->resilientEdtParent)) {
             ASSERT(salCheckEdtFault(worker->curTask->resilientEdtParent));
         }
-        DPRINTF(DEBUG_LVL_WARN, "Worker aborted executing EDT "GUIDF"\n", GUIDA(worker->curTask->guid));
+        DPRINTF(DEBUG_LVL_INFO, "Worker aborted executing EDT "GUIDF"\n", GUIDA(worker->curTask->guid));
         worker->curTask = NULL;
     }
+
+    hal_fence(); //Fence ------------------
+
     ASSERT(worker->curTask == NULL);
-    hal_fence();
-    worker->jmpbuf = oldbuf;
-    //processFailure();
+    worker->jmpbuf = NULL;
 }
 #endif
 

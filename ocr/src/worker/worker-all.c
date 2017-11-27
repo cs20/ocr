@@ -99,11 +99,13 @@ void initializeWorkerOcr(ocrWorkerFactory_t * factory, ocrWorker_t * self, ocrPa
 
 #ifdef ENABLE_AMT_RESILIENCE
 #include "ocr-errors.h"
-void abortCurrentWork() {
+u8 abortCurrentWork() {
     ocrWorker_t *worker = NULL;
     getCurrentEnv(NULL, &worker, NULL, NULL);
-    ASSERT(worker->jmpbuf != NULL);
-    longjmp(*(worker->jmpbuf), OCR_EFAULT);
+    if (worker->jmpbuf != NULL) {
+        longjmp(*(worker->jmpbuf), OCR_EFAULT);
+    }
+    return OCR_EFAULT;
 }
 #endif
 

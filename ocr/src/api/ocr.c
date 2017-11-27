@@ -71,15 +71,16 @@ char* getArgv(void* dbPtr, u64 count) {
 
 #ifdef ENABLE_AMT_RESILIENCE
 #include <pthread.h>
-void ocrNodeFailure() {
+void ocrInjectNodeFailure() {
     ocrPolicyDomain_t *pd = NULL;
     ocrTask_t * curTask = NULL;
     getCurrentEnv(&pd, NULL, &curTask, NULL);
     if ((curTask != NULL) && ((curTask->flags & OCR_TASK_FLAG_RECOVERY) == 0)) {
         pd->faultCode = OCR_NODE_FAILURE_SELF;
-        pthread_exit(NULL);
+        hal_fence();
+        salComputeThreadExitOnFailure();
     } else {
-        DPRINTF(DEBUG_LVL_WARN, "Fault injection failed: masked during recovery\n");
+        DPRINTF(DEBUG_LVL_WARN, "User fault injection ignored in recovery EDT...\n");
     }
 }
 

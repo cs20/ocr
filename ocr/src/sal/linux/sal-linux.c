@@ -583,6 +583,7 @@ bool salCheckpointExistsResumeQuery() {
 #define FNL                 256
 #define RECORD_INCR_SIZE    256
 #define DNL                 32
+#define DO_PRINT_DEADLOCK   0
 
 //Publish-Fetch hashtable
 static int pfIsInitialized = 0;
@@ -639,6 +640,8 @@ typedef struct _salWaiter {
 static volatile salWaiter_t *salWaiterListHead = NULL;
 static volatile u32 salWaiterMaster = 0;
 
+static u64 lastTime = 0UL;
+#define ADV_TIMEOUT  1000000000UL /* 1000 miliseconds */
 
 ///////////////////////////////////////////////////////////////////////////////
 //////////////////////////////  Init/Destroy Functions  ///////////////////////
@@ -706,6 +709,7 @@ void salInitPublishFetch() {
         ASSERT(0);
         return;
     }
+    lastTime = salGetTime();
     pfIsInitialized = 1;
 }
 
@@ -1168,9 +1172,16 @@ static u8 salResilientGuidSatisfy(ocrGuid_t guid, u32 slot, ocrGuid_t data) {
     return 0;
 }
 
-static u8 salWaiterCheck(salWaiter_t *waiter) {
+static u8 salWaiterCheck(salWaiter_t *waiter, u8 doPrint) {
     u32 i;
 
+    if (doPrint && waiter->kind == OCR_GUID_EDT) {
+        DPRINTF(DEBUG_LVL_NONE, "[Waiter Advance] EDT: 0x%lx Slots: (0, 0x%lx, %d), (1, 0x%lx, %d), (2, 0x%lx, %d), (3, 0x%lx, %d)\n", (u64)waiter->guid.guid, 
+            (u64)waiter->slotv[0].dep.guid, waiter->slotv[0].status,
+            (u64)waiter->slotv[1].dep.guid, waiter->slotv[1].status,
+            (u64)waiter->slotv[2].dep.guid, waiter->slotv[2].status,
+            (u64)waiter->slotv[3].dep.guid, waiter->slotv[3].status);
+    }
     if (salIsSatisfiedResilientGuid(waiter->guid)) {
         ASSERT(waiter->kind & OCR_GUID_EVENT);
         return 1;
@@ -1189,56 +1200,47 @@ static u8 salWaiterCheck(salWaiter_t *waiter) {
                 DPRINTF(DEBUG_LVL_VERB, "[Waiter Ready] EDT: 0x%lx SLOT: %d DATA: 0x%lx\n", (u64)waiter->guid.guid, i, (u64)waiter->slotv[i].dep.guid);
         }
         while (waiter->slotv[i].status == DEP_UNSATISFIED) {
-            u8 depSatisfied = salIsSatisfiedResilientGuid(waiter->slotv[i].dep);
-            if (!depSatisfied) break;
-            DPRINTF(DEBUG_LVL_VERB, "[Waiter Satisfied] EDT: 0x%lx SLOT: %d DEP: 0x%lx\n", (u64)waiter->guid.guid, i, (u64)waiter->slotv[i].dep.guid);
-            ocrPolicyDomain_t *pd = NULL;
-            getCurrentEnv(&pd, NULL, NULL, NULL);
-            ocrGuidKind kind;
-            pd->guidProviders[0]->fcts.getKind(pd->guidProviders[0], waiter->slotv[i].dep, &kind);
-            if (kind == OCR_GUID_DB || ocrGuidIsNull(waiter->slotv[i].dep)) {
-                waiter->slotv[i].status = DEP_READY;
-                DPRINTF(DEBUG_LVL_VERB, "[Waiter Ready] EDT: 0x%lx SLOT: %d DATA: 0x%lx\n", (u64)waiter->guid.guid, i, (u64)waiter->slotv[i].dep.guid);
-                break;
-            }
-            ocrGuid_t data = NULL_GUID;
-            salReadGuidPayload(waiter->slotv[i].dep, &data);
-            waiter->slotv[i].dep = data;
             if (ocrGuidIsNull(waiter->slotv[i].dep)) {
                 waiter->slotv[i].status = DEP_READY;
                 DPRINTF(DEBUG_LVL_VERB, "[Waiter Ready] EDT: 0x%lx SLOT: %d DATA: 0x%lx\n", (u64)waiter->guid.guid, i, (u64)waiter->slotv[i].dep.guid);
                 break;
             }
+            u8 depSatisfied = salIsSatisfiedResilientGuid(waiter->slotv[i].dep);
+            if (!depSatisfied) break;
+            DPRINTF(DEBUG_LVL_VERB, "[Waiter Satisfied] EDT: 0x%lx SLOT: %d DEP: 0x%lx\n", (u64)waiter->guid.guid, i, (u64)waiter->slotv[i].dep.guid);
+            ocrGuid_t data = NULL_GUID;
+            salReadGuidPayload(waiter->slotv[i].dep, &data);
+            ocrPolicyDomain_t *pd = NULL;
+            getCurrentEnv(&pd, NULL, NULL, NULL);
+            ocrGuidKind kind;
+            pd->guidProviders[0]->fcts.getKind(pd->guidProviders[0], waiter->slotv[i].dep, &kind);
+            if (kind == OCR_GUID_DB && ocrGuidIsEq(waiter->slotv[i].dep, data)) {
+                waiter->slotv[i].status = DEP_READY;
+                DPRINTF(DEBUG_LVL_VERB, "[Waiter Ready] EDT: 0x%lx SLOT: %d DATA: 0x%lx\n", (u64)waiter->guid.guid, i, (u64)waiter->slotv[i].dep.guid);
+                break;
+            }
+            waiter->slotv[i].dep = data;
         }
         if (waiter->slotv[i].status != DEP_READY) 
             break;
+    }
+    if (doPrint && waiter->kind == OCR_GUID_EDT) {
+        DPRINTF(DEBUG_LVL_NONE, "[Waiter Advance] EDT: 0x%lx i: %d\n", (u64)waiter->guid.guid, i);
     }
 
     if (i == waiter->slotc) 
     {
         if (waiter->kind == OCR_GUID_EDT) {
-            ocrWorker_t *worker = NULL;
-            getCurrentEnv(NULL, &worker, NULL, NULL);
-            jmp_buf buf;
-            jmp_buf *oldbuf = worker->jmpbuf;
-            int rc = setjmp(buf);
-            if (rc == 0) {
-                worker->jmpbuf = &buf;
-                DPRINTF(DEBUG_LVL_VERB, "[Waiter EdtSatisfy] EDT: 0x%lx\n", (u64)waiter->guid.guid);
-                for (i = 0; i < waiter->slotc; i++) {
-                    ASSERT(waiter->slotv[i].status == DEP_READY);
-                    salResilientGuidSatisfy(waiter->guid, i, waiter->slotv[i].dep);
-                }
-            } else {
-                DPRINTF(DEBUG_LVL_WARN, "Worker aborted scheduling EDT "GUIDF"\n", GUIDA(waiter->guid));
+            DPRINTF(DEBUG_LVL_VERB, "[Waiter EdtSatisfy] EDT: 0x%lx\n", (u64)waiter->guid.guid);
+            for (i = 0; i < waiter->slotc; i++) {
+                ASSERT(waiter->slotv[i].status == DEP_READY);
+                salResilientGuidSatisfy(waiter->guid, i, waiter->slotv[i].dep);
             }
-            hal_fence();
-            worker->jmpbuf = oldbuf;
         } else {
             ASSERT(waiter->kind & OCR_GUID_EVENT);
             ASSERT(waiter->slotv[0].status == DEP_READY);
             DPRINTF(DEBUG_LVL_VERB, "[Waiter EventSatisfy] EVT: 0x%lx DATA: 0x%lx\n", (u64)waiter->guid.guid, (u64)waiter->slotv[0].dep.guid);
-            salWriteGuidPayload(waiter->guid, waiter->slotv[0].dep);
+            RESULT_ASSERT(salResilientEventSatisfy(waiter->guid, 0, waiter->slotv[0].dep), ==, 0);
         }
         return 1;
     }
@@ -1290,7 +1292,39 @@ u8 salResilientAddDependence(ocrGuid_t sguid, ocrGuid_t dguid, u32 slot) {
         ASSERT(0);
         return 1;
     }
-    return salPublishMetaData(fname, &sguid, sizeof(ocrGuid_t), 0);
+    //Publish new dependence
+    salPublishMetaData(fname, &sguid, sizeof(ocrGuid_t), 0);
+
+    //If old guid mappings exist, then publish those as well
+    u8 doContinue;
+    do {
+        doContinue = 0;
+        ocrGuid_t oldguid = NULL_GUID;
+        if (salGuidTableGet(g, &oldguid) == 0) {
+            ASSERT(!ocrGuidIsNull(oldguid));
+            ASSERT(salIsResilientGuid(oldguid));
+#if GUID_BIT_COUNT == 64
+            u64 g = oldguid.guid;
+#elif GUID_BIT_COUNT == 128
+            u64 g = oldguid.lower;
+#else
+#error Unknown type of GUID
+#endif
+            char fname[FNL];
+            int c = snprintf(fname, FNL, "%lu.dep%d", g, slot);
+            if (c < 0 || c >= FNL) {
+                fprintf(stderr, "failed to create filename for publish\n");
+                ASSERT(0);
+                return 1;
+            }
+            struct stat sb;
+            if (stat(fname, &sb) != 0) {
+                salPublishMetaData(fname, &sguid, sizeof(ocrGuid_t), 0);
+                doContinue = 1;
+            }
+        }
+    } while(doContinue);
+    return 0;
 }
 
 //Satisfy a resilient event
@@ -1305,6 +1339,26 @@ u8 salResilientEventSatisfy(ocrGuid_t guid, u32 slot, ocrGuid_t data) {
 
     //Publish data to event guid
     salWriteGuidPayload(guid, data);
+
+    //If old guid mappings exist, then satisfy those as well
+    u8 doContinue;
+    do {
+        doContinue = 0;
+#if GUID_BIT_COUNT == 64
+        u64 g = guid.guid;
+#elif GUID_BIT_COUNT == 128
+        u64 g = guid.lower;
+#else
+#error Unknown type of GUID
+#endif
+        ocrGuid_t oldguid = NULL_GUID;
+        if (salGuidTableGet(g, &oldguid) == 0) {
+            ASSERT(!ocrGuidIsNull(oldguid));
+            salWriteGuidPayload(oldguid, data);
+            guid = oldguid;
+            doContinue = 1;
+        }
+    } while(doContinue);
     return 0;
 }
 
@@ -1388,11 +1442,21 @@ u8 salResilientAdvanceWaiters() {
     if (masterOldVal == 1) return 1;
     hal_fence();
 
+    u8 doPrint = 0;
+#if DO_PRINT_DEADLOCK
+    u64 curTime = salGetTime();
+    if ((curTime - lastTime) > ADV_TIMEOUT) {
+        lastTime = curTime;
+        doPrint = 1;
+    }
+#endif
+
     salWaiter_t *waiter = (salWaiter_t*)salWaiterListHead;
     salWaiter_t *waiterPrev = NULL;
     while (waiter != NULL) {
-        u8 done = salWaiterCheck(waiter);
+        u8 done = salWaiterCheck(waiter, doPrint);
         if (done) {
+            DPRINTF(DEBUG_LVL_VERB, "[Waiter Done] 0x%lx\n", (u64)waiter->guid.guid);
             salWaiter_t *waiterNext = waiter->next;
             salWaiter_t *waiterHead = NULL;
             if (waiter == (salWaiter_t*)salWaiterListHead) {
@@ -1450,6 +1514,26 @@ u8 salResilientDataBlockPublish(ocrDataBlock_t *db) {
 
     //Publish DB guid
     salWriteGuidPayload(dbGuid, dbGuid);
+
+    //If old guid mappings exist, then satisfy those as well
+    u8 doContinue;
+    do {
+        doContinue = 0;
+#if GUID_BIT_COUNT == 64
+        u64 g = dbGuid.guid;
+#elif GUID_BIT_COUNT == 128
+        u64 g = dbGuid.lower;
+#else
+#error Unknown type of GUID
+#endif
+        ocrGuid_t oldguid = NULL_GUID;
+        if (salGuidTableGet(g, &oldguid) == 0) {
+            ASSERT(!ocrGuidIsNull(oldguid));
+            salWriteGuidPayload(oldguid, dbGuid);
+            dbGuid = oldguid;
+            doContinue = 1;
+        }
+    } while(doContinue);
     return 0;
 }
 
@@ -1922,13 +2006,11 @@ u8 salGuidTableRemove(u64 key, ocrGuid_t *val) {
 static int parse_ext(const struct dirent *dir)
 {
     if(dir == NULL) return 0;
-    if(dir->d_type == DT_REG) { /* only deal with regular file */
-        const char *ext = strrchr(dir->d_name,'.');
-        if((ext == NULL) || (ext == dir->d_name))
-            return 0;
-        if(strcmp(ext, (const char *)nodeExt) == 0)
-            return 1;
-    }
+    const char *ext = strrchr(dir->d_name,'.');
+    if((ext == NULL) || (ext == dir->d_name))
+        return 0;
+    if(strcmp(ext, (const char *)nodeExt) == 0)
+        return 1;
     return 0;
 }
 
@@ -1936,13 +2018,11 @@ static int parse_ext(const struct dirent *dir)
 static int parse_fault(const struct dirent *dir)
 {
     if(dir == NULL) return 0;
-    if(dir->d_type == DT_REG) { /* only deal with regular file */
-        const char *ext = strrchr(dir->d_name,'.');
-        if((ext == NULL) || (ext == dir->d_name))
-            return 0;
-        if(strcmp(ext, ".fault") == 0)
-            return 1;
-    }
+    const char *ext = strrchr(dir->d_name,'.');
+    if((ext == NULL) || (ext == dir->d_name))
+        return 0;
+    if(strcmp(ext, ".fault") == 0)
+        return 1;
     return 0;
 }
 
@@ -1981,6 +2061,10 @@ static u8 salCreateFaultRecord(u64 guid) {
 
 //Find EDTs in failed node
 static u8 salCreateEdtSetForRecoveryExtensions(char *extension) {
+   /*char command[50];
+   sprintf(command, "ls -l *%s",extension);
+   system(command);*/
+
     nodeExt = extension;
     struct dirent **namelist;
     int n = scandir(".", &namelist, parse_ext, alphasort);
@@ -2005,8 +2089,13 @@ static u8 salCreateEdtSetForRecoveryExtensions(char *extension) {
         struct stat sb;
         if (stat(fname, &sb) == 0) {
             if (hashtableConcBucketLockedGet(faultTable, (void*)guid) == NULL) {
+                DPRINTF(DEBUG_LVL_INFO, "Fault impacted EDT found: GUID 0x%lx\n", guid);
                 salCreateFaultRecord(guid);
+            } else {
+                DPRINTF(DEBUG_LVL_INFO, "Fault impacted EDT exists: GUID 0x%lx\n", guid);
             }
+        } else {
+            DPRINTF(DEBUG_LVL_INFO, "Fault impacted EDT ignored: GUID 0x%lx\n", guid);
         }
         free(namelist[n]);
     }
@@ -2049,8 +2138,13 @@ static u8 salCreateRootEdtSetForRecovery(u64 nodeId) {
             struct stat sb;
             if (stat(fname, &sb) == 0) {
                 if (hashtableConcBucketLockedGet(faultTable, (void*)guid) == NULL) {
+                    DPRINTF(DEBUG_LVL_INFO, "Fault impacted EDT found (root): GUID 0x%lx\n", guid);
                     salCreateFaultRecord(guid);
+                } else {
+                    DPRINTF(DEBUG_LVL_INFO, "Fault impacted EDT exists (root): GUID 0x%lx\n", guid);
                 }
+            } else {
+                DPRINTF(DEBUG_LVL_INFO, "Fault impacted EDT ignored (root): GUID 0x%lx\n", guid);
             }
         }
         free(namelist[n]);
@@ -2078,15 +2172,28 @@ static u8 salCreateEdtSetForRecovery(ocrLocation_t nodeId) {
 ////////////////////////////////////////////  Fault Handler Function API  //////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-void salThreadExit() {
+void salComputeThreadExitOnFailure() {
+    ocrPolicyDomain_t *pd;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+    ASSERT(pd->faultCode == OCR_NODE_FAILURE_SELF);
+    hal_xadd32(&workerCounter, 1);
     pthread_exit(NULL);
 }
 
-void salThreadRecover() {
-    hal_xadd32(&workerCounter, 1);
+void salWaitForAllComputeThreadExit() {
     ocrPolicyDomain_t *pd;
     getCurrentEnv(&pd, NULL, NULL, NULL);
-    while(pd->faultCode != 0);
+    u32 maxCount = pd->workerCount - 1;
+    while(workerCounter < maxCount);
+}
+
+void salComputeThreadWaitForRecovery() {
+    ocrPolicyDomain_t *pd;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+    ASSERT(pd->faultCode == OCR_NODE_FAILURE_OTHER);
+    hal_xadd32(&workerCounter, 1);
+    while(pd->faultCode == OCR_NODE_FAILURE_OTHER);
+    processFailure();
 }
 
 //Check if EDT is part of a failed sub-graph
@@ -2105,76 +2212,20 @@ u8 salCheckEdtFault(ocrGuid_t g) {
     return 0;
 }
 
-//First response after failure on buddy node
-u8 salProcessNodeFailureAtBuddy(ocrLocation_t nodeId) {
-    ocrPolicyDomain_t *pd;
-    getCurrentEnv(&pd, NULL, NULL, NULL);
-
-    //Pause execution on buddy node
-    pd->faultCode = OCR_NODE_FAILURE_OTHER;
-    hal_fence();
-    u32 maxCount = pd->workerCount - 1;
-    while(workerCounter < maxCount);
-    hal_fence();
-
-    //Determine all EDT guids impacted by node failure
-    salCreateEdtSetForRecovery(nodeId);
-
-    //Update platform model
-    notifyPlatformModelLocationFault(nodeId);
-
-    //Resume execution
-    hal_fence();
-    workerCounter = 0;
-    hal_fence();
-    pd->faultCode = 0;
-
-    return 0;
-}
-
-//Process node failure on all existing nodes other than buddy node
+//First response after failure detection
 u8 salProcessNodeFailure(ocrLocation_t nodeId) {
-    ASSERT(pfIsInitialized);
     ocrPolicyDomain_t *pd;
     getCurrentEnv(&pd, NULL, NULL, NULL);
-
-    //Pause execution
-    pd->faultCode = OCR_NODE_FAILURE_OTHER;
-    hal_fence();
     u32 maxCount = pd->workerCount - 1;
-    while(workerCounter < maxCount);
-    hal_fence();
-
-    //Build fault table on local node
-    struct dirent **namelist;
-    int n = scandir(".", &namelist, parse_fault, alphasort);
-    if (n < 0) {
-        perror("scandir");
+    if (workerCounter < maxCount)
         return 1;
-    }
-    while (n--) {
-        //printf("%s\n", namelist[n]->d_name);
-        char *s = strchr(namelist[n]->d_name,'.');
-        *s = '\0';
-        u64 guid = strtoul(namelist[n]->d_name, NULL, 10);
-        ASSERT(guid > 0);
-        *s = '.';
-        if (hashtableConcBucketLockedGet(faultTable, (void*)guid) == NULL) {
-            hashtableConcBucketLockedPut(faultTable, (void*)guid, (void*)guid);
-        }
-        free(namelist[n]);
-    }
-    free(namelist);
+
+    //Write pending changes to filesystem
+    hal_fence();
+    sync();
 
     //Update platform model
     notifyPlatformModelLocationFault(nodeId);
-
-    //Resume execution
-    hal_fence();
-    workerCounter = 0;
-    hal_fence();
-    pd->faultCode = 0;
-
     return 0;
 }
 
@@ -2222,17 +2273,63 @@ void salImportEdt(void * key, void * value, void * args) {
     ocrGuid_t edt = edtBuf->guid;
     ocrGuid_t oEvt;
     ocrEdtCreate(&edt, tmpl, edtBuf->paramc, edtBuf->paramv, edtBuf->depc, edtBuf->depv, EDT_PROP_RESILIENT | EDT_PROP_RECOVERY, NULL_HINT, &oEvt);
-    DPRINTF(DEBUG_LVL_WARN, "Recovery EDT created: "GUIDF"\n", GUIDA(edt));
+    DPRINTF(DEBUG_LVL_INFO, "Recovery EDT created: GUID "GUIDF" (OLD GUID "GUIDF")\n", GUIDA(edt), GUIDA(edtBuf->guid));
     pd->fcts.pdFree(pd, buf);
 }
 
 //Recover from fault by re-executing all EDTs impacted by fault
 u8 salRecoverNodeFailureAtBuddy(ocrLocation_t nodeId) {
-    //Finalize all EDT guids impacted by node failure
+    ocrPolicyDomain_t *pd;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+
+    //Determine all EDT guids impacted by node failure
     salCreateEdtSetForRecovery(nodeId);
+
+    //Resume execution
+    hal_fence();
+    workerCounter = 0;
+    hal_fence();
+    pd->faultCode = 0;
+    hal_fence();
 
     //Reschedule execution sub-graph dominator EDTs
     iterateHashtable(faultTable, salImportEdt, NULL);
+    return 0;
+}
+
+//Recover from fault by re-executing all EDTs impacted by fault
+u8 salRecoverNodeFailureAtNonBuddy(ocrLocation_t nodeId) {
+    ocrPolicyDomain_t *pd;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+
+    //Build fault table on local node
+    struct dirent **namelist;
+    int n = scandir(".", &namelist, parse_fault, alphasort);
+    if (n < 0) {
+        perror("scandir");
+        return 1;
+    }
+    while (n--) {
+        //printf("%s\n", namelist[n]->d_name);
+        char *s = strchr(namelist[n]->d_name,'.');
+        *s = '\0';
+        u64 guid = strtoul(namelist[n]->d_name, NULL, 10);
+        ASSERT(guid > 0);
+        *s = '.';
+        if (hashtableConcBucketLockedGet(faultTable, (void*)guid) == NULL) {
+            hashtableConcBucketLockedPut(faultTable, (void*)guid, (void*)guid);
+        }
+        free(namelist[n]);
+    }
+    free(namelist);
+
+    //Resume execution
+    hal_fence();
+    workerCounter = 0;
+    hal_fence();
+    pd->faultCode = 0;
+    hal_fence();
+
     return 0;
 }
 

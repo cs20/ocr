@@ -164,7 +164,7 @@ typedef struct _ocrWorkerFactory_t {
 void initializeWorkerOcr(ocrWorkerFactory_t * factory, ocrWorker_t * self, ocrParamList_t *perInstance);
 
 #ifdef ENABLE_AMT_RESILIENCE
-void abortCurrentWork();
+u8 abortCurrentWork();
 #endif
 
 #endif /* __OCR_WORKER_H__ */

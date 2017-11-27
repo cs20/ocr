@@ -29,6 +29,10 @@ static u8 masterHelper(ocrWorker_t * worker) {
     // Save current worker context
     //BUG #204 this should be implemented in the worker
     ocrTask_t * suspendedTask = worker->curTask;
+#ifdef ENABLE_AMT_RESILIENCE
+    jmp_buf *suspendedBuf = worker->jmpbuf;
+    worker->jmpbuf = NULL;
+#endif
     DPRINTF(DEBUG_LVL_VERB, "Shifting worker from EDT GUID "GUIDF"\n",
             GUIDA(suspendedTask->guid));
     // In helper mode, just try to execute another task
@@ -41,6 +45,9 @@ static u8 masterHelper(ocrWorker_t * worker) {
     DPRINTF(DEBUG_LVL_VERB, "Worker shifting back to EDT GUID "GUIDF"\n",
             GUIDA(suspendedTask->guid));
     worker->curTask = suspendedTask;
+#ifdef ENABLE_AMT_RESILIENCE
+    worker->jmpbuf = suspendedBuf;
+#endif
 #ifdef ENABLE_RESILIENCY
     worker->edtDepth--;
 #endif

@@ -128,8 +128,8 @@ u8 delegateCommSendMessage(ocrCommApi_t *self, ocrLocation_t target,
 #ifdef ENABLE_AMT_RESILIENCE
     salRecordEdtAtNode(message->resilientEdtParent, target);
     if (checkPlatformModelLocationFault(target)) {
-        DPRINTF(DEBUG_LVL_WARN,"Abort at SEND: msg: %lx\n", (message->type & PD_MSG_TYPE_ONLY));
-        abortCurrentWork();
+        DPRINTF(DEBUG_LVL_INFO,"Abort at SEND: msg: %lx\n", (message->type & PD_MSG_TYPE_ONLY));
+        return abortCurrentWork();
     }
 #endif
     // If the message is not persistent and the marshall mode is set, we do the specified
@@ -245,9 +245,6 @@ u8 delegateCommWaitMessage(ocrCommApi_t *self, ocrMsgHandle_t **handle) {
 #endif
     //BUG #130 Is there a use case to wait for a one-way to complete ?
     while(ret == POLL_NO_MESSAGE) {
-#ifdef ENABLE_AMT_RESILIENCE
-        u8 faultDetected = checkPlatformModelLocationFault(waitloc);
-#endif
         // Try to poll a little
         u64 i = 0;
         while ((i < MAX_ACTIVE_WAIT) && (ret == POLL_NO_MESSAGE)) {
@@ -256,9 +253,9 @@ u8 delegateCommWaitMessage(ocrCommApi_t *self, ocrMsgHandle_t **handle) {
         }
         if (ret == POLL_NO_MESSAGE) {
 #ifdef ENABLE_AMT_RESILIENCE
-            if (faultDetected) {
-                DPRINTF(DEBUG_LVL_NONE,"Abort at WAIT: msg: %lx\n", ((*handle)->msg->type & PD_MSG_TYPE_ONLY));
-                abortCurrentWork();
+            if (checkPlatformModelLocationFault(waitloc)) {
+                DPRINTF(DEBUG_LVL_INFO,"Abort at WAIT: msg: %lx\n", ((*handle)->msg->type & PD_MSG_TYPE_ONLY));
+                return abortCurrentWork();
             }
 #endif
             // If nothing shows up, transfer control to the scheduler for monitoring progress

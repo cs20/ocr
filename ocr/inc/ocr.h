@@ -98,7 +98,7 @@ u64 getArgc(void* dbPtr);
 char* getArgv(void* dbPtr, u64 count);
 
 #ifdef ENABLE_AMT_RESILIENCE
-void ocrNodeFailure();
+void ocrInjectNodeFailure();
 u64 ocrGetLocation();
 u8 ocrGuidTablePut(u64 key, ocrGuid_t val);
 u8 ocrGuidTableGet(u64 key, ocrGuid_t *val);

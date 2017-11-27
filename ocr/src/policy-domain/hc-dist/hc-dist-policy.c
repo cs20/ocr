@@ -36,22 +36,6 @@
 
 #define DEBUG_TYPE POLICY
 
-#ifdef ENABLE_AMT_RESILIENCE
-#define AMT_RESILIENCE_CHECK_FOR_FAULT(pd)                                  \
-{                                                                           \
-    if (pd->faultCode) {                                                    \
-        ocrWorker_t *worker = NULL;                                         \
-        getCurrentEnv(NULL, &worker, NULL, NULL);                           \
-        ocrWorkerHc_t *hcWorker = (ocrWorkerHc_t*)worker;                   \
-        if (hcWorker->hcType == HC_WORKER_COMP) {                           \
-            processFailure();                                               \
-        }                                                                   \
-    }                                                                       \
-}
-#else
-#define AMT_RESILIENCE_CHECK_FOR_FAULT(pd)
-#endif
-
 #ifdef ENABLE_EXTENSION_PERF
 extern void addPerfEntry(ocrPolicyDomain_t *pd, void *executePtr,
                          ocrTaskTemplate_t *taskT);
@@ -765,7 +749,6 @@ static u8 hcDistDeferredProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *
  * Handle messages requiring remote communications, delegate locals to shared memory implementation.
  */
 u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlocking) {
-    AMT_RESILIENCE_CHECK_FOR_FAULT(self);
     // When isBlocking is false, it means the message processing is FULLY asynchronous.
     // Hence, when processMessage returns it is not guaranteed 'msg' contains the response,
     // even though PD_MSG_REQ_RESPONSE is set.
@@ -1031,23 +1014,6 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
 #define PD_MSG (msg)
 #define PD_TYPE PD_MSG_DEP_SATISFY
         RETRIEVE_LOCATION_FROM_GUID_MSG(self, msg->destLocation, I);
-#ifdef ENABLE_AMT_RESILIENCE
-        /*if (checkPlatformModelLocationFault(msg->destLocation)) {
-            ocrGuid_t dst = PD_MSG_FIELD_I(guid.guid);
-#if GUID_BIT_COUNT == 64
-            u64 guid = dst.guid;
-#elif GUID_BIT_COUNT == 128
-            u64 guid = dst.lower;
-#else
-#error Unknown type of GUID
-#endif
-            RESULT_ASSERT(salGuidTableGet(guid, &dst), ==, 0);
-            PD_MSG_FIELD_I(guid.guid) = dst;
-            msg->destLocation = self->myLocation;
-            RETRIEVE_LOCATION_FROM_GUID_MSG(self, msg->destLocation, I);
-            ASSERT(!checkPlatformModelLocationFault(msg->destLocation));
-        }*/
-#endif
         DPRINTF(DEBUG_LVL_VVERB,"DEP_SATISFY: target is %"PRId32"\n", (u32) msg->destLocation);
 #ifdef ENABLE_EXTENSION_CHANNEL_EVT
 #ifndef XP_CHANNEL_EVT_NONFIFO
@@ -2389,7 +2355,6 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
 }
 
 u8 hcDistProcessEvent(ocrPolicyDomain_t* self, pdEvent_t **evt, u32 idx) {
-    AMT_RESILIENCE_CHECK_FOR_FAULT(self);
     // Simple version to test out micro tasks for now. This just executes a blocking
     // call to the regular process message and returns NULL
     ASSERT(idx == 0);
@@ -2447,7 +2412,11 @@ u8 hcDistPdSwitchRunlevel(ocrPolicyDomain_t *self, ocrRunlevel_t runlevel, u32 p
         // Notify other PDs the user runlevel has completed here
         getCurrentEnv(&self, NULL, NULL, NULL);
         u32 i = 0;
+        ocrPolicyDomainHcDist_t * dself = (ocrPolicyDomainHcDist_t *) self;
         while(i < self->neighborCount) {
+#ifdef ENABLE_AMT_RESILIENCE
+            if (checkPlatformModelLocationFault(self->neighbors[i]) == 0) {
+#endif
             DPRINTF(DEBUG_LVL_VVERB,"PD_MSG_MGT_RL_NOTIFY: loop shutdown neighbors[%"PRId32"] is %"PRId32"\n", i, (u32) self->neighbors[i]);
             PD_MSG_STACK(msgShutdown);
             getCurrentEnv(NULL, NULL, NULL, &msgShutdown);
@@ -2462,12 +2431,16 @@ u8 hcDistPdSwitchRunlevel(ocrPolicyDomain_t *self, ocrRunlevel_t runlevel, u32 p
             RESULT_ASSERT(self->fcts.processMessage(self, &msgShutdown, true), ==, 0);
         #undef PD_MSG
         #undef PD_TYPE
+#ifdef ENABLE_AMT_RESILIENCE
+            } else {
+                hal_xadd32(&dself->shutdownAckCount, 1);
+            }
+#endif
             i++;
         }
         // Consider the PD to have reached its local quiescence.
         // This code is concurrent with receiving notifications
         // from other PDs and must detect if it is the last
-        ocrPolicyDomainHcDist_t * dself = (ocrPolicyDomainHcDist_t *) self;
         // incr the shutdown counter (compete with processMessage PD_MSG_MGT_RL_NOTIFY)
         u32 oldAckValue = hal_xadd32(&dself->shutdownAckCount, 1);
         if (oldAckValue != (self->neighborCount)) {
@@ -2513,6 +2486,9 @@ u8 hcDistPdSendMessage(ocrPolicyDomain_t* self, ocrLocation_t target, ocrPolicyM
     ASSERT(message->destLocation != self->myLocation);
     u32 id = worker->id;
     u8 ret = self->commApis[id]->fcts.sendMessage(self->commApis[id], target, message, handle, properties);
+#ifdef ENABLE_AMT_RESILIENCE
+    ASSERT(ret != OCR_EFAULT);
+#endif
     return ret;
 }
 
@@ -2524,6 +2500,9 @@ u8 hcDistPdPollMessage(ocrPolicyDomain_t *self, ocrMsgHandle_t **handle) {
     getCurrentEnv(NULL, &worker, NULL, NULL);
     u32 id = worker->id;
     u8 ret = self->commApis[id]->fcts.pollMessage(self->commApis[id], handle);
+#ifdef ENABLE_AMT_RESILIENCE
+    ASSERT(ret != OCR_EFAULT);
+#endif
     return ret;
 }
 
@@ -2535,6 +2514,9 @@ u8 hcDistPdWaitMessage(ocrPolicyDomain_t *self,  ocrMsgHandle_t **handle) {
     getCurrentEnv(NULL, &worker, NULL, NULL);
     u32 id = worker->id;
     u8 ret = self->commApis[id]->fcts.waitMessage(self->commApis[id], handle);
+#ifdef ENABLE_AMT_RESILIENCE
+    ASSERT(ret != OCR_EFAULT);
+#endif
     return ret;
 }
 

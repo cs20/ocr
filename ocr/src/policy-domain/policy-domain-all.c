@@ -1635,26 +1635,44 @@ void tagDeferredMsg(ocrPolicyMsg_t * msg, ocrTask_t * task) {
 u8 resilientLatchUpdate(ocrGuid_t latchGuid, u32 slot) {
     PD_MSG_STACK(msg);
     ocrPolicyDomain_t *pd = NULL;
-    getCurrentEnv(&pd, NULL, NULL, &msg);
+    ocrWorker_t *worker = NULL;
+    getCurrentEnv(&pd, &worker, NULL, &msg);
+    ocrLocation_t loc;
+    pd->guidProviders[0]->fcts.getLocation(pd->guidProviders[0], latchGuid, &loc);
+    if (checkPlatformModelLocationFault(loc)) {
+        DPRINTF(DEBUG_LVL_INFO, "Worker aborted resilient latch update: "GUIDF"\n", GUIDA(latchGuid));
+        return OCR_EFAULT;
+    }
+    hal_fence(); //Fence ------------------
+    jmp_buf *suspendedBuf = worker->jmpbuf;
+    jmp_buf buf;
+    int rc = setjmp(buf);
+    if (rc == 0) {
+        worker->jmpbuf = &buf;
 #define PD_MSG (&msg)
 #define PD_TYPE PD_MSG_DEP_SATISFY
-    msg.type = PD_MSG_DEP_SATISFY | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
-    PD_MSG_FIELD_I(satisfierGuid.guid) = NULL_GUID;
-    PD_MSG_FIELD_I(satisfierGuid.metaDataPtr) = NULL;
-    PD_MSG_FIELD_I(guid.guid) = latchGuid;
-    PD_MSG_FIELD_I(guid.metaDataPtr) = NULL;
-    PD_MSG_FIELD_I(payload.guid) = NULL_GUID;
-    PD_MSG_FIELD_I(payload.metaDataPtr) = NULL;
-    PD_MSG_FIELD_I(currentEdt.guid) = NULL_GUID;
-    PD_MSG_FIELD_I(currentEdt.metaDataPtr) = NULL;
-    PD_MSG_FIELD_I(slot) = slot;
+        msg.type = PD_MSG_DEP_SATISFY | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
+        PD_MSG_FIELD_I(satisfierGuid.guid) = NULL_GUID;
+        PD_MSG_FIELD_I(satisfierGuid.metaDataPtr) = NULL;
+        PD_MSG_FIELD_I(guid.guid) = latchGuid;
+        PD_MSG_FIELD_I(guid.metaDataPtr) = NULL;
+        PD_MSG_FIELD_I(payload.guid) = NULL_GUID;
+        PD_MSG_FIELD_I(payload.metaDataPtr) = NULL;
+        PD_MSG_FIELD_I(currentEdt.guid) = NULL_GUID;
+        PD_MSG_FIELD_I(currentEdt.metaDataPtr) = NULL;
+        PD_MSG_FIELD_I(slot) = slot;
 #ifdef REG_ASYNC_SGL
-    PD_MSG_FIELD_I(mode) = -1;
+        PD_MSG_FIELD_I(mode) = -1;
 #endif
-    PD_MSG_FIELD_I(properties) = 0;
-    RESULT_ASSERT(pd->fcts.processMessage(pd, &msg, true), ==, 0);
+        PD_MSG_FIELD_I(properties) = 0;
+        RESULT_ASSERT(pd->fcts.processMessage(pd, &msg, true), ==, 0);
 #undef PD_MSG
 #undef PD_TYPE
+    } else {
+        DPRINTF(DEBUG_LVL_INFO, "Worker aborted resilient latch update: "GUIDF"\n", GUIDA(latchGuid));
+    }
+    hal_fence(); //Fence ------------------
+    worker->jmpbuf = suspendedBuf;
     return 0;
 }
 
@@ -1666,10 +1684,10 @@ void processFailure() {
     case OCR_NODE_SHUTDOWN:
         break;
     case OCR_NODE_FAILURE_SELF:
-        salThreadExit();
+        salComputeThreadExitOnFailure();
         break;
     case OCR_NODE_FAILURE_OTHER:
-        salThreadRecover();
+        salComputeThreadWaitForRecovery();
         break;
     default:
         ASSERT(0);
