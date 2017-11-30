@@ -2755,6 +2755,23 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         break;
     }
 
+    case PD_MSG_SCHED_UPDATE: {
+        START_PROFILE(pd_hc_Sched_Update);
+#define PD_MSG msg
+#define PD_TYPE PD_MSG_SCHED_UPDATE
+        ASSERT(msg->srcLocation == self->myLocation);
+        PD_MSG_FIELD_O(returnDetail) =
+            self->schedulers[0]->fcts.update(
+                self->schedulers[0], PD_MSG_FIELD_I(properties));
+#undef PD_MSG
+#undef PD_TYPE
+        msg->type &= ~PD_MSG_REQUEST;
+        if (msg->type & PD_MSG_REQ_RESPONSE)
+            msg->type |= PD_MSG_RESPONSE;
+        EXIT_PROFILE;
+        break;
+    }
+
     case PD_MSG_DEP_ADD: {
         START_PROFILE(pd_hc_AddDep);
 #define PD_MSG msg

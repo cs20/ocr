@@ -1755,6 +1755,7 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
     case PD_MSG_EDTTEMP_CREATE:
     case PD_MSG_GUID_CREATE:
     case PD_MSG_SCHED_NOTIFY:
+    case PD_MSG_SCHED_UPDATE:
     case PD_MSG_SAL_OP:
     case PD_MSG_SAL_PRINT:
     case PD_MSG_SAL_READ:

@@ -72,6 +72,8 @@ typedef enum {
 #define OCR_SCHEDULER_HEURISTIC_UPDATE_PROP_NONE        0x0
 #define OCR_SCHEDULER_HEURISTIC_UPDATE_PROP_IDLE        0x1
 #define OCR_SCHEDULER_HEURISTIC_UPDATE_PROP_SHUTDOWN    0x2
+#define OCR_SCHEDULER_HEURISTIC_UPDATE_PROP_RESET       0x3
+#define OCR_SCHEDULER_HEURISTIC_UPDATE_PROP_FAULT       0x4
 
 /****************************************************/
 /* OCR SCHEDULER HEURISTIC CONTEXT                  */

@@ -351,6 +351,17 @@ u8 commonSchedulerUpdate(ocrScheduler_t *self, u32 properties) {
         }
         return 0;
 #endif
+#ifdef ENABLE_AMT_RESILIENCE
+    case OCR_SCHEDULER_UPDATE_PROP_FAULT: {
+            u32 i;
+            for (i = 0; i < self->schedulerHeuristicCount; i++) {
+                ocrSchedulerHeuristic_t *schedulerHeuristic = self->schedulerHeuristics[i];
+                schedulerHeuristic->fcts.update(schedulerHeuristic, OCR_SCHEDULER_HEURISTIC_UPDATE_PROP_FAULT);
+            }
+            return 0;
+        }
+        break;
+#endif
     default:
         break;
     }

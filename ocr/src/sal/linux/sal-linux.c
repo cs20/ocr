@@ -2325,10 +2325,21 @@ void salImportEdt(void * key, void * value, void * args) {
 //Recover from fault by re-executing all EDTs impacted by fault
 u8 salRecoverNodeFailureAtBuddy(ocrLocation_t nodeId) {
     ocrPolicyDomain_t *pd;
-    getCurrentEnv(&pd, NULL, NULL, NULL);
+    PD_MSG_STACK(msg);
+    getCurrentEnv(&pd, NULL, NULL, &msg);
 
     //Determine all EDT guids impacted by node failure
     salCreateEdtSetForRecovery(nodeId);
+
+    //Update scheduler state after fault
+#define PD_MSG (&msg)
+#define PD_TYPE PD_MSG_SCHED_UPDATE
+    msg.type = PD_MSG_SCHED_UPDATE | PD_MSG_REQUEST;
+    PD_MSG_FIELD_I(properties) = OCR_SCHEDULER_UPDATE_PROP_FAULT;
+    RESULT_ASSERT(pd->fcts.processMessage(pd, &msg, false), ==, 0);
+    ASSERT(PD_MSG_FIELD_O(returnDetail) == 0);
+#undef PD_MSG
+#undef PD_TYPE
 
     //Resume execution
     hal_fence();
@@ -2345,7 +2356,8 @@ u8 salRecoverNodeFailureAtBuddy(ocrLocation_t nodeId) {
 //Recover from fault by re-executing all EDTs impacted by fault
 u8 salRecoverNodeFailureAtNonBuddy(ocrLocation_t nodeId) {
     ocrPolicyDomain_t *pd;
-    getCurrentEnv(&pd, NULL, NULL, NULL);
+    PD_MSG_STACK(msg);
+    getCurrentEnv(&pd, NULL, NULL, &msg);
 
     //Build fault table on local node
     struct dirent **namelist;
@@ -2367,6 +2379,16 @@ u8 salRecoverNodeFailureAtNonBuddy(ocrLocation_t nodeId) {
         free(namelist[n]);
     }
     free(namelist);
+
+    //Update scheduler state after fault
+#define PD_MSG (&msg)
+#define PD_TYPE PD_MSG_SCHED_UPDATE
+    msg.type = PD_MSG_SCHED_UPDATE | PD_MSG_REQUEST;
+    PD_MSG_FIELD_I(properties) = OCR_SCHEDULER_UPDATE_PROP_FAULT;
+    RESULT_ASSERT(pd->fcts.processMessage(pd, &msg, false), ==, 0);
+    ASSERT(PD_MSG_FIELD_O(returnDetail) == 0);
+#undef PD_MSG
+#undef PD_TYPE
 
     //Resume execution
     hal_fence();

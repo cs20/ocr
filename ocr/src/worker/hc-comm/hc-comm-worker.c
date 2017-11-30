@@ -438,8 +438,6 @@ static void workShiftHcComm(ocrWorker_t * worker) {
         DPRINTF(DEBUG_LVL_WARN, "Worker aborted processing comm\n");
     }
     hal_fence();
-    worker->curTask = NULL;
-    worker->curMsg = NULL;
     worker->jmpbuf = NULL;
 #endif
 }

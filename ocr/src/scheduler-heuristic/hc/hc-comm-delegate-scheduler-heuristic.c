@@ -154,7 +154,34 @@ static void hcCommDelegateSchedulerHeuristicDestruct(ocrSchedulerHeuristic_t * s
 }
 
 static u8 hcCommDelegateSchedulerHeuristicUpdate(ocrSchedulerHeuristic_t *self, u32 properties) {
-    return OCR_ENOTSUP;
+    ocrSchedulerHeuristicHcCommDelegate_t * commSched = (ocrSchedulerHeuristicHcCommDelegate_t *) self;
+    switch(properties) {
+#ifdef ENABLE_AMT_RESILIENCE
+    case OCR_SCHEDULER_HEURISTIC_UPDATE_PROP_FAULT: {
+            u64 i, s;
+            deque_t ** outboxes = commSched->outboxes;
+            u64 outboxesCount = commSched->outboxesCount;
+            for (i = 0; i < outboxesCount; i++) {
+                deque_t * deque = outboxes[i];
+                u32 size = deque->size(deque);
+                for (s = 0; s < size; s++) {
+                    ocrMsgHandle_t *handle = deque->popFromHead(deque, 1);
+                    ocrPolicyMsg_t *message = handle->msg;
+                    if (!checkPlatformModelLocationFault(message->destLocation) && 
+                        !salCheckEdtFault(message->resilientEdtParent)) 
+                    {
+                        deque->pushAtTail(deque, handle, 0);
+                    }
+                }
+            }
+        }
+        break;
+#endif
+    default:
+        ASSERT(0);
+        return OCR_ENOTSUP;
+    }
+    return 0;
 }
 
 static ocrSchedulerHeuristicContext_t* hcCommDelegateSchedulerHeuristicGetContext(ocrSchedulerHeuristic_t *self, ocrLocation_t loc) {
