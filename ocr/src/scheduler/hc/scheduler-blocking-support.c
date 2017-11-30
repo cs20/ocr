@@ -28,11 +28,29 @@ static u8 masterHelper(ocrWorker_t * worker) {
 #endif
     // Save current worker context
     //BUG #204 this should be implemented in the worker
-    ocrTask_t * suspendedTask = worker->curTask;
 #ifdef ENABLE_AMT_RESILIENCE
+    if (worker->curMsg != NULL) {
+        ocrPolicyMsg_t *message = (ocrPolicyMsg_t*)worker->curMsg;
+        if (checkPlatformModelLocationFault(message->destLocation)) {
+            ASSERT(worker->jmpbuf != NULL);
+            abortCurrentWork();
+            ASSERT(0 && "Task aborted... (we should not be here)!!");
+        }
+    }
+    if (worker->curTask != NULL) { 
+        if (salCheckEdtFault(worker->curTask->resilientEdtParent)) {
+            ASSERT(worker->jmpbuf != NULL);
+            abortCurrentWork();
+            ASSERT(0 && "Task aborted... (we should not be here)!!");
+        }
+    }
     jmp_buf *suspendedBuf = worker->jmpbuf;
+    void *suspendedMsg = worker->curMsg;
     worker->jmpbuf = NULL;
+    worker->curMsg = NULL;
+    hal_fence();
 #endif
+    ocrTask_t * suspendedTask = worker->curTask;
     DPRINTF(DEBUG_LVL_VERB, "Shifting worker from EDT GUID "GUIDF"\n",
             GUIDA(suspendedTask->guid));
     // In helper mode, just try to execute another task
@@ -46,7 +64,9 @@ static u8 masterHelper(ocrWorker_t * worker) {
             GUIDA(suspendedTask->guid));
     worker->curTask = suspendedTask;
 #ifdef ENABLE_AMT_RESILIENCE
+    hal_fence();
     worker->jmpbuf = suspendedBuf;
+    worker->curMsg = suspendedMsg;
 #endif
 #ifdef ENABLE_RESILIENCY
     worker->edtDepth--;

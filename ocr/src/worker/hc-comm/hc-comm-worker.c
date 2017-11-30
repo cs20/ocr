@@ -422,8 +422,26 @@ static void workerLoopHcCommInternal(ocrWorker_t * worker, ocrPolicyDomain_t *pd
 }
 
 static void workShiftHcComm(ocrWorker_t * worker) {
-    ocrWorkerHcComm_t * rworker = (ocrWorkerHcComm_t *) worker;
-    workerLoopHcCommInternal(worker, worker->pd, rworker->processRequestTemplate, rworker->flushOutgoingComm);
+#ifdef ENABLE_AMT_RESILIENCE
+    ASSERT(worker->curTask == NULL);
+    ASSERT(worker->curMsg == NULL);
+    ASSERT(worker->jmpbuf == NULL);
+    jmp_buf buf;
+    int rc = setjmp(buf);
+    if (rc == 0) {
+        worker->jmpbuf = &buf;
+#endif
+        ocrWorkerHcComm_t * rworker = (ocrWorkerHcComm_t *) worker;
+        workerLoopHcCommInternal(worker, worker->pd, rworker->processRequestTemplate, rworker->flushOutgoingComm);
+#ifdef ENABLE_AMT_RESILIENCE
+    } else {
+        DPRINTF(DEBUG_LVL_WARN, "Worker aborted processing comm\n");
+    }
+    hal_fence();
+    worker->curTask = NULL;
+    worker->curMsg = NULL;
+    worker->jmpbuf = NULL;
+#endif
 }
 
 #ifdef ENABLE_RESILIENCY

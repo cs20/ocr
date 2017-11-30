@@ -94,6 +94,7 @@ void initializeWorkerOcr(ocrWorkerFactory_t * factory, ocrWorker_t * self, ocrPa
 #endif
 #ifdef ENABLE_AMT_RESILIENCE
     self->jmpbuf = NULL;
+    self->curMsg = NULL;
 #endif
 }
 
@@ -102,9 +103,8 @@ void initializeWorkerOcr(ocrWorkerFactory_t * factory, ocrWorker_t * self, ocrPa
 u8 abortCurrentWork() {
     ocrWorker_t *worker = NULL;
     getCurrentEnv(NULL, &worker, NULL, NULL);
-    if (worker->jmpbuf != NULL) {
-        longjmp(*(worker->jmpbuf), OCR_EFAULT);
-    }
+    ASSERT(worker->jmpbuf != NULL);
+    longjmp(*(worker->jmpbuf), OCR_EFAULT);
     return OCR_EFAULT;
 }
 #endif

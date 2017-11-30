@@ -411,6 +411,10 @@ u8 ocrEdtCreate(ocrGuid_t* edtGuidPtr, ocrGuid_t templateGuid,
         PD_MSG_FIELD_I(parentLatch.metaDataPtr) = NULL;
         //We enforce resilient EDTs to start their own finish scopes
         properties |= EDT_PROP_FINISH;
+        ocrGuid_t resilientLatch = PD_MSG_FIELD_I(resilientLatch);
+        if (!ocrGuidIsNull(resilientLatch)) {
+            resilientLatchUpdate(resilientLatch, OCR_EVENT_LATCH_RESCOUNT_INCR_SLOT);
+        }
     }
     PD_MSG_FIELD_I(key) = 0;
     PD_MSG_FIELD_I(ip) = (curEdt != NULL) ? (u64)__builtin_return_address(0)  : 0;

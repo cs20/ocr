@@ -1840,11 +1840,22 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
             ocrMsgHandle_t * handle = NULL;
             self->fcts.sendMessage(self, msg->destLocation, msg, &handle, properties);
             // Wait on the response handle for the communication to complete.
+#ifdef ENABLE_AMT_RESILIENCE
+            ocrWorker_t *worker = NULL;
+            getCurrentEnv(NULL, &worker, NULL, NULL);
+            void *oldMsg = worker->curMsg;
+            worker->curMsg = (void*)msg;
+            hal_fence();
+#endif
             DPRINTF(DEBUG_LVL_VVERB,"Waiting for reply from %"PRId32"\n", (u32)msg->destLocation);
             self->fcts.waitMessage(self, &handle);
             DPRINTF(DEBUG_LVL_VVERB,"Received reply from %"PRId32" for original message @ %p\n",
                     (u32)msg->destLocation, originalMsg);
             ASSERT(handle->response != NULL);
+#ifdef ENABLE_AMT_RESILIENCE
+            hal_fence();
+            worker->curMsg = oldMsg;
+#endif
 
             // Check if we need to copy the response header over to the request msg.
             // Happens when the message includes some additional variable size payload
@@ -2484,11 +2495,16 @@ u8 hcDistPdSendMessage(ocrPolicyDomain_t* self, ocrLocation_t target, ocrPolicyM
     ASSERT(((s32)target) > -1);
     ASSERT(message->srcLocation == self->myLocation);
     ASSERT(message->destLocation != self->myLocation);
+#ifdef ENABLE_AMT_RESILIENCE
+    salRecordEdtAtNode(message->resilientEdtParent, target);
+    if (checkPlatformModelLocationFault(target)) {
+        DPRINTF(DEBUG_LVL_WARN,"Abort at SEND: msg: %lx dest: %lu\n", (message->type & PD_MSG_TYPE_ONLY), (u64)target);
+        abortCurrentWork();
+        ASSERT(0 && "We should not be here");
+    }
+#endif
     u32 id = worker->id;
     u8 ret = self->commApis[id]->fcts.sendMessage(self->commApis[id], target, message, handle, properties);
-#ifdef ENABLE_AMT_RESILIENCE
-    ASSERT(ret != OCR_EFAULT);
-#endif
     return ret;
 }
 
@@ -2500,9 +2516,6 @@ u8 hcDistPdPollMessage(ocrPolicyDomain_t *self, ocrMsgHandle_t **handle) {
     getCurrentEnv(NULL, &worker, NULL, NULL);
     u32 id = worker->id;
     u8 ret = self->commApis[id]->fcts.pollMessage(self->commApis[id], handle);
-#ifdef ENABLE_AMT_RESILIENCE
-    ASSERT(ret != OCR_EFAULT);
-#endif
     return ret;
 }
 
@@ -2514,9 +2527,6 @@ u8 hcDistPdWaitMessage(ocrPolicyDomain_t *self,  ocrMsgHandle_t **handle) {
     getCurrentEnv(NULL, &worker, NULL, NULL);
     u32 id = worker->id;
     u8 ret = self->commApis[id]->fcts.waitMessage(self->commApis[id], handle);
-#ifdef ENABLE_AMT_RESILIENCE
-    ASSERT(ret != OCR_EFAULT);
-#endif
     return ret;
 }
 

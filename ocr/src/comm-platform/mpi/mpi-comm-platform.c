@@ -352,8 +352,8 @@ static int testAnyFromPool(int count, MPI_Request * requestArray, mpiCommHandle_
 }
 
 #ifdef ENABLE_AMT_RESILIENCE
-#define OCR_HEARTBEAT_INTERVAL  10000000UL /*  10 miliseconds */
-#define OCR_HEARTBEAT_TIMEOUT  100000000UL /* 100 miliseconds */
+#define OCR_HEARTBEAT_INTERVAL   10000000UL /*   10 miliseconds */
+#define OCR_HEARTBEAT_TIMEOUT  1000000000UL /* 1000 miliseconds */
 
 static void mpiFreezeAndExit(ocrCommPlatform_t * self) {
     salWaitForAllComputeThreadExit();
@@ -378,6 +378,7 @@ static void mpiFreezeAndExit(ocrCommPlatform_t * self) {
     MPI_Cancel(&mpiComm->hbRecvReq);
     MPI_Cancel(&mpiComm->faultReq);
 
+    DPRINTF(DEBUG_LVL_WARN, "Fault injection: PD going down...\n");
     MPI_Finalize();
     exit(0);
 }
@@ -869,13 +870,6 @@ static u8 MPICommSendMessage(ocrCommPlatform_t * self,
     START_PROFILE(commplt_MPICommSendMessage);
 #ifdef ENABLE_AMT_RESILIENCE
     AMT_RESILIENCE_CHECK_FOR_FAULT(self);
-    /*if (checkPlatformModelLocationFault(target)) {
-        if (self->pd->faultCode == OCR_NODE_SHUTDOWN) {
-            DPRINTF(DEBUG_LVL_WARN, "OCR Shutdown using MPI_Abort\n");
-            MPI_Abort(MPI_COMM_WORLD, 0);
-        }
-        RETURN_PROFILE(OCR_EFAULT);
-    }*/
 #endif
     u64 bufferSize = message->bufferSize;
     ocrCommPlatformMPI_t * mpiComm = ((ocrCommPlatformMPI_t *) self);
@@ -1026,7 +1020,8 @@ static u8 MPICommPollMessage(ocrCommPlatform_t *self, ocrPolicyMsg_t **msg,
     DPRINTF(DEBUG_LVL_NEWMPI,"[MPI %"PRIu64"] Illegal runlevel[%"PRId32"] reached in MPI-comm-platform pollMessage\n",
             mpiRankToLocation(self->pd->myLocation), (mpiComm->curState >> 4));
     ASSERT_BLOCK_END
-    return MPICommPollMessageInternal(self, msg, properties, mask);
+    u8 ret = MPICommPollMessageInternal(self, msg, properties, mask);
+    return ret;
 }
 
 static u8 MPICommWaitMessage(ocrCommPlatform_t *self, ocrPolicyMsg_t **msg,

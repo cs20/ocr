@@ -2217,10 +2217,6 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         taskparams.key = PD_MSG_FIELD_I(key);
         taskparams.ip = PD_MSG_FIELD_I(ip);
         taskparams.ac = PD_MSG_FIELD_I(ac);
-
-        if ((PD_MSG_FIELD_I(properties) & EDT_PROP_RESILIENT) && !ocrGuidIsNull(resilientLatch)) {
-            resilientLatchUpdate(resilientLatch, OCR_EVENT_LATCH_RESCOUNT_INCR_SLOT);
-        }
 #endif
         ocrParamList_t *paramList = (ocrParamList_t*)(&taskparams);
 

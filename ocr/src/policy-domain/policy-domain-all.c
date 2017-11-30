@@ -1637,13 +1637,8 @@ u8 resilientLatchUpdate(ocrGuid_t latchGuid, u32 slot) {
     ocrPolicyDomain_t *pd = NULL;
     ocrWorker_t *worker = NULL;
     getCurrentEnv(&pd, &worker, NULL, &msg);
-    ocrLocation_t loc;
-    pd->guidProviders[0]->fcts.getLocation(pd->guidProviders[0], latchGuid, &loc);
-    if (checkPlatformModelLocationFault(loc)) {
-        DPRINTF(DEBUG_LVL_INFO, "Worker aborted resilient latch update: "GUIDF"\n", GUIDA(latchGuid));
-        return OCR_EFAULT;
-    }
-    hal_fence(); //Fence ------------------
+    ocrTask_t *suspendedTask = worker->curTask;
+    void *suspendedMsg = worker->curMsg;
     jmp_buf *suspendedBuf = worker->jmpbuf;
     jmp_buf buf;
     int rc = setjmp(buf);
@@ -1669,9 +1664,11 @@ u8 resilientLatchUpdate(ocrGuid_t latchGuid, u32 slot) {
 #undef PD_MSG
 #undef PD_TYPE
     } else {
-        DPRINTF(DEBUG_LVL_INFO, "Worker aborted resilient latch update: "GUIDF"\n", GUIDA(latchGuid));
+        DPRINTF(DEBUG_LVL_WARN, "Worker aborted processing resilientLatchUpdate\n");
     }
-    hal_fence(); //Fence ------------------
+    hal_fence();
+    worker->curTask = suspendedTask;
+    worker->curMsg = suspendedMsg;
     worker->jmpbuf = suspendedBuf;
     return 0;
 }

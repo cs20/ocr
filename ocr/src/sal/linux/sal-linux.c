@@ -626,11 +626,19 @@ typedef enum {
 
 typedef struct _salWaiterSlot {
     volatile ocrGuid_t dep;
-    salWaiterSlotStatus_t status;
+    volatile salWaiterSlotStatus_t status;
 } salWaiterSlot_t;
+
+typedef enum {
+    WAITER_ACTIVE,
+    WAITER_BLOCKED,
+    WAITER_DONE,
+} salWaiterStatus_t;
 
 typedef struct _salWaiter {
     ocrGuid_t guid;
+    ocrGuid_t resilientEdtParent;
+    volatile salWaiterStatus_t status;
     ocrGuidKind kind;
     u32 slotc;
     salWaiterSlot_t *slotv;
@@ -1078,7 +1086,7 @@ static void salInsertSalWaiter(salWaiter_t *salWaiterNew) {
     } while(salWaiterOld != salWaiterCur);
 }
 
-static void salWaiterCreate(ocrGuid_t guid, u32 slotc) {
+static void salWaiterCreate(ocrGuid_t guid, ocrGuid_t resilientEdtParent, u32 slotc) {
     u32 i;
     ocrPolicyDomain_t *pd;
     if (slotc == 0) return;
@@ -1088,6 +1096,8 @@ static void salWaiterCreate(ocrGuid_t guid, u32 slotc) {
     u64 size = sizeof(salWaiter_t) + slotc * sizeof(salWaiterSlot_t);
     salWaiter_t *waiter = pd->fcts.pdMalloc(pd, size);
     waiter->guid = guid;
+    waiter->resilientEdtParent = resilientEdtParent;
+    waiter->status = WAITER_ACTIVE;
     waiter->kind = kind;
     waiter->slotc = slotc;
     waiter->slotv = (salWaiterSlot_t*)((u64)waiter + sizeof(salWaiter_t));
@@ -1172,9 +1182,35 @@ static u8 salResilientGuidSatisfy(ocrGuid_t guid, u32 slot, ocrGuid_t data) {
     return 0;
 }
 
+static u8 salResilientEdtSatisfy(salWaiter_t *waiter) {
+    u32 i;
+    ocrWorker_t *worker = NULL;
+    getCurrentEnv(NULL, &worker, NULL, NULL);
+    ASSERT(worker->curTask == NULL);
+    ASSERT(worker->curMsg == NULL);
+    ASSERT(worker->jmpbuf == NULL);
+    jmp_buf buf;
+    int rc = setjmp(buf);
+    if (rc == 0) {
+        worker->jmpbuf = &buf;
+        for (i = 0; i < waiter->slotc; i++) {
+            ASSERT(waiter->slotv[i].status == DEP_READY);
+            salResilientGuidSatisfy(waiter->guid, i, waiter->slotv[i].dep);
+        }
+    } else {
+        DPRINTF(DEBUG_LVL_WARN, "Worker aborted scheduling EDT "GUIDF"\n", GUIDA(waiter->guid));
+    }
+    hal_fence();
+    waiter->status = WAITER_DONE;
+    worker->curTask = NULL;
+    worker->curMsg = NULL;
+    worker->jmpbuf = NULL;
+    return 1;
+}
+
 static u8 salWaiterCheck(salWaiter_t *waiter, u8 doPrint) {
     u32 i;
-
+    ASSERT(waiter->status == WAITER_ACTIVE);
     if (doPrint && waiter->kind == OCR_GUID_EDT) {
         DPRINTF(DEBUG_LVL_NONE, "[Waiter Advance] EDT: 0x%lx Slots: (0, 0x%lx, %d), (1, 0x%lx, %d), (2, 0x%lx, %d), (3, 0x%lx, %d)\n", (u64)waiter->guid.guid, 
             (u64)waiter->slotv[0].dep.guid, waiter->slotv[0].status,
@@ -1182,9 +1218,12 @@ static u8 salWaiterCheck(salWaiter_t *waiter, u8 doPrint) {
             (u64)waiter->slotv[2].dep.guid, waiter->slotv[2].status,
             (u64)waiter->slotv[3].dep.guid, waiter->slotv[3].status);
     }
-    if (salIsSatisfiedResilientGuid(waiter->guid)) {
-        ASSERT(waiter->kind & OCR_GUID_EVENT);
-        return 1;
+
+    if ((waiter->kind == OCR_GUID_EDT && salCheckEdtFault(waiter->resilientEdtParent)) ||
+        (waiter->kind == OCR_GUID_EVENT && salIsSatisfiedResilientGuid(waiter->guid))) 
+    {
+        waiter->status = WAITER_DONE;
+        return 0;
     }
 
     ASSERT(waiter->slotc > 0);
@@ -1228,23 +1267,25 @@ static u8 salWaiterCheck(salWaiter_t *waiter, u8 doPrint) {
         DPRINTF(DEBUG_LVL_NONE, "[Waiter Advance] EDT: 0x%lx i: %d\n", (u64)waiter->guid.guid, i);
     }
 
+    u8 ret = 0;
     if (i == waiter->slotc) 
     {
         if (waiter->kind == OCR_GUID_EDT) {
             DPRINTF(DEBUG_LVL_VERB, "[Waiter EdtSatisfy] EDT: 0x%lx\n", (u64)waiter->guid.guid);
-            for (i = 0; i < waiter->slotc; i++) {
-                ASSERT(waiter->slotv[i].status == DEP_READY);
-                salResilientGuidSatisfy(waiter->guid, i, waiter->slotv[i].dep);
-            }
+            waiter->status = WAITER_BLOCKED;
+            hal_fence();
+            RESULT_ASSERT(hal_cmpswap32((u32*)&salWaiterMaster, 1, 0), ==, 1); //Relinquish waiter master
+            ret = salResilientEdtSatisfy(waiter);
         } else {
+            DPRINTF(DEBUG_LVL_VERB, "[Waiter EventSatisfy] EVT: 0x%lx DATA: 0x%lx\n", (u64)waiter->guid.guid, (u64)waiter->slotv[0].dep.guid);
+            waiter->status = WAITER_DONE;
+            hal_fence();
             ASSERT(waiter->kind & OCR_GUID_EVENT);
             ASSERT(waiter->slotv[0].status == DEP_READY);
-            DPRINTF(DEBUG_LVL_VERB, "[Waiter EventSatisfy] EVT: 0x%lx DATA: 0x%lx\n", (u64)waiter->guid.guid, (u64)waiter->slotv[0].dep.guid);
             RESULT_ASSERT(salResilientEventSatisfy(waiter->guid, 0, waiter->slotv[0].dep), ==, 0);
         }
-        return 1;
     }
-    return 0;
+    return ret;
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1254,7 +1295,7 @@ static u8 salWaiterCheck(salWaiter_t *waiter, u8 doPrint) {
 //Record a new resilient task
 u8 salResilientEdtCreate(ocrTask_t *task, ocrGuid_t pguid, u64 key, u64 ip, u64 ac) {
     DPRINTF(DEBUG_LVL_INFO, "[EdtCreate] EDT: 0x%lx\n", (u64)task->guid.guid);
-    salWaiterCreate(task->guid, task->depc);
+    salWaiterCreate(task->guid, task->resilientEdtParent, task->depc);
     return salResilientGuidCreate(task->guid, pguid, key, ip, ac);
 }
 
@@ -1267,7 +1308,7 @@ u8 salResilientDbCreate(ocrDataBlock_t *db, ocrGuid_t pguid, u64 key, u64 ip, u6
 //Record a new resilient event
 u8 salResilientEventCreate(ocrEvent_t *evt, ocrGuid_t pguid, u64 key, u64 ip, u64 ac) {
     DPRINTF(DEBUG_LVL_INFO, "[EventCreate] EVT: 0x%lx\n", (u64)evt->guid.guid);
-    salWaiterCreate(evt->guid, 1);
+    salWaiterCreate(evt->guid, NULL_GUID, 1);
     return salResilientGuidCreate(evt->guid, pguid, key, ip, ac);
 }
 
@@ -1439,7 +1480,7 @@ u8 salResilientGuidConnect(ocrGuid_t keyGuid, ocrGuid_t valGuid) {
 
 u8 salResilientAdvanceWaiters() {
     u32 masterOldVal = hal_cmpswap32((u32*)&salWaiterMaster, 0, 1);
-    if (masterOldVal == 1) return 1;
+    if (masterOldVal == 1) return 0;
     hal_fence();
 
     u8 doPrint = 0;
@@ -1454,8 +1495,12 @@ u8 salResilientAdvanceWaiters() {
     salWaiter_t *waiter = (salWaiter_t*)salWaiterListHead;
     salWaiter_t *waiterPrev = NULL;
     while (waiter != NULL) {
-        u8 done = salWaiterCheck(waiter, doPrint);
-        if (done) {
+        if (waiter->status == WAITER_ACTIVE) {
+            u8 ret = salWaiterCheck(waiter, doPrint);
+            if (ret) return ret;
+        }
+
+        if (waiter->status == WAITER_DONE) {
             DPRINTF(DEBUG_LVL_VERB, "[Waiter Done] 0x%lx\n", (u64)waiter->guid.guid);
             salWaiter_t *waiterNext = waiter->next;
             salWaiter_t *waiterHead = NULL;
@@ -1482,7 +1527,7 @@ u8 salResilientAdvanceWaiters() {
     }
 
     hal_fence();
-    salWaiterMaster = 0;
+    RESULT_ASSERT(hal_cmpswap32((u32*)&salWaiterMaster, 1, 0), ==, 1);
     return 0;
 }
 
