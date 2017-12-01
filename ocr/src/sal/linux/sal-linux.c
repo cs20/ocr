@@ -648,8 +648,8 @@ typedef struct _salWaiter {
 static volatile salWaiter_t *salWaiterListHead = NULL;
 static volatile u32 salWaiterMaster = 0;
 
-static u64 lastTime = 0UL;
-#define ADV_TIMEOUT  1000000000UL /* 1000 miliseconds */
+static u64 lastAdvanceTime = 0UL;
+#define DEADLOCK_TIMEOUT  5000000000UL /* 10 seconds */
 
 ///////////////////////////////////////////////////////////////////////////////
 //////////////////////////////  Init/Destroy Functions  ///////////////////////
@@ -717,7 +717,7 @@ void salInitPublishFetch() {
         ASSERT(0);
         return;
     }
-    lastTime = salGetTime();
+    lastAdvanceTime = salGetTime();
     pfIsInitialized = 1;
 }
 
@@ -1208,16 +1208,53 @@ static u8 salResilientEdtSatisfy(salWaiter_t *waiter) {
     return 1;
 }
 
-static u8 salWaiterCheck(salWaiter_t *waiter, u8 doPrint) {
+#define MAX_DEP_PRINT 8 //Maximum number of dep ids to print. This should match max number of FMT_D#, FMT_A# and CASE_DEP#.
+
+#define FMT_D(x) "[#"#x": 0x%lx, %d], "
+#define FMT_D0 FMT_D(0)
+#define FMT_D1 FMT_D0 FMT_D(1)
+#define FMT_D2 FMT_D1 FMT_D(2)
+#define FMT_D3 FMT_D2 FMT_D(3)
+#define FMT_D4 FMT_D3 FMT_D(4)
+#define FMT_D5 FMT_D4 FMT_D(5)
+#define FMT_D6 FMT_D5 FMT_D(6)
+#define FMT_D7 FMT_D6 FMT_D(7)
+#define FMT_D8 FMT_D7 FMT_D(8)
+
+#define WAITER_SLOT_GUID(s) ((waiter->slotc>s) ? (u64)waiter->slotv[s].dep.guid : 0)
+#define WAITER_SLOT_STAT(s) ((waiter->slotc>s) ? waiter->slotv[s].status : DEP_UNKNOWN)
+#define FMT_A(x) ,WAITER_SLOT_GUID(x),WAITER_SLOT_STAT(x)
+#define FMT_A0 FMT_A(0)
+#define FMT_A1 FMT_A0 FMT_A(1)
+#define FMT_A2 FMT_A1 FMT_A(2)
+#define FMT_A3 FMT_A2 FMT_A(3)
+#define FMT_A4 FMT_A3 FMT_A(4)
+#define FMT_A5 FMT_A4 FMT_A(5)
+#define FMT_A6 FMT_A5 FMT_A(6)
+#define FMT_A7 FMT_A6 FMT_A(7)
+#define FMT_A8 FMT_A7 FMT_A(8)
+
+#define PRINT_DEP_STRING(x) DPRINTF(DEBUG_LVL_NONE, "[Waiter Advance] EDT: 0x%lx SLOT: %d DEPS[%d]: " FMT_D##x "\n", (u64)waiter->guid.guid, i, waiter->slotc FMT_A##x)
+
+#define CASE_DEFAULT(x) default: PRINT_DEP_STRING(x); break;
+#define CASE_DEP(x)  case x: PRINT_DEP_STRING(x); break;
+#define CASE_DEP0    case 0: ASSERT(0); break;
+#define CASE_DEP1 CASE_DEP0 CASE_DEP(1)
+#define CASE_DEP2 CASE_DEP1 CASE_DEP(2)
+#define CASE_DEP3 CASE_DEP2 CASE_DEP(3)
+#define CASE_DEP4 CASE_DEP3 CASE_DEP(4)
+#define CASE_DEP5 CASE_DEP4 CASE_DEP(5)
+#define CASE_DEP6 CASE_DEP5 CASE_DEP(6)
+#define CASE_DEP7 CASE_DEP6 CASE_DEP(7)
+#define CASE_DEP8 CASE_DEP7 CASE_DEP(8)
+
+#define PRINT_CASE(x) CASE_DEP##x CASE_DEFAULT(x)
+#define WAITER_PRINT_DEPS(x,y) switch(x) {PRINT_CASE(y)}
+#define WAITER_PRINT_EDT(x) WAITER_PRINT_DEPS((x-1), MAX_DEP_PRINT)
+
+static u8 salWaiterCheck(salWaiter_t *waiter, u8 deadlockPrint) {
     u32 i;
     ASSERT(waiter->status == WAITER_ACTIVE);
-    if (doPrint && waiter->kind == OCR_GUID_EDT) {
-        DPRINTF(DEBUG_LVL_NONE, "[Waiter Advance] EDT: 0x%lx Slots: (0, 0x%lx, %d), (1, 0x%lx, %d), (2, 0x%lx, %d), (3, 0x%lx, %d)\n", (u64)waiter->guid.guid, 
-            (u64)waiter->slotv[0].dep.guid, waiter->slotv[0].status,
-            (u64)waiter->slotv[1].dep.guid, waiter->slotv[1].status,
-            (u64)waiter->slotv[2].dep.guid, waiter->slotv[2].status,
-            (u64)waiter->slotv[3].dep.guid, waiter->slotv[3].status);
-    }
 
     if ((waiter->kind == OCR_GUID_EDT && salCheckEdtFault(waiter->resilientEdtParent)) ||
         (waiter->kind == OCR_GUID_EVENT && salIsSatisfiedResilientGuid(waiter->guid))) 
@@ -1263,13 +1300,13 @@ static u8 salWaiterCheck(salWaiter_t *waiter, u8 doPrint) {
         if (waiter->slotv[i].status != DEP_READY) 
             break;
     }
-    if (doPrint && waiter->kind == OCR_GUID_EDT) {
-        DPRINTF(DEBUG_LVL_NONE, "[Waiter Advance] EDT: 0x%lx i: %d\n", (u64)waiter->guid.guid, i);
-    }
 
     u8 ret = 0;
     if (i == waiter->slotc) 
     {
+#if DO_PRINT_DEADLOCK
+        lastAdvanceTime = salGetTime();
+#endif
         if (waiter->kind == OCR_GUID_EDT) {
             DPRINTF(DEBUG_LVL_VERB, "[Waiter EdtSatisfy] EDT: 0x%lx\n", (u64)waiter->guid.guid);
             waiter->status = WAITER_BLOCKED;
@@ -1284,6 +1321,12 @@ static u8 salWaiterCheck(salWaiter_t *waiter, u8 doPrint) {
             ASSERT(waiter->slotv[0].status == DEP_READY);
             RESULT_ASSERT(salResilientEventSatisfy(waiter->guid, 0, waiter->slotv[0].dep), ==, 0);
         }
+    } else {
+#if DO_PRINT_DEADLOCK
+        if (deadlockPrint && waiter->kind == OCR_GUID_EDT) {
+            WAITER_PRINT_EDT(waiter->slotc);
+        }
+#endif
     }
     return ret;
 }
@@ -1483,12 +1526,12 @@ u8 salResilientAdvanceWaiters() {
     if (masterOldVal == 1) return 0;
     hal_fence();
 
-    u8 doPrint = 0;
+    u8 deadlockPrint = 0;
 #if DO_PRINT_DEADLOCK
     u64 curTime = salGetTime();
-    if ((curTime - lastTime) > ADV_TIMEOUT) {
-        lastTime = curTime;
-        doPrint = 1;
+    if ((curTime - lastAdvanceTime) > DEADLOCK_TIMEOUT) {
+        lastAdvanceTime = curTime;
+        deadlockPrint = 1;
     }
 #endif
 
@@ -1496,7 +1539,7 @@ u8 salResilientAdvanceWaiters() {
     salWaiter_t *waiterPrev = NULL;
     while (waiter != NULL) {
         if (waiter->status == WAITER_ACTIVE) {
-            u8 ret = salWaiterCheck(waiter, doPrint);
+            u8 ret = salWaiterCheck(waiter, deadlockPrint);
             if (ret) return ret;
         }
 
@@ -1743,6 +1786,43 @@ u8 salRecordEdtAtNode(ocrGuid_t guid, ocrLocation_t loc) {
     int rc = close(fd);
     if (rc) {
         fprintf(stderr, "close failed: (filedesc: %d)\n", fd);
+        ASSERT(0);
+        return 1;
+    }
+    return 0;
+}
+
+u8 salRecordMainEdt() {
+    //Create main file
+    char fname[FNL];
+    int c = snprintf(fname, FNL, "main.edt");
+    if (c < 0 || c >= FNL) {
+        fprintf(stderr, "failed to create filename for publish\n");
+        ASSERT(0);
+        return 1;
+    }
+    salPublishMetaData(fname, NULL, 0, 0);
+    return 0;
+}
+
+u8 salDestroyMainEdt() {
+    //Remove EDT metadata
+    char fname[FNL];
+    int c = snprintf(fname, FNL, "main.edt");
+    if (c < 0 || c >= FNL) {
+        fprintf(stderr, "failed to create filename for EDT\n");
+        ASSERT(0);
+        return 1;
+    }
+    struct stat sb;
+    if (stat(fname, &sb) != 0) {
+        fprintf(stderr, "Cannot find main.edt during remove!\n");
+        ASSERT(0);
+        return 1;
+    }
+    int rc = unlink(fname);
+    if (rc) {
+        fprintf(stderr, "unlink failed: (filename: %s)\n", fname);
         ASSERT(0);
         return 1;
     }
@@ -2207,9 +2287,16 @@ static u8 salCreateEdtSetForRecovery(ocrLocation_t nodeId) {
         ASSERT(0);
         return 1;
     }
-    salCreateEdtSetForRecoveryExtensions(extension);
-
-    salCreateRootEdtSetForRecovery(nodeId);
+    int rc = salCreateEdtSetForRecoveryExtensions(extension);
+    if (rc) {
+        DPRINTF(DEBUG_LVL_WARN, "Failed to create EDT set for recovery for extension %s\n", extension);
+        return 1;
+    }
+    rc = salCreateRootEdtSetForRecovery(nodeId);
+    if (rc) {
+        DPRINTF(DEBUG_LVL_WARN, "Failed to create root EDT set for recovery\n");
+        return 1;
+    }
     return 0;
 }
 
@@ -2318,7 +2405,7 @@ void salImportEdt(void * key, void * value, void * args) {
     ocrGuid_t edt = edtBuf->guid;
     ocrGuid_t oEvt;
     ocrEdtCreate(&edt, tmpl, edtBuf->paramc, edtBuf->paramv, edtBuf->depc, edtBuf->depv, EDT_PROP_RESILIENT | EDT_PROP_RECOVERY, NULL_HINT, &oEvt);
-    DPRINTF(DEBUG_LVL_INFO, "Recovery EDT created: GUID "GUIDF" (OLD GUID "GUIDF")\n", GUIDA(edt), GUIDA(edtBuf->guid));
+    DPRINTF(DEBUG_LVL_WARN, "Recovery EDT created: GUID "GUIDF" (OLD GUID "GUIDF")\n", GUIDA(edt), GUIDA(edtBuf->guid));
     pd->fcts.pdFree(pd, buf);
 }
 
@@ -2328,8 +2415,25 @@ u8 salRecoverNodeFailureAtBuddy(ocrLocation_t nodeId) {
     PD_MSG_STACK(msg);
     getCurrentEnv(&pd, NULL, NULL, &msg);
 
+    char fname[FNL];
+    int c = snprintf(fname, FNL, "main.edt");
+    if (c < 0 || c >= FNL) {
+        fprintf(stderr, "failed to create filename for EDT\n");
+        ASSERT(0);
+        return 1;
+    }
+    struct stat sb;
+    if (stat(fname, &sb) == 0) {
+        DPRINTF(DEBUG_LVL_WARN, "Found incomplete main EDT. Aborting recovery...\n");
+        return 1;
+    }
+
     //Determine all EDT guids impacted by node failure
-    salCreateEdtSetForRecovery(nodeId);
+    int rc = salCreateEdtSetForRecovery(nodeId);
+    if (rc) {
+        DPRINTF(DEBUG_LVL_WARN, "Failed to create EDT set for recovery\n");
+        return 1;
+    }
 
     //Update scheduler state after fault
 #define PD_MSG (&msg)
