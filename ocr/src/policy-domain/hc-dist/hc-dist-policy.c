@@ -287,6 +287,16 @@ u8 resolveRemoteMetaData(ocrPolicyDomain_t * pd, ocrFatGuid_t * fatGuid,
         }
         ASSERT(res == OCR_EPEND);
         if (isBlocking) {
+#ifdef ENABLE_AMT_RESILIENCE
+            ocrLocation_t waitloc = UNDEFINED_LOCATION;
+            pd->guidProviders[0]->fcts.getLocation(pd->guidProviders[0], fatGuid->guid, &waitloc);
+            ASSERT(waitloc != UNDEFINED_LOCATION);
+            ocrWorker_t *worker = NULL;
+            getCurrentEnv(NULL, &worker, NULL, NULL);
+            ASSERT(worker->waitloc == UNDEFINED_LOCATION);
+            worker->waitloc = waitloc;
+            hal_fence();
+#endif
             // Busy-wait and return only when the metadata is resolved
             DPRINTF(DEBUG_LVL_VVERB,"Resolving metadata: enter busy-wait for blocking call\n");
             do {
@@ -306,6 +316,10 @@ u8 resolveRemoteMetaData(ocrPolicyDomain_t * pd, ocrFatGuid_t * fatGuid,
             } while(val == 0);
             fatGuid->metaDataPtr = (void *) val;
             DPRINTF(DEBUG_LVL_VVERB,"Resolving metadata: exit busy-wait for blocking call\n");
+#ifdef ENABLE_AMT_RESILIENCE
+            hal_fence();
+            worker->waitloc = UNDEFINED_LOCATION;
+#endif
         } else {
             ASSERT(mdProxy != NULL);
             ASSERT(msg != NULL);
@@ -1844,8 +1858,8 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
 #ifdef ENABLE_AMT_RESILIENCE
             ocrWorker_t *worker = NULL;
             getCurrentEnv(NULL, &worker, NULL, NULL);
-            void *oldMsg = worker->curMsg;
-            worker->curMsg = (void*)msg;
+            ASSERT(worker->waitloc == UNDEFINED_LOCATION);
+            worker->waitloc = msg->destLocation;
             hal_fence();
 #endif
             DPRINTF(DEBUG_LVL_VVERB,"Waiting for reply from %"PRId32"\n", (u32)msg->destLocation);
@@ -1855,7 +1869,7 @@ u8 hcDistProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8 isBlock
             ASSERT(handle->response != NULL);
 #ifdef ENABLE_AMT_RESILIENCE
             hal_fence();
-            worker->curMsg = oldMsg;
+            worker->waitloc = UNDEFINED_LOCATION;
 #endif
 
             // Check if we need to copy the response header over to the request msg.

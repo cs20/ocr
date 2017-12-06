@@ -423,8 +423,8 @@ static void workerLoopHcCommInternal(ocrWorker_t * worker, ocrPolicyDomain_t *pd
 
 static void workShiftHcComm(ocrWorker_t * worker) {
 #ifdef ENABLE_AMT_RESILIENCE
+    ASSERT(worker->waitloc == UNDEFINED_LOCATION);
     ASSERT(worker->curTask == NULL);
-    ASSERT(worker->curMsg == NULL);
     ASSERT(worker->jmpbuf == NULL);
     jmp_buf buf;
     int rc = setjmp(buf);

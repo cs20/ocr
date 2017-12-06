@@ -80,10 +80,12 @@ u8 affinityToLocation(ocrLocation_t* result, ocrGuid_t affinityGuid) {
 }
 
 #ifdef ENABLE_AMT_RESILIENCE
+//Notify platform of a node failure
 u8 notifyPlatformModelLocationFault(ocrLocation_t loc) {
     u64 i, j;
     ocrPolicyDomain_t * pd;
     getCurrentEnv(&pd, NULL, NULL, NULL);
+    ASSERT(loc != pd->myLocation);
     ocrPlatformModelAffinity_t * model = (ocrPlatformModelAffinity_t *) (pd->platformModel);
     ASSERT((model->nodevec[loc/64] & (0x1UL << (loc % 64))) == 0);
     model->nodevec[loc/64] |= (0x1UL << (loc % 64));

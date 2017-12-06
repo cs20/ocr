@@ -266,8 +266,8 @@ static void hcWorkShift(ocrWorker_t * worker) {
 
 #ifdef ENABLE_AMT_RESILIENCE
 static void hcWorkShiftResilient(ocrWorker_t * worker) {
+    ASSERT(worker->waitloc == UNDEFINED_LOCATION);
     ASSERT(worker->curTask == NULL);
-    ASSERT(worker->curMsg == NULL);
     ASSERT(worker->jmpbuf == NULL);
 
     processFailure();
@@ -290,13 +290,13 @@ static void hcWorkShiftResilient(ocrWorker_t * worker) {
         }
         DPRINTF(DEBUG_LVL_WARN, "Worker aborted executing EDT "GUIDF"\n", GUIDA(worker->curTask->guid));
         worker->curTask = NULL;
-        worker->curMsg = NULL;
+        worker->waitloc = UNDEFINED_LOCATION;
     }
 
     hal_fence(); //Fence ------------------
 
+    ASSERT(worker->waitloc == UNDEFINED_LOCATION);
     ASSERT(worker->curTask == NULL);
-    ASSERT(worker->curMsg == NULL);
     worker->jmpbuf = NULL;
 }
 #endif

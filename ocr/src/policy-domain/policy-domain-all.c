@@ -1632,13 +1632,15 @@ void tagDeferredMsg(ocrPolicyMsg_t * msg, ocrTask_t * task) {
 #endif
 
 #ifdef ENABLE_AMT_RESILIENCE
-u8 resilientLatchUpdate(ocrGuid_t latchGuid, u32 slot) {
+u8 resilientLatchUpdate(ocrGuid_t latchGuid, u32 slot, ocrGuid_t resilientEdtParent) {
     PD_MSG_STACK(msg);
     ocrPolicyDomain_t *pd = NULL;
     ocrWorker_t *worker = NULL;
     getCurrentEnv(&pd, &worker, NULL, &msg);
+    if (ocrGuidIsNull(msg.resilientEdtParent))
+        msg.resilientEdtParent = resilientEdtParent;
+    ASSERT(worker->waitloc == UNDEFINED_LOCATION);
     ocrTask_t *suspendedTask = worker->curTask;
-    void *suspendedMsg = worker->curMsg;
     jmp_buf *suspendedBuf = worker->jmpbuf;
     jmp_buf buf;
     int rc = setjmp(buf);
@@ -1667,9 +1669,13 @@ u8 resilientLatchUpdate(ocrGuid_t latchGuid, u32 slot) {
         DPRINTF(DEBUG_LVL_WARN, "Worker aborted processing resilientLatchUpdate\n");
     }
     hal_fence();
+    worker->waitloc = UNDEFINED_LOCATION;
     worker->curTask = suspendedTask;
-    worker->curMsg = suspendedMsg;
     worker->jmpbuf = suspendedBuf;
+    if (rc && salIsResilientGuid(resilientEdtParent)) {
+        abortCurrentWork();
+        ASSERT(0 && "Task aborted... (we should not be here)!!");
+    }
     return 0;
 }
 

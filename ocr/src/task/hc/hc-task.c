@@ -557,8 +557,10 @@ static u8 scheduleTask(ocrTask_t *self) {
 #ifdef ENABLE_AMT_RESILIENCE
     if (self->flags & OCR_TASK_FLAG_RESILIENT) {
         salResilientTaskPublish(self);
-        if (!ocrGuidIsNull(self->resilientLatch))
-            resilientLatchUpdate(self->resilientLatch, OCR_EVENT_LATCH_RESCOUNT_DECR_SLOT);
+        ocrGuid_t oldresilientLatch = self->resilientLatch;
+        if (!ocrGuidIsNull(oldresilientLatch)) {
+            resilientLatchUpdate(oldresilientLatch, OCR_EVENT_LATCH_RESCOUNT_DECR_SLOT, self->resilientEdtParent);
+        }
     }
 #endif
 

@@ -29,25 +29,22 @@ static u8 masterHelper(ocrWorker_t * worker) {
     // Save current worker context
     //BUG #204 this should be implemented in the worker
 #ifdef ENABLE_AMT_RESILIENCE
-    if (worker->curMsg != NULL) {
-        ocrPolicyMsg_t *message = (ocrPolicyMsg_t*)worker->curMsg;
-        if (checkPlatformModelLocationFault(message->destLocation)) {
-            ASSERT(worker->jmpbuf != NULL);
-            abortCurrentWork();
-            ASSERT(0 && "Task aborted... (we should not be here)!!");
-        }
+    ASSERT(worker->waitloc != UNDEFINED_LOCATION);
+    if (checkPlatformModelLocationFault(worker->waitloc)) {
+        abortCurrentWork();
+        ASSERT(0 && "Task aborted... (we should not be here)!!");
     }
-    if (worker->curTask != NULL) { 
-        if (salCheckEdtFault(worker->curTask->resilientEdtParent)) {
-            ASSERT(worker->jmpbuf != NULL);
-            abortCurrentWork();
-            ASSERT(0 && "Task aborted... (we should not be here)!!");
-        }
+    if (worker->curTask != NULL && salCheckEdtFault(worker->curTask->resilientEdtParent)) {
+        abortCurrentWork();
+        ASSERT(0 && "Task aborted... (we should not be here)!!");
     }
+
     jmp_buf *suspendedBuf = worker->jmpbuf;
-    void *suspendedMsg = worker->curMsg;
+    ocrLocation_t waitlocPrev = worker->waitloc;
+
     worker->jmpbuf = NULL;
-    worker->curMsg = NULL;
+    worker->waitloc = UNDEFINED_LOCATION;
+    worker->blockedContexts++;
     hal_fence();
 #endif
     ocrTask_t * suspendedTask = worker->curTask;
@@ -65,8 +62,17 @@ static u8 masterHelper(ocrWorker_t * worker) {
     worker->curTask = suspendedTask;
 #ifdef ENABLE_AMT_RESILIENCE
     hal_fence();
+    worker->blockedContexts--;
     worker->jmpbuf = suspendedBuf;
-    worker->curMsg = suspendedMsg;
+    worker->waitloc = waitlocPrev;
+    if (checkPlatformModelLocationFault(worker->waitloc)) {
+        abortCurrentWork();
+        ASSERT(0 && "Task aborted... (we should not be here)!!");
+    }
+    if (worker->curTask != NULL && salCheckEdtFault(worker->curTask->resilientEdtParent)) {
+        abortCurrentWork();
+        ASSERT(0 && "Task aborted... (we should not be here)!!");
+    }
 #endif
 #ifdef ENABLE_RESILIENCY
     worker->edtDepth--;

@@ -166,8 +166,25 @@ static u8 hcCommDelegateSchedulerHeuristicUpdate(ocrSchedulerHeuristic_t *self, 
                 u32 size = deque->size(deque);
                 for (s = 0; s < size; s++) {
                     ocrMsgHandle_t *handle = deque->popFromHead(deque, 1);
+                    ASSERT(handle->msg != NULL);
                     ocrPolicyMsg_t *message = handle->msg;
                     if (!checkPlatformModelLocationFault(message->destLocation) && 
+                        !salCheckEdtFault(message->resilientEdtParent)) 
+                    {
+                        deque->pushAtTail(deque, handle, 0);
+                    }
+                }
+            }
+            deque_t ** inboxes = commSched->inboxes;
+            u64 inboxesCount = commSched->inboxesCount;
+            for (i = 0; i < inboxesCount; i++) {
+                deque_t * deque = inboxes[i];
+                u32 size = deque->size(deque);
+                for (s = 0; s < size; s++) {
+                    ocrMsgHandle_t *handle = deque->popFromHead(deque, 1);
+                    ASSERT(handle->response != NULL);
+                    ocrPolicyMsg_t *message = handle->response;
+                    if (!checkPlatformModelLocationFault(message->srcLocation) && 
                         !salCheckEdtFault(message->resilientEdtParent)) 
                     {
                         deque->pushAtTail(deque, handle, 0);

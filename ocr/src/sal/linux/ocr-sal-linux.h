@@ -116,6 +116,7 @@ u8        salCheckEdtFault(ocrGuid_t edt);
 u8        salProcessNodeFailure(ocrLocation_t nodeId);
 u8        salRecoverNodeFailureAtBuddy(ocrLocation_t nodeId);
 u8        salRecoverNodeFailureAtNonBuddy(ocrLocation_t nodeId);
+u8        salResumeAfterNodeFailure();
 
 #endif
 

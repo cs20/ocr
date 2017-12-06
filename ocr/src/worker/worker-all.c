@@ -94,7 +94,8 @@ void initializeWorkerOcr(ocrWorkerFactory_t * factory, ocrWorker_t * self, ocrPa
 #endif
 #ifdef ENABLE_AMT_RESILIENCE
     self->jmpbuf = NULL;
-    self->curMsg = NULL;
+    self->waitloc = UNDEFINED_LOCATION;
+    self->blockedContexts = 0;
 #endif
 }
 

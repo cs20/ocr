@@ -1186,8 +1186,8 @@ static u8 salResilientEdtSatisfy(salWaiter_t *waiter) {
     u32 i;
     ocrWorker_t *worker = NULL;
     getCurrentEnv(NULL, &worker, NULL, NULL);
+    ASSERT(worker->waitloc == UNDEFINED_LOCATION);
     ASSERT(worker->curTask == NULL);
-    ASSERT(worker->curMsg == NULL);
     ASSERT(worker->jmpbuf == NULL);
     jmp_buf buf;
     int rc = setjmp(buf);
@@ -1202,8 +1202,8 @@ static u8 salResilientEdtSatisfy(salWaiter_t *waiter) {
     }
     hal_fence();
     waiter->status = WAITER_DONE;
+    worker->waitloc = UNDEFINED_LOCATION;
     worker->curTask = NULL;
-    worker->curMsg = NULL;
     worker->jmpbuf = NULL;
     return 1;
 }
@@ -1386,25 +1386,26 @@ u8 salResilientAddDependence(ocrGuid_t sguid, ocrGuid_t dguid, u32 slot) {
         ocrGuid_t oldguid = NULL_GUID;
         if (salGuidTableGet(g, &oldguid) == 0) {
             ASSERT(!ocrGuidIsNull(oldguid));
-            ASSERT(salIsResilientGuid(oldguid));
+            if (salIsResilientGuid(oldguid)) {
 #if GUID_BIT_COUNT == 64
-            u64 g = oldguid.guid;
+                u64 g = oldguid.guid;
 #elif GUID_BIT_COUNT == 128
-            u64 g = oldguid.lower;
+                u64 g = oldguid.lower;
 #else
 #error Unknown type of GUID
 #endif
-            char fname[FNL];
-            int c = snprintf(fname, FNL, "%lu.dep%d", g, slot);
-            if (c < 0 || c >= FNL) {
-                fprintf(stderr, "failed to create filename for publish\n");
-                ASSERT(0);
-                return 1;
-            }
-            struct stat sb;
-            if (stat(fname, &sb) != 0) {
-                salPublishMetaData(fname, &sguid, sizeof(ocrGuid_t), 0);
-                doContinue = 1;
+                char fname[FNL];
+                int c = snprintf(fname, FNL, "%lu.dep%d", g, slot);
+                if (c < 0 || c >= FNL) {
+                    fprintf(stderr, "failed to create filename for publish\n");
+                    ASSERT(0);
+                    return 1;
+                }
+                struct stat sb;
+                if (stat(fname, &sb) != 0) {
+                    salPublishMetaData(fname, &sguid, sizeof(ocrGuid_t), 0);
+                    doContinue = 1;
+                }
             }
         }
     } while(doContinue);
@@ -1757,6 +1758,7 @@ u8 salResilientTaskPublish(ocrTask_t *task) {
 //Record the resilient EDT scope when it is used in a location
 u8 salRecordEdtAtNode(ocrGuid_t guid, ocrLocation_t loc) {
     if (ocrGuidIsNull(guid)) return 0;
+    if (!salIsResilientGuid(guid)) return 0;
 #if GUID_BIT_COUNT == 64
     u64 g = guid.guid;
 #elif GUID_BIT_COUNT == 128
@@ -1776,7 +1778,6 @@ u8 salRecordEdtAtNode(ocrGuid_t guid, ocrLocation_t loc) {
         return 0; //Found existing record
     }
 
-    ASSERT(salIsResilientGuid(guid));
     int fd = open(fname, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR );
     if (fd<0) {
         fprintf(stderr, "open failed: (filename: %s)\n", fname);
@@ -2440,17 +2441,10 @@ u8 salRecoverNodeFailureAtBuddy(ocrLocation_t nodeId) {
 #define PD_TYPE PD_MSG_SCHED_UPDATE
     msg.type = PD_MSG_SCHED_UPDATE | PD_MSG_REQUEST;
     PD_MSG_FIELD_I(properties) = OCR_SCHEDULER_UPDATE_PROP_FAULT;
-    RESULT_ASSERT(pd->fcts.processMessage(pd, &msg, false), ==, 0);
+    RESULT_ASSERT(pd->fcts.processMessage(pd, &msg, true), ==, 0);
     ASSERT(PD_MSG_FIELD_O(returnDetail) == 0);
 #undef PD_MSG
 #undef PD_TYPE
-
-    //Resume execution
-    hal_fence();
-    workerCounter = 0;
-    hal_fence();
-    pd->faultCode = 0;
-    hal_fence();
 
     //Reschedule execution sub-graph dominator EDTs
     iterateHashtable(faultTable, salImportEdt, NULL);
@@ -2489,18 +2483,22 @@ u8 salRecoverNodeFailureAtNonBuddy(ocrLocation_t nodeId) {
 #define PD_TYPE PD_MSG_SCHED_UPDATE
     msg.type = PD_MSG_SCHED_UPDATE | PD_MSG_REQUEST;
     PD_MSG_FIELD_I(properties) = OCR_SCHEDULER_UPDATE_PROP_FAULT;
-    RESULT_ASSERT(pd->fcts.processMessage(pd, &msg, false), ==, 0);
+    RESULT_ASSERT(pd->fcts.processMessage(pd, &msg, true), ==, 0);
     ASSERT(PD_MSG_FIELD_O(returnDetail) == 0);
 #undef PD_MSG
 #undef PD_TYPE
+    return 0;
+}
 
-    //Resume execution
-    hal_fence();
+//Resume execution
+u8 salResumeAfterNodeFailure() {
     workerCounter = 0;
-    hal_fence();
-    pd->faultCode = 0;
+
     hal_fence();
 
+    ocrPolicyDomain_t *pd;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+    pd->faultCode = 0;
     return 0;
 }
 

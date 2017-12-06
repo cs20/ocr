@@ -145,7 +145,8 @@ typedef struct _ocrWorker_t {
 #endif
 #ifdef ENABLE_AMT_RESILIENCE
     jmp_buf *jmpbuf;
-    void *curMsg;
+    ocrLocation_t waitloc;
+    int blockedContexts;
 #endif
 } ocrWorker_t;
 

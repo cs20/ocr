@@ -185,6 +185,7 @@ static void resizeRecvFxdPool(ocrCommPlatformMPI_t * mpiComm) {
     if ((SZ != 0) && ((SZ != idx))) { \
         ocrPolicyDomain_t *pd = mpiComm->base.pd;\
         pd->fcts.pdFree(pd, HDL[idx].base.status);\
+        HDL[idx].base.status = NULL;\
         POOL[idx] = POOL[SZ]; \
         HDL[idx] = HDL[SZ]; \
         ASSERT(HDL[idx].base.msgId != -2); \
@@ -364,19 +365,21 @@ static void mpiFreezeAndExit(ocrCommPlatform_t * self) {
     ocrCommPlatformMPI_t * mpiComm = ((ocrCommPlatformMPI_t *) self);
     MPI_Send(NULL, 0, MPI_BYTE, mpiComm->sendBuddyRank, MPI_TAG_EXIT, MPI_COMM_WORLD);
 
+#if 0
     u32 i;
     for (i = 0; i < mpiComm->sendPoolSz; i++) {
         if (mpiComm->sendHdlPool[i].base.status != NULL && *(mpiComm->sendHdlPool[i].base.status) != MPI_REQUEST_NULL)
             MPI_Cancel(mpiComm->sendHdlPool[i].base.status);
     }
     for (i = 0; i < mpiComm->recvPoolSz; i++) {
-        if (mpiComm->sendHdlPool[i].base.status != NULL && *(mpiComm->sendHdlPool[i].base.status) != MPI_REQUEST_NULL)
+        if (mpiComm->recvHdlPool[i].base.status != NULL && *(mpiComm->recvHdlPool[i].base.status) != MPI_REQUEST_NULL)
             MPI_Cancel(mpiComm->recvHdlPool[i].base.status);
     }
     for (i = 0; i < mpiComm->recvFxdPoolSz; i++) {
-        if (mpiComm->sendHdlPool[i].base.status != NULL && *(mpiComm->sendHdlPool[i].base.status) != MPI_REQUEST_NULL)
+        if (mpiComm->recvFxdHdlPool[i].base.status != NULL && *(mpiComm->recvFxdHdlPool[i].base.status) != MPI_REQUEST_NULL)
             MPI_Cancel(mpiComm->recvFxdHdlPool[i].base.status);
     }
+#endif
 
     MPI_Cancel(&mpiComm->hbSendReq);
     MPI_Cancel(&mpiComm->hbRecvReq);
@@ -384,6 +387,47 @@ static void mpiFreezeAndExit(ocrCommPlatform_t * self) {
 
     MPI_Finalize();
     exit(0);
+}
+
+static void mpiAbortCommsWithFault(ocrCommPlatform_t *self, ocrLocation_t failedNode) {
+    ASSERT(checkPlatformModelLocationFault(failedNode));
+    ocrCommPlatformMPI_t * mpiComm = ((ocrCommPlatformMPI_t *) self);
+    u32 i;
+    for (i = 0; i < mpiComm->sendPoolSz; ) {
+        mpiCommHandle_t * hdl = &mpiComm->sendHdlPool[i];
+        ocrPolicyMsg_t * message = hdl->base.msg;
+        if ((message->destLocation == failedNode) || salCheckEdtFault(message->resilientEdtParent)) {
+            ASSERT(hdl->base.status != NULL);
+            hdl->base.status = NULL;
+            compactSendPool(mpiComm, i);
+        } else {
+            i++;
+        }
+    }
+    for (i = 0; i < mpiComm->recvPoolSz; ) {
+        mpiCommHandle_t * hdl = &mpiComm->recvHdlPool[i];
+        ocrPolicyMsg_t * message = hdl->base.msg;
+        if ((hdl->base.src == failedNode) || salCheckEdtFault(message->resilientEdtParent)) {
+            ASSERT(hdl->base.status != NULL);
+            hdl->base.status = NULL;
+            compactRecvPool(mpiComm, i);
+        } else {
+            i++;
+        }
+    }
+    for (i = 0; i < mpiComm->recvFxdPoolSz; ) {
+        mpiCommHandle_t * hdl = &mpiComm->recvFxdHdlPool[i];
+        ocrPolicyMsg_t * message = hdl->base.msg;
+        if ((hdl->base.msgId != RECV_ANY_FIXSZ_ID) &&
+            ((hdl->base.src == failedNode) || salCheckEdtFault(message->resilientEdtParent))) {
+            ASSERT(hdl->base.status != NULL);
+            hdl->base.status = NULL;
+            compactRecvFxdPool(mpiComm, i);
+        } else {
+            i++;
+        }
+    }
+    return;
 }
 
 static void mpiHeartBeatSend(ocrCommPlatform_t * self) {
@@ -479,7 +523,7 @@ static void mpiCheckFaultAndHeartBeat(ocrCommPlatform_t * self) {
         DPRINTF(DEBUG_LVL_WARN, "Recovery in progress...\n");
         u8 err = salRecoverNodeFailureAtBuddy(failedLocation);
         if (!err) {
-            DPRINTF(DEBUG_LVL_WARN, "Successfully recovered from failure on rank %d\n", mpiComm->recvBuddyRank);
+            mpiAbortCommsWithFault(self, failedLocation);
             //Send recovery notification
             for (i = 0, reqCount = 0; i < pd->neighborCount; i++) {
                 int rank = (int) locationToMpiRank(pd->neighbors[i]);
@@ -495,15 +539,17 @@ static void mpiCheckFaultAndHeartBeat(ocrCommPlatform_t * self) {
                     mpiHeartBeatSend(self);
                 }
             }
+            DPRINTF(DEBUG_LVL_WARN, "Successfully recovered from failure on rank %d\n", mpiComm->recvBuddyRank);
         } else {
             DPRINTF(DEBUG_LVL_WARN, "Unable to recover from failure on rank %d. Aborting!\n", mpiComm->recvBuddyRank);
             MPI_Abort(MPI_COMM_WORLD, 1);
         }
         pd->fcts.pdFree(pd, reqArray);
 
-        //Reset heartbeat receive time
+        //Resume
         hal_fence();
-        mpiComm->hbRecvTime = salGetTime();
+        salResumeAfterNodeFailure();
+        mpiComm->hbRecvTime = salGetTime(); //Reset heartbeat receive time
     } else {
         //Check for system fault notifications
         int faultFlag = 0;
@@ -540,15 +586,17 @@ static void mpiCheckFaultAndHeartBeat(ocrCommPlatform_t * self) {
                 mpiHeartBeatSend(self);
             }
 
-            //Resume
+            //Recover locally
             DPRINTF(DEBUG_LVL_WARN, "Resuming after recovery...\n");
             mpiComm->failedRank = -1;
             MPI_Irecv(&mpiComm->failedRank, 1, MPI_INT, MPI_ANY_SOURCE, MPI_TAG_FAULT, MPI_COMM_WORLD, &mpiComm->faultReq);
             salRecoverNodeFailureAtNonBuddy(failedLocation);
+            mpiAbortCommsWithFault(self, failedLocation);
 
-            //Reset heartbeat receive time
+            //Resume
             hal_fence();
-            mpiComm->hbRecvTime = salGetTime();
+            salResumeAfterNodeFailure();
+            mpiComm->hbRecvTime = salGetTime(); //Reset heartbeat receive time
         }
     }
 }
@@ -879,8 +927,11 @@ static u8 MPICommSendMessage(ocrCommPlatform_t * self,
                       u64 *id, u32 properties, u32 mask) {
     START_PROFILE(commplt_MPICommSendMessage);
 #ifdef ENABLE_AMT_RESILIENCE
+    ocrGuid_t resilientEdtParent = message->resilientEdtParent;
+    hal_fence();
     AMT_RESILIENCE_CHECK_FOR_FAULT(self);
-    if (checkPlatformModelLocationFault(target)) {
+    hal_fence();
+    if (checkPlatformModelLocationFault(target) || salCheckEdtFault(resilientEdtParent)) {
         abortCurrentWork();
         ASSERT(0 && "Send aborted... (we should not be here)!!");
     }
@@ -1026,6 +1077,7 @@ static u8 MPICommSendMessage(ocrCommPlatform_t * self,
 static u8 MPICommPollMessage(ocrCommPlatform_t *self, ocrPolicyMsg_t **msg,
                       u32 properties, u32 *mask) {
 #ifdef ENABLE_AMT_RESILIENCE
+    ASSERT(msg != NULL && *msg == NULL);
     AMT_RESILIENCE_CHECK_FOR_FAULT(self);
 #endif
     ocrCommPlatformMPI_t * mpiComm __attribute__((unused)) = ((ocrCommPlatformMPI_t *) self);
