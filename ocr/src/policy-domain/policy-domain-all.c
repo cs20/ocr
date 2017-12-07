@@ -1637,8 +1637,6 @@ u8 resilientLatchUpdate(ocrGuid_t latchGuid, u32 slot, ocrGuid_t resilientEdtPar
     ocrPolicyDomain_t *pd = NULL;
     ocrWorker_t *worker = NULL;
     getCurrentEnv(&pd, &worker, NULL, &msg);
-    if (ocrGuidIsNull(msg.resilientEdtParent))
-        msg.resilientEdtParent = resilientEdtParent;
     ASSERT(worker->waitloc == UNDEFINED_LOCATION);
     ocrTask_t *suspendedTask = worker->curTask;
     jmp_buf *suspendedBuf = worker->jmpbuf;

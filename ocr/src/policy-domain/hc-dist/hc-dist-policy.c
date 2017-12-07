@@ -226,7 +226,8 @@ u8 createProcessRequestEdtDistPolicy(ocrPolicyDomain_t * pd, ocrGuid_t templateG
     PD_MSG_FIELD_I(properties) = properties;
     PD_MSG_FIELD_I(workType) = workType;
 #ifdef ENABLE_AMT_RESILIENCE
-    ASSERT(ocrGuidIsNull(msg.resilientEdtParent));
+    ocrPolicyMsg_t * message = (ocrPolicyMsg_t *) paramv[0];
+    ASSERT(ocrGuidIsEq(msg.resilientEdtParent, message->resilientEdtParent));
     PD_MSG_FIELD_I(resilientLatch) = NULL_GUID;
 #endif
     // This is a "fake" EDT so it has no "parent"
