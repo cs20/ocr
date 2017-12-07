@@ -1632,51 +1632,6 @@ void tagDeferredMsg(ocrPolicyMsg_t * msg, ocrTask_t * task) {
 #endif
 
 #ifdef ENABLE_AMT_RESILIENCE
-u8 resilientLatchUpdate(ocrGuid_t latchGuid, u32 slot, ocrGuid_t resilientEdtParent) {
-    PD_MSG_STACK(msg);
-    ocrPolicyDomain_t *pd = NULL;
-    ocrWorker_t *worker = NULL;
-    getCurrentEnv(&pd, &worker, NULL, &msg);
-    ASSERT(worker->waitloc == UNDEFINED_LOCATION);
-    ocrTask_t *suspendedTask = worker->curTask;
-    jmp_buf *suspendedBuf = worker->jmpbuf;
-    jmp_buf buf;
-    int rc = setjmp(buf);
-    if (rc == 0) {
-        worker->jmpbuf = &buf;
-#define PD_MSG (&msg)
-#define PD_TYPE PD_MSG_DEP_SATISFY
-        msg.type = PD_MSG_DEP_SATISFY | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
-        PD_MSG_FIELD_I(satisfierGuid.guid) = NULL_GUID;
-        PD_MSG_FIELD_I(satisfierGuid.metaDataPtr) = NULL;
-        PD_MSG_FIELD_I(guid.guid) = latchGuid;
-        PD_MSG_FIELD_I(guid.metaDataPtr) = NULL;
-        PD_MSG_FIELD_I(payload.guid) = NULL_GUID;
-        PD_MSG_FIELD_I(payload.metaDataPtr) = NULL;
-        PD_MSG_FIELD_I(currentEdt.guid) = NULL_GUID;
-        PD_MSG_FIELD_I(currentEdt.metaDataPtr) = NULL;
-        PD_MSG_FIELD_I(slot) = slot;
-#ifdef REG_ASYNC_SGL
-        PD_MSG_FIELD_I(mode) = -1;
-#endif
-        PD_MSG_FIELD_I(properties) = 0;
-        RESULT_ASSERT(pd->fcts.processMessage(pd, &msg, true), ==, 0);
-#undef PD_MSG
-#undef PD_TYPE
-    } else {
-        DPRINTF(DEBUG_LVL_WARN, "Worker aborted processing resilientLatchUpdate\n");
-    }
-    hal_fence();
-    worker->waitloc = UNDEFINED_LOCATION;
-    worker->curTask = suspendedTask;
-    worker->jmpbuf = suspendedBuf;
-    if (rc && salIsResilientGuid(resilientEdtParent)) {
-        abortCurrentWork();
-        ASSERT(0 && "Task aborted... (we should not be here)!!");
-    }
-    return 0;
-}
-
 void processFailure() {
     ocrPolicyDomain_t * pd;
     getCurrentEnv(&pd, NULL, NULL, NULL);

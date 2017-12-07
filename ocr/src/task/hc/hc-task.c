@@ -543,6 +543,56 @@ static u8 iterateDbFrontier(ocrTask_t *self) {
     return false;
 }
 
+#ifdef ENABLE_AMT_RESILIENCE
+static u8 resilientLatchDecr(ocrTask_t *self) {
+    PD_MSG_STACK(msg);
+    ocrPolicyDomain_t *pd = NULL;
+    ocrWorker_t *worker = NULL;
+    getCurrentEnv(&pd, &worker, NULL, &msg);
+    ASSERT(worker->waitloc == UNDEFINED_LOCATION);
+    ASSERT(worker->curTask == NULL);
+    ASSERT(worker->jmpbuf != NULL);
+    ocrTask_t *suspendedTask = worker->curTask;
+    jmp_buf *suspendedBuf = worker->jmpbuf;
+    jmp_buf buf;
+    int rc = setjmp(buf);
+    if (rc == 0) {
+        worker->jmpbuf = &buf;
+#define PD_MSG (&msg)
+#define PD_TYPE PD_MSG_DEP_SATISFY
+        msg.type = PD_MSG_DEP_SATISFY | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
+        PD_MSG_FIELD_I(satisfierGuid.guid) = NULL_GUID;
+        PD_MSG_FIELD_I(satisfierGuid.metaDataPtr) = NULL;
+        PD_MSG_FIELD_I(guid.guid) = self->resilientLatch;
+        PD_MSG_FIELD_I(guid.metaDataPtr) = NULL;
+        PD_MSG_FIELD_I(payload.guid) = NULL_GUID;
+        PD_MSG_FIELD_I(payload.metaDataPtr) = NULL;
+        PD_MSG_FIELD_I(currentEdt.guid) = NULL_GUID;
+        PD_MSG_FIELD_I(currentEdt.metaDataPtr) = NULL;
+        PD_MSG_FIELD_I(slot) = OCR_EVENT_LATCH_RESCOUNT_DECR_SLOT;
+#ifdef REG_ASYNC_SGL
+        PD_MSG_FIELD_I(mode) = -1;
+#endif
+        PD_MSG_FIELD_I(properties) = 0;
+        RESULT_ASSERT(pd->fcts.processMessage(pd, &msg, true), ==, 0);
+#undef PD_MSG
+#undef PD_TYPE
+    } else {
+        DPRINTF(DEBUG_LVL_WARN, "Worker aborted processing resilientLatchDecr\n");
+    }
+    hal_fence();
+    worker->waitloc = UNDEFINED_LOCATION;
+    worker->curTask = suspendedTask;
+    worker->jmpbuf = suspendedBuf;
+    hal_fence();
+    if (rc && salIsResilientGuid(self->resilientEdtParent)) {
+        abortCurrentWork();
+        ASSERT(0 && "Task aborted... (we should not be here)!!");
+    }
+    return 0;
+}
+#endif
+
 /**
  * @brief Give the task to the scheduler
  * Warning: The caller must ensure all dependencies have been satisfied
@@ -557,9 +607,8 @@ static u8 scheduleTask(ocrTask_t *self) {
 #ifdef ENABLE_AMT_RESILIENCE
     if (self->flags & OCR_TASK_FLAG_RESILIENT) {
         salResilientTaskPublish(self);
-        ocrGuid_t oldresilientLatch = self->resilientLatch;
-        if (!ocrGuidIsNull(oldresilientLatch)) {
-            resilientLatchUpdate(oldresilientLatch, OCR_EVENT_LATCH_RESCOUNT_DECR_SLOT, self->resilientEdtParent);
+        if (!ocrGuidIsNull(self->resilientLatch)) {
+            resilientLatchDecr(self);
         }
     }
 #endif

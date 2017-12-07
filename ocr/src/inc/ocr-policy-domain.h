@@ -1833,7 +1833,6 @@ void tagDeferredMsg(ocrPolicyMsg_t * msg, ocrTask_t * task);
 #endif
 
 #ifdef ENABLE_AMT_RESILIENCE
-u8 resilientLatchUpdate(ocrGuid_t latchGuid, u32 slot, ocrGuid_t resilientEdtParent);
 void processFailure();
 #endif
 

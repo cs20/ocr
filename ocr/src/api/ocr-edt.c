@@ -261,6 +261,34 @@ u8 ocrEdtTemplateDestroy(ocrGuid_t guid) {
 #undef PD_TYPE
 }
 
+#ifdef ENABLE_AMT_RESILIENCE
+u8 resilientLatchIncr(ocrGuid_t resilientLatch) {
+    PD_MSG_STACK(msg);
+    ocrPolicyDomain_t *pd = NULL;
+    getCurrentEnv(&pd, NULL, NULL, &msg);
+#define PD_MSG (&msg)
+#define PD_TYPE PD_MSG_DEP_SATISFY
+    msg.type = PD_MSG_DEP_SATISFY | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
+    PD_MSG_FIELD_I(satisfierGuid.guid) = NULL_GUID;
+    PD_MSG_FIELD_I(satisfierGuid.metaDataPtr) = NULL;
+    PD_MSG_FIELD_I(guid.guid) = resilientLatch;
+    PD_MSG_FIELD_I(guid.metaDataPtr) = NULL;
+    PD_MSG_FIELD_I(payload.guid) = NULL_GUID;
+    PD_MSG_FIELD_I(payload.metaDataPtr) = NULL;
+    PD_MSG_FIELD_I(currentEdt.guid) = NULL_GUID;
+    PD_MSG_FIELD_I(currentEdt.metaDataPtr) = NULL;
+    PD_MSG_FIELD_I(slot) = OCR_EVENT_LATCH_RESCOUNT_INCR_SLOT;
+#ifdef REG_ASYNC_SGL
+    PD_MSG_FIELD_I(mode) = -1;
+#endif
+    PD_MSG_FIELD_I(properties) = 0;
+    RESULT_ASSERT(pd->fcts.processMessage(pd, &msg, true), ==, 0);
+#undef PD_MSG
+#undef PD_TYPE
+    return 0;
+}
+#endif
+
 u8 ocrEdtCreate(ocrGuid_t* edtGuidPtr, ocrGuid_t templateGuid,
                 u32 paramc, u64* paramv, u32 depc, ocrGuid_t *depv,
                 u16 properties, ocrHint_t *hint, ocrGuid_t *outputEvent) {
@@ -413,7 +441,7 @@ u8 ocrEdtCreate(ocrGuid_t* edtGuidPtr, ocrGuid_t templateGuid,
         properties |= EDT_PROP_FINISH;
         ocrGuid_t resilientLatch = PD_MSG_FIELD_I(resilientLatch);
         if (!ocrGuidIsNull(resilientLatch)) {
-            resilientLatchUpdate(resilientLatch, OCR_EVENT_LATCH_RESCOUNT_INCR_SLOT, curEdt->guid);
+            resilientLatchIncr(resilientLatch);
         }
     }
     PD_MSG_FIELD_I(key) = 0;
