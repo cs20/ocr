@@ -428,6 +428,8 @@ static void workShiftHcComm(ocrWorker_t * worker) {
     ASSERT(worker->waitloc == UNDEFINED_LOCATION);
     ASSERT(worker->curTask == NULL);
     ASSERT(worker->jmpbuf == NULL);
+    int blockedContexts = worker->blockedContexts;
+    hal_fence();
     jmp_buf buf;
     int rc = setjmp(buf);
     if (rc == 0) {
@@ -438,6 +440,7 @@ static void workShiftHcComm(ocrWorker_t * worker) {
 #ifdef ENABLE_AMT_RESILIENCE
     } else {
         DPRINTF(DEBUG_LVL_WARN, "Worker aborted processing comm\n");
+        ASSERT(worker->blockedContexts == blockedContexts);
     }
     hal_fence();
     worker->jmpbuf = NULL;

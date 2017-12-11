@@ -269,6 +269,7 @@ static void hcWorkShiftResilient(ocrWorker_t * worker) {
     ASSERT(worker->waitloc == UNDEFINED_LOCATION);
     ASSERT(worker->curTask == NULL);
     ASSERT(worker->jmpbuf == NULL);
+    int blockedContexts = worker->blockedContexts;
 
     processFailure();
 
@@ -284,11 +285,12 @@ static void hcWorkShiftResilient(ocrWorker_t * worker) {
         worker->jmpbuf = &buf;
         hcWorkShift(worker);
     } else {
+        DPRINTF(DEBUG_LVL_WARN, "Worker aborted executing EDT "GUIDF"\n", GUIDA(worker->curTask->guid));
+        ASSERT(worker->blockedContexts == blockedContexts);
         ASSERT(worker->curTask != NULL);
         if (!ocrGuidIsNull(worker->curTask->resilientEdtParent)) {
             ASSERT(salCheckEdtFault(worker->curTask->resilientEdtParent));
         }
-        DPRINTF(DEBUG_LVL_WARN, "Worker aborted executing EDT "GUIDF"\n", GUIDA(worker->curTask->guid));
         worker->curTask = NULL;
         worker->waitloc = UNDEFINED_LOCATION;
     }

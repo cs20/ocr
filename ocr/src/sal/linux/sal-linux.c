@@ -1190,6 +1190,8 @@ static u8 salResilientEdtSatisfy(salWaiter_t *waiter) {
     ASSERT(worker->waitloc == UNDEFINED_LOCATION);
     ASSERT(worker->curTask == NULL);
     ASSERT(worker->jmpbuf == NULL);
+    int blockedContexts = worker->blockedContexts;
+    hal_fence();
     jmp_buf buf;
     int rc = setjmp(buf);
     if (rc == 0) {
@@ -1200,6 +1202,7 @@ static u8 salResilientEdtSatisfy(salWaiter_t *waiter) {
         }
     } else {
         DPRINTF(DEBUG_LVL_WARN, "Worker aborted scheduling EDT "GUIDF"\n", GUIDA(waiter->guid));
+        ASSERT(worker->blockedContexts == blockedContexts);
     }
     hal_fence();
     waiter->status = WAITER_DONE;

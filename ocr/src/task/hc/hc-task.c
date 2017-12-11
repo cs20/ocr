@@ -554,6 +554,8 @@ static u8 resilientLatchDecr(ocrTask_t *self) {
     ASSERT(worker->jmpbuf != NULL);
     ocrTask_t *suspendedTask = worker->curTask;
     jmp_buf *suspendedBuf = worker->jmpbuf;
+    int blockedContexts = worker->blockedContexts;
+    hal_fence();
     jmp_buf buf;
     int rc = setjmp(buf);
     if (rc == 0) {
@@ -579,6 +581,7 @@ static u8 resilientLatchDecr(ocrTask_t *self) {
 #undef PD_TYPE
     } else {
         DPRINTF(DEBUG_LVL_WARN, "Worker aborted processing resilientLatchDecr\n");
+        ASSERT(worker->blockedContexts == blockedContexts);
     }
     hal_fence();
     worker->waitloc = UNDEFINED_LOCATION;
