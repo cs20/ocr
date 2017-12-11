@@ -321,6 +321,7 @@ typedef enum {
     OCR_EVENT_LATCH_RESCOUNT_DECR_SLOT = 2, /**< The slot in resilient LATCH event to decrement the count of unrecorded references */
     OCR_EVENT_LATCH_RESCOUNT_INCR_SLOT = 3, /**< The slot in resilient LATCH event to increment the count of unrecorded references */
     OCR_EVENT_LATCH_RECORD_DB_SLOT     = 4, /**< The slot of a LATCH event to record data-blocks for publishing */
+    OCR_EVENT_LATCH_GUID_DESTROY_SLOT  = 5, /**< The slot of a LATCH event to record guids to destroy */
 #endif
 } ocrLatchEventSlot_t;
 

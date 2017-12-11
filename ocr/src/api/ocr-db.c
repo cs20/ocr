@@ -171,16 +171,43 @@ u8 ocrDbDestroy(ocrGuid_t db) {
     OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_API_DATABLOCK, OCR_ACTION_DESTROY, db);
     if(ocrGuidIsNull(db))
         return 0;
-#ifdef ENABLE_AMT_RESILIENCE
-    if (salResilientGuidDestroy(db) == 0)
-        return 0;
-#endif
     START_PROFILE(api_ocrDbDestroy);
     DPRINTF(DEBUG_LVL_INFO, "ENTER ocrDbDestroy(guid="GUIDF")\n", GUIDA(db));
     PD_MSG_STACK(msg);
     ocrPolicyDomain_t *policy = NULL;
     ocrTask_t *task = NULL;
     getCurrentEnv(&policy, NULL, &task, &msg);
+#ifdef ENABLE_AMT_RESILIENCE
+    if (salIsResilientGuid(db)) {
+        ocrGuid_t latch = (task != NULL) ? task->resilientLatch : NULL_GUID;
+        if (!ocrGuidIsNull(latch)) {
+#define PD_MSG (&msg)
+#define PD_TYPE PD_MSG_DEP_SATISFY
+            getCurrentEnv(NULL, NULL, NULL, &msg);
+            msg.type = PD_MSG_DEP_SATISFY | PD_MSG_REQUEST;
+            PD_MSG_FIELD_I(satisfierGuid.guid) = task->guid;
+            PD_MSG_FIELD_I(satisfierGuid.metaDataPtr) = task;
+            PD_MSG_FIELD_I(guid.guid) = latch;
+            PD_MSG_FIELD_I(guid.metaDataPtr) = NULL;
+            PD_MSG_FIELD_I(payload.guid) = db;
+            PD_MSG_FIELD_I(payload.metaDataPtr) = NULL;
+            PD_MSG_FIELD_I(currentEdt.guid) = task->guid;
+            PD_MSG_FIELD_I(currentEdt.metaDataPtr) = task;
+            PD_MSG_FIELD_I(slot) = OCR_EVENT_LATCH_GUID_DESTROY_SLOT;
+#ifdef REG_ASYNC_SGL
+            PD_MSG_FIELD_I(mode) = -1;
+#endif
+            PD_MSG_FIELD_I(properties) = 0;
+#ifdef ENABLE_OCR_API_DEFERRABLE
+            tagDeferredMsg(&msg, task);
+#endif
+            RESULT_ASSERT(policy->fcts.processMessage(policy, &msg, true), ==, 0);
+        }
+#undef PD_TYPE
+#undef PD_MSG
+        RETURN_PROFILE(0);
+    }
+#endif
     u8 returnCode = OCR_ECANCELED;
     bool dynRemoved = false;
     if(task) {

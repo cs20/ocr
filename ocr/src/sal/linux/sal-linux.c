@@ -1035,6 +1035,7 @@ static u8 salResilientGuidCreate(ocrGuid_t guid, ocrGuid_t pguid, u64 key, u64 i
 #else
 #error Unknown type of GUID
 #endif
+
     //Create api signature for guid
     char sname[FNL];
     c = snprintf(sname, FNL, "%lu.%lu.%lu.api", p, ip, ac);
@@ -1448,7 +1449,28 @@ u8 salResilientEventSatisfy(ocrGuid_t guid, u32 slot, ocrGuid_t data) {
 }
 
 u8 salResilientGuidDestroy(ocrGuid_t guid) {
-    //TODO
+    if (!salIsResilientGuid(guid)) return 1;
+#if GUID_BIT_COUNT == 64
+    u64 g = guid.guid;
+#elif GUID_BIT_COUNT == 128
+    u64 g = guid.lower;
+#else
+#error Unknown type of GUID
+#endif
+    ocrPolicyDomain_t *pd;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+    ocrGuidKind kind;
+    pd->guidProviders[0]->fcts.getKind(pd->guidProviders[0], guid, &kind);
+    if (kind == OCR_GUID_DB) {
+        char fname[FNL];
+        int c = snprintf(fname, FNL, "%lu.db", g);
+        if (c < 0 || c >= FNL) {
+            fprintf(stderr, "failed to create filename for publish\n");
+            ASSERT(0);
+            return 0;
+        }
+        unlink(fname);
+    }
     return 0;
 }
 

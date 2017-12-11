@@ -203,6 +203,14 @@ u8 destructEventHc(ocrEvent_t *base) {
         if (!ocrGuidIsNull(latchEvt->resilientScopeEdt)) {
             salResilientTaskRemove(latchEvt->resilientScopeEdt);
         }
+        u32 i;
+        for (i = 0; i < latchEvt->guidDestroyCount; i++) {
+            salResilientGuidDestroy(latchEvt->guidDestroyArray[i]);
+        }
+        if (latchEvt->guidDestroyCount > 0) {
+            latchEvt->guidDestroyCount = 0;
+            pd->fcts.pdFree(pd, latchEvt->guidDestroyArray);
+        }
     }
 #endif
 
@@ -666,6 +674,24 @@ u8 satisfyEventHcLatch(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
             }
         }
         event->dbPublishArray[event->dbPublishCount++] = db.guid;
+        hal_unlock(&(event->base.waitersLock));
+        return 0;
+    }
+    if (slot == OCR_EVENT_LATCH_GUID_DESTROY_SLOT) {
+        ASSERT(!ocrGuidIsNull(db.guid));
+        hal_lock(&(event->base.waitersLock));
+        if (event->guidDestroyCount == event->guidDestroyArrayLength) {
+            ocrPolicyDomain_t *pd = NULL;
+            getCurrentEnv(&pd, NULL, NULL, NULL);
+            ocrGuid_t *oldArray = event->guidDestroyArray;
+            event->guidDestroyArrayLength += 8;
+            event->guidDestroyArray = pd->fcts.pdMalloc(pd, sizeof(ocrGuid_t) * event->guidDestroyArrayLength);
+            if (oldArray != NULL) {
+                hal_memCopy(event->guidDestroyArray, oldArray, sizeof(ocrGuid_t) * event->guidDestroyCount, false);
+                pd->fcts.pdFree(pd, oldArray);
+            }
+        }
+        event->guidDestroyArray[event->guidDestroyCount++] = db.guid;
         hal_unlock(&(event->base.waitersLock));
         return 0;
     }
@@ -1451,6 +1477,9 @@ static u8 initNewEventHc(ocrEventHc_t * event, ocrEventTypes_t eventType, ocrGui
         ((ocrEventHcLatch_t*)event)->dbPublishArray = NULL;
         ((ocrEventHcLatch_t*)event)->dbPublishArrayLength = 0;
         ((ocrEventHcLatch_t*)event)->dbPublishCount = 0;
+        ((ocrEventHcLatch_t*)event)->guidDestroyArray = NULL;
+        ((ocrEventHcLatch_t*)event)->guidDestroyArrayLength = 0;
+        ((ocrEventHcLatch_t*)event)->guidDestroyCount = 0;
 #endif
     }
     event->mdClass.peers = NULL;

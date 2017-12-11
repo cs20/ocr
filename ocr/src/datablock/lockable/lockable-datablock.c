@@ -582,8 +582,10 @@ u8 lockablePublish(ocrDataBlock_t *self, u32 properties) {
     ocrDataBlockLockable_t * rself = (ocrDataBlockLockable_t*) self;
     hal_lock(&(rself->lock));
     lockablePublishInternal(self, properties);
+    ASSERT(rself->attributes.numUsers == 0 && rself->attributes.internalUsers == 0);
+    rself->attributes.freeRequested = 1;
     hal_unlock(&(rself->lock));
-    return 0;
+    return lockableDestruct(self);
 }
 #endif
 

@@ -91,6 +91,9 @@ typedef struct _ocrEventHcLatch_t {
     ocrGuid_t *dbPublishArray;
     u32 dbPublishArrayLength;
     u32 dbPublishCount;
+    ocrGuid_t *guidDestroyArray;
+    u32 guidDestroyArrayLength;
+    u32 guidDestroyCount;
 #endif
 } ocrEventHcLatch_t;
 
