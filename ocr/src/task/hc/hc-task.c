@@ -1355,50 +1355,6 @@ u8 satisfyTaskHc(ocrTask_t * base, ocrFatGuid_t data, u32 slot)
     return 0;
 }
 
-#if 0
-#ifdef ENABLE_AMT_RESILIENCE
-u8 satisfyTaskHc(ocrTask_t * base, ocrFatGuid_t data, u32 slot) {
-    ocrTaskHc_t * self = (ocrTaskHc_t *) base;
-    if ((base->flags & OCR_TASK_FLAG_RESILIENT) && (base->depc > base->origDepc) && (slot < base->origDepc)) {
-        u32 registerSlot = base->origDepc + slot;
-        ASSERT(registerSlot >= base->origDepc && registerSlot < base->depc);
-        ocrGuid_t registerDb = (self->signalers[slot].mode == DB_MODE_NULL) ? NULL_GUID : data.guid;
-        ocrGuid_t evtGuid = NULL_GUID;
-        if (!ocrGuidIsNull(registerDb)) {
-#if GUID_BIT_COUNT == 64
-            u64 guidKey = registerDb.guid;
-#elif GUID_BIT_COUNT == 128
-            u64 guidKey = registerDb.lower;
-#else
-#error Unknown type of GUID
-#endif
-            RESULT_ASSERT(salGuidTableGet(guidKey, &evtGuid), ==, 0);
-        }
-        //ocrAddDependence(evtGuid, base->guid, registerSlot, DB_MODE_NULL);
-        ocrPolicyDomain_t *pd = NULL;
-        PD_MSG_STACK(msg);
-        getCurrentEnv(&pd, NULL, NULL, &msg);
-#define PD_MSG (&msg)
-#define PD_TYPE PD_MSG_DEP_ADD
-        msg.type = PD_MSG_DEP_ADD | PD_MSG_REQUEST;
-        PD_MSG_FIELD_I(source.guid) = evtGuid;
-        PD_MSG_FIELD_I(source.metaDataPtr) = NULL;
-        PD_MSG_FIELD_I(dest.guid) = base->guid;
-        PD_MSG_FIELD_I(dest.metaDataPtr) = base;
-        PD_MSG_FIELD_I(slot) = registerSlot;
-        PD_MSG_FIELD_I(currentEdt.guid) = NULL_GUID;
-        PD_MSG_FIELD_I(currentEdt.metaDataPtr) = NULL;
-        PD_MSG_FIELD_IO(properties) = DB_MODE_NULL;
-        RESULT_PROPAGATE(pd->fcts.processMessage(pd, &msg, true));
-#undef PD_MSG
-#undef PD_TYPE
-    }
-    ASSERT(self->slotSatisfiedCount < base->depc);
-    return satisfyTaskHcInternal(base, data, slot);
-}
-#endif
-#endif
-
 /**
  * Can be invoked concurrently, however each invocation should be for a different slot
  */

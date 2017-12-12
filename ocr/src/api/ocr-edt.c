@@ -91,8 +91,12 @@ u8 ocrEventCreate(ocrGuid_t *guid, ocrEventTypes_t eventType, u16 properties) {
 
 u8 ocrEventDestroy(ocrGuid_t eventGuid) {
     OCR_TOOL_TRACE(true, OCR_TRACE_TYPE_API_EVENT, OCR_ACTION_DESTROY, eventGuid);
+    if (ocrGuidIsNull(eventGuid))
+        return 0;
 #ifdef ENABLE_AMT_RESILIENCE
-    return 0;
+    //TODO: Ignore resilient event destroy
+    if (salIsResilientGuid(eventGuid))
+        return 0;
 #endif
     START_PROFILE(api_ocrEventDestroy);
     DPRINTF(DEBUG_LVL_INFO, "ENTER ocrEventDestroy(guid="GUIDF")\n", GUIDA(eventGuid));

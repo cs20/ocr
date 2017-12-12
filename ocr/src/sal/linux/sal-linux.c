@@ -2190,7 +2190,6 @@ u8 salGuidTablePut(u64 key, ocrGuid_t val) {
 }
 
 u8 salGuidTableGet(u64 key, ocrGuid_t *val) {
-    if (val == NULL) return 1;
     char fname[FNL];
     int c = snprintf(fname, FNL, "%lu.key", key);
     if (c < 0 || c >= FNL) {
@@ -2202,7 +2201,9 @@ u8 salGuidTableGet(u64 key, ocrGuid_t *val) {
     if (stat(fname, &sb) != 0) {
         return 1;
     }
-    salFetchMetaData(fname, (void*)val, sizeof(ocrGuid_t), 0);
+    if (val != NULL) {
+        salFetchMetaData(fname, (void*)val, sizeof(ocrGuid_t), 0);
+    }
     return 0;
 }
 
@@ -2218,7 +2219,9 @@ u8 salGuidTableRemove(u64 key, ocrGuid_t *val) {
     if (stat(fname, &sb) != 0) {
         return 1; //Cannot find existing key
     }
-    salGuidTableGet(key, val);
+    if (val != NULL) {
+        salFetchMetaData(fname, (void*)val, sizeof(ocrGuid_t), 0);
+    }
     int rc = unlink(fname);
     if (rc) {
         fprintf(stderr, "unlink failed: (filename: %s)\n", fname);
