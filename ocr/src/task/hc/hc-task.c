@@ -1117,7 +1117,6 @@ u8 newTaskHc(ocrTaskFactory_t* factory, ocrFatGuid_t * edtGuid, ocrFatGuid_t edt
         paramListTask_t *taskParams = (paramListTask_t*)perInstance;
         if (!ocrGuidIsNull(taskParams->faultGuid)) {
             salResilientGuidConnect(taskGuid, taskParams->faultGuid);
-            salResilientGuidConnect(taskParams->faultGuid, taskGuid);
         }
         salResilientEdtCreate(self, resilientEdtParent, taskParams->key, taskParams->ip, taskParams->ac);
     }

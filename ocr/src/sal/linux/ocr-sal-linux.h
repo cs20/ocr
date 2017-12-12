@@ -88,7 +88,7 @@ u8        salResilientGuidDestroy(ocrGuid_t guid);
 //Runtime internal api
 u8        salIsResilientGuid(ocrGuid_t guid);
 u8        salIsSatisfiedResilientGuid(ocrGuid_t guid);
-u8        salResilientGuidConnect(ocrGuid_t keyGuid, ocrGuid_t valGuid);
+u8        salResilientGuidConnect(ocrGuid_t newGuid, ocrGuid_t oldGuid);
 u8        salResilientAdvanceWaiters();
 u8        salRecordMainEdt();
 u8        salDestroyMainEdt();

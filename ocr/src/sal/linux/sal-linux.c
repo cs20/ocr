@@ -1004,6 +1004,62 @@ static u8 salReadGuidPayload(ocrGuid_t guid, ocrGuid_t *payload) {
     return 0;
 }
 
+//Returns 0 if old version exists.
+//Returns old version in val
+static u8 salCheckGuidOldVersion(ocrGuid_t guid, ocrGuid_t *val) {
+    if (ocrGuidIsNull(guid)) return 1;
+#if GUID_BIT_COUNT == 64
+    u64 g = guid.guid;
+#elif GUID_BIT_COUNT == 128
+    u64 g = guid.lower;
+#else
+#error Unknown type of GUID
+#endif
+    char fname[FNL];
+    int c = snprintf(fname, FNL, "%lu.old", g);
+    if (c < 0 || c >= FNL) {
+        fprintf(stderr, "failed to create filename for publish\n");
+        ASSERT(0);
+        return 1;
+    }
+    struct stat sb;
+    if (stat(fname, &sb) != 0) {
+        return 1;
+    }
+    if (val != NULL) {
+        salFetchMetaData(fname, (void*)val, sizeof(ocrGuid_t), 0);
+    }
+    return 0;
+}
+
+//Returns 0 if new version exists.
+//Returns new version in val
+static u8 salCheckGuidNewVersion(ocrGuid_t guid, ocrGuid_t *val) {
+    if (ocrGuidIsNull(guid)) return 1;
+#if GUID_BIT_COUNT == 64
+    u64 g = guid.guid;
+#elif GUID_BIT_COUNT == 128
+    u64 g = guid.lower;
+#else
+#error Unknown type of GUID
+#endif
+    char fname[FNL];
+    int c = snprintf(fname, FNL, "%lu.new", g);
+    if (c < 0 || c >= FNL) {
+        fprintf(stderr, "failed to create filename for publish\n");
+        ASSERT(0);
+        return 1;
+    }
+    struct stat sb;
+    if (stat(fname, &sb) != 0) {
+        return 1;
+    }
+    if (val != NULL) {
+        salFetchMetaData(fname, (void*)val, sizeof(ocrGuid_t), 0);
+    }
+    return 0;
+}
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////  Static Runtime Functions  /////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1046,10 +1102,10 @@ static u8 salResilientGuidCreate(ocrGuid_t guid, ocrGuid_t pguid, u64 key, u64 i
     }
     salPublishMetaData(sname, &guid, sizeof(ocrGuid_t), 1);
 
-    //If old verion exists, then insert old guid into guid table
+    //If old verion exists, then connect old guid with this guid
     ocrGuid_t faultGuid = NULL_GUID;
-    salGuidTableGet(p, &faultGuid);
-    if (!ocrGuidIsNull(faultGuid)) {
+    if (salCheckGuidOldVersion(pguid, &faultGuid) == 0) {
+        ASSERT(!ocrGuidIsNull(faultGuid));
 #if GUID_BIT_COUNT == 64
         u64 f = faultGuid.guid;
 #elif GUID_BIT_COUNT == 128
@@ -1069,8 +1125,7 @@ static u8 salResilientGuidCreate(ocrGuid_t guid, ocrGuid_t pguid, u64 key, u64 i
             ocrGuid_t oldguid = NULL_GUID;
             salFetchMetaData(fname, &oldguid, sizeof(ocrGuid_t), 0);
             ASSERT(!ocrGuidIsNull(oldguid));
-            //salGuidTableRemove(g, NULL);
-            salGuidTablePut(g, oldguid);
+            salResilientGuidConnect(guid, oldguid);
         }
     }
 
@@ -1285,9 +1340,19 @@ static u8 salWaiterCheck(salWaiter_t *waiter, u8 deadlockPrint) {
                 DPRINTF(DEBUG_LVL_VERB, "[Waiter Ready] EDT: 0x%lx SLOT: %d DATA: 0x%lx\n", (u64)waiter->guid.guid, i, (u64)waiter->slotv[i].dep.guid);
                 break;
             }
+
+            //Make sure we are waiting for the newer dependences
+            ocrGuid_t newguid = NULL_GUID;
+            while (salCheckGuidNewVersion(waiter->slotv[i].dep, &newguid) == 0) {
+                ASSERT(!ocrGuidIsNull(newguid));
+                waiter->slotv[i].dep = newguid;
+                newguid = NULL_GUID;
+            }
+
             u8 depSatisfied = salIsSatisfiedResilientGuid(waiter->slotv[i].dep);
             if (!depSatisfied) break;
             DPRINTF(DEBUG_LVL_VERB, "[Waiter Satisfied] EDT: 0x%lx SLOT: %d DEP: 0x%lx\n", (u64)waiter->guid.guid, i, (u64)waiter->slotv[i].dep.guid);
+
             ocrGuid_t data = NULL_GUID;
             salReadGuidPayload(waiter->slotv[i].dep, &data);
             ocrPolicyDomain_t *pd = NULL;
@@ -1364,6 +1429,13 @@ u8 salResilientAddDependence(ocrGuid_t sguid, ocrGuid_t dguid, u32 slot) {
     ASSERT(!ocrGuidIsNull(dguid));
     if (!salIsResilientGuid(dguid)) return 1;
     if (!ocrGuidIsNull(sguid) && !salIsResilientGuid(sguid)) return 1;
+    ocrGuid_t newguid = NULL_GUID;
+    if (salCheckGuidNewVersion(sguid, &newguid) == 0) {
+        ASSERT(!ocrGuidIsNull(newguid));
+        DPRINTF(DEBUG_LVL_INFO, "[AddDep] Found new guid OLD SRC: 0x%lx NEW SRC: 0x%lx\n", (u64)sguid.guid, (u64)newguid.guid);
+        sguid = newguid;
+    }
+
     DPRINTF(DEBUG_LVL_INFO, "[AddDep] SRC: 0x%lx DEST: 0x%lx SLOT: %d\n", (u64)sguid.guid, (u64)dguid.guid, slot);
 #if GUID_BIT_COUNT == 64
     u64 g = dguid.guid;
@@ -1384,35 +1456,37 @@ u8 salResilientAddDependence(ocrGuid_t sguid, ocrGuid_t dguid, u32 slot) {
     salPublishMetaData(fname, &sguid, sizeof(ocrGuid_t), 0);
 
     //If old guid mappings exist, then publish those as well
-    u8 doContinue;
-    do {
-        doContinue = 0;
-        ocrGuid_t oldguid = NULL_GUID;
-        if (salGuidTableGet(g, &oldguid) == 0) {
-            ASSERT(!ocrGuidIsNull(oldguid));
-            if (salIsResilientGuid(oldguid)) {
+    ocrGuid_t oldguid = NULL_GUID;
+    if (salCheckGuidOldVersion(dguid, &oldguid) == 0) {
+        ASSERT(!ocrGuidIsNull(oldguid));
+        if (salIsResilientGuid(oldguid)) {
 #if GUID_BIT_COUNT == 64
-                u64 g = oldguid.guid;
+            u64 g = oldguid.guid;
 #elif GUID_BIT_COUNT == 128
-                u64 g = oldguid.lower;
+            u64 g = oldguid.lower;
 #else
 #error Unknown type of GUID
 #endif
-                char fname[FNL];
-                int c = snprintf(fname, FNL, "%lu.dep%d", g, slot);
-                if (c < 0 || c >= FNL) {
-                    fprintf(stderr, "failed to create filename for publish\n");
-                    ASSERT(0);
-                    return 1;
-                }
-                struct stat sb;
-                if (stat(fname, &sb) != 0) {
-                    salPublishMetaData(fname, &sguid, sizeof(ocrGuid_t), 0);
-                    doContinue = 1;
-                }
+            char fname[FNL];
+            int c = snprintf(fname, FNL, "%lu.dep%d", g, slot);
+            if (c < 0 || c >= FNL) {
+                fprintf(stderr, "failed to create filename for publish\n");
+                ASSERT(0);
+                return 1;
+            }
+            struct stat sb;
+            if (stat(fname, &sb) != 0) {
+                salPublishMetaData(fname, &sguid, sizeof(ocrGuid_t), 0);
             }
         }
-    } while(doContinue);
+    }
+
+    //If new guid mappings exist, then publish those as well
+    newguid = NULL_GUID;
+    if (salCheckGuidNewVersion(dguid, &newguid) == 0) {
+        ASSERT(!ocrGuidIsNull(newguid));
+        return salResilientAddDependence(sguid, newguid, slot);
+    }
     return 0;
 }
 
@@ -1424,30 +1498,33 @@ u8 salResilientEventSatisfy(ocrGuid_t guid, u32 slot, ocrGuid_t data) {
     ocrGuidKind kind;
     pd->guidProviders[0]->fcts.getKind(pd->guidProviders[0], guid, &kind);
     ASSERT(kind & OCR_GUID_EVENT);
+    ocrGuid_t newguid = NULL_GUID;
+    if (salCheckGuidNewVersion(data, &newguid) == 0) {
+        ASSERT(!ocrGuidIsNull(newguid));
+        DPRINTF(DEBUG_LVL_INFO, "[EventSatisfy] Found new guid OLD DATA: 0x%lx NEW DATA: 0x%lx\n", (u64)data.guid, (u64)newguid.guid);
+        data = newguid;
+    }
     DPRINTF(DEBUG_LVL_INFO, "[EventSatisfy] EVT: 0x%lx DATA: 0x%lx\n", (u64)guid.guid, (u64)data.guid);
 
     //Publish data to event guid
     salWriteGuidPayload(guid, data);
 
     //If old guid mappings exist, then satisfy those as well
-    u8 doContinue;
-    do {
-        doContinue = 0;
-#if GUID_BIT_COUNT == 64
-        u64 g = guid.guid;
-#elif GUID_BIT_COUNT == 128
-        u64 g = guid.lower;
-#else
-#error Unknown type of GUID
-#endif
-        ocrGuid_t oldguid = NULL_GUID;
-        if (salGuidTableGet(g, &oldguid) == 0) {
-            ASSERT(!ocrGuidIsNull(oldguid));
+    ocrGuid_t oldguid = NULL_GUID;
+    if (salCheckGuidOldVersion(guid, &oldguid) == 0) {
+        ASSERT(!ocrGuidIsNull(oldguid));
+        if (salIsResilientGuid(oldguid)) {
+            //Publish data to event guid
             salWriteGuidPayload(oldguid, data);
-            guid = oldguid;
-            doContinue = 1;
         }
-    } while(doContinue);
+    }
+
+    //If new guid mappings exist, then satisfy those as well
+    newguid = NULL_GUID;
+    if (salCheckGuidNewVersion(guid, &newguid) == 0) {
+        ASSERT(!ocrGuidIsNull(newguid));
+        return salResilientEventSatisfy(newguid, slot, data);
+    }
     return 0;
 }
 
@@ -1533,17 +1610,34 @@ u8 salIsSatisfiedResilientGuid(ocrGuid_t guid) {
 }
 
 //Create a mapping from key EDT guid to val guid for recovery EDTs
-u8 salResilientGuidConnect(ocrGuid_t keyGuid, ocrGuid_t valGuid) {
-    ASSERT(!ocrGuidIsNull(keyGuid));
-    ASSERT(!ocrGuidIsNull(valGuid));
+u8 salResilientGuidConnect(ocrGuid_t newGuid, ocrGuid_t oldGuid) {
+    ASSERT(!ocrGuidIsNull(newGuid));
+    ASSERT(!ocrGuidIsNull(oldGuid));
 #if GUID_BIT_COUNT == 64
-    u64 g = keyGuid.guid;
+    u64 n = newGuid.guid;
+    u64 o = oldGuid.guid;
 #elif GUID_BIT_COUNT == 128
-    u64 g = keyGuid.lower;
+    u64 n = newGuid.lower;
+    u64 o = oldGuid.lower;
 #else
 #error Unknown type of GUID
 #endif
-    salGuidTablePut(g, valGuid);
+    char nname[FNL];
+    int c = snprintf(nname, FNL, "%lu.old", n);
+    if (c < 0 || c >= FNL) {
+        fprintf(stderr, "failed to create filename for publish\n");
+        ASSERT(0);
+        return 1;
+    }
+    char oname[FNL];
+    c = snprintf(oname, FNL, "%lu.new", o);
+    if (c < 0 || c >= FNL) {
+        fprintf(stderr, "failed to create filename for publish\n");
+        ASSERT(0);
+        return 1;
+    }
+    salPublishMetaData(nname, &oldGuid, sizeof(ocrGuid_t), 1);
+    salPublishMetaData(oname, &newGuid, sizeof(ocrGuid_t), 1);
     return 0;
 }
 
@@ -1609,6 +1703,12 @@ u8 salResilientDataBlockPublish(ocrDataBlock_t *db) {
     ASSERT(db != NULL);
     ocrGuid_t dbGuid = db->guid;
     ASSERT(salIsResilientGuid(dbGuid));
+    ocrGuid_t newguid = NULL_GUID;
+    if (salCheckGuidNewVersion(dbGuid, &newguid) == 0) {
+        DPRINTF(DEBUG_LVL_WARN, "Found newer version of data-block "GUIDF" during publish: "GUIDF"\n", GUIDA(dbGuid), GUIDA(newguid));
+        ASSERT(0);
+        return 1;
+    }
 #if GUID_BIT_COUNT == 64
     u64 g = dbGuid.guid;
 #elif GUID_BIT_COUNT == 128
@@ -1626,28 +1726,19 @@ u8 salResilientDataBlockPublish(ocrDataBlock_t *db) {
     }
     salPublishData(fname, g, db->ptr, db->size);
 
+    hal_fence();
+
     //Publish DB guid
     salWriteGuidPayload(dbGuid, dbGuid);
 
     //If old guid mappings exist, then satisfy those as well
-    u8 doContinue;
-    do {
-        doContinue = 0;
-#if GUID_BIT_COUNT == 64
-        u64 g = dbGuid.guid;
-#elif GUID_BIT_COUNT == 128
-        u64 g = dbGuid.lower;
-#else
-#error Unknown type of GUID
-#endif
-        ocrGuid_t oldguid = NULL_GUID;
-        if (salGuidTableGet(g, &oldguid) == 0) {
-            ASSERT(!ocrGuidIsNull(oldguid));
+    ocrGuid_t oldguid = NULL_GUID;
+    if (salCheckGuidOldVersion(dbGuid, &oldguid) == 0) {
+        ASSERT(!ocrGuidIsNull(oldguid));
+        if (salIsResilientGuid(oldguid)) {
             salWriteGuidPayload(oldguid, dbGuid);
-            dbGuid = oldguid;
-            doContinue = 1;
         }
-    } while(doContinue);
+    }
     return 0;
 }
 
@@ -1682,6 +1773,7 @@ void* salResilientDataBlockFetch(ocrGuid_t guid, u64 *gSize) {
         DPRINTF(DEBUG_LVL_WARN, "Cannot fetch DB "GUIDF": (data-block is not yet published)\n", GUIDA(guid));
         return NULL;
     }
+    ASSERT(salIsSatisfiedResilientGuid(guid));
     u64 size = sb.st_size;
     void *buf = pd->fcts.pdMalloc(pd, size);
     RESULT_ASSERT(salFetchData(fname, g, buf, size), ==, 0);
@@ -2082,31 +2174,18 @@ u8 salGuidTablePut(u64 key, ocrGuid_t val) {
         return 1;
     }
 
+    //If old verion exists, create mappings between old guid and new guid
     struct stat sb;
-    if (stat(fname, &sb) == 0) {
-        //If old verion exists, then insert old guid into guid table
+    if (stat(fname, &sb) == 0) { 
         ocrGuid_t oldguid = NULL_GUID;
-        salGuidTableRemove(key, &oldguid);
+        salFetchMetaData(fname, (void*)&oldguid, sizeof(ocrGuid_t), 0);
         ASSERT(!ocrGuidIsNull(oldguid));
-#if 1
-#if GUID_BIT_COUNT == 64
-        u64 g = val.guid;
-#elif GUID_BIT_COUNT == 128
-        u64 g = val.lower;
-#else
-#error Unknown type of GUID
-#endif
-        ocrGuid_t oldguidRef = NULL_GUID;
-        salGuidTableGet(g, &oldguidRef);
-        if (ocrGuidIsNull(oldguidRef)) {
-            salGuidTablePut(g, oldguid);
-        } else {
-            ASSERT(ocrGuidIsEq(oldguid, oldguidRef));
-        }
-#endif
+        if (ocrGuidIsEq(val, oldguid))
+            return 1;
+        salResilientGuidConnect(val, oldguid);
     }
 
-    salPublishMetaData(fname, &val, sizeof(ocrGuid_t), 0);
+    salPublishMetaData(fname, &val, sizeof(ocrGuid_t), 1);
     return 0;
 }
 
@@ -2199,7 +2278,13 @@ static u8 salCreateFaultRecord(u64 guid) {
         ASSERT(0);
         return 1;
     }
-    int rc = close(fd);
+    int rc = ftruncate(fd, 0);
+    if (rc) {
+        fprintf(stderr, "ftruncate failed: (filename: %s filedesc: %d)\n", fname, fd);
+        ASSERT(0);
+        return 1;
+    }
+    rc = close(fd);
     if (rc) {
         fprintf(stderr, "close failed: (filedesc: %d)\n", fd);
         ASSERT(0);
@@ -2389,10 +2474,9 @@ u8 salProcessNodeFailure(ocrLocation_t nodeId) {
 
 void salImportEdt(void * key, void * value, void * args) {
     ASSERT((u64)key == (u64)value);
-    u64 guid = (u64)key;
 
     char fname[FNL];
-    int c = snprintf(fname, FNL, "%lu.edt", guid);
+    int c = snprintf(fname, FNL, "%lu.edt", (u64)key);
     if (c < 0 || c >= FNL) {
         fprintf(stderr, "failed to create filename for publish\n");
         ASSERT(0);
