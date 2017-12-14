@@ -83,15 +83,22 @@ u8        salResilientDbCreate(ocrDataBlock_t *db, ocrGuid_t pguid, u64 key, u64
 u8        salResilientEventCreate(ocrEvent_t *evt, ocrGuid_t pguid, u64 key, u64 ip, u64 ac);
 u8        salResilientAddDependence(ocrGuid_t sguid, ocrGuid_t dguid, u32 slot);
 u8        salResilientEventSatisfy(ocrGuid_t guid, u32 slot, ocrGuid_t data);
-u8        salResilientGuidDestroy(ocrGuid_t guid);
+u8        salResilientEdtDestroy(ocrGuid_t guid);
+u8        salResilientDbDestroy(ocrGuid_t guid);
+u8        salResilientEventDestroy(ocrGuid_t guid);
 
 //Runtime internal api
 u8        salIsResilientGuid(ocrGuid_t guid);
 u8        salIsSatisfiedResilientGuid(ocrGuid_t guid);
-u8        salResilientGuidConnect(ocrGuid_t newGuid, ocrGuid_t oldGuid);
+u8        salIsRecoveryGuid(ocrGuid_t guid);
 u8        salResilientAdvanceWaiters();
 u8        salRecordMainEdt();
 u8        salDestroyMainEdt();
+u8        salRecordEdtAtNode(ocrGuid_t edt, ocrLocation_t loc);
+u8        salResilientRecordTaskRoot(ocrTask_t *task);
+u8        salResilientTaskRootUpdate(ocrGuid_t guid, u32 slot, ocrGuid_t data);
+u8        salResilientGuidRemove(ocrGuid_t guid);
+u8        salResilientRecordDestroyGuids(ocrGuid_t pguid, ocrGuid_t *guidArray, u32 count);
 
 //Publish-Fetch api
 u8        salResilientDataBlockPublish(ocrDataBlock_t *db);
@@ -99,14 +106,12 @@ void*     salResilientDataBlockFetch(ocrGuid_t guid, u64 *size);
 u8        salResilientDataBlockRemove(ocrDataBlock_t *db);
 u8        salResilientTaskPublish(ocrTask_t *task);
 u8        salResilientTaskRemove(ocrGuid_t guid);
-u8        salRecordEdtAtNode(ocrGuid_t edt, ocrLocation_t loc);
-u8        salResilientRecordTaskRoot(ocrTask_t *task);
-u8        salResilientTaskRootUpdate(ocrGuid_t guid, u32 slot, ocrGuid_t data);
 
 //Guid table api
 u8        salGuidTablePut(u64 key, ocrGuid_t val);
 u8        salGuidTableGet(u64 key, ocrGuid_t *val);
 u8        salGuidTableRemove(u64 key, ocrGuid_t *val);
+u8        salResilientGuidConnect(ocrGuid_t newGuid, ocrGuid_t oldGuid);
 
 //Node failure api
 void      salComputeThreadExitOnFailure();

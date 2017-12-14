@@ -86,7 +86,9 @@ typedef struct _ocrEventHcLatch_t {
     s32 counter;
 #ifdef ENABLE_AMT_RESILIENCE
     u8 readyToDestruct;
-    s32 rescounter;
+    u8 shutdownLatch;
+    s32 scheduledResCounter, activeResCounter;
+    ocrGuid_t resilientParentLatch;
     ocrGuid_t resilientScopeEdt;
     ocrGuid_t *dbPublishArray;
     u32 dbPublishArrayLength;
@@ -94,6 +96,9 @@ typedef struct _ocrEventHcLatch_t {
     ocrGuid_t *guidDestroyArray;
     u32 guidDestroyArrayLength;
     u32 guidDestroyCount;
+    ocrGuid_t *childDestroyArray;
+    u32 childDestroyArrayLength;
+    u32 childDestroyCount;
 #endif
 } ocrEventHcLatch_t;
 

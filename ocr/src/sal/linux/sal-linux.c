@@ -1093,14 +1093,24 @@ static u8 salResilientGuidCreate(ocrGuid_t guid, ocrGuid_t pguid, u64 key, u64 i
 #endif
 
     //Create api signature for guid
-    char sname[FNL];
-    c = snprintf(sname, FNL, "%lu.%lu.%lu.api", p, ip, ac);
+    char aname[FNL];
+    c = snprintf(aname, FNL, "%lu.%lu.%lu.api", p, ip, ac);
     if (c < 0 || c >= FNL) {
         fprintf(stderr, "failed to create filename for publish\n");
         ASSERT(0);
         return 1;
     }
-    salPublishMetaData(sname, &guid, sizeof(ocrGuid_t), 1);
+    salPublishMetaData(aname, &guid, sizeof(ocrGuid_t), 1);
+
+    //Map guid to api signature
+    char sname[FNL];
+    c = snprintf(sname, FNL, "%lu.sig", g);
+    if (c < 0 || c >= FNL) {
+        fprintf(stderr, "failed to create filename for publish\n");
+        ASSERT(0);
+        return 1;
+    }
+    salPublishMetaData(sname, aname, sizeof(char)*(strlen(aname)+1), 1);
 
     //If old verion exists, then connect old guid with this guid
     ocrGuid_t faultGuid = NULL_GUID;
@@ -1132,6 +1142,51 @@ static u8 salResilientGuidCreate(ocrGuid_t guid, ocrGuid_t pguid, u64 key, u64 i
     return 0;
 }
 
+//Record guid for destruction
+static u8 salResilientGuidDestroy(ocrGuid_t guid) {
+    ocrPolicyDomain_t *pd = NULL;
+    ocrTask_t *task = NULL;
+    PD_MSG_STACK(msg);
+    getCurrentEnv(&pd, NULL, &task, &msg);
+
+    //Ignore destroys from recovery EDTs
+    if (salIsRecoveryGuid(task->resilientEdtParent)) 
+        return 0;
+
+    //Do not handle non-resilient guids
+    if (!salIsResilientGuid(guid))
+        return 1;
+
+    ocrGuid_t latch = (task != NULL) ? task->resilientLatch : NULL_GUID;
+    if (!ocrGuidIsNull(latch)) {
+#define PD_MSG (&msg)
+#define PD_TYPE PD_MSG_DEP_SATISFY
+        getCurrentEnv(NULL, NULL, NULL, &msg);
+        msg.type = PD_MSG_DEP_SATISFY | PD_MSG_REQUEST;
+        PD_MSG_FIELD_I(satisfierGuid.guid) = task->guid;
+        PD_MSG_FIELD_I(satisfierGuid.metaDataPtr) = task;
+        PD_MSG_FIELD_I(guid.guid) = latch;
+        PD_MSG_FIELD_I(guid.metaDataPtr) = NULL;
+        PD_MSG_FIELD_I(payload.guid) = guid;
+        PD_MSG_FIELD_I(payload.metaDataPtr) = NULL;
+        PD_MSG_FIELD_I(currentEdt.guid) = task->guid;
+        PD_MSG_FIELD_I(currentEdt.metaDataPtr) = task;
+        PD_MSG_FIELD_I(slot) = OCR_EVENT_LATCH_GUID_DESTROY_SLOT;
+#ifdef REG_ASYNC_SGL
+        PD_MSG_FIELD_I(mode) = -1;
+#endif
+        PD_MSG_FIELD_I(properties) = 0;
+#ifdef ENABLE_OCR_API_DEFERRABLE
+        tagDeferredMsg(&msg, task);
+#endif
+        RESULT_ASSERT(pd->fcts.processMessage(pd, &msg, true), ==, 0);
+    }
+#undef PD_TYPE
+#undef PD_MSG
+    return 0;
+}
+
+//Insert a new waiter for the scheduler to monitor
 static void salInsertSalWaiter(salWaiter_t *salWaiterNew) {
     salWaiter_t *salWaiterOld = NULL;
     salWaiter_t *salWaiterCur = NULL;
@@ -1142,6 +1197,7 @@ static void salInsertSalWaiter(salWaiter_t *salWaiterNew) {
     } while(salWaiterOld != salWaiterCur);
 }
 
+//Create a new waiter object for the scheduler
 static void salWaiterCreate(ocrGuid_t guid, ocrGuid_t resilientEdtParent, u32 slotc) {
     u32 i;
     ocrPolicyDomain_t *pd;
@@ -1238,6 +1294,7 @@ static u8 salResilientGuidSatisfy(ocrGuid_t guid, u32 slot, ocrGuid_t data) {
     return 0;
 }
 
+//Satisfy all the dependencies of the ready EDT and schedule for execution
 static u8 salResilientEdtSatisfy(salWaiter_t *waiter) {
     u32 i;
     ocrWorker_t *worker = NULL;
@@ -1311,6 +1368,7 @@ static u8 salResilientEdtSatisfy(salWaiter_t *waiter) {
 #define WAITER_PRINT_DEPS(x,y) switch(x) {PRINT_CASE(y)}
 #define WAITER_PRINT_EDT(x) WAITER_PRINT_DEPS((x-1), MAX_DEP_PRINT)
 
+//Monitor the state of a waiter for scheduling
 static u8 salWaiterCheck(salWaiter_t *waiter, u8 deadlockPrint) {
     u32 i;
     ASSERT(waiter->status == WAITER_ACTIVE);
@@ -1528,8 +1586,9 @@ u8 salResilientEventSatisfy(ocrGuid_t guid, u32 slot, ocrGuid_t data) {
     return 0;
 }
 
-u8 salResilientGuidDestroy(ocrGuid_t guid) {
-    if (!salIsResilientGuid(guid)) return 1;
+//Destroy all state maintained by a resilient EDT scope
+u8 salResilientEdtDestroy(ocrGuid_t guid) {
+    ASSERT(!ocrGuidIsNull(guid));
 #if GUID_BIT_COUNT == 64
     u64 g = guid.guid;
 #elif GUID_BIT_COUNT == 128
@@ -1537,21 +1596,53 @@ u8 salResilientGuidDestroy(ocrGuid_t guid) {
 #else
 #error Unknown type of GUID
 #endif
-    ocrPolicyDomain_t *pd;
-    getCurrentEnv(&pd, NULL, NULL, NULL);
-    ocrGuidKind kind;
-    pd->guidProviders[0]->fcts.getKind(pd->guidProviders[0], guid, &kind);
-    if (kind == OCR_GUID_DB) {
-        char fname[FNL];
-        int c = snprintf(fname, FNL, "%lu.db", g);
-        if (c < 0 || c >= FNL) {
-            fprintf(stderr, "failed to create filename for publish\n");
-            ASSERT(0);
-            return 0;
+    char fname[FNL];
+    int c = snprintf(fname, FNL, "%lu.destroy", g);
+    if (c < 0 || c >= FNL) {
+        fprintf(stderr, "failed to create filename for publish\n");
+        ASSERT(0);
+        return 1;
+    }
+    struct stat sb;
+    if (stat(fname, &sb) != 0) {
+        return 1; //No destroy record found
+    }
+    u64 size = sb.st_size;
+    if (size) {
+        ASSERT(size % sizeof(ocrGuid_t) == 0);
+        u64 count = size / sizeof(ocrGuid_t);
+
+        //Retrieve the guids from the destroy file
+        ocrPolicyDomain_t *pd;
+        getCurrentEnv(&pd, NULL, NULL, NULL);
+        ocrGuid_t *guidArray = (ocrGuid_t*)pd->fcts.pdMalloc(pd, size);
+        salFetchMetaData(fname, (void*)guidArray, size, 0);
+
+        //Remove the guids in the destroy file
+        u64 i;
+        for (i = 0; i < count; i++) {
+            salResilientGuidRemove(guidArray[i]);
         }
-        unlink(fname);
+    }
+
+    //Remove destroy file
+    int rc = unlink(fname);
+    if (rc) {
+        fprintf(stderr, "unlink failed: (filename: %s)\n", fname);
+        ASSERT(0);
+        return 1;
     }
     return 0;
+}
+
+//Handle a DB destroy call by the user
+u8 salResilientDbDestroy(ocrGuid_t guid) {
+    return salResilientGuidDestroy(guid);
+}
+
+//Handle an event destroy call by the user
+u8 salResilientEventDestroy(ocrGuid_t guid) {
+    return salResilientGuidDestroy(guid);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -1609,38 +1700,37 @@ u8 salIsSatisfiedResilientGuid(ocrGuid_t guid) {
     return 0;
 }
 
-//Create a mapping from key EDT guid to val guid for recovery EDTs
-u8 salResilientGuidConnect(ocrGuid_t newGuid, ocrGuid_t oldGuid) {
-    ASSERT(!ocrGuidIsNull(newGuid));
-    ASSERT(!ocrGuidIsNull(oldGuid));
+//Returns true if guid is recovery guid
+u8 salIsRecoveryGuid(ocrGuid_t guid) {
+    if (ocrGuidIsNull(guid)) return 0;
+
+    //If old verion exists, then check is that was a fault guid
+    ocrGuid_t fguid = NULL_GUID;
+    if (salCheckGuidOldVersion(guid, &fguid) != 0)
+        return 0;
+    ASSERT(!ocrGuidIsNull(fguid));
 #if GUID_BIT_COUNT == 64
-    u64 n = newGuid.guid;
-    u64 o = oldGuid.guid;
+    u64 g = fguid.guid;
 #elif GUID_BIT_COUNT == 128
-    u64 n = newGuid.lower;
-    u64 o = oldGuid.lower;
+    u64 g = fguid.lower;
 #else
 #error Unknown type of GUID
 #endif
-    char nname[FNL];
-    int c = snprintf(nname, FNL, "%lu.old", n);
+    char fname[FNL];
+    int c = snprintf(fname, FNL, "%lu.fault", g);
     if (c < 0 || c >= FNL) {
         fprintf(stderr, "failed to create filename for publish\n");
         ASSERT(0);
+        return 0;
+    }
+    struct stat sb;
+    if (stat(fname, &sb) == 0) {
         return 1;
     }
-    char oname[FNL];
-    c = snprintf(oname, FNL, "%lu.new", o);
-    if (c < 0 || c >= FNL) {
-        fprintf(stderr, "failed to create filename for publish\n");
-        ASSERT(0);
-        return 1;
-    }
-    salPublishMetaData(nname, &oldGuid, sizeof(ocrGuid_t), 1);
-    salPublishMetaData(oname, &newGuid, sizeof(ocrGuid_t), 1);
     return 0;
 }
 
+//Main scheduling loop to manage dependencies for EDT execution
 u8 salResilientAdvanceWaiters() {
     u32 masterOldVal = hal_cmpswap32((u32*)&salWaiterMaster, 0, 1);
     if (masterOldVal == 1) return 0;
@@ -1691,6 +1781,324 @@ u8 salResilientAdvanceWaiters() {
 
     hal_fence();
     RESULT_ASSERT(hal_cmpswap32((u32*)&salWaiterMaster, 1, 0), ==, 1);
+    return 0;
+}
+
+//Record the start of the main EDT execution in the program
+u8 salRecordMainEdt() {
+    //Create main file
+    char fname[FNL];
+    int c = snprintf(fname, FNL, "main.edt");
+    if (c < 0 || c >= FNL) {
+        fprintf(stderr, "failed to create filename for publish\n");
+        ASSERT(0);
+        return 1;
+    }
+    salPublishMetaData(fname, NULL, 0, 0);
+    return 0;
+}
+
+//Record the completion of the main EDT execution in the program
+u8 salDestroyMainEdt() {
+    //Remove EDT metadata
+    char fname[FNL];
+    int c = snprintf(fname, FNL, "main.edt");
+    if (c < 0 || c >= FNL) {
+        fprintf(stderr, "failed to create filename for EDT\n");
+        ASSERT(0);
+        return 1;
+    }
+    struct stat sb;
+    if (stat(fname, &sb) != 0) {
+        fprintf(stderr, "Cannot find main.edt during remove!\n");
+        ASSERT(0);
+        return 1;
+    }
+    int rc = unlink(fname);
+    if (rc) {
+        fprintf(stderr, "unlink failed: (filename: %s)\n", fname);
+        ASSERT(0);
+        return 1;
+    }
+    return 0;
+}
+
+//Record the resilient EDT scope when it is used in a location
+u8 salRecordEdtAtNode(ocrGuid_t guid, ocrLocation_t loc) {
+    if (ocrGuidIsNull(guid)) return 0;
+    if (!salIsResilientGuid(guid)) return 0;
+#if GUID_BIT_COUNT == 64
+    u64 g = guid.guid;
+#elif GUID_BIT_COUNT == 128
+    u64 g = guid.lower;
+#else
+#error Unknown type of GUID
+#endif
+    char fname[FNL];
+    int c = snprintf(fname, FNL, "%lu.node%lu", g, (u64)loc);
+    if (c < 0 || c >= FNL) {
+        fprintf(stderr, "failed to create filename for EDT record\n");
+        ASSERT(0);
+        return 1;
+    }
+    struct stat sb;
+    if (stat(fname, &sb) == 0) {
+        return 0; //Found existing record
+    }
+
+    int fd = open(fname, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR );
+    if (fd<0) {
+        fprintf(stderr, "open failed: (filename: %s)\n", fname);
+        ASSERT(0);
+        return 1;
+    }
+    int rc = close(fd);
+    if (rc) {
+        fprintf(stderr, "close failed: (filedesc: %d)\n", fd);
+        ASSERT(0);
+        return 1;
+    }
+    return 0;
+}
+
+//Create a record for a root EDT (the first set of resilient EDTs created in the program)
+u8 salResilientRecordTaskRoot(ocrTask_t *task) {
+    ASSERT(task != NULL);
+    ASSERT(salIsResilientGuid(task->guid));
+#if GUID_BIT_COUNT == 64
+    u64 g = task->guid.guid;
+#elif GUID_BIT_COUNT == 128
+    u64 g = task->guid.lower;
+#else
+#error Unknown type of GUID
+#endif
+    //Create root file
+    char gname[FNL];
+    int c = snprintf(gname, FNL, "%lu.root", g);
+    if (c < 0 || c >= FNL) {
+        fprintf(stderr, "failed to create filename for publish\n");
+        ASSERT(0);
+        return 1;
+    }
+    ocrPolicyDomain_t *pd = NULL;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+    ocrLocation_t loc = pd->myLocation;
+    salPublishMetaData(gname, &loc, sizeof(ocrLocation_t), 0);
+
+    //Create EDT storage metadata
+    int i;
+    u64 size = sizeof(edtStorage_t) + sizeof(u64) * task->paramc + sizeof(ocrGuid_t) * task->depc;
+    u8 *buf = pd->fcts.pdMalloc(pd, size);
+    edtStorage_t *edt = (edtStorage_t *)buf;
+    edt->guid = task->guid;
+    edt->resilientEdtParent = task->resilientEdtParent;
+    edt->funcPtr = task->funcPtr;
+    edt->paramc = task->paramc;
+    ASSERT(task->depc > 0);
+    edt->depc = task->depc;
+    edt->paramv = task->paramc ? (u64*)(buf + sizeof(edtStorage_t)) : NULL;
+    memcpy(edt->paramv, task->paramv, sizeof(u64) * task->paramc);
+    edt->depv = (ocrGuid_t*)(buf + sizeof(edtStorage_t) + sizeof(u64) * task->paramc);
+    for (i = 0; i < task->depc; i++) {
+        edt->depv[i] = UNINITIALIZED_GUID;
+    }
+
+    //Publish EDT metadata
+    char fname[FNL];
+    c = snprintf(fname, FNL, "%lu.edt", g);
+    if (c < 0 || c >= FNL) {
+        fprintf(stderr, "failed to create filename for publish\n");
+        ASSERT(0);
+        return 1;
+    }
+    salPublishMetaData(fname, buf, size, 0);
+    pd->fcts.pdFree(pd, buf);
+    return 0;
+}
+
+//Scheduling update to EDT storage buffer for root task
+u8 salResilientTaskRootUpdate(ocrGuid_t guid, u32 slot, ocrGuid_t data) {
+    ASSERT(!ocrGuidIsNull(guid));
+#if GUID_BIT_COUNT == 64
+    u64 g = guid.guid;
+#elif GUID_BIT_COUNT == 128
+    u64 g = guid.lower;
+#else
+#error Unknown type of GUID
+#endif
+    //Check if root file needs to be updated
+    char fname[FNL];
+    int c = snprintf(fname, FNL, "%lu.root", g);
+    if (c < 0 || c >= FNL) {
+        fprintf(stderr, "failed to create filename for root\n");
+        ASSERT(0);
+        return 1;
+    }
+    struct stat sb;
+    if (stat(fname, &sb) != 0) {
+        return 0; //No available root node
+    }
+
+    c = snprintf(fname, FNL, "%lu.edt", g);
+    if (c < 0 || c >= FNL) {
+        fprintf(stderr, "failed to create filename for publish\n");
+        ASSERT(0);
+        return 1;
+    }
+    if (stat(fname, &sb) != 0) {
+        fprintf(stderr, "Root EDT state is corrupt! (Cannot find EDT storage: %s)\n", fname);
+        ASSERT(0);
+        return 1;
+    }
+    int fd = open(fname, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR );
+    if (fd<0) {
+        fprintf(stderr, "open failed: (filename: %s)\n", fname);
+        ASSERT(0);
+        return 1;
+    }
+
+    u64 size = sb.st_size;
+    void *buf = mmap( NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0 );
+    if (buf == MAP_FAILED) {
+        fprintf(stderr, "mmap failed for size %lu (filename: %s filedesc: %d)\n", size, fname, fd);
+        ASSERT(0);
+        return 1;
+    }
+
+    edtStorage_t *edtBuf = (edtStorage_t*)buf;
+    edtBuf->depv = (ocrGuid_t*)((size_t)edtBuf + sizeof(edtStorage_t) + (edtBuf->paramc * sizeof(u64)));
+    ASSERT((slot < edtBuf->depc) && (ocrGuidIsUninitialized(edtBuf->depv[slot])));
+    edtBuf->depv[slot] = data;
+
+    int rc = msync(buf, size, MS_INVALIDATE | MS_SYNC);
+    if (rc) {
+        fprintf(stderr, "msync failed for buffer %p of size %lu\n", buf, size);
+        ASSERT(0);
+        return 1;
+    }
+
+    rc = munmap(buf, size);
+    if (rc) {
+        fprintf(stderr, "munmap failed for buffer %p of size %lu\n", buf, size);
+        ASSERT(0);
+        return 1;
+    }
+
+    rc = close(fd);
+    if (rc) {
+        fprintf(stderr, "close failed: (filedesc: %d)\n", fd);
+        ASSERT(0);
+        return 1;
+    }
+
+    return 0;
+}
+
+//Remove all metadata associated with the guid
+u8 salResilientGuidRemove(ocrGuid_t guid) {
+    if (!salIsResilientGuid(guid)) return 1;
+#if GUID_BIT_COUNT == 64
+    u64 g = guid.guid;
+#elif GUID_BIT_COUNT == 128
+    u64 g = guid.lower;
+#else
+#error Unknown type of GUID
+#endif
+    //First remove the .guid file
+    char gname[FNL];
+    int c = snprintf(gname, FNL, "%lu.guid", g);
+    if (c < 0 || c >= FNL) {
+        fprintf(stderr, "failed to create filename for publish\n");
+        ASSERT(0);
+        return 0;
+    }
+    unlink(gname);
+
+    //Remove the data-block contents if guid is a DB
+    ocrPolicyDomain_t *pd;
+    getCurrentEnv(&pd, NULL, NULL, NULL);
+    ocrGuidKind kind;
+    pd->guidProviders[0]->fcts.getKind(pd->guidProviders[0], guid, &kind);
+    if (kind == OCR_GUID_DB) {
+        char dname[FNL];
+        int c = snprintf(dname, FNL, "%lu.db", g);
+        if (c < 0 || c >= FNL) {
+            fprintf(stderr, "failed to create filename for publish\n");
+            ASSERT(0);
+            return 0;
+        }
+        unlink(dname);
+    }
+
+    //Remove the api and sig files associated with the guid
+    char aname[FNL];
+    char sname[FNL];
+    c = snprintf(sname, FNL, "%lu.sig", g);
+    if (c < 0 || c >= FNL) {
+        fprintf(stderr, "failed to create filename for publish\n");
+        ASSERT(0);
+        return 1;
+    }
+    struct stat sb;
+    if (stat(sname, &sb) == 0) {
+        u64 size = sb.st_size;
+        salFetchMetaData(sname, aname, size, 0);
+        unlink(aname);
+        unlink(sname);
+    }
+
+    //Remove the new map files associated with the guid
+    char nname[FNL];
+    c = snprintf(nname, FNL, "%lu.old", g);
+    if (c < 0 || c >= FNL) {
+        fprintf(stderr, "failed to create filename for publish\n");
+        ASSERT(0);
+        return 1;
+    }
+    unlink(nname);
+
+    //Remove the old map files associated with the guid
+    char oname[FNL];
+    c = snprintf(oname, FNL, "%lu.new", g);
+    if (c < 0 || c >= FNL) {
+        fprintf(stderr, "failed to create filename for publish\n");
+        ASSERT(0);
+        return 1;
+    }
+    unlink(oname);
+
+    return 0;
+}
+
+//Guids to be destroyed from parent EDT
+//(destruction is carried out automatically by runtime when it is safe)
+u8 salResilientRecordDestroyGuids(ocrGuid_t pguid, ocrGuid_t *guidArray, u32 count) {
+    if (count == 0) return 0;
+    if (ocrGuidIsNull(pguid)) {
+        //Eager destroy of all guids
+        u32 i;
+        for (i = 0; i < count; i++) {
+            salResilientGuidRemove(guidArray[i]);
+        }
+    } else {
+        //Record guids until safe to destroy
+#if GUID_BIT_COUNT == 64
+        u64 g = pguid.guid;
+#elif GUID_BIT_COUNT == 128
+        u64 g = pguid.lower;
+#else
+#error Unknown type of GUID
+#endif
+        //Create pguid destroy file
+        char fname[FNL];
+        int c = snprintf(fname, FNL, "%lu.destroy", g);
+        if (c < 0 || c >= FNL) {
+            fprintf(stderr, "failed to create filename for publish\n");
+            ASSERT(0);
+            return 1;
+        }
+        salPublishMetaData(fname, guidArray, count*sizeof(ocrGuid_t), 0);
+    }
     return 0;
 }
 
@@ -1872,218 +2280,11 @@ u8 salResilientTaskPublish(ocrTask_t *task) {
     return 0;
 }
 
-//Record the resilient EDT scope when it is used in a location
-u8 salRecordEdtAtNode(ocrGuid_t guid, ocrLocation_t loc) {
-    if (ocrGuidIsNull(guid)) return 0;
-    if (!salIsResilientGuid(guid)) return 0;
-#if GUID_BIT_COUNT == 64
-    u64 g = guid.guid;
-#elif GUID_BIT_COUNT == 128
-    u64 g = guid.lower;
-#else
-#error Unknown type of GUID
-#endif
-    char fname[FNL];
-    int c = snprintf(fname, FNL, "%lu.node%lu", g, (u64)loc);
-    if (c < 0 || c >= FNL) {
-        fprintf(stderr, "failed to create filename for EDT record\n");
-        ASSERT(0);
-        return 1;
-    }
-    struct stat sb;
-    if (stat(fname, &sb) == 0) {
-        return 0; //Found existing record
-    }
-
-    int fd = open(fname, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR );
-    if (fd<0) {
-        fprintf(stderr, "open failed: (filename: %s)\n", fname);
-        ASSERT(0);
-        return 1;
-    }
-    int rc = close(fd);
-    if (rc) {
-        fprintf(stderr, "close failed: (filedesc: %d)\n", fd);
-        ASSERT(0);
-        return 1;
-    }
-    return 0;
-}
-
-u8 salRecordMainEdt() {
-    //Create main file
-    char fname[FNL];
-    int c = snprintf(fname, FNL, "main.edt");
-    if (c < 0 || c >= FNL) {
-        fprintf(stderr, "failed to create filename for publish\n");
-        ASSERT(0);
-        return 1;
-    }
-    salPublishMetaData(fname, NULL, 0, 0);
-    return 0;
-}
-
-u8 salDestroyMainEdt() {
-    //Remove EDT metadata
-    char fname[FNL];
-    int c = snprintf(fname, FNL, "main.edt");
-    if (c < 0 || c >= FNL) {
-        fprintf(stderr, "failed to create filename for EDT\n");
-        ASSERT(0);
-        return 1;
-    }
-    struct stat sb;
-    if (stat(fname, &sb) != 0) {
-        fprintf(stderr, "Cannot find main.edt during remove!\n");
-        ASSERT(0);
-        return 1;
-    }
-    int rc = unlink(fname);
-    if (rc) {
-        fprintf(stderr, "unlink failed: (filename: %s)\n", fname);
-        ASSERT(0);
-        return 1;
-    }
-    return 0;
-}
-
-//Create a record for a root EDT
-u8 salResilientRecordTaskRoot(ocrTask_t *task) {
-    ASSERT(task != NULL);
-    ASSERT(salIsResilientGuid(task->guid));
-#if GUID_BIT_COUNT == 64
-    u64 g = task->guid.guid;
-#elif GUID_BIT_COUNT == 128
-    u64 g = task->guid.lower;
-#else
-#error Unknown type of GUID
-#endif
-    //Create root file
-    char gname[FNL];
-    int c = snprintf(gname, FNL, "%lu.root", g);
-    if (c < 0 || c >= FNL) {
-        fprintf(stderr, "failed to create filename for publish\n");
-        ASSERT(0);
-        return 1;
-    }
-    ocrPolicyDomain_t *pd = NULL;
-    getCurrentEnv(&pd, NULL, NULL, NULL);
-    ocrLocation_t loc = pd->myLocation;
-    salPublishMetaData(gname, &loc, sizeof(ocrLocation_t), 0);
-
-    //Create EDT storage metadata
-    int i;
-    u64 size = sizeof(edtStorage_t) + sizeof(u64) * task->paramc + sizeof(ocrGuid_t) * task->depc;
-    u8 *buf = pd->fcts.pdMalloc(pd, size);
-    edtStorage_t *edt = (edtStorage_t *)buf;
-    edt->guid = task->guid;
-    edt->resilientEdtParent = task->resilientEdtParent;
-    edt->funcPtr = task->funcPtr;
-    edt->paramc = task->paramc;
-    ASSERT(task->depc > 0);
-    edt->depc = task->depc;
-    edt->paramv = task->paramc ? (u64*)(buf + sizeof(edtStorage_t)) : NULL;
-    memcpy(edt->paramv, task->paramv, sizeof(u64) * task->paramc);
-    edt->depv = (ocrGuid_t*)(buf + sizeof(edtStorage_t) + sizeof(u64) * task->paramc);
-    for (i = 0; i < task->depc; i++) {
-        edt->depv[i] = UNINITIALIZED_GUID;
-    }
-
-    //Publish EDT metadata
-    char fname[FNL];
-    c = snprintf(fname, FNL, "%lu.edt", g);
-    if (c < 0 || c >= FNL) {
-        fprintf(stderr, "failed to create filename for publish\n");
-        ASSERT(0);
-        return 1;
-    }
-    salPublishMetaData(fname, buf, size, 0);
-    pd->fcts.pdFree(pd, buf);
-    return 0;
-}
-
-//Update EDT storage buffer for root task
-u8 salResilientTaskRootUpdate(ocrGuid_t guid, u32 slot, ocrGuid_t data) {
-    ASSERT(!ocrGuidIsNull(guid));
-#if GUID_BIT_COUNT == 64
-    u64 g = guid.guid;
-#elif GUID_BIT_COUNT == 128
-    u64 g = guid.lower;
-#else
-#error Unknown type of GUID
-#endif
-    //Check if root file needs to be updated
-    char fname[FNL];
-    int c = snprintf(fname, FNL, "%lu.root", g);
-    if (c < 0 || c >= FNL) {
-        fprintf(stderr, "failed to create filename for root\n");
-        ASSERT(0);
-        return 1;
-    }
-    struct stat sb;
-    if (stat(fname, &sb) != 0) {
-        return 0; //No available root node
-    }
-
-    c = snprintf(fname, FNL, "%lu.edt", g);
-    if (c < 0 || c >= FNL) {
-        fprintf(stderr, "failed to create filename for publish\n");
-        ASSERT(0);
-        return 1;
-    }
-    if (stat(fname, &sb) != 0) {
-        fprintf(stderr, "Root EDT state is corrupt! (Cannot find EDT storage: %s)\n", fname);
-        ASSERT(0);
-        return 1;
-    }
-    int fd = open(fname, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR );
-    if (fd<0) {
-        fprintf(stderr, "open failed: (filename: %s)\n", fname);
-        ASSERT(0);
-        return 1;
-    }
-
-    u64 size = sb.st_size;
-    void *buf = mmap( NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0 );
-    if (buf == MAP_FAILED) {
-        fprintf(stderr, "mmap failed for size %lu (filename: %s filedesc: %d)\n", size, fname, fd);
-        ASSERT(0);
-        return 1;
-    }
-
-    edtStorage_t *edtBuf = (edtStorage_t*)buf;
-    edtBuf->depv = (ocrGuid_t*)((size_t)edtBuf + sizeof(edtStorage_t) + (edtBuf->paramc * sizeof(u64)));
-    ASSERT((slot < edtBuf->depc) && (ocrGuidIsUninitialized(edtBuf->depv[slot])));
-    edtBuf->depv[slot] = data;
-
-    int rc = msync(buf, size, MS_INVALIDATE | MS_SYNC);
-    if (rc) {
-        fprintf(stderr, "msync failed for buffer %p of size %lu\n", buf, size);
-        ASSERT(0);
-        return 1;
-    }
-
-    rc = munmap(buf, size);
-    if (rc) {
-        fprintf(stderr, "munmap failed for buffer %p of size %lu\n", buf, size);
-        ASSERT(0);
-        return 1;
-    }
-
-    rc = close(fd);
-    if (rc) {
-        fprintf(stderr, "close failed: (filedesc: %d)\n", fd);
-        ASSERT(0);
-        return 1;
-    }
-
-    return 0;
-}
-
 u8 salResilientTaskRemove(ocrGuid_t guid) {
     u64 i;
     ASSERT(pfIsInitialized);
-    ASSERT(!ocrGuidIsNull(guid));
+    if (ocrGuidIsNull(guid))
+        return 1;
 #if GUID_BIT_COUNT == 64
     u64 g = guid.guid;
 #elif GUID_BIT_COUNT == 128
@@ -2093,41 +2294,25 @@ u8 salResilientTaskRemove(ocrGuid_t guid) {
 #endif
 
     //Remove EDT metadata
-    char fname[FNL];
-    int c = snprintf(fname, FNL, "%lu.guid", g);
-    if (c < 0 || c >= FNL) {
-        fprintf(stderr, "failed to create filename for EDT\n");
-        ASSERT(0);
-        return 1;
-    }
-    struct stat sb;
-    if (stat(fname, &sb) != 0) {
-        fprintf(stderr, "Cannot find existing guid [0x%lx] during remove!\n", g);
-        ASSERT(0);
-        return 1;
-    }
-    int rc = unlink(fname);
-    if (rc) {
-        fprintf(stderr, "unlink failed: (filename: %s)\n", fname);
-        ASSERT(0);
-        return 1;
-    }
+    salResilientGuidRemove(guid);
 
     hal_fence();
 
     //Remove EDT storage
-    c = snprintf(fname, FNL, "%lu.edt", g);
+    char fname[FNL];
+    int c = snprintf(fname, FNL, "%lu.edt", g);
     if (c < 0 || c >= FNL) {
         fprintf(stderr, "failed to create filename for EDT\n");
         ASSERT(0);
         return 1;
     }
+    struct stat sb;
     if (stat(fname, &sb) != 0) {
         fprintf(stderr, "Cannot find existing guid [0x%lx] during remove!\n", g);
         ASSERT(0);
         return 1;
     }
-    rc = unlink(fname);
+    int rc = unlink(fname);
     if (rc) {
         fprintf(stderr, "unlink failed: (filename: %s)\n", fname);
         ASSERT(0);
@@ -2228,6 +2413,38 @@ u8 salGuidTableRemove(u64 key, ocrGuid_t *val) {
         ASSERT(0);
         return 1;
     }
+    return 0;
+}
+
+//Create a mapping from key EDT guid to val guid for recovery EDTs
+u8 salResilientGuidConnect(ocrGuid_t newGuid, ocrGuid_t oldGuid) {
+    ASSERT(!ocrGuidIsNull(newGuid));
+    ASSERT(!ocrGuidIsNull(oldGuid));
+#if GUID_BIT_COUNT == 64
+    u64 n = newGuid.guid;
+    u64 o = oldGuid.guid;
+#elif GUID_BIT_COUNT == 128
+    u64 n = newGuid.lower;
+    u64 o = oldGuid.lower;
+#else
+#error Unknown type of GUID
+#endif
+    char nname[FNL];
+    int c = snprintf(nname, FNL, "%lu.old", n);
+    if (c < 0 || c >= FNL) {
+        fprintf(stderr, "failed to create filename for publish\n");
+        ASSERT(0);
+        return 1;
+    }
+    char oname[FNL];
+    c = snprintf(oname, FNL, "%lu.new", o);
+    if (c < 0 || c >= FNL) {
+        fprintf(stderr, "failed to create filename for publish\n");
+        ASSERT(0);
+        return 1;
+    }
+    salPublishMetaData(nname, &oldGuid, sizeof(ocrGuid_t), 1);
+    salPublishMetaData(oname, &newGuid, sizeof(ocrGuid_t), 1);
     return 0;
 }
 

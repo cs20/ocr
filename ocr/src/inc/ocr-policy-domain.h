@@ -686,6 +686,7 @@ typedef struct _ocrPolicyMsg_t {
                     u32 properties;       /**< In: Properties for this creation */
                     ocrEventTypes_t type; /**< In: Type of the event created: Bit 0: 1 if event takes an argument */
 #ifdef ENABLE_AMT_RESILIENCE
+                    ocrGuid_t resilientParentLatch;  /**< Latch event of parent enclosing resilient finish latch scope */
                     u64 key, ip, ac;      /**< In: Parameters to generate unique signature */
 #endif
                 } in;

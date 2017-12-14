@@ -2210,8 +2210,7 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         paramListTask_t taskparams;
         taskparams.workType = PD_MSG_FIELD_I(workType);
 #ifdef ENABLE_AMT_RESILIENCE
-        ocrGuid_t resilientLatch = PD_MSG_FIELD_I(resilientLatch);
-        taskparams.resilientLatch = resilientLatch;
+        taskparams.resilientLatch = PD_MSG_FIELD_I(resilientLatch);
         taskparams.resilientEdtParent = msg->resilientEdtParent;
         taskparams.faultGuid = PD_MSG_FIELD_I(faultGuid);
         taskparams.key = PD_MSG_FIELD_I(key);
@@ -2429,6 +2428,7 @@ u8 hcPolicyDomainProcessMessage(ocrPolicyDomain_t *self, ocrPolicyMsg_t *msg, u8
         paramListEvent_t evtParams;
         evtParams.resilientScopeEdt = (PD_MSG_FIELD_I(properties) & EVT_RT_PROP_RESILIENT_LATCH) ? PD_MSG_FIELD_I(currentEdt).guid : NULL_GUID;
         evtParams.resilientEdtParent = msg->resilientEdtParent;
+        evtParams.resilientParentLatch = PD_MSG_FIELD_I(resilientParentLatch);
         evtParams.key = PD_MSG_FIELD_I(key);
         evtParams.ip = PD_MSG_FIELD_I(ip);
         evtParams.ac = PD_MSG_FIELD_I(ac);

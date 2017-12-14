@@ -1933,6 +1933,12 @@ u8 taskExecute(ocrTask_t* base) {
             PD_MSG_FIELD_I(params) = &latchParams;
 #endif
             PD_MSG_FIELD_I(properties) = (base->flags & OCR_TASK_FLAG_RESILIENT) ? (EVT_PROP_RESILIENT | EVT_RT_PROP_RESILIENT_LATCH) : 0;
+#ifdef ENABLE_AMT_RESILIENCE
+            PD_MSG_FIELD_I(resilientParentLatch) = (base->flags & OCR_TASK_FLAG_RESILIENT) ? base->resilientLatch : NULL_GUID;
+            PD_MSG_FIELD_I(key) = 0;
+            PD_MSG_FIELD_I(ip) = (u64)__builtin_return_address(0);
+            PD_MSG_FIELD_I(ac) = ++base->ac;
+#endif
             RESULT_PROPAGATE(pd->fcts.processMessage(pd, &msg, true));
             newFinishLatchFGuid = PD_MSG_FIELD_IO(guid);
             ASSERT(!(ocrGuidIsNull(newFinishLatchFGuid.guid)) && newFinishLatchFGuid.metaDataPtr != NULL);

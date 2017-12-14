@@ -48,6 +48,7 @@ u8 ocrEventCreateParams(ocrGuid_t *guid, ocrEventTypes_t eventType, u16 properti
     PD_MSG_FIELD_I(properties) = properties;
     PD_MSG_FIELD_I(type) = eventType;
 #ifdef ENABLE_AMT_RESILIENCE
+    PD_MSG_FIELD_I(resilientParentLatch) = NULL_GUID;
     PD_MSG_FIELD_I(key) = 0;
     PD_MSG_FIELD_I(ip) = (curEdt != NULL) ? (u64)__builtin_return_address(0)  : 0;
     PD_MSG_FIELD_I(ac) = (curEdt != NULL) ? ++curEdt->ac : 0;
@@ -94,8 +95,7 @@ u8 ocrEventDestroy(ocrGuid_t eventGuid) {
     if (ocrGuidIsNull(eventGuid))
         return 0;
 #ifdef ENABLE_AMT_RESILIENCE
-    //TODO: Ignore resilient event destroy
-    if (salIsResilientGuid(eventGuid))
+    if (salResilientEventDestroy(eventGuid) == 0)
         return 0;
 #endif
     START_PROFILE(api_ocrEventDestroy);

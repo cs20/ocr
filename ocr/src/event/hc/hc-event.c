@@ -199,18 +199,15 @@ u8 destructEventHc(ocrEvent_t *base) {
 #ifdef ENABLE_AMT_RESILIENCE
     if (base->kind == OCR_EVENT_LATCH_T) {
         ocrEventHcLatch_t *latchEvt = (ocrEventHcLatch_t*)base;
-        ASSERT(latchEvt->rescounter == 0);
-        if (!ocrGuidIsNull(latchEvt->resilientScopeEdt)) {
-            salResilientTaskRemove(latchEvt->resilientScopeEdt);
-        }
         u32 i;
-        for (i = 0; i < latchEvt->guidDestroyCount; i++) {
-            salResilientGuidDestroy(latchEvt->guidDestroyArray[i]);
+        for (i = 0; i < latchEvt->childDestroyCount; i++) {
+            salResilientEdtDestroy(latchEvt->childDestroyArray[i]);
         }
-        if (latchEvt->guidDestroyCount > 0) {
-            latchEvt->guidDestroyCount = 0;
-            pd->fcts.pdFree(pd, latchEvt->guidDestroyArray);
+        if (latchEvt->childDestroyCount > 0) {
+            latchEvt->childDestroyCount = 0;
+            pd->fcts.pdFree(pd, latchEvt->childDestroyArray);
         }
+        salResilientGuidRemove(base->guid);
     }
 #endif
 
@@ -641,25 +638,104 @@ u8 satisfyEventHcPersistSticky(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
     return 0;
 }
 
+#ifdef ENABLE_AMT_RESILIENCE
+//Notify parent latch current scope is done
+//After parent latch receives all child notifications,
+//it can finally destroy the guid destroys called in the children scopes,
+//and destroy itself
+static u8 resilientLatchDone(ocrEvent_t *self) {
+    ocrEventHcLatch_t *event = (ocrEventHcLatch_t*)self;
+    if (ocrGuidIsNull(event->resilientScopeEdt))
+        return 0;
+    if (ocrGuidIsNull(event->resilientParentLatch))
+        return 0;
+    PD_MSG_STACK(msg);
+    ocrPolicyDomain_t *pd = NULL;
+    ocrWorker_t *worker = NULL;
+    getCurrentEnv(&pd, &worker, NULL, &msg);
+    ocrLocation_t suspendedwaitloc = worker->waitloc;
+    ocrTask_t *suspendedTask = worker->curTask;
+    jmp_buf *suspendedBuf = worker->jmpbuf;
+    int blockedContexts = worker->blockedContexts;
+    hal_fence();
+    jmp_buf buf;
+    int rc = setjmp(buf);
+    if (rc == 0) {
+        worker->jmpbuf = &buf;
+#define PD_MSG (&msg)
+#define PD_TYPE PD_MSG_DEP_SATISFY
+        msg.type = PD_MSG_DEP_SATISFY | PD_MSG_REQUEST | PD_MSG_REQ_RESPONSE;
+        PD_MSG_FIELD_I(satisfierGuid.guid) = NULL_GUID;
+        PD_MSG_FIELD_I(satisfierGuid.metaDataPtr) = NULL;
+        PD_MSG_FIELD_I(guid.guid) = event->resilientParentLatch;
+        PD_MSG_FIELD_I(guid.metaDataPtr) = NULL;
+        PD_MSG_FIELD_I(payload.guid) = event->resilientScopeEdt;
+        PD_MSG_FIELD_I(payload.metaDataPtr) = NULL;
+        PD_MSG_FIELD_I(currentEdt.guid) = NULL_GUID;
+        PD_MSG_FIELD_I(currentEdt.metaDataPtr) = NULL;
+        PD_MSG_FIELD_I(slot) = OCR_EVENT_LATCH_RESCOUNT_DONE_SLOT;
+#ifdef REG_ASYNC_SGL
+        PD_MSG_FIELD_I(mode) = -1;
+#endif
+        PD_MSG_FIELD_I(properties) = 0;
+        RESULT_ASSERT(pd->fcts.processMessage(pd, &msg, true), ==, 0);
+#undef PD_MSG
+#undef PD_TYPE
+    } else {
+        DPRINTF(DEBUG_LVL_WARN, "Worker aborted processing resilientLatchDone\n");
+        ASSERT(worker->blockedContexts == blockedContexts);
+    }
+    hal_fence();
+    worker->waitloc = suspendedwaitloc;
+    worker->curTask = suspendedTask;
+    worker->jmpbuf = suspendedBuf;
+    return 0;
+}
+
+//Destruct current scope
+static u8 destructResilientScope(ocrEvent_t *self) {
+    ocrEventHcLatch_t *event = (ocrEventHcLatch_t*)self;
+    salResilientTaskRemove(event->resilientScopeEdt);
+    hal_fence();
+    ocrGuid_t resilientScopeEdt = event->shutdownLatch ? NULL_GUID : event->resilientScopeEdt;
+    salResilientRecordDestroyGuids(resilientScopeEdt, event->guidDestroyArray, event->guidDestroyCount);
+    if (event->guidDestroyCount > 0) {
+        event->guidDestroyCount = 0;
+        ocrPolicyDomain_t *pd = NULL;
+        getCurrentEnv(&pd, NULL, NULL, NULL);
+        pd->fcts.pdFree(pd, event->guidDestroyArray);
+    }
+    resilientLatchDone(self); //Notify parent latch we are done
+    return 0;
+}
+#endif
+
 // This is for latch events
 u8 satisfyEventHcLatch(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
     ocrEventHcLatch_t *event = (ocrEventHcLatch_t*)base;
 #ifdef ENABLE_AMT_RESILIENCE
+    if (slot == OCR_EVENT_LATCH_SHUTDOWN_SLOT) {
+        event->shutdownLatch = 1;
+        return 0;
+    }
     if (slot == OCR_EVENT_LATCH_RESCOUNT_DECR_SLOT ||
         slot == OCR_EVENT_LATCH_RESCOUNT_INCR_SLOT)
-    {
+    {//Used to record child resilient EDTs spawned from current scope: spawn(incr) / ready-to-execute(decr)
         ASSERT(ocrGuidIsNull(db.guid));
-        u8 doDestroy = 0;
+        u8 doDestroyScope = 0;
         s32 incr = (slot == OCR_EVENT_LATCH_RESCOUNT_DECR_SLOT)?-1:1;
+        s32 activeincr = (slot == OCR_EVENT_LATCH_RESCOUNT_DECR_SLOT)?0:1;
         hal_lock(&(event->base.waitersLock));
-        event->rescounter += incr;
-        ASSERT(event->rescounter >= 0);
-        if ((event->rescounter == 0) && (event->readyToDestruct))
-            doDestroy = 1;
+        event->scheduledResCounter += incr;
+        event->activeResCounter += activeincr;
+        ASSERT(event->scheduledResCounter >= 0);
+        ASSERT(event->activeResCounter > 0);
+        if ((event->scheduledResCounter == 0) && (event->readyToDestruct))
+            doDestroyScope = 1;
         hal_unlock(&(event->base.waitersLock));
-        return (doDestroy ? destructEventHc(base) : 0);
+        return (doDestroyScope ? destructResilientScope(base) : 0);
     }
-    if (slot == OCR_EVENT_LATCH_RECORD_DB_SLOT) {
+    if (slot == OCR_EVENT_LATCH_RECORD_DB_SLOT) {//Used to record resilient data-blocks created in current scope
         ASSERT(!ocrGuidIsNull(db.guid));
         hal_lock(&(event->base.waitersLock));
         if (event->dbPublishCount == event->dbPublishArrayLength) {
@@ -677,7 +753,7 @@ u8 satisfyEventHcLatch(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
         hal_unlock(&(event->base.waitersLock));
         return 0;
     }
-    if (slot == OCR_EVENT_LATCH_GUID_DESTROY_SLOT) {
+    if (slot == OCR_EVENT_LATCH_GUID_DESTROY_SLOT) {//Used to record guids (DB/Events) destroyed in current scope
         ASSERT(!ocrGuidIsNull(db.guid));
         hal_lock(&(event->base.waitersLock));
         if (event->guidDestroyCount == event->guidDestroyArrayLength) {
@@ -694,6 +770,31 @@ u8 satisfyEventHcLatch(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
         event->guidDestroyArray[event->guidDestroyCount++] = db.guid;
         hal_unlock(&(event->base.waitersLock));
         return 0;
+    }
+    if (slot == OCR_EVENT_LATCH_RESCOUNT_DONE_SLOT) {//Used to record child resilient EDTs finishing their scope
+        ASSERT(!ocrGuidIsNull(db.guid));
+        u8 doDestroyEvent = 0;
+        hal_lock(&(event->base.waitersLock));
+        event->activeResCounter--;
+        ASSERT(event->activeResCounter >= 0);
+        if ((event->activeResCounter == 0) && (event->readyToDestruct)) {
+            ASSERT(event->scheduledResCounter == 0);
+            doDestroyEvent = 1;
+        }
+        if (event->childDestroyCount == event->childDestroyArrayLength) {
+            ocrPolicyDomain_t *pd = NULL;
+            getCurrentEnv(&pd, NULL, NULL, NULL);
+            ocrGuid_t *oldArray = event->childDestroyArray;
+            event->childDestroyArrayLength += 8;
+            event->childDestroyArray = pd->fcts.pdMalloc(pd, sizeof(ocrGuid_t) * event->childDestroyArrayLength);
+            if (oldArray != NULL) {
+                hal_memCopy(event->childDestroyArray, oldArray, sizeof(ocrGuid_t) * event->childDestroyCount, false);
+                pd->fcts.pdFree(pd, oldArray);
+            }
+        }
+        event->childDestroyArray[event->childDestroyCount++] = db.guid;
+        hal_unlock(&(event->base.waitersLock));
+        return (doDestroyEvent ? destructEventHc(base) : 0);
     }
 #endif
     ASSERT(slot == OCR_EVENT_LATCH_DECR_SLOT ||
@@ -755,13 +856,17 @@ u8 satisfyEventHcLatch(ocrEvent_t *base, ocrFatGuid_t db, u32 slot) {
     }
 
 #ifdef ENABLE_AMT_RESILIENCE
+    u8 doDestroyScope = 0;
     hal_lock(&(event->base.waitersLock));
-    if (event->rescounter != 0) {
+    if (event->scheduledResCounter == 0)
+        doDestroyScope = 1;
+    if (event->scheduledResCounter != 0 || event->activeResCounter != 0)
         event->readyToDestruct = 1;
-        hal_unlock(&(event->base.waitersLock));
-        return 0;
-    }
     hal_unlock(&(event->base.waitersLock));
+    if (doDestroyScope)
+        destructResilientScope(base);
+    if (event->readyToDestruct)
+        return 0;
 #endif
 
     // The latch is satisfied so we destroy it
@@ -1472,14 +1577,20 @@ static u8 initNewEventHc(ocrEventHc_t * event, ocrEventTypes_t eventType, ocrGui
         }
 #ifdef ENABLE_AMT_RESILIENCE
         ((ocrEventHcLatch_t*)event)->readyToDestruct = 0;
-        ((ocrEventHcLatch_t*)event)->rescounter = 0;
+        ((ocrEventHcLatch_t*)event)->shutdownLatch = 0;
+        ((ocrEventHcLatch_t*)event)->scheduledResCounter = 0;
+        ((ocrEventHcLatch_t*)event)->activeResCounter = 0;
         ((ocrEventHcLatch_t*)event)->resilientScopeEdt = (perInstance != NULL) ? ((paramListEvent_t*)perInstance)->resilientScopeEdt : NULL_GUID;
+        ((ocrEventHcLatch_t*)event)->resilientParentLatch = (perInstance != NULL) ? ((paramListEvent_t*)perInstance)->resilientParentLatch : NULL_GUID;
         ((ocrEventHcLatch_t*)event)->dbPublishArray = NULL;
         ((ocrEventHcLatch_t*)event)->dbPublishArrayLength = 0;
         ((ocrEventHcLatch_t*)event)->dbPublishCount = 0;
         ((ocrEventHcLatch_t*)event)->guidDestroyArray = NULL;
         ((ocrEventHcLatch_t*)event)->guidDestroyArrayLength = 0;
         ((ocrEventHcLatch_t*)event)->guidDestroyCount = 0;
+        ((ocrEventHcLatch_t*)event)->childDestroyArray = NULL;
+        ((ocrEventHcLatch_t*)event)->childDestroyArrayLength = 0;
+        ((ocrEventHcLatch_t*)event)->childDestroyCount = 0;
 #endif
     }
     event->mdClass.peers = NULL;

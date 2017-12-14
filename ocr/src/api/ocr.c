@@ -12,8 +12,48 @@
 
 #define DEBUG_TYPE API
 
+#ifdef ENABLE_AMT_RESILIENCE
+//Notify resilient latch that shutdown has been called
+static u8 notifyShutdownLatch() {
+    ocrPolicyDomain_t *pd = NULL;
+    ocrTask_t *task = NULL;
+    PD_MSG_STACK(msg);
+    getCurrentEnv(&pd, NULL, &task, &msg);
+    ocrGuid_t latch = (task != NULL) ? task->resilientLatch : NULL_GUID;
+    if (!ocrGuidIsNull(latch)) {
+#define PD_MSG (&msg)
+#define PD_TYPE PD_MSG_DEP_SATISFY
+        getCurrentEnv(NULL, NULL, NULL, &msg);
+        msg.type = PD_MSG_DEP_SATISFY | PD_MSG_REQUEST;
+        PD_MSG_FIELD_I(satisfierGuid.guid) = task->guid;
+        PD_MSG_FIELD_I(satisfierGuid.metaDataPtr) = task;
+        PD_MSG_FIELD_I(guid.guid) = latch;
+        PD_MSG_FIELD_I(guid.metaDataPtr) = NULL;
+        PD_MSG_FIELD_I(payload.guid) = NULL_GUID;
+        PD_MSG_FIELD_I(payload.metaDataPtr) = NULL;
+        PD_MSG_FIELD_I(currentEdt.guid) = task->guid;
+        PD_MSG_FIELD_I(currentEdt.metaDataPtr) = task;
+        PD_MSG_FIELD_I(slot) = OCR_EVENT_LATCH_SHUTDOWN_SLOT;
+#ifdef REG_ASYNC_SGL
+        PD_MSG_FIELD_I(mode) = -1;
+#endif
+        PD_MSG_FIELD_I(properties) = 0;
+#ifdef ENABLE_OCR_API_DEFERRABLE
+        tagDeferredMsg(&msg, task);
+#endif
+        RESULT_ASSERT(pd->fcts.processMessage(pd, &msg, true), ==, 0);
+    }
+#undef PD_TYPE
+#undef PD_MSG
+    return 0;
+}
+#endif
+
 static void ocrShutdownInternal(u8 errorCode) {
     DPRINTF(DEBUG_LVL_INFO, "ENTER ocrShutdown()\n");
+#ifdef ENABLE_AMT_RESILIENCE
+    notifyShutdownLatch();
+#endif
     ocrPolicyDomain_t *pd = NULL;
     PD_MSG_STACK(msg);
     ocrPolicyMsg_t * msgPtr = &msg;
