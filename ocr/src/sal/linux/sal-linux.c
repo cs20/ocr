@@ -593,20 +593,6 @@ static lock_t pfLock;
 static lock_t depLock;
 static char * nodeExt;
 
-typedef struct _nodeStateHeader {
-    size_t nodeStateBufSize;
-    u64 nodeId;
-    u64 numRecords;
-    u64 maxRecords;
-} nodeStateHeader_t;
-
-typedef struct _nodeStateRecord {
-    ocrGuid_t guid;     //Guid of EDT
-    ocrGuid_t pguid;    //Guid of parent scope EDT
-} nodeStateRecord_t;
-
-static void *nodeStateBuf;
-static int nodeStateFD;
 static volatile u32 workerCounter;
 
 typedef struct _edtStorage {
@@ -665,96 +651,12 @@ void salInitPublishFetch() {
     depLock = INIT_LOCK;
     nodeExt = NULL;
     workerCounter = 0;
-
-    //Initialize node state buffer
-    char fname[FNL];
-    int c = snprintf(fname, FNL, "node%lu.state", (u64)pd->myLocation);
-    if (c < 0 || c >= FNL) {
-        fprintf(stderr, "failed to create filename for node state\n");
-        ASSERT(0);
-        return;
-    }
-
-    struct stat sb;
-    if (stat(fname, &sb) != -1) {
-        fprintf(stderr, "Found existing node state %s!\n", fname);
-        ASSERT(0);
-        return;
-    }
-
-    int fd = open(fname, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR );
-    if (fd<0) {
-        fprintf(stderr, "open failed: (filename: %s)\n", fname);
-        ASSERT(0);
-        return;
-    }
-    nodeStateFD = fd;
-
-    u64 nodeStateBufSize = sizeof(nodeStateHeader_t) + (RECORD_INCR_SIZE * sizeof(nodeStateRecord_t));
-    int rc = ftruncate(fd, nodeStateBufSize);
-    if (rc) {
-        fprintf(stderr, "ftruncate failed: (filename: %s filedesc: %d)\n", fname, fd);
-        ASSERT(0);
-        return;
-    }
-
-    nodeStateBuf = mmap( NULL, nodeStateBufSize, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0 );
-    if (nodeStateBuf == MAP_FAILED) {
-        fprintf(stderr, "mmap failed for size %lu (filename: %s filedesc: %d)\n", nodeStateBufSize, fname, fd);
-        ASSERT(0);
-        return;
-    }
-
-    nodeStateHeader_t *nsHeader = (nodeStateHeader_t*)nodeStateBuf;
-    nsHeader->nodeStateBufSize = nodeStateBufSize;
-    nsHeader->nodeId = (u64)pd->myLocation;
-    nsHeader->numRecords = 0;
-    nsHeader->maxRecords = RECORD_INCR_SIZE;
-
-    rc = msync(nodeStateBuf, sizeof(nodeStateHeader_t), MS_INVALIDATE | MS_SYNC);
-    if (rc) {
-        fprintf(stderr, "msync failed for buffer %p of size %lu\n", nodeStateBuf, nodeStateBufSize);
-        ASSERT(0);
-        return;
-    }
     lastAdvanceTime = salGetTime();
     pfIsInitialized = 1;
 }
 
 void salFinalizePublishFetch() {
     ASSERT(pfIsInitialized);
-    nodeStateHeader_t *nsHeader = (nodeStateHeader_t*)nodeStateBuf;
-    size_t nodeStateBufSize = nsHeader->nodeStateBufSize;
-    int rc = munmap(nodeStateBuf, nodeStateBufSize);
-    if (rc) {
-        fprintf(stderr, "munmap failed for buffer %p of size %lu\n", nodeStateBuf, nodeStateBufSize);
-        ASSERT(0);
-        return;
-    }
-
-    rc = close(nodeStateFD);
-    if (rc) {
-        fprintf(stderr, "close failed: (filedesc: %d)\n", nodeStateFD);
-        ASSERT(0);
-        return;
-    }
-
-    ocrPolicyDomain_t *pd;
-    getCurrentEnv(&pd, NULL, NULL, NULL);
-    char fname[FNL];
-    int c = snprintf(fname, FNL, "node%lu.state", (u64)pd->myLocation);
-    if (c < 0 || c >= FNL) {
-        fprintf(stderr, "failed to create filename for node state\n");
-        ASSERT(0);
-        return;
-    }
-
-    rc = unlink(fname);
-    if (rc) {
-        fprintf(stderr, "unlink failed: (filename: %s)\n", fname);
-        ASSERT(0);
-        return;
-    }
 }
 
 
@@ -1060,6 +962,18 @@ static u8 salCheckGuidNewVersion(ocrGuid_t guid, ocrGuid_t *val) {
     return 0;
 }
 
+//Utility function to parse file extensions
+static int parse_ext(const struct dirent *dir)
+{
+    if(dir == NULL) return 0;
+    const char *ext = strrchr(dir->d_name,'.');
+    if((ext == NULL) || (ext == dir->d_name))
+        return 0;
+    if(strcmp(ext, (const char *)nodeExt) == 0)
+        return 1;
+    return 0;
+}
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////  Static Runtime Functions  /////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1183,6 +1097,60 @@ static u8 salResilientGuidDestroy(ocrGuid_t guid) {
     }
 #undef PD_TYPE
 #undef PD_MSG
+    return 0;
+}
+
+//Remove guid common metadata
+static u8 salResilientGuidRemoveInternal(u64 g) {
+    //First remove the .guid file
+    char gname[FNL];
+    int c = snprintf(gname, FNL, "%lu.guid", g);
+    if (c < 0 || c >= FNL) {
+        fprintf(stderr, "failed to create filename for publish\n");
+        ASSERT(0);
+        return 1;
+    }
+    unlink(gname);
+
+    hal_fence();
+
+    //Remove the api and sig files associated with the guid
+    char aname[FNL];
+    char sname[FNL];
+    c = snprintf(sname, FNL, "%lu.sig", g);
+    if (c < 0 || c >= FNL) {
+        fprintf(stderr, "failed to create filename for publish\n");
+        ASSERT(0);
+        return 1;
+    }
+    struct stat sb;
+    if (stat(sname, &sb) == 0) {
+        u64 size = sb.st_size;
+        salFetchMetaData(sname, aname, size, 0);
+        unlink(aname);
+        unlink(sname);
+    }
+
+    //Remove the new map files associated with the guid
+    char nname[FNL];
+    c = snprintf(nname, FNL, "%lu.new", g);
+    if (c < 0 || c >= FNL) {
+        fprintf(stderr, "failed to create filename for publish\n");
+        ASSERT(0);
+        return 1;
+    }
+    unlink(nname);
+
+    //Remove the old map files associated with the guid
+    char oname[FNL];
+    c = snprintf(oname, FNL, "%lu.old", g);
+    if (c < 0 || c >= FNL) {
+        fprintf(stderr, "failed to create filename for publish\n");
+        ASSERT(0);
+        return 1;
+    }
+    unlink(oname);
+
     return 0;
 }
 
@@ -2004,17 +1972,11 @@ u8 salResilientGuidRemove(ocrGuid_t guid) {
 #else
 #error Unknown type of GUID
 #endif
-    //First remove the .guid file
-    char gname[FNL];
-    int c = snprintf(gname, FNL, "%lu.guid", g);
-    if (c < 0 || c >= FNL) {
-        fprintf(stderr, "failed to create filename for publish\n");
-        ASSERT(0);
-        return 0;
-    }
-    unlink(gname);
 
-    //Remove the data-block contents if guid is a DB
+    //Remove common guid metadata
+    salResilientGuidRemoveInternal(g);
+
+    //Remove guid kind specific contents
     ocrPolicyDomain_t *pd;
     getCurrentEnv(&pd, NULL, NULL, NULL);
     ocrGuidKind kind;
@@ -2025,48 +1987,31 @@ u8 salResilientGuidRemove(ocrGuid_t guid) {
         if (c < 0 || c >= FNL) {
             fprintf(stderr, "failed to create filename for publish\n");
             ASSERT(0);
-            return 0;
+            return 1;
         }
         unlink(dname);
+    } else if (kind == OCR_GUID_EDT) {
+        char ename[FNL];
+        int c = snprintf(ename, FNL, "%lu.edt", g);
+        if (c < 0 || c >= FNL) {
+            fprintf(stderr, "failed to create filename for publish\n");
+            ASSERT(0);
+            return 1;
+        }
+        unlink(ename);
+        char fname[FNL];
+        u64 nbRanks = pd->neighborCount + 1;
+        u64 i;
+        for (i = 0; i < nbRanks; i++) {
+            int c = snprintf(fname, FNL, "%lu.node%lu", g, (u64)i);
+            if (c < 0 || c >= FNL) {
+                fprintf(stderr, "failed to create filename for publish\n");
+                ASSERT(0);
+                return 1;
+            }
+            unlink(fname);
+        }
     }
-
-    //Remove the api and sig files associated with the guid
-    char aname[FNL];
-    char sname[FNL];
-    c = snprintf(sname, FNL, "%lu.sig", g);
-    if (c < 0 || c >= FNL) {
-        fprintf(stderr, "failed to create filename for publish\n");
-        ASSERT(0);
-        return 1;
-    }
-    struct stat sb;
-    if (stat(sname, &sb) == 0) {
-        u64 size = sb.st_size;
-        salFetchMetaData(sname, aname, size, 0);
-        unlink(aname);
-        unlink(sname);
-    }
-
-    //Remove the new map files associated with the guid
-    char nname[FNL];
-    c = snprintf(nname, FNL, "%lu.old", g);
-    if (c < 0 || c >= FNL) {
-        fprintf(stderr, "failed to create filename for publish\n");
-        ASSERT(0);
-        return 1;
-    }
-    unlink(nname);
-
-    //Remove the old map files associated with the guid
-    char oname[FNL];
-    c = snprintf(oname, FNL, "%lu.new", g);
-    if (c < 0 || c >= FNL) {
-        fprintf(stderr, "failed to create filename for publish\n");
-        ASSERT(0);
-        return 1;
-    }
-    unlink(oname);
-
     return 0;
 }
 
@@ -2099,6 +2044,20 @@ u8 salResilientRecordDestroyGuids(ocrGuid_t pguid, ocrGuid_t *guidArray, u32 cou
         }
         salPublishMetaData(fname, guidArray, count*sizeof(ocrGuid_t), 0);
     }
+    return 0;
+}
+
+//This called during shutdown to cleanup any resilient metadata
+//dumped during a fault
+u8 salResilientGuidCleanup() {
+    char command[FNL];
+    int c = snprintf(command, FNL, "rm -f *.guid *.sig *.api *.new *.old *.db *.edt *.root *.destroy *.fault *.node* *.dep*");
+    if (c < 0 || c >= FNL) {
+        fprintf(stderr, "failed to create filename for publish\n");
+        ASSERT(0);
+        return 1;
+    }
+    system(command);
     return 0;
 }
 
@@ -2280,69 +2239,9 @@ u8 salResilientTaskPublish(ocrTask_t *task) {
     return 0;
 }
 
+//Remove EDT metadata
 u8 salResilientTaskRemove(ocrGuid_t guid) {
-    u64 i;
-    ASSERT(pfIsInitialized);
-    if (ocrGuidIsNull(guid))
-        return 1;
-#if GUID_BIT_COUNT == 64
-    u64 g = guid.guid;
-#elif GUID_BIT_COUNT == 128
-    u64 g = guid.lower;
-#else
-#error Unknown type of GUID
-#endif
-
-    //Remove EDT metadata
-    salResilientGuidRemove(guid);
-
-    hal_fence();
-
-    //Remove EDT storage
-    char fname[FNL];
-    int c = snprintf(fname, FNL, "%lu.edt", g);
-    if (c < 0 || c >= FNL) {
-        fprintf(stderr, "failed to create filename for EDT\n");
-        ASSERT(0);
-        return 1;
-    }
-    struct stat sb;
-    if (stat(fname, &sb) != 0) {
-        fprintf(stderr, "Cannot find existing guid [0x%lx] during remove!\n", g);
-        ASSERT(0);
-        return 1;
-    }
-    int rc = unlink(fname);
-    if (rc) {
-        fprintf(stderr, "unlink failed: (filename: %s)\n", fname);
-        ASSERT(0);
-        return 1;
-    }
-
-    //Now remove the records of this EDT in every node that was impacted by it
-    ocrPolicyDomain_t *pd;
-    getCurrentEnv(&pd, NULL, NULL, NULL);
-    u64 nbRanks = pd->neighborCount + 1;
-    for (i = 0; i < nbRanks; i++) {
-        char fname[FNL];
-        int c = snprintf(fname, FNL, "%lu.node%lu", g, (u64)i);
-        if (c < 0 || c >= FNL) {
-            fprintf(stderr, "failed to create filename for EDT record\n");
-            ASSERT(0);
-            return 1;
-        }
-        struct stat sb;
-        if (stat(fname, &sb) == 0) {
-            int rc = unlink(fname);
-            if (rc) {
-                fprintf(stderr, "unlink failed: (filename: %s)\n", fname);
-                ASSERT(0);
-                return 1;
-            }
-        }
-    }
-
-    return 0;
+    return salResilientGuidRemove(guid);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -2453,17 +2352,6 @@ u8 salResilientGuidConnect(ocrGuid_t newGuid, ocrGuid_t oldGuid) {
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /* when return 1, scandir will put this dirent to the list */
-static int parse_ext(const struct dirent *dir)
-{
-    if(dir == NULL) return 0;
-    const char *ext = strrchr(dir->d_name,'.');
-    if((ext == NULL) || (ext == dir->d_name))
-        return 0;
-    if(strcmp(ext, (const char *)nodeExt) == 0)
-        return 1;
-    return 0;
-}
-
 /* when return 1, scandir will put this dirent to the list */
 static int parse_fault(const struct dirent *dir)
 {

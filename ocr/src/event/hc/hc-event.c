@@ -695,8 +695,13 @@ static u8 resilientLatchDone(ocrEvent_t *self) {
 //Destruct current scope
 static u8 destructResilientScope(ocrEvent_t *self) {
     ocrEventHcLatch_t *event = (ocrEventHcLatch_t*)self;
+
+    //Remove resilient scope EDT
     salResilientTaskRemove(event->resilientScopeEdt);
+
     hal_fence();
+
+    //Record guids to destroy
     ocrGuid_t resilientScopeEdt = event->shutdownLatch ? NULL_GUID : event->resilientScopeEdt;
     salResilientRecordDestroyGuids(resilientScopeEdt, event->guidDestroyArray, event->guidDestroyCount);
     if (event->guidDestroyCount > 0) {
@@ -705,7 +710,14 @@ static u8 destructResilientScope(ocrEvent_t *self) {
         getCurrentEnv(&pd, NULL, NULL, NULL);
         pd->fcts.pdFree(pd, event->guidDestroyArray);
     }
-    resilientLatchDone(self); //Notify parent latch we are done
+
+    //Notify parent latch we are done
+    resilientLatchDone(self); 
+
+    //Cleanup on shutdown
+    if (event->shutdownLatch) {
+        salResilientGuidCleanup();
+    }
     return 0;
 }
 #endif

@@ -99,6 +99,7 @@ u8        salResilientRecordTaskRoot(ocrTask_t *task);
 u8        salResilientTaskRootUpdate(ocrGuid_t guid, u32 slot, ocrGuid_t data);
 u8        salResilientGuidRemove(ocrGuid_t guid);
 u8        salResilientRecordDestroyGuids(ocrGuid_t pguid, ocrGuid_t *guidArray, u32 count);
+u8        salResilientGuidCleanup();
 
 //Publish-Fetch api
 u8        salResilientDataBlockPublish(ocrDataBlock_t *db);
