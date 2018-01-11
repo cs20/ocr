@@ -61,8 +61,8 @@ typedef struct {
     u64 pad[8];
     int sendBuddyRank, recvBuddyRank, failedRank;
     u8 sendBuddyFailed, recvBuddyFailed;
-    u64 hbSendTime, hbRecvTime;
-    MPI_Request hbSendReq, hbRecvReq, faultReq, buddyFaultReq;
+    u64 hbSendTime;
+    MPI_Request hbSendReq, faultReq, buddyFaultReq;
 #endif
 } ocrCommPlatformMPI_t;
 

@@ -2051,7 +2051,7 @@ u8 salResilientRecordDestroyGuids(ocrGuid_t pguid, ocrGuid_t *guidArray, u32 cou
 //dumped during a fault
 u8 salResilientGuidCleanup() {
     char command[FNL];
-    int c = snprintf(command, FNL, "rm -f *.guid *.sig *.api *.new *.old *.db *.edt *.root *.destroy *.fault *.node* *.dep*");
+    int c = snprintf(command, FNL, "rm -f *.guid *.key *.sig *.api *.new *.old *.db *.edt *.root *.destroy *.fault *.node* *.dep*");
     if (c < 0 || c >= FNL) {
         fprintf(stderr, "failed to create filename for publish\n");
         ASSERT(0);

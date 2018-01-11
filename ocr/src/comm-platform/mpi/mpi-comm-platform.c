@@ -382,7 +382,6 @@ static void mpiFreezeAndExit(ocrCommPlatform_t * self) {
 #endif
 
     MPI_Cancel(&mpiComm->hbSendReq);
-    MPI_Cancel(&mpiComm->hbRecvReq);
     MPI_Cancel(&mpiComm->faultReq);
 
     MPI_Finalize();
@@ -431,6 +430,7 @@ static void mpiAbortCommsWithFault(ocrCommPlatform_t *self, ocrLocation_t failed
 }
 
 static void mpiHeartBeatSend(ocrCommPlatform_t * self) {
+#if 0
     ocrCommPlatformMPI_t * mpiComm = ((ocrCommPlatformMPI_t *) self);
     if (mpiComm->sendBuddyFailed)
         return;
@@ -444,28 +444,20 @@ static void mpiHeartBeatSend(ocrCommPlatform_t * self) {
             mpiComm->hbSendTime = curTime;
         }
     }
+#endif
 }
 
 static void mpiCheckFaultAndHeartBeat(ocrCommPlatform_t * self) {
     ocrCommPlatformMPI_t * mpiComm = ((ocrCommPlatformMPI_t *) self);
     ocrPolicyDomain_t * pd = self->pd;
-    u64 curTime = salGetTime();
 
     //Send heartbeat to buddy
     mpiHeartBeatSend(self);
 
+    //Test for failure at buddy rank
     int buddyFaultFlag = 0;
-    if (!mpiComm->recvBuddyFailed && ((curTime - mpiComm->hbRecvTime) > OCR_HEARTBEAT_INTERVAL)) {
-        int flag = 0;
-        MPI_Test(&mpiComm->hbRecvReq, &flag, MPI_STATUS_IGNORE);
-        if (flag) {
-            MPI_Irecv(NULL, 0, MPI_BYTE, mpiComm->recvBuddyRank, MPI_TAG_HEARTBEAT, MPI_COMM_WORLD, &mpiComm->hbRecvReq);
-            mpiComm->hbRecvTime = curTime;
-        } else if ((curTime - mpiComm->hbRecvTime) > OCR_HEARTBEAT_TIMEOUT) {//Check for heartbeat timeouts
-            buddyFaultFlag = 1;
-        } else {
-            MPI_Test(&mpiComm->buddyFaultReq, &buddyFaultFlag, MPI_STATUS_IGNORE);
-        }
+    if (!mpiComm->recvBuddyFailed) {
+        MPI_Test(&mpiComm->buddyFaultReq, &buddyFaultFlag, MPI_STATUS_IGNORE);
     }
 
     //Handle failure in buddy rank
@@ -549,7 +541,6 @@ static void mpiCheckFaultAndHeartBeat(ocrCommPlatform_t * self) {
         //Resume
         hal_fence();
         salResumeAfterNodeFailure();
-        mpiComm->hbRecvTime = salGetTime(); //Reset heartbeat receive time
     } else {
         //Check for system fault notifications
         int faultFlag = 0;
@@ -596,7 +587,6 @@ static void mpiCheckFaultAndHeartBeat(ocrCommPlatform_t * self) {
             //Resume
             hal_fence();
             salResumeAfterNodeFailure();
-            mpiComm->hbRecvTime = salGetTime(); //Reset heartbeat receive time
         }
     }
 }
@@ -1705,7 +1695,7 @@ static u8 MPICommSwitchRunlevel(ocrCommPlatform_t *self, ocrPolicyDomain_t *PD, 
             }
 #ifdef ENABLE_AMT_RESILIENCE
             u64 curTime = salGetTime();
-            mpiComm->hbSendTime = mpiComm->hbRecvTime = curTime;
+            mpiComm->hbSendTime = curTime;
             mpiComm->sendBuddyRank = (myRank + 1) % nbRanks;
             mpiComm->recvBuddyRank = (myRank + nbRanks - 1) % nbRanks;
             mpiComm->sendBuddyFailed = (nbRanks > 1) ? 0 : 1;
@@ -1713,10 +1703,10 @@ static u8 MPICommSwitchRunlevel(ocrCommPlatform_t *self, ocrPolicyDomain_t *PD, 
             mpiComm->failedRank = -1;
             if (nbRanks > 1) {
                 MPI_Isend(NULL, 0, MPI_BYTE, mpiComm->sendBuddyRank, MPI_TAG_HEARTBEAT, MPI_COMM_WORLD, &mpiComm->hbSendReq);
-                MPI_Irecv(NULL, 0, MPI_BYTE, mpiComm->recvBuddyRank, MPI_TAG_HEARTBEAT, MPI_COMM_WORLD, &mpiComm->hbRecvReq);
                 MPI_Irecv(&mpiComm->failedRank, 1, MPI_INT, MPI_ANY_SOURCE, MPI_TAG_FAULT, MPI_COMM_WORLD, &mpiComm->faultReq);
                 MPI_Irecv(NULL, 0, MPI_BYTE, mpiComm->recvBuddyRank, MPI_TAG_EXIT, MPI_COMM_WORLD, &mpiComm->buddyFaultReq);
             }
+            if (myRank == 0) salResilientGuidCleanup();
             salInitPublishFetch();
 #endif
 #ifdef DEBUG_MPI_HOSTNAMES
@@ -1777,7 +1767,6 @@ static u8 MPICommSwitchRunlevel(ocrCommPlatform_t *self, ocrPolicyDomain_t *PD, 
             mpiComm->recvFxdPoolSz = 0;
 #ifdef ENABLE_AMT_RESILIENCE
             MPI_Cancel(&mpiComm->hbSendReq);
-            MPI_Cancel(&mpiComm->hbRecvReq);
             MPI_Cancel(&mpiComm->faultReq);
             salFinalizePublishFetch();
             mpiComm->sendPoolSz = 0;
